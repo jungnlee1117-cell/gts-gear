@@ -1,0 +1,4847 @@
+// ═══════════════════════════════════════════════════════════════════════
+// GTS 교구 대여 관리 시스템 v4 — 리디자인 버전
+// ═══════════════════════════════════════════════════════════════════════
+
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { createRoot } from "react-dom/client";
+import { createClient } from "@supabase/supabase-js";
+import { QRCodeCanvas } from "qrcode.react";
+import GrowthApp from "./GrowthApp.jsx";
+
+const GEAR_SCAN_KEY = "gts_gear_scan";
+
+const SUPABASE_URL   = import.meta.env.VITE_SUPABASE_URL  || "https://YOUR.supabase.co";
+const SUPABASE_ANON  = import.meta.env.VITE_SUPABASE_ANON_KEY || "YOUR_ANON_KEY";
+const SUPER_ADMIN_ID = import.meta.env.VITE_SUPER_ADMIN_ID || "";
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ═══════════════════════════════════════════════════════════════════════
+// 상수
+// ═══════════════════════════════════════════════════════════════════════
+const CAT = {
+  AIR:    { label:"에어교구",  color:"#0891b2", icon:"🎈" },
+  BALL:   { label:"공류",      color:"#ea580c", icon:"⚽" },
+  BAL:    { label:"밸런스",    color:"#059669", icon:"⚖️" },
+  SPORT:  { label:"스포츠",    color:"#2563eb", icon:"🏅" },
+  TOOL:   { label:"도구류",    color:"#7c3aed", icon:"🧰" },
+  DIG:    { label:"디지털",    color:"#db2777", icon:"💡" },
+  MAT:    { label:"매트/기구", color:"#65a30d", icon:"🟩" },
+  GROUP:  { label:"단체놀이",  color:"#d97706", icon:"👥" },
+  BLOCK:  { label:"블록",      color:"#dc2626", icon:"🧱" },
+  TARGET: { label:"표적교구",  color:"#0d9488", icon:"🎯" },
+  SPC:    { label:"특수교구",  color:"#7c3aed", icon:"⭐" },
+};
+const BRANCHES = ["사무실","엘리트코어","삼성점","한남점"];
+
+const ROLE_CFG = {
+  superadmin: { label:"슈퍼관리자", bg:"#fef9c3", color:"#854d0e" },
+  admin:      { label:"관리자",     bg:"#fee2e2", color:"#991b1b" },
+  teacher:    { label:"선생님",     bg:"#ede9fe", color:"#5b21b6" },
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// 권한 헬퍼
+// ═══════════════════════════════════════════════════════════════════════
+const isSuperAdmin = (u) => u?.role === "superadmin" || u?.id === SUPER_ADMIN_ID;
+const isAdmin      = (u) => isSuperAdmin(u) || u?.role === "admin";
+const canManage    = (u) => isAdmin(u) && u?.active !== false;
+
+// ═══════════════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════════════
+const fmt   = d => d ? new Date(d).toLocaleDateString("ko-KR") : "-";
+const fmtdt = d => d ? new Date(d).toLocaleString("ko-KR") : "-";
+const WEEK_MS = 7 * 86400000;
+
+function isWithinLastWeek(dateStr) {
+  if (!dateStr) return false;
+  return Date.now() - new Date(dateStr).getTime() <= WEEK_MS;
+}
+
+function filterReturnPendingLastWeek(rets) {
+  return (rets || []).filter(r => r.status === "return_pending" && isWithinLastWeek(r.created_at));
+}
+
+const NOTICES_STORAGE_KEY = "gts_notices";
+
+async function fetchNotices() {
+  const { data, error } = await supabase.from("notices").select("*").order("created_at", { ascending: false });
+  if (!error && data) return data;
+  try {
+    return JSON.parse(localStorage.getItem(NOTICES_STORAGE_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+async function persistNotice(notice, existing) {
+  const { data, error } = await supabase.from("notices").insert({
+    title: notice.title,
+    body: notice.body,
+    author_id: notice.author_id,
+    author_name: notice.author_name,
+  }).select().single();
+  if (!error && data) return [data, ...existing];
+  const row = { ...notice, id: notice.id || crypto.randomUUID() };
+  const next = [row, ...existing];
+  localStorage.setItem(NOTICES_STORAGE_KEY, JSON.stringify(next));
+  return next;
+}
+
+async function removeNotice(id, existing) {
+  const { error } = await supabase.from("notices").delete().eq("id", id);
+  if (!error) return existing.filter(n => n.id !== id);
+  const next = existing.filter(n => n.id !== id);
+  localStorage.setItem(NOTICES_STORAGE_KEY, JSON.stringify(next));
+  return next;
+}
+
+function dday(due) {
+  if (!due) return null;
+  return Math.floor((new Date(due) - new Date()) / 86400000);
+}
+function ddayTag(due) {
+  const d = dday(due);
+  if (d === null) return null;
+  if (d < 0)   return { text:`D+${Math.abs(d)}`, color:"#dc2626", urgent:true };
+  if (d === 0) return { text:"D-Day",             color:"#dc2626", urgent:true };
+  if (d <= 3)  return { text:`D-${d}`,            color:"#ea580c", urgent:true };
+  return             { text:`D-${d}`,             color:"#64748b", urgent:false };
+}
+function returnApprovedQty(riId, rets) {
+  return (rets || []).filter(r => r.rental_item_id === riId && r.status === "return_approved")
+    .reduce((s, r) => s + r.quantity, 0);
+}
+function returnPendingQty(riId, rets) {
+  return (rets || []).filter(r => r.rental_item_id === riId && r.status === "return_pending")
+    .reduce((s, r) => s + r.quantity, 0);
+}
+function heldQtyForRi(ri, rets = []) {
+  if (!["rented", "partial_returned"].includes(ri.status)) return 0;
+  return Math.max(0, ri.quantity - returnApprovedQty(ri.id, rets));
+}
+function returnableQtyForRi(ri, rets = []) {
+  const held = heldQtyForRi(ri, rets);
+  return Math.max(0, held - returnPendingQty(ri.id, rets));
+}
+function rentedQty(iid, ris, rets = []) {
+  return ris
+    .filter(r => r.item_id === iid && ["rented", "partial_returned"].includes(r.status))
+    .reduce((s, r) => s + heldQtyForRi(r, rets), 0);
+}
+function pendingQty(iid, ris) {
+  return ris.filter(r => r.item_id === iid && r.status === "pending").reduce((s, r) => s + r.quantity, 0);
+}
+function availQty(item, ris, rets = []) {
+  return Math.max(0, item.total_quantity - rentedQty(item.id, ris, rets) - pendingQty(item.id, ris));
+}
+
+function buildTeacherHoldingsByItem(me, reqs, ris, items, rets) {
+  const activeRis = ris.filter(ri => {
+    const req = reqs.find(r => r.id === ri.request_id);
+    return req?.teacher_id === me.id && ["rented", "partial_returned"].includes(ri.status);
+  });
+
+  const byItem = new Map();
+  for (const ri of activeRis) {
+    const held = heldQtyForRi(ri, rets);
+    if (held <= 0) continue;
+    const pendingRet = returnPendingQty(ri.id, rets);
+    const returnable = returnableQtyForRi(ri, rets);
+    const req = reqs.find(r => r.id === ri.request_id);
+
+    if (!byItem.has(ri.item_id)) {
+      byItem.set(ri.item_id, {
+        item_id: ri.item_id,
+        item: items.find(i => i.id === ri.item_id),
+        totalHeld: 0,
+        totalReturnable: 0,
+        totalPendingReturn: 0,
+        lines: [],
+      });
+    }
+    const group = byItem.get(ri.item_id);
+    group.totalHeld += held;
+    group.totalReturnable += returnable;
+    group.totalPendingReturn += pendingRet;
+    group.lines.push({ ri, held, returnable, pendingRet, req, due_date: ri.due_date });
+  }
+
+  return [...byItem.values()].sort((a, b) => (a.item?.name || "").localeCompare(b.item?.name || "", "ko"));
+}
+function tname(id,ts)        { return ts.find(t=>t.id===id)?.name || "-"; }
+function iname(id,items)     { return items.find(i=>i.id===id)?.name || "-"; }
+
+function nextItemCode(category, items) {
+  const prefix = category;
+  const re = new RegExp(`^${prefix}-(\\d+)$`, "i");
+  let max = 0;
+  (items || []).forEach(i => {
+    const m = i.code?.match(re);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  return `${prefix}-${String(max + 1).padStart(3, "0")}`;
+}
+
+function sanitizeItemCode(code) {
+  return (code || "").trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function itemQrStoragePath(code) {
+  return `qr/${sanitizeItemCode(code)}.png`;
+}
+
+function itemQrPayload(item) {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const path = typeof window !== "undefined" ? (window.location.pathname || "/") : "/";
+  const base = `${origin}${path}`;
+  if (item?.id) return `${base}?gear_id=${encodeURIComponent(item.id)}`;
+  const code = (item?.code || item || "").toString().trim();
+  if (code) return `${base}?gear_item=${encodeURIComponent(code)}`;
+  return base;
+}
+
+function parseGearScanFromLocation() {
+  if (typeof window === "undefined") return null;
+  const p = new URLSearchParams(window.location.search);
+  const gear_id = p.get("gear_id");
+  const gear_item = p.get("gear_item");
+  if (!gear_id && !gear_item) return null;
+  return { gear_id: gear_id || null, gear_item: gear_item || null };
+}
+
+function saveGearScan(scan) {
+  if (scan && typeof sessionStorage !== "undefined") {
+    sessionStorage.setItem(GEAR_SCAN_KEY, JSON.stringify(scan));
+  }
+}
+
+function peekGearScan() {
+  try {
+    const raw = sessionStorage.getItem(GEAR_SCAN_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function consumeGearScan() {
+  const scan = peekGearScan();
+  if (scan) sessionStorage.removeItem(GEAR_SCAN_KEY);
+  return scan;
+}
+
+function clearGearScanUrl() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("gear_id") && !url.searchParams.has("gear_item")) return;
+  url.searchParams.delete("gear_id");
+  url.searchParams.delete("gear_item");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function findItemByScan(items, scan) {
+  if (!scan || !items?.length) return null;
+  if (scan.gear_id) return items.find(i => i.id === scan.gear_id) || null;
+  if (scan.gear_item) {
+    const code = scan.gear_item.trim();
+    return items.find(i => i.code === code || i.code?.toLowerCase() === code.toLowerCase()) || null;
+  }
+  return null;
+}
+
+function getItemQrPublicUrl(code, qrUrl) {
+  if (qrUrl) return qrUrl;
+  if (!code?.trim()) return null;
+  return supabase.storage.from("item-photos").getPublicUrl(itemQrStoragePath(code)).data.publicUrl;
+}
+
+async function qrValueToDataUrl(value, size = 220) {
+  if (!value || typeof document === "undefined") return null;
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-9999px;top:0;pointer-events:none";
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  return new Promise((resolve, reject) => {
+    const finish = (canvas) => {
+      try {
+        resolve(canvas.toDataURL("image/png"));
+      } catch (e) {
+        reject(e);
+      } finally {
+        root.unmount();
+        host.remove();
+      }
+    };
+    const timer = setTimeout(() => {
+      root.unmount();
+      host.remove();
+      reject(new Error("QR 생성 시간 초과"));
+    }, 4000);
+    root.render(
+      <QRCodeCanvas
+        value={value}
+        size={size}
+        level="M"
+        marginSize={1}
+        bgColor="#ffffff"
+        fgColor="#111827"
+        ref={(node) => {
+          if (!node) return;
+          const canvas = node.querySelector?.("canvas") ?? node;
+          if (canvas?.toDataURL) {
+            clearTimeout(timer);
+            requestAnimationFrame(() => finish(canvas));
+          }
+        }}
+      />
+    );
+  });
+}
+
+function dataUrlToBlob(dataUrl) {
+  const [meta, b64] = dataUrl.split(",");
+  const mime = meta.match(/:(.*?);/)?.[1] || "image/png";
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+async function uploadItemQrImage(code, dataUrl) {
+  const path = itemQrStoragePath(code);
+  const { error } = await supabase.storage
+    .from("item-photos")
+    .upload(path, dataUrlToBlob(dataUrl), { upsert: true, contentType: "image/png" });
+  if (error) {
+    console.warn("QR upload failed:", error.message);
+    return null;
+  }
+  return supabase.storage.from("item-photos").getPublicUrl(path).data.publicUrl;
+}
+
+async function createItemQr(item) {
+  const row = typeof item === "string" ? { code: item } : item;
+  if (!row?.code?.trim()) return null;
+  const dataUrl = await qrValueToDataUrl(itemQrPayload(row));
+  if (!dataUrl) return null;
+  return uploadItemQrImage(row.code.trim(), dataUrl) || dataUrl;
+}
+
+function GearQrDisplay({ item, size = 160, style }) {
+  const value = itemQrPayload(item);
+  if (!value) return null;
+  return (
+    <QRCodeCanvas
+      value={value}
+      size={size}
+      level="M"
+      marginSize={1}
+      bgColor="#ffffff"
+      fgColor="#111827"
+      style={style}
+    />
+  );
+}
+
+function buildItemRentalHistory(itemId, ris, reqs, teachers) {
+  return ris
+    .filter(ri => ri.item_id === itemId)
+    .map(ri => {
+      const req = reqs.find(r => r.id === ri.request_id);
+      return {
+        ...ri,
+        req,
+        teacherName: req ? tname(req.teacher_id, teachers) : "-",
+        location: req?.dispatch_location || "-",
+        start: req?.dispatch_start,
+        end: req?.dispatch_end,
+        sortAt: ri.approved_at || ri.created_at || req?.created_at || "",
+      };
+    })
+    .sort((a, b) => new Date(b.sortAt) - new Date(a.sortAt));
+}
+
+function getDueAlerts(ris, reqs, items, teachers) {
+  return ris
+    .filter(ri => ["rented", "partial_returned"].includes(ri.status) && ri.due_date)
+    .map(ri => {
+      const d = dday(ri.due_date);
+      const req = reqs.find(r => r.id === ri.request_id);
+      return {
+        ri,
+        d,
+        req,
+        itemName: iname(ri.item_id, items),
+        teacher: req ? tname(req.teacher_id, teachers) : "-",
+        dueDate: ri.due_date,
+      };
+    })
+    .filter(x => x.d !== null && x.d <= 3)
+    .sort((a, b) => a.d - b.d);
+}
+
+const SC = {
+  pending:          {l:"대여신청",  bg:"#fef3c7",c:"#d97706"},
+  approved:         {l:"승인됨",    bg:"#dbeafe",c:"#2563eb"},
+  rejected:         {l:"거절됨",    bg:"#fee2e2",c:"#dc2626"},
+  rented:           {l:"대여중",    bg:"#ede9fe",c:"#7c3aed"},
+  partial_returned: {l:"일부반납",  bg:"#ffedd5",c:"#ea580c"},
+  returned:         {l:"반납완료",  bg:"#dcfce7",c:"#16a34a"},
+  partial:          {l:"진행중",    bg:"#dbeafe",c:"#2563eb"},
+  completed:        {l:"완료",      bg:"#dcfce7",c:"#16a34a"},
+  return_pending:   {l:"반납 승인 대기", bg:"#fef9c3",c:"#ca8a04"},
+  return_approved:  {l:"반납완료",  bg:"#dcfce7",c:"#16a34a"},
+  damage_confirmed: {l:"파손확인",  bg:"#fee2e2",c:"#dc2626"},
+  loss_confirmed:   {l:"분실확인",  bg:"#fce7f3",c:"#be185d"},
+};
+const CC = {
+  normal:   {l:"정상",    c:"#16a34a"},
+  damaged:  {l:"파손",    c:"#dc2626"},
+  lost:     {l:"분실",    c:"#be185d"},
+  shortage: {l:"수량부족",c:"#ea580c"},
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// 글로벌 스타일 상수
+// ═══════════════════════════════════════════════════════════════════════
+const DS = {
+  sidebar: {
+    bg: "#ffffff",
+    border: "1px solid #e2e8f0",
+    text: "#1e293b",
+    muted: "#94a3b8",
+    activeBg: "#f0fdf4",
+    activeBorder: "#16a34a",
+    activeText: "#15803d",
+  },
+  pageBg: "#f8fafc",
+  card: {
+    bg: "#ffffff",
+    border: "1px solid #e2e8f0",
+    radius: 12,
+    shadow: "0 1px 3px rgba(0,0,0,0.04)",
+    shadowHover: "0 2px 8px rgba(0,0,0,0.06)",
+  },
+  primary: "#16a34a",
+  primaryHover: "#15803d",
+  primaryLight: "#f0fdf4",
+  primaryText: "#15803d",
+  textPrimary: "#0f172a",
+  textSecondary: "#64748b",
+  textMuted: "#94a3b8",
+  inputBorder: "#e2e8f0",
+  inputFocusBorder: "#16a34a",
+  inputBg: "#f8fafc",
+};
+
+const DARK_SB = {
+  bg: "#111827",
+  border: "none",
+  text: "rgba(255,255,255,0.55)",
+  muted: "rgba(255,255,255,0.32)",
+  activeBg: "#16a34a",
+  activeText: "#ffffff",
+  profileBg: "rgba(255,255,255,0.06)",
+  profileBorder: "rgba(255,255,255,0.1)",
+};
+
+function GtsHexLogo({ size = 36 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden>
+      <path d="M20 2L35 11v18L20 38 5 29V11L20 2z" fill="#16a34a"/>
+      <path d="M20 8l10 6v12L20 32 10 26V14l10-6z" fill="#14532d" opacity="0.35"/>
+      <text x="20" y="25" textAnchor="middle" fill="#fff" fontSize="14" fontWeight="800" fontFamily="system-ui,sans-serif">G</text>
+    </svg>
+  );
+}
+
+const GTS_LOGO_SRC = "/gts-logo.png";
+
+function GtsLogo({ height = 36, style }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <GtsHexLogo size={height} />;
+  return (
+    <img
+      src={GTS_LOGO_SRC}
+      alt="GTS"
+      onError={() => setFailed(true)}
+      style={{
+        height,
+        width: "auto",
+        maxWidth: height * 2.6,
+        objectFit: "contain",
+        display: "block",
+        flexShrink: 0,
+        ...style,
+      }}
+    />
+  );
+}
+
+function NavGlyph({ id, color = "currentColor", size = 18 }) {
+  const s = { width: size, height: size, stroke: color, fill: "none", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
+  if (id === "dashboard") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>;
+  if (id === "rental-status") return <svg {...s} viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
+  if (id === "items") return <svg {...s} viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>;
+  if (id === "rentals" || id === "rental-return") return <svg {...s} viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>;
+  if (id === "accounts") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/></svg>;
+  if (id === "institutions") return <svg {...s} viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/></svg>;
+  if (id === "stats") return <svg {...s} viewBox="0 0 24 24"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>;
+  if (id === "notices") return <svg {...s} viewBox="0 0 24 24"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3z"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
+  if (id === "settings") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>;
+  if (id === "overdue") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>;
+  if (id === "returns-approval") return <svg {...s} viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>;
+  if (id === "rental-approval") return <svg {...s} viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/></svg>;
+  if (id === "items-qr") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h2v2h-2zM18 14h3v3h-3zM14 18h2v3h-2zM18 18h3v3h-3z"/></svg>;
+  if (id === "my-rental-status") return <svg {...s} viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+  if (id === "rental-manage") return <svg {...s} viewBox="0 0 24 24"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/><path d="M21 12H3"/></svg>;
+  return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>;
+}
+
+function isNavPageActive(page, navId) {
+  const aliases = {
+    items: ["items", "item-detail"],
+    gear: ["items", "item-detail", "items-register", "items-qr"],
+    rental: ["rental-approval", "rental-status", "returns-approval", "overdue"],
+    "rental-manage": ["rental-approval", "rental-status", "returns-approval", "overdue", "rental-manage", "rentals"],
+    "rental-return": ["rental-return", "rentals", "my-rental-status"],
+  };
+  if (page === navId) return true;
+  return (aliases[navId] || []).includes(page);
+}
+
+function buildSidebarNav(me) {
+  const superA = isSuperAdmin(me);
+  const admin = isAdmin(me) && !superA;
+
+  if (superA) {
+    return [
+      { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
+      {
+        type: "group", id: "gear", label: "교구관리", glyph: "items",
+        children: [
+          { id: "items", label: "전체교구" },
+          { id: "items-register", label: "교구등록" },
+          { id: "items-qr", label: "QR관리" },
+        ],
+      },
+      {
+        type: "group", id: "rental", label: "대여관리", glyph: "rental-manage",
+        children: [
+          { id: "rental-approval", label: "대여승인" },
+          { id: "rental-status", label: "대여현황" },
+          { id: "returns-approval", label: "반납승인" },
+          { id: "overdue", label: "연체관리" },
+        ],
+      },
+      { type: "item", id: "accounts", label: "선생님관리", glyph: "accounts" },
+      { type: "item", id: "stats", label: "통계", glyph: "stats" },
+      { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
+      { type: "item", id: "settings", label: "설정", glyph: "settings" },
+    ];
+  }
+
+  if (admin) {
+    return [
+      { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
+      { type: "item", id: "items", label: "교구관리", glyph: "items" },
+      {
+        type: "group", id: "rental", label: "대여관리", glyph: "rental-manage",
+        children: [
+          { id: "rental-approval", label: "대여승인" },
+          { id: "rental-status", label: "대여현황" },
+          { id: "returns-approval", label: "반납승인" },
+          { id: "overdue", label: "연체관리" },
+        ],
+      },
+      { type: "item", id: "stats", label: "통계", glyph: "stats" },
+      { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
+    ];
+  }
+
+  return [
+    { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
+    { type: "item", id: "items", label: "교구검색", glyph: "items" },
+    { type: "item", id: "rental-return", label: "대여 반납신청", glyph: "rental-return" },
+    { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
+  ];
+}
+
+function flattenSidebarNav(nav) {
+  const out = [];
+  nav.forEach(n => {
+    if (n.type === "item") out.push(n);
+    else if (n.type === "group") {
+      n.children.forEach(c => out.push({ id: c.id, label: c.label, glyph: n.glyph }));
+    }
+  });
+  return out;
+}
+
+function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, admin }) {
+  const [expanded, setExpanded] = useState(() => {
+    const init = {};
+    nav.forEach(n => {
+      if (n.type === "group" && n.children.some(c => isNavPageActive(page, c.id))) init[n.id] = true;
+    });
+    return init;
+  });
+
+  useEffect(() => {
+    nav.forEach(n => {
+      if (n.type === "group" && n.children.some(c => isNavPageActive(page, c.id))) {
+        setExpanded(p => ({ ...p, [n.id]: true }));
+      }
+    });
+  }, [page, nav]);
+
+  const toggleGroup = (gid) => setExpanded(p => ({ ...p, [gid]: !p[gid] }));
+
+  const itemBtn = (id, label, glyph, indent = false, badgeCount = 0) => {
+    const active = isNavPageActive(page, id);
+    return (
+      <button
+        key={id}
+        type="button"
+        onClick={() => setPage(id)}
+        style={{
+          width: "100%",
+          padding: indent ? "9px 14px 9px 38px" : "11px 14px",
+          borderRadius: indent ? 8 : 10,
+          border: "none",
+          background: active ? sb.activeBg : "transparent",
+          color: active ? sb.activeText : sb.text,
+          fontWeight: active ? 600 : 500,
+          fontSize: indent ? 12 : 13,
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: indent ? 8 : 10,
+          marginBottom: indent ? 2 : 4,
+          fontFamily: "inherit",
+          textAlign: "left",
+          transition: "all 0.15s",
+        }}
+      >
+        {!indent && <NavGlyph id={glyph || id} color={active ? "#fff" : "rgba(255,255,255,0.45)"} size={indent ? 16 : 18}/>}
+        {indent && <span style={{ width: 6, height: 6, borderRadius: "50%", background: active ? "#fff" : "rgba(255,255,255,0.25)", flexShrink: 0 }}/>}
+        <span>{label}</span>
+        {badgeCount > 0 && (
+          <span style={{
+            marginLeft: "auto",
+            background: "#dc2626", color: "#fff",
+            borderRadius: 99, fontSize: 10, fontWeight: 700,
+            padding: "2px 7px", minWidth: 18, textAlign: "center",
+          }}>{badgeCount}</span>
+        )}
+      </button>
+    );
+  };
+
+  return (
+    <nav style={{ flex: 1, padding: "4px 12px", overflowY: "auto" }}>
+      {nav.map(n => {
+        if (n.type === "item") {
+      let itemBadge = 0;
+      if (n.id === "dashboard" && badge > 0 && admin) itemBadge = badge;
+      if (n.id === "rental-approval" && reqBadge > 0) itemBadge = reqBadge;
+      return itemBtn(n.id, n.label, n.glyph, false, itemBadge);
+        }
+        const open = expanded[n.id] !== undefined
+          ? expanded[n.id]
+          : n.children.some(c => isNavPageActive(page, c.id));
+        const groupActive = isNavPageActive(page, n.id) || n.children.some(c => isNavPageActive(page, c.id));
+        return (
+          <div key={n.id} style={{ marginBottom: 4 }}>
+            <button
+              type="button"
+              onClick={() => toggleGroup(n.id)}
+              style={{
+                width: "100%",
+                padding: "11px 14px",
+                borderRadius: 10,
+                border: "none",
+                background: groupActive && !open ? "rgba(255,255,255,0.06)" : "transparent",
+                color: groupActive ? "#fff" : sb.text,
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                fontFamily: "inherit",
+                textAlign: "left",
+              }}
+            >
+              <NavGlyph id={n.glyph} color={groupActive ? "#fff" : "rgba(255,255,255,0.45)"}/>
+              <span style={{ flex: 1 }}>{n.label}</span>
+              <span style={{ fontSize: 10, opacity: 0.6 }}>{open ? "▾" : "▸"}</span>
+            </button>
+            {open && n.children.map(c => {
+              let childBadge = 0;
+              if (c.id === "rental-approval" && reqBadge > 0) childBadge = reqBadge;
+              if (c.id === "returns-approval" && retBadge > 0) childBadge = retBadge;
+              return itemBtn(c.id, c.label, n.glyph, true, childBadge);
+            })}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+function buildMonthlyRentalCounts(ris) {
+  const months = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ key: `${d.getFullYear()}-${d.getMonth()}`, label: `${d.getMonth() + 1}월`, count: 0 });
+  }
+  (ris || []).forEach(ri => {
+    const at = ri.approved_at || ri.created_at;
+    if (!at || ["pending", "rejected"].includes(ri.status)) return;
+    const d = new Date(at);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    const m = months.find(x => x.key === key);
+    if (m) m.count += ri.quantity || 1;
+  });
+  return months;
+}
+
+const panelCard = {
+  background: "#fff",
+  borderRadius: 20,
+  padding: "22px 24px",
+  border: "1px solid #e8ecee",
+  boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+};
+
+const PAGE_META = {
+  dashboard:          { title: "대시보드",     sub: "오늘도 안정적이고 효율적인 자산 관리를 시작해보세요." },
+  "rental-status":    { title: "대여현황",     sub: "선생님별 대여·반납 현황을 한눈에 확인하세요." },
+  items:              { title: "전체교구",     sub: "교구 재고를 조회하고 관리합니다." },
+  "items-register":   { title: "교구등록",     sub: "새 교구를 등록합니다." },
+  "items-qr":         { title: "QR관리",       sub: "교구 QR 코드를 관리합니다." },
+  rentals:            { title: "대여신청",     sub: "교구 대여 신청 내역을 확인합니다." },
+  "rental-return":    { title: "대여 반납신청", sub: "교구 대여 신청과 반납 신청을 합니다." },
+  "rental-manage":    { title: "대여관리",     sub: "대여·반납·연체 업무를 처리합니다." },
+  "rental-approval":  { title: "대여승인",     sub: "선생님의 교구 대여 신청을 검토하고 승인합니다." },
+  "returns-approval": { title: "반납승인",     sub: "반납 신청을 검토하고 승인합니다." },
+  overdue:            { title: "연체관리",     sub: "연체 대여 건을 확인하고 조치합니다." },
+  institutions:       { title: "기관관리",     sub: "보관 지점·기관 정보를 관리합니다." },
+  accounts:           { title: "선생님관리",   sub: "계정과 권한을 관리합니다." },
+  stats:              { title: "통계",         sub: "대여·재고 통계를 확인합니다." },
+  notices:            { title: "공지사항",     sub: "공지를 확인하고 관리자는 새 공지를 등록할 수 있습니다." },
+  settings:           { title: "설정",         sub: "계정 및 시스템 설정을 관리합니다." },
+  "my-rental-status": { title: "내 대여현황",  sub: "대여 중인 교구를 확인하고 교구별 반납 신청을 합니다." },
+  "qr-rent":          { title: "QR 대여 신청", sub: "스캔한 교구의 대여 가능 수량을 확인하고 신청합니다." },
+  "item-detail":      { title: "교구 상세",    sub: "교구 정보와 대여 이력을 확인합니다." },
+};
+
+function PageShell({children,style}) {
+  return <div style={{maxWidth:1280,...style}}>{children}</div>;
+}
+
+function PageHeader({me,subtitle,alertCount=0,actions}) {
+  return (
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:28,gap:16,flexWrap:"wrap"}}>
+      <div>
+        <div style={{fontSize:26,fontWeight:800,color:"#111827",letterSpacing:"-0.5px",marginBottom:8}}>
+          안녕하세요, {me.name}님
+        </div>
+        <div style={{fontSize:14,color:DS.textSecondary,lineHeight:1.5}}>{subtitle}</div>
+      </div>
+      <div style={{display:"flex",gap:10,alignItems:"center"}}>
+        {alertCount>0&&(
+          <div style={{
+            width:40,height:40,borderRadius:12,background:"#fff",
+            border:"1px solid #e8ecee",display:"flex",alignItems:"center",justifyContent:"center",
+            position:"relative",color:DS.textSecondary,
+          }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span style={{position:"absolute",top:6,right:6,width:8,height:8,background:DS.primary,borderRadius:"50%",border:"2px solid #fff"}}/>
+          </div>
+        )}
+        <div style={{
+          display:"flex",alignItems:"center",gap:10,padding:"6px 12px 6px 6px",
+          background:"#fff",borderRadius:12,border:"1px solid #e8ecee",
+        }}>
+          <div style={{
+            width:32,height:32,borderRadius:10,background:DS.primaryLight,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:13,fontWeight:800,color:DS.primary,
+          }}>{me.name[0]}</div>
+          <span style={{fontSize:13,fontWeight:600,color:DS.textPrimary}}>{me.name}</span>
+        </div>
+        {actions}
+      </div>
+    </div>
+  );
+}
+
+function DashStatCard({label,value,iconMark,iconBg,iconColor,onClick,active}) {
+  const inner=(
+    <>
+      <div style={{
+        width:52,height:52,borderRadius:14,flexShrink:0,
+        background:iconBg,display:"flex",alignItems:"center",justifyContent:"center",
+        fontSize:12,fontWeight:800,color:iconColor,
+      }}>{iconMark}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:12,color:DS.textMuted,fontWeight:500,marginBottom:4}}>{label}</div>
+        <div style={{fontSize:28,fontWeight:800,color:"#111827",letterSpacing:"-0.5px",lineHeight:1}}>{value}</div>
+      </div>
+      {onClick&&<span style={{color:"#cbd5e1",fontSize:18,fontWeight:300}}>›</span>}
+    </>
+  );
+  const boxStyle={
+    background:"#fff",borderRadius:18,padding:"20px 22px",
+    border:active?`2px solid ${DS.primary}`:"1px solid #e8ecee",
+    boxShadow:active?"0 8px 24px rgba(22,163,74,0.12)":"0 1px 4px rgba(0,0,0,0.04)",
+    display:"flex",alignItems:"center",gap:16,width:"100%",
+    fontFamily:"inherit",textAlign:"left",transition:"box-shadow 0.15s, border-color 0.15s",
+  };
+  if(onClick) return <button type="button" onClick={onClick} style={{...boxStyle,cursor:"pointer"}}>{inner}</button>;
+  return <div style={boxStyle}>{inner}</div>;
+}
+
+function PanelSection({title,action,actionLabel,children,style}) {
+  return (
+    <div style={{...panelCard,marginBottom:18,...style}}>
+      {(title||action)&&(
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          {title&&<div style={{fontSize:16,fontWeight:700,color:"#111827"}}>{title}</div>}
+          {action&&(
+            <button type="button" onClick={action} style={{
+              border:"none",background:"transparent",color:DS.primary,
+              fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+            }}>{actionLabel||"전체 보기"}</button>
+          )}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// UI ATOMS — 리디자인
+// ═══════════════════════════════════════════════════════════════════════
+const card = {
+  ...panelCard,
+  marginBottom: 12,
+};
+
+const inp = {
+  width: "100%",
+  padding: "11px 14px",
+  borderRadius: 8,
+  border: `1px solid ${DS.inputBorder}`,
+  fontSize: 14,
+  outline: "none",
+  boxSizing: "border-box",
+  fontFamily: "inherit",
+  background: DS.inputBg,
+  color: DS.textPrimary,
+  transition: "border-color 0.2s",
+};
+
+const lbl = {
+  display: "block",
+  marginBottom: 6,
+  fontSize: 12,
+  fontWeight: 600,
+  color: DS.textSecondary,
+  letterSpacing: "0.02em",
+};
+
+function Badge({s}) {
+  const c = SC[s]||{l:s,bg:"#f1f5f9",c:"#64748b"};
+  return (
+    <span style={{
+      display:"inline-block",
+      padding:"3px 10px",
+      borderRadius:99,
+      fontSize:11,
+      fontWeight:700,
+      background:c.bg,
+      color:c.c,
+      letterSpacing:"0.01em",
+    }}>{c.l}</span>
+  );
+}
+
+function RoleBadge({role}) {
+  const r = ROLE_CFG[role]||ROLE_CFG.teacher;
+  return (
+    <span style={{
+      display:"inline-block",
+      padding:"3px 10px",
+      borderRadius:99,
+      fontSize:11,
+      fontWeight:700,
+      background:r.bg,
+      color:r.color,
+    }}>{r.label}</span>
+  );
+}
+
+function CatTag({cat}) {
+  const m = CAT[cat]||{label:cat,color:"#94a3b8"};
+  return (
+    <span style={{
+      display:"inline-block",
+      padding:"2px 9px",
+      borderRadius:99,
+      fontSize:11,
+      fontWeight:700,
+      background:m.color,
+      color:"#fff",
+    }}>{m.label}</span>
+  );
+}
+
+function Btn({children,color,sm,full,danger,ghost,onClick,disabled,type="button"}) {
+  const baseColor = color || DS.primary;
+  const dangerColor = "#dc2626";
+  const bg = disabled
+    ? "#e2e8f0"
+    : ghost
+      ? "#fff"
+      : danger
+        ? "#ef4444"
+        : baseColor;
+  const textColor = disabled
+    ? "#94a3b8"
+    : ghost
+      ? (danger ? dangerColor : (color || baseColor))
+      : "#fff";
+  const border = ghost
+    ? `1.5px solid ${danger ? dangerColor : (color || baseColor)}`
+    : "none";
+  return (
+    <button type={type} onClick={onClick} disabled={disabled} style={{
+      padding: sm ? "8px 16px" : "12px 20px",
+      borderRadius: 8,
+      border,
+      background: bg,
+      color: textColor,
+      fontSize: sm ? 12 : 14,
+      fontWeight: 700,
+      cursor: disabled ? "not-allowed" : "pointer",
+      fontFamily: "inherit",
+      width: full ? "100%" : "auto",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 5,
+      justifyContent: "center",
+      whiteSpace: "nowrap",
+      opacity: disabled ? 0.6 : 1,
+      transition: "all 0.15s",
+      letterSpacing: "0.01em",
+    }}>{children}</button>
+  );
+}
+
+function Fld({label,children,error,hint}) {
+  return (
+    <div style={{marginBottom:14}}>
+      {label && <label style={lbl}>{label}</label>}
+      {children}
+      {hint  && <div style={{fontSize:11,color:DS.textMuted,marginTop:3}}>{hint}</div>}
+      {error && <div style={{fontSize:11,color:"#dc2626",marginTop:3,fontWeight:600}}>{error}</div>}
+    </div>
+  );
+}
+function Inp2({label,error,hint,...p}) {
+  return <Fld label={label} error={error} hint={hint}><input {...p} style={{...inp,...(p.style||{})}}/></Fld>;
+}
+function Sel2({label,children,hint,...p}) {
+  return <Fld label={label} hint={hint}><select {...p} style={{...inp,...(p.style||{})}}>{children}</select></Fld>;
+}
+function Txa2({label,...p}) {
+  return <Fld label={label}><textarea {...p} style={{...inp,minHeight:72,resize:"vertical",...(p.style||{})}}/></Fld>;
+}
+
+function Modal({title,onClose,children,noPad}) {
+  return (
+    <div style={{
+      position:"fixed",inset:0,
+      background:"rgba(15,23,42,0.5)",
+      backdropFilter:"blur(4px)",
+      zIndex:999,
+      display:"flex",
+      alignItems:"flex-end",
+      justifyContent:"center",
+    }} onClick={onClose}>
+      <div style={{
+        background:"#fff",
+        borderRadius:"16px 16px 0 0",
+        width:"100%",
+        maxWidth:560,
+        maxHeight:"93vh",
+        overflow:"auto",
+        padding:noPad?"0":"24px 20px 40px",
+        boxShadow:"0 -8px 40px rgba(0,0,0,0.15)",
+      }} onClick={e=>e.stopPropagation()}>
+        {!noPad && (
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+            <div style={{fontSize:17,fontWeight:800,color:DS.textPrimary}}>{title}</div>
+            <button onClick={onClose} style={{
+              background:"#f1f5f9",
+              border:"none",
+              borderRadius:10,
+              padding:"7px 12px",
+              cursor:"pointer",
+              fontSize:14,
+              fontWeight:700,
+              color:DS.textSecondary,
+            }}>닫기</button>
+          </div>
+        )}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Empty({text}) {
+  return (
+    <div style={{textAlign:"center",padding:"52px 20px",color:DS.textMuted}}>
+      <div style={{fontSize:14,fontWeight:500}}>{text}</div>
+    </div>
+  );
+}
+
+function Stat({label,value,color,iconMark,onClick,active}) {
+  const palettes={
+    "#16a34a":{bg:DS.primaryLight,mark:"보유"},
+    "#2563eb":{bg:"#dbeafe",mark:"대여"},
+    "#64748b":{bg:"#f1f5f9",mark:"종류"},
+    "#d97706":{bg:"#fef3c7",mark:"대기"},
+    "#dc2626":{bg:"#fee2e2",mark:"연체"},
+    "#7c3aed":{bg:"#ede9fe",mark:"반납"},
+  };
+  const p=palettes[color]||{bg:DS.primaryLight,mark:iconMark||"—"};
+  return (
+    <DashStatCard
+      label={label}
+      value={value}
+      iconMark={iconMark||p.mark}
+      iconBg={p.bg}
+      iconColor={color||DS.primary}
+      onClick={onClick}
+      active={active}
+    />
+  );
+}
+
+function Spinner({text}) {
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"60px 20px",gap:14}}>
+      <div style={{
+        width:36,height:36,
+        borderRadius:"50%",
+        border:"3px solid #e2e8f0",
+        borderTopColor:DS.primary,
+        animation:"spin 0.7s linear infinite",
+      }}/>
+      {text && <div style={{color:DS.textMuted,fontSize:13,fontWeight:600}}>{text}</div>}
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// INFINITE SCROLL
+// ═══════════════════════════════════════════════════════════════════════
+function InfList({all,renderItem}) {
+  const [show,setShow] = useState(20);
+  const ref = useRef(null);
+  useEffect(()=>setShow(20),[all]);
+  useEffect(()=>{
+    if (!ref.current) return;
+    const ob = new IntersectionObserver(([e])=>{ if(e.isIntersecting) setShow(v=>Math.min(v+20,all.length)); },{threshold:0.1});
+    ob.observe(ref.current);
+    return ()=>ob.disconnect();
+  },[all.length]);
+  return (
+    <div>
+      {all.slice(0,show).map(renderItem)}
+      {show < all.length && <div ref={ref} style={{textAlign:"center",padding:"16px",color:DS.textMuted,fontSize:12}}>불러오는 중... ({show}/{all.length})</div>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 로그인 페이지 — 리디자인
+// ═══════════════════════════════════════════════════════════════════════
+const LOGIN_GREEN = "#16a34a";
+const LOGIN_EMAIL_KEY = "gts_remember_email";
+
+function LoginUserIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+      <circle cx="12" cy="7" r="4"/>
+    </svg>
+  );
+}
+
+function LoginLockIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <rect x="3" y="11" width="18" height="11" rx="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+  );
+}
+
+function LoginEyeIcon({ open }) {
+  if (open) {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+        <line x1="1" y1="1" x2="23" y2="23"/>
+      </svg>
+    );
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+  );
+}
+
+function PasswordResetLink({ variant = "block" }) {
+  const [open,setOpen] = useState(false);
+  const [email,setEmail] = useState("");
+  const [sent,setSent] = useState(false);
+  const [loading,setLoading] = useState(false);
+  const handle = async () => {
+    if (!email.trim()) return alert("이메일을 입력하세요");
+    setLoading(true);
+    await supabase.auth.resetPasswordForEmail(email.trim(),{redirectTo:window.location.origin});
+    setLoading(false); setSent(true);
+  };
+  const trigger = variant === "inline" ? (
+    <button type="button" onClick={()=>setOpen(true)} style={{
+      background:"none",border:"none",padding:0,
+      color:"#64748b",fontSize:12,cursor:"pointer",
+      fontFamily:"inherit",fontWeight:500,
+    }}>
+      비밀번호 찾기 &gt;
+    </button>
+  ) : (
+    <button type="button" onClick={()=>setOpen(true)} style={{
+      display:"block",width:"100%",marginTop:20,
+      background:"none",border:"none",
+      color:"#999",fontSize:13,cursor:"pointer",
+      fontFamily:"inherit",fontWeight:400,
+    }}>
+      비밀번호 찾기
+    </button>
+  );
+  return (
+    <>
+      {trigger}
+      {open && (
+        <Modal title="비밀번호 재설정" onClose={()=>{setOpen(false);setSent(false);setEmail("");}}>
+          {sent ? (
+            <div style={{textAlign:"center",padding:"28px 0"}}>
+              <div style={{fontWeight:700,fontSize:16,color:"#111",marginBottom:8}}>이메일을 확인하세요</div>
+              <div style={{fontSize:13,color:"#888",lineHeight:1.6}}>{email}으로 재설정 링크를 보냈습니다</div>
+            </div>
+          ) : (
+            <>
+              <Inp2 label="가입한 이메일" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="example@gts.com"/>
+              <Btn full onClick={handle} disabled={loading}>{loading?"전송 중...":"재설정 링크 보내기"}</Btn>
+            </>
+          )}
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function LoginPage() {
+  const [email,setEmail]   = useState("");
+  const [pw,setPw]         = useState("");
+  const [showPw,setShowPw] = useState(false);
+  const [remember,setRemember] = useState(false);
+  const [loading,setLoading] = useState(false);
+  const [err,setErr]       = useState("");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LOGIN_EMAIL_KEY);
+      if (saved) {
+        setEmail(saved);
+        setRemember(true);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const handle = async (e) => {
+    e.preventDefault();
+    if (!email.trim()||!pw) { setErr("이메일과 비밀번호를 입력하세요"); return; }
+    setLoading(true); setErr("");
+    const { error } = await supabase.auth.signInWithPassword({ email:email.trim(), password:pw });
+    setLoading(false);
+    if (error) {
+      setErr(error.message.includes("Invalid login") ? "이메일 또는 비밀번호가 올바르지 않습니다" : error.message);
+      return;
+    }
+    try {
+      if (remember) localStorage.setItem(LOGIN_EMAIL_KEY, email.trim());
+      else localStorage.removeItem(LOGIN_EMAIL_KEY);
+    } catch { /* ignore */ }
+  };
+
+  const fieldStyle = {
+    width:"100%",
+    boxSizing:"border-box",
+    background:"#fff",
+    border:"1px solid #e2e8f0",
+    borderRadius:10,
+    padding:"13px 14px 13px 44px",
+    fontSize:14,
+    color:"#0f172a",
+    fontFamily:"inherit",
+    outline:"none",
+    transition:"border-color 0.15s, box-shadow 0.15s",
+  };
+
+  const greenDot = (t) => (
+    <>
+      {t}
+      <span style={{ color: LOGIN_GREEN }}>.</span>
+    </>
+  );
+
+  return (
+    <div className="login-page" style={{
+      minHeight:"100vh",
+      width:"100%",
+      background:"#f3f4f6",
+      position:"relative",
+      overflow:"hidden",
+      fontFamily:"'Noto Sans KR','Inter','Apple SD Gothic Neo',sans-serif",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap');
+        .login-page .login-field:focus {
+          border-color: ${LOGIN_GREEN};
+          box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+        }
+        .login-page .login-submit:not(:disabled):hover { filter: brightness(1.05); }
+        .login-page .login-pw-toggle:hover { color: #475569; }
+        .login-page-layout {
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 48px;
+          padding: 48px 32px 72px;
+          max-width: 1120px;
+          margin: 0 auto;
+          position: relative;
+          z-index: 1;
+        }
+        .login-brand { flex: 1; min-width: 280px; max-width: 480px; }
+        .login-card-wrap { flex: 0 1 420px; width: 100%; }
+        @media (max-width: 900px) {
+          .login-page-layout {
+            flex-direction: column;
+            align-items: stretch;
+            padding: 32px 20px 64px;
+            gap: 32px;
+          }
+          .login-brand { max-width: none; text-align: center; }
+          .login-brand-tagline { font-size: 36px !important; }
+          .login-brand-meta { justify-content: center; }
+          .login-brand-head { justify-content: center; }
+        }
+      `}</style>
+
+      <div style={{
+        position:"absolute",
+        left:-40,
+        bottom:-60,
+        opacity:0.05,
+        pointerEvents:"none",
+        zIndex:0,
+      }}>
+        <GtsLogo height={320}/>
+      </div>
+
+      <div className="login-page-layout">
+        <div className="login-brand">
+          <div className="login-brand-head" style={{ display:"flex", alignItems:"center", gap:14, marginBottom:36 }}>
+            <GtsHexLogo size={44}/>
+            <div style={{ textAlign:"left" }}>
+              <div style={{ fontSize:22, fontWeight:800, color:LOGIN_GREEN, letterSpacing:"0.04em", fontFamily:"'Inter',sans-serif" }}>GTS</div>
+              <div style={{ fontSize:13, color:"#334155", fontWeight:500, marginTop:2, fontFamily:"'Inter',sans-serif" }}>Management Platform</div>
+            </div>
+          </div>
+
+          <h1 className="login-brand-tagline" style={{
+            margin:0,
+            fontSize:46,
+            fontWeight:600,
+            lineHeight:1.18,
+            color:"#1e293b",
+            letterSpacing:"-0.02em",
+            fontFamily:"'Inter','Noto Sans KR',sans-serif",
+          }}>
+            {greenDot("Simple")}
+            <br/>
+            {greenDot("Organized")}
+            <br/>
+            {greenDot("Professional")}
+          </h1>
+
+          <div className="login-brand-meta" style={{
+            display:"flex",
+            alignItems:"center",
+            gap:10,
+            marginTop:28,
+            color:"#64748b",
+            fontSize:13,
+            fontWeight:500,
+          }}>
+            <span style={{ width:3, height:18, background:LOGIN_GREEN, borderRadius:99, flexShrink:0 }}/>
+            GTS Management Platform
+          </div>
+        </div>
+
+        <div className="login-card-wrap">
+          <div style={{
+            background:"#fff",
+            borderRadius:16,
+            padding:"36px 32px 28px",
+            boxShadow:"0 8px 32px rgba(15, 23, 42, 0.08)",
+            border:"1px solid rgba(226, 232, 240, 0.9)",
+          }}>
+            <h2 style={{ margin:"0 0 6px", fontSize:24, fontWeight:800, color:"#0f172a" }}>로그인</h2>
+            <p style={{ margin:"0 0 28px", fontSize:13, color:"#64748b", lineHeight:1.5 }}>
+              GTS Management Platform에 오신 것을 환영합니다.
+            </p>
+
+            <form onSubmit={handle}>
+              <div style={{ marginBottom:14, position:"relative" }}>
+                <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"#94a3b8", display:"flex" }}>
+                  <LoginUserIcon/>
+                </span>
+                <input
+                  className="login-field"
+                  type="email"
+                  value={email}
+                  onChange={e=>setEmail(e.target.value)}
+                  placeholder="아이디를 입력하세요"
+                  autoComplete="email"
+                  style={fieldStyle}
+                />
+              </div>
+
+              <div style={{ marginBottom:16, position:"relative" }}>
+                <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"#94a3b8", display:"flex" }}>
+                  <LoginLockIcon/>
+                </span>
+                <input
+                  className="login-field"
+                  type={showPw?"text":"password"}
+                  value={pw}
+                  onChange={e=>setPw(e.target.value)}
+                  placeholder="비밀번호를 입력하세요"
+                  autoComplete="current-password"
+                  style={{ ...fieldStyle, paddingRight:44 }}
+                />
+                <button
+                  type="button"
+                  className="login-pw-toggle"
+                  onClick={()=>setShowPw(v=>!v)}
+                  aria-label={showPw?"비밀번호 숨기기":"비밀번호 보기"}
+                  style={{
+                    position:"absolute", right:12, top:"50%", transform:"translateY(-50%)",
+                    background:"none", border:"none", cursor:"pointer",
+                    color:"#94a3b8", display:"flex", padding:4,
+                  }}
+                >
+                  <LoginEyeIcon open={showPw}/>
+                </button>
+              </div>
+
+              <div style={{
+                display:"flex",
+                justifyContent:"space-between",
+                alignItems:"center",
+                marginBottom:18,
+                gap:12,
+                flexWrap:"wrap",
+              }}>
+                <label style={{
+                  display:"flex",
+                  alignItems:"center",
+                  gap:8,
+                  fontSize:12,
+                  color:"#475569",
+                  cursor:"pointer",
+                  userSelect:"none",
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={e=>setRemember(e.target.checked)}
+                    style={{ width:16, height:16, accentColor:LOGIN_GREEN }}
+                  />
+                  아이디 저장
+                </label>
+                <PasswordResetLink variant="inline"/>
+              </div>
+
+              {err && (
+                <div style={{
+                  color:"#dc2626",
+                  fontSize:13,
+                  fontWeight:500,
+                  marginBottom:14,
+                  lineHeight:1.5,
+                  background:"#fef2f2",
+                  borderRadius:8,
+                  padding:"10px 12px",
+                }}>{err}</div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="login-submit"
+                style={{
+                  width:"100%",
+                  padding:"14px 16px",
+                  borderRadius:10,
+                  border:"none",
+                  background:loading?"#86efac":LOGIN_GREEN,
+                  color:"#fff",
+                  fontSize:15,
+                  fontWeight:700,
+                  cursor:loading?"not-allowed":"pointer",
+                  fontFamily:"inherit",
+                  transition:"filter 0.15s",
+                }}
+              >
+                {loading?"로그인 중...":"로그인"}
+              </button>
+            </form>
+          </div>
+
+          <p style={{
+            textAlign:"center",
+            marginTop:22,
+            fontSize:13,
+            color:"#64748b",
+            lineHeight:1.6,
+          }}>
+            계정이 없으신가요?{" "}
+            <span style={{ color:LOGIN_GREEN, fontWeight:600 }}>관리자에게 문의하세요.</span>
+          </p>
+        </div>
+      </div>
+
+      <div style={{
+        position:"absolute",
+        left:32,
+        bottom:20,
+        fontSize:11,
+        color:"#94a3b8",
+        zIndex:1,
+      }}>
+        © 2025 GTS. All rights reserved.
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 비밀번호 변경
+// ═══════════════════════════════════════════════════════════════════════
+function ChangePwModal({onClose}) {
+  const [next,setNext] = useState("");
+  const [conf,setConf] = useState("");
+  const [loading,setLoading] = useState(false);
+  const [err,setErr] = useState("");
+  const [ok,setOk] = useState(false);
+  const handle = async () => {
+    if (next.length < 6) { setErr("6자 이상 입력하세요"); return; }
+    if (next !== conf)   { setErr("비밀번호가 일치하지 않습니다"); return; }
+    setLoading(true); setErr("");
+    const { error } = await supabase.auth.updateUser({ password:next });
+    setLoading(false);
+    if (error) { setErr(error.message); return; }
+    setOk(true);
+  };
+  return (
+    <Modal title="비밀번호 변경" onClose={onClose}>
+      {ok ? (
+        <div style={{textAlign:"center",padding:"28px 0"}}>
+          <div style={{fontWeight:700,fontSize:16,color:DS.textPrimary,marginBottom:18}}>변경 완료</div>
+          <Btn full onClick={onClose}>확인</Btn>
+        </div>
+      ) : (
+        <>
+          <Inp2 label="새 비밀번호 (6자 이상)" type="password" value={next} onChange={e=>setNext(e.target.value)}/>
+          <Inp2 label="비밀번호 확인" type="password" value={conf} onChange={e=>setConf(e.target.value)}/>
+          {err && <div style={{background:"#fee2e2",color:"#dc2626",borderRadius:8,padding:"10px 13px",fontSize:12,fontWeight:600,marginBottom:12}}>{err}</div>}
+          <Btn full onClick={handle} disabled={loading}>{loading?"변경 중...":"비밀번호 변경"}</Btn>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 사진 업로드
+// ═══════════════════════════════════════════════════════════════════════
+function PhotoUploader({itemCode, currentUrl, onUploaded}) {
+  const [loading,setLoading] = useState(false);
+  const [preview,setPreview] = useState(currentUrl||null);
+  const fileRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5*1024*1024) { alert("사진은 5MB 이하만 가능합니다"); return; }
+    const reader = new FileReader();
+    reader.onload = ev => setPreview(ev.target.result);
+    reader.readAsDataURL(file);
+    setLoading(true);
+    const ext  = file.name.split(".").pop();
+    const path = `items/${itemCode}_${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("item-photos").upload(path, file, { upsert:true });
+    if (error) { alert("업로드 실패: " + error.message); setLoading(false); return; }
+    const { data } = supabase.storage.from("item-photos").getPublicUrl(path);
+    onUploaded(data.publicUrl);
+    setLoading(false);
+  };
+
+  return (
+    <div style={{marginBottom:16}}>
+      <label style={lbl}>교구 사진</label>
+      <div
+        onClick={()=>!loading && fileRef.current?.click()}
+        style={{
+          width:"100%",height:160,borderRadius:14,
+          border:`2px dashed ${DS.inputBorder}`,
+          background:"#fafafa",
+          display:"flex",flexDirection:"column",
+          alignItems:"center",justifyContent:"center",
+          cursor:"pointer",overflow:"hidden",position:"relative",
+          transition:"border-color 0.2s",
+        }}>
+        {preview ? (
+          <>
+            <img src={preview} alt="교구 사진" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.3)",display:"flex",alignItems:"center",justifyContent:"center",opacity:0,transition:"opacity 0.2s"}}
+              onMouseEnter={e=>e.currentTarget.style.opacity=1}
+              onMouseLeave={e=>e.currentTarget.style.opacity=0}>
+              <span style={{color:"#fff",fontWeight:700,fontSize:13}}>사진 변경</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{fontSize:12,color:DS.textMuted,fontWeight:500}}>{loading?"업로드 중...":"사진을 눌러서 추가하세요"}</div>
+            <div style={{fontSize:10,color:"#cbd5e1",marginTop:3}}>JPG, PNG (최대 5MB)</div>
+          </>
+        )}
+      </div>
+      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
+      {preview && (
+        <button onClick={()=>{setPreview(null);onUploaded("");}} style={{marginTop:6,background:"none",border:"none",color:DS.textMuted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+          사진 제거
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 교구 추가/편집 폼
+// ═══════════════════════════════════════════════════════════════════════
+function ItemForm({item, items, onSave, onClose}) {
+  const cats = Object.keys(CAT);
+  const isNew = !item?.id;
+  const [f,setF] = useState({
+    code:item?.code||"", name:item?.name||"", alias:item?.alias||"",
+    category:item?.category||cats[0], total_quantity:item?.total_quantity||0,
+    branch:item?.branch||BRANCHES[0], description:item?.description||"",
+    usage_description:item?.usage_description||"", safety_notes:item?.safety_notes||"",
+    youtube_url:item?.youtube_url||"", status:item?.status||"available",
+    photo_url:item?.photo_url||"",
+    qr_url:item?.qr_url||"",
+  });
+  const set = (k,v) => setF(p=>({...p,[k]:v}));
+  const [saving,setSaving] = useState(false);
+  const [autoCode,setAutoCode] = useState(isNew && !item?.code);
+
+  const qrItem = useMemo(
+    () => ({ id: item?.id, code: f.code.trim() }),
+    [item?.id, f.code]
+  );
+
+  const applyAutoCode = useCallback((cat) => {
+    setF(p => ({ ...p, code: nextItemCode(cat || p.category, items) }));
+  }, [items]);
+
+  useEffect(() => {
+    if (!isNew || !autoCode) return;
+    applyAutoCode(f.category);
+  }, [f.category, isNew, autoCode, applyAutoCode]);
+
+  const onCategoryChange = (cat) => {
+    set("category", cat);
+    if (autoCode) applyAutoCode(cat);
+  };
+
+  const handleSave = async () => {
+    if (!f.code.trim()||!f.name.trim()) { alert("코드와 교구명은 필수입니다"); return; }
+    setSaving(true);
+    const payload = { ...f, total_quantity: parseInt(f.total_quantity) || 0 };
+    const row = await onSave(payload, item?.id);
+    if (row) {
+      try {
+        const uploaded = await createItemQr(row);
+        if (uploaded && uploaded !== row.qr_url) {
+          await onSave({ ...row, qr_url: uploaded }, row.id);
+        }
+      } catch (e) {
+        console.warn("QR 생성 실패", e);
+      }
+    }
+    setSaving(false);
+    onClose();
+  };
+
+  const catLabel = CAT[f.category]?.label || f.category;
+
+  return (
+    <Modal title={item?"교구 편집":"교구 추가"} onClose={onClose}>
+      <PhotoUploader itemCode={f.code||"new"} currentUrl={f.photo_url} onUploaded={url=>set("photo_url",url)}/>
+
+      <div style={{...panelCard,padding:"16px 18px",marginBottom:14}}>
+        <div style={{fontSize:12,fontWeight:600,color:DS.textSecondary,marginBottom:10}}>카테고리 · 교구 코드</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
+          <Sel2 label="카테고리 *" value={f.category} onChange={e=>onCategoryChange(e.target.value)}>
+            {cats.map(c=><option key={c} value={c}>{CAT[c].label} ({c})</option>)}
+          </Sel2>
+          <Inp2
+            label="교구 코드 *"
+            value={f.code}
+            onChange={e=>{ setAutoCode(false); set("code", e.target.value); }}
+            placeholder={`${f.category}-001`}
+          />
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8,flexWrap:"wrap",gap:8}}>
+          <span style={{fontSize:11,color:DS.textMuted}}>
+            {catLabel} 기준 · <span style={{fontFamily:"monospace",fontWeight:600}}>{f.category}-###</span> 형식
+          </span>
+          {isNew && (
+            <button
+              type="button"
+              onClick={()=>{ setAutoCode(true); applyAutoCode(f.category); }}
+              style={{
+                border:"none",background:"transparent",color:DS.primary,
+                fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
+              }}
+            >
+              코드 자동생성
+            </button>
+          )}
+        </div>
+      </div>
+
+      {f.code.trim() && (
+        <div style={{...panelCard,padding:"16px 18px",marginBottom:14,textAlign:"center"}}>
+          <div style={{fontSize:12,fontWeight:600,color:DS.textSecondary,marginBottom:10}}>QR 코드 미리보기</div>
+          <div style={{display:"inline-block",padding:8,background:"#fff",borderRadius:10,border:"1px solid #e8ecee"}}>
+            <GearQrDisplay item={qrItem} size={160}/>
+          </div>
+          <div style={{fontSize:11,color:DS.textMuted,marginTop:8,fontFamily:"monospace"}}>{f.code}</div>
+          <div style={{fontSize:10,color:DS.textMuted,marginTop:4}}>
+            {item?.id ? "교구 ID 기준 URL" : "저장 후 교구 ID로 QR이 확정됩니다"}
+          </div>
+        </div>
+      )}
+
+      <Inp2 label="교구명 *" value={f.name} onChange={e=>set("name",e.target.value)}/>
+      <Inp2 label="검색 별칭" value={f.alias} onChange={e=>set("alias",e.target.value)} placeholder="별명, 영문명 등"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
+        <Sel2 label="보관 지점" value={f.branch} onChange={e=>set("branch",e.target.value)}>
+          {BRANCHES.map(b=><option key={b}>{b}</option>)}
+        </Sel2>
+        <Inp2 label="전체 수량" type="number" min={0} value={f.total_quantity} onChange={e=>set("total_quantity",e.target.value)}/>
+      </div>
+      <Sel2 label="상태" value={f.status} onChange={e=>set("status",e.target.value)}>
+        <option value="available">사용가능</option>
+        <option value="maintenance">점검중</option>
+        <option value="retired">퇴역</option>
+      </Sel2>
+      <Txa2 label="설명" value={f.description} onChange={e=>set("description",e.target.value)}/>
+      <Txa2 label="사용법" value={f.usage_description} onChange={e=>set("usage_description",e.target.value)}/>
+      <Txa2 label="안전 주의사항" value={f.safety_notes} onChange={e=>set("safety_notes",e.target.value)}/>
+      <Inp2 label="유튜브 URL" value={f.youtube_url} onChange={e=>set("youtube_url",e.target.value)} placeholder="https://youtube.com/watch?v=..."/>
+      <div style={{display:"flex",gap:8,marginTop:4}}>
+        <Btn full onClick={handleSave} disabled={saving}>{saving?"저장 중...":"저장"}</Btn>
+        <Btn full color="#94a3b8" onClick={onClose}>취소</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 슈퍼관리자 — 계정 관리
+// ═══════════════════════════════════════════════════════════════════════
+function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
+  const [addOpen,setAddOpen] = useState(false);
+  const [logOpen,setLogOpen] = useState(false);
+  const [logs,setLogs]       = useState([]);
+  const [f,setF] = useState({name:"",phone:"",email:"",password:"",role:"teacher"});
+  const [showPw,setShowPw]   = useState(false);
+  const [loading,setLoading] = useState(false);
+  const [err,setErr]         = useState("");
+
+  const loadLogs = async () => {
+    const { data } = await supabase.from("activity_logs").select("*").order("created_at",{ascending:false}).limit(50);
+    setLogs(data||[]);
+    setLogOpen(true);
+  };
+
+  const promoteToAdmin = async (t) => {
+    if (!confirm(`${t.name}을(를) 관리자로 임명하시겠습니까?`)) return;
+    const { error } = await supabase.from("teachers").update({role:"admin"}).eq("id",t.id);
+    if (error) { alert(error.message); return; }
+    setTeachers(p=>p.map(x=>x.id===t.id?{...x,role:"admin"}:x));
+    await logAction("role_change","관리자 임명",t);
+    alert(`${t.name}이(가) 관리자로 임명되었습니다`);
+  };
+
+  const demoteToTeacher = async (t) => {
+    if (!confirm(`${t.name}의 관리자 권한을 해제하시겠습니까?`)) return;
+    const { error } = await supabase.from("teachers").update({role:"teacher"}).eq("id",t.id);
+    if (error) { alert(error.message); return; }
+    setTeachers(p=>p.map(x=>x.id===t.id?{...x,role:"teacher"}:x));
+    await logAction("role_change","관리자 해제",t);
+    alert(`${t.name}의 관리자 권한이 해제되었습니다`);
+  };
+
+  const toggleActive = async (t) => {
+    const next = !t.active;
+    const msg  = next ? "활성화" : "비활성화";
+    if (!confirm(`${t.name} 계정을 ${msg}하시겠습니까?`)) return;
+    const { error } = await supabase.from("teachers").update({active:next}).eq("id",t.id);
+    if (error) { alert(error.message); return; }
+    setTeachers(p=>p.map(x=>x.id===t.id?{...x,active:next}:x));
+    await logAction("account_status",`계정 ${msg}`,t);
+  };
+
+  const logAction = async (type, action, target) => {
+    await supabase.from("activity_logs").insert({
+      entity_type:type, entity_id:target.id, action,
+      actor_id:me.id, actor_name:me.name,
+      target_id:target.id, target_name:target.name,
+    });
+  };
+
+  const handleAdd = async () => {
+    if (!f.name.trim())       { setErr("이름을 입력하세요"); return; }
+    if (!f.email.trim())      { setErr("이메일을 입력하세요"); return; }
+    if (f.password.length<6)  { setErr("비밀번호는 6자 이상이어야 합니다"); return; }
+    setLoading(true); setErr("");
+    const { data, error } = await supabase.auth.signUp({
+      email: f.email.trim(), password: f.password,
+      options: { data:{ name:f.name.trim(), role:f.role, phone:f.phone.trim() } },
+    });
+    if (error) { setErr(error.message); setLoading(false); return; }
+    if (!data?.user?.id) { setErr("계정 생성 실패"); setLoading(false); return; }
+    await new Promise(r=>setTimeout(r,800));
+    const { data:existing } = await supabase.from("teachers").select("id").eq("id",data.user.id).single();
+    if (!existing) {
+      await supabase.from("teachers").insert({id:data.user.id,name:f.name.trim(),phone:f.phone.trim(),role:f.role,active:true});
+    } else {
+      await supabase.from("teachers").update({name:f.name.trim(),phone:f.phone.trim(),role:f.role,active:true}).eq("id",data.user.id);
+    }
+    const { data:newT } = await supabase.from("teachers").select("*").eq("id",data.user.id).single();
+    if (newT) setTeachers(p=>[...p.filter(x=>x.id!==newT.id), newT]);
+    await logAction("account_create","계정 생성",{id:data.user.id,name:f.name});
+    setF({name:"",phone:"",email:"",password:"",role:"teacher"});
+    setAddOpen(false); setLoading(false);
+    alert(`${f.name} 계정이 생성되었습니다!\n\n이메일: ${f.email}\n비밀번호: ${f.password}\n\n선생님께 직접 전달해 주세요.`);
+  };
+
+  const admins  = teachers.filter(t=>t.role==="admin");
+  const tList   = teachers.filter(t=>t.role==="teacher");
+
+  const sectionTitle = (text) => (
+    <div style={{
+      fontWeight:700,fontSize:12,color:DS.textSecondary,
+      margin:"16px 0 8px",
+      letterSpacing:"0.05em",
+      textTransform:"uppercase",
+    }}>{text}</div>
+  );
+
+  return (
+    <PageShell>
+      <PageHeader
+        me={me}
+        subtitle={PAGE_META.accounts.sub}
+        actions={
+          <div style={{display:"flex",gap:8}}>
+            <Btn sm ghost color={DS.textSecondary} onClick={loadLogs}>로그</Btn>
+            <Btn sm onClick={()=>{setAddOpen(true);setErr("");}}>+ 계정 추가</Btn>
+          </div>
+        }
+      />
+
+      <div style={{
+        display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",
+        gap:14,marginBottom:24,
+      }}>
+        <DashStatCard label="전체 사용자" value={teachers.length} iconMark="전체" iconBg={DS.primaryLight} iconColor={DS.primary}/>
+        <DashStatCard label="관리자" value={admins.length} iconMark="관리" iconBg="#fee2e2" iconColor="#dc2626"/>
+        <DashStatCard label="선생님" value={tList.length} iconMark="선생" iconBg="#ede9fe" iconColor="#7c3aed"/>
+      </div>
+
+      <div style={{
+        background:"#fff7ed",border:"1px solid #fed7aa",
+        borderRadius:12,padding:"12px 14px",
+        marginBottom:16,fontSize:12,color:"#9a3412",
+        fontWeight:600,
+      }}>
+        슈퍼관리자 전용 메뉴입니다. 관리자 임명·해제 및 계정 관리를 할 수 있습니다.
+      </div>
+
+      {sectionTitle("슈퍼관리자")}
+      {teachers.filter(t=>t.role==="superadmin").map(t=>(
+        <div key={t.id} style={{...card,borderLeft:"3px solid #854d0e"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:7}}>
+                <span style={{fontWeight:800,fontSize:14}}>{t.name}</span>
+                <RoleBadge role={t.role}/>
+                {t.id===me.id&&<span style={{background:"#dcfce7",color:"#16a34a",padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:700}}>나</span>}
+              </div>
+              <div style={{fontSize:11,color:DS.textSecondary,marginTop:3}}>{t.phone||"-"}</div>
+            </div>
+            <div style={{fontSize:11,color:DS.textMuted,fontWeight:600}}>변경 불가</div>
+          </div>
+        </div>
+      ))}
+
+      {sectionTitle(`관리자 (${admins.length}명)`)}
+      {admins.length===0 && <div style={{color:DS.textMuted,fontSize:13,padding:"8px 0"}}>임명된 관리자가 없습니다</div>}
+      {admins.map(t=>{
+        const held=ris.filter(ri=>["rented","partial_returned"].includes(ri.status)&&reqs.find(r=>r.id===ri.request_id&&r.teacher_id===t.id));
+        return (
+          <div key={t.id} style={{...card,borderLeft:"3px solid #dc2626",opacity:t.active===false?0.5:1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                  <span style={{fontWeight:800,fontSize:14}}>{t.name}</span>
+                  <RoleBadge role={t.role}/>
+                  {t.active===false&&<span style={{background:"#fee2e2",color:"#dc2626",padding:"2px 7px",borderRadius:99,fontSize:10,fontWeight:700}}>비활성</span>}
+                </div>
+                <div style={{fontSize:11,color:DS.textSecondary}}>{t.phone||"-"}</div>
+                <div style={{fontSize:11,color:DS.textMuted,marginTop:1}}>보유 교구: {held.reduce((s,r)=>s+r.quantity,0)}개</div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                <Btn sm ghost danger onClick={()=>demoteToTeacher(t)}>관리자 해제</Btn>
+                <Btn sm ghost color={t.active===false?"#16a34a":"#dc2626"} onClick={()=>toggleActive(t)}>
+                  {t.active===false?"활성화":"비활성화"}
+                </Btn>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {sectionTitle(`선생님 (${tList.length}명)`)}
+      {tList.map(t=>{
+        const held=ris.filter(ri=>["rented","partial_returned"].includes(ri.status)&&reqs.find(r=>r.id===ri.request_id&&r.teacher_id===t.id));
+        return (
+          <div key={t.id} style={{...card,opacity:t.active===false?0.5:1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                  <span style={{fontWeight:800,fontSize:14}}>{t.name}</span>
+                  <RoleBadge role={t.role}/>
+                  {t.active===false&&<span style={{background:"#fee2e2",color:"#dc2626",padding:"2px 7px",borderRadius:99,fontSize:10,fontWeight:700}}>비활성</span>}
+                </div>
+                <div style={{fontSize:11,color:DS.textSecondary}}>{t.phone||"-"}</div>
+                <div style={{fontSize:11,color:DS.textMuted,marginTop:1}}>보유: {held.reduce((s,r)=>s+r.quantity,0)}개</div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                <Btn sm color={DS.primary} onClick={()=>promoteToAdmin(t)}>관리자 임명</Btn>
+                <Btn sm ghost color={t.active===false?"#16a34a":"#dc2626"} onClick={()=>toggleActive(t)}>
+                  {t.active===false?"활성화":"비활성화"}
+                </Btn>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {addOpen && (
+        <Modal title="계정 추가" onClose={()=>setAddOpen(false)}>
+          <div style={{background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:10,padding:"10px 13px",marginBottom:14,fontSize:12,color:"#9a3412",fontWeight:600}}>
+            생성 후 이메일과 비밀번호를 직접 선생님께 전달해주세요
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
+            <Inp2 label="이름 *" value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} placeholder="홍길동"/>
+            <Inp2 label="연락처" value={f.phone} onChange={e=>setF(p=>({...p,phone:e.target.value}))} placeholder="010-0000-0000"/>
+          </div>
+          <Inp2 label="이메일 *" type="email" value={f.email} onChange={e=>setF(p=>({...p,email:e.target.value}))} placeholder="example@gts.com"/>
+          <Fld label="초기 비밀번호 * (6자 이상)">
+            <div style={{position:"relative"}}>
+              <input type={showPw?"text":"password"} value={f.password} onChange={e=>setF(p=>({...p,password:e.target.value}))}
+                placeholder="초기 비밀번호" style={{...inp,paddingRight:50}}/>
+              <button type="button" onClick={()=>setShowPw(v=>!v)} style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:12,color:DS.textMuted}}>{showPw?"숨기기":"보기"}</button>
+            </div>
+          </Fld>
+          <Sel2 label="권한" value={f.role} onChange={e=>setF(p=>({...p,role:e.target.value}))}>
+            <option value="teacher">선생님</option>
+            <option value="admin">관리자</option>
+          </Sel2>
+          {err && <div style={{background:"#fee2e2",color:"#dc2626",borderRadius:8,padding:"10px 13px",fontSize:12,fontWeight:600,marginBottom:12}}>{err}</div>}
+          <Btn full onClick={handleAdd} disabled={loading}>{loading?"생성 중...":"계정 생성"}</Btn>
+        </Modal>
+      )}
+
+      {logOpen && (
+        <Modal title="활동 로그" onClose={()=>setLogOpen(false)}>
+          {logs.length===0 ? <Empty text="기록이 없습니다"/> : logs.map(l=>(
+            <div key={l.id} style={{padding:"10px 0",borderBottom:"1px solid #f1f5f9"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:DS.textPrimary}}>{l.action}</div>
+                  <div style={{fontSize:11,color:DS.textSecondary}}>처리자: {l.actor_name||"-"} {l.target_name?`→ 대상: ${l.target_name}`:""}</div>
+                </div>
+                <div style={{fontSize:10,color:DS.textMuted,whiteSpace:"nowrap",marginLeft:8}}>{fmt(l.created_at)}</div>
+              </div>
+            </div>
+          ))}
+        </Modal>
+      )}
+    </PageShell>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 대시보드 — 리디자인
+// ═══════════════════════════════════════════════════════════════════════
+function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApproveRet,onDamage,onLoss}) {
+  const admin = isAdmin(me);
+  const [activePanel,setActivePanel]=useState(null);
+  const [rejectId,setRejectId]=useState(null);
+  const [reason,setReason]=useState("");
+
+  const totalQty = items.reduce((s,i)=>s+i.total_quantity,0);
+  const availTotal = items.reduce((s,i)=>s+availQty(i,ris,rets),0);
+  const rentedNow= ris.filter(r=>["rented","partial_returned"].includes(r.status)).reduce((s,r)=>s+r.quantity,0);
+  const pendReqs = reqs.filter(r=>r.status==="pending");
+  const pendingN = pendReqs.length;
+  const overdueList = ris.filter(r=>["rented","partial_returned"].includes(r.status)&&dday(r.due_date)!==null&&dday(r.due_date)<0);
+  const pendRets = filterReturnPendingLastWeek(rets);
+  const retPendN = pendRets.length;
+  const dmgPending = rets.filter(r=>r.status==="return_pending"&&["damaged","lost"].includes(r.condition)&&isWithinLastWeek(r.created_at));
+  const dmgN = dmgPending.length;
+  const dueAlerts = getDueAlerts(ris, reqs, items, teachers);
+
+  const rentedLines = useMemo(() => ris
+    .filter(ri=>["rented","partial_returned"].includes(ri.status))
+    .map(ri=>{
+      const req=reqs.find(r=>r.id===ri.request_id);
+      return { ri, req, teacher: req ? tname(req.teacher_id, teachers) : "-" };
+    }), [ris, reqs, teachers]);
+
+  const togglePanel = (id) => setActivePanel(p => p === id ? null : id);
+  const teacherRows = teachers.filter(t=>t.role!=="superadmin").map(t=>{
+    const held=ris.filter(ri=>["rented","partial_returned"].includes(ri.status)&&reqs.find(r=>r.id===ri.request_id&&r.teacher_id===t.id));
+    return {...t,held};
+  }).filter(t=>t.held.length>0);
+
+  const catStats = useMemo(() => Object.keys(CAT).map(key => {
+    const catItems = items.filter(i => i.category === key);
+    const total = catItems.reduce((s, i) => s + i.total_quantity, 0);
+    const rented = catItems.reduce((s, i) => s + rentedQty(i.id, ris), 0);
+    const avail = catItems.reduce((s, i) => s + availQty(i, ris, rets), 0);
+    return { key, label: CAT[key].label, color: CAT[key].color, count: catItems.length, total, rented, avail };
+  }).filter(c => c.count > 0), [items, ris]);
+
+  const branchStats = useMemo(() => {
+    const branches = [...new Set([...BRANCHES, ...items.map(i => i.branch).filter(Boolean)])];
+    return branches.map(br => {
+      const brItems = items.filter(i => i.branch === br);
+      const total = brItems.reduce((s, i) => s + i.total_quantity, 0);
+      const rented = brItems.reduce((s, i) => s + rentedQty(i.id, ris), 0);
+      const avail = brItems.reduce((s, i) => s + availQty(i, ris, rets), 0);
+      return { br, count: brItems.length, total, rented, avail };
+    }).filter(b => b.count > 0);
+  }, [items, ris]);
+
+  const todayStr = new Date().toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
+
+  const alertRowStyle = (d) => ({
+    display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,
+    fontSize:12,padding:"8px 0",borderTop:"1px solid #f1f5f9",
+    background: d <= 0 ? "rgba(254,226,226,0.35)" : d <= 3 ? "rgba(255,237,213,0.35)" : "transparent",
+    margin:"0 -8px",paddingLeft:8,paddingRight:8,borderRadius:6,
+  });
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={todayStr} alertCount={dueAlerts.length}/>
+
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",
+        gap:14,marginBottom:24,
+      }}>
+        <Stat label="전체 보유" value={totalQty} color="#16a34a"/>
+        <Stat label="대여 가능" value={availTotal} color="#16a34a"/>
+        {admin ? (
+          <>
+            <Stat label="대여 중" value={rentedNow} color="#2563eb" onClick={()=>togglePanel("rented")} active={activePanel==="rented"}/>
+            <Stat label="승인 대기" value={pendingN} color="#d97706" onClick={()=>togglePanel("pending")} active={activePanel==="pending"}/>
+            <Stat label="연체" value={overdueList.length} color="#dc2626" onClick={()=>togglePanel("overdue")} active={activePanel==="overdue"}/>
+            <Stat label="반납 신청" value={retPendN} color="#7c3aed" onClick={()=>togglePanel("returns")} active={activePanel==="returns"}/>
+            <Stat label="파손/분실" value={dmgN} color="#dc2626" iconMark="파손" onClick={()=>togglePanel("damage")} active={activePanel==="damage"}/>
+          </>
+        ) : (
+          <>
+            <Stat label="대여 중" value={rentedNow} color="#2563eb"/>
+            <Stat label="교구 종류" value={items.length} color="#64748b"/>
+          </>
+        )}
+      </div>
+
+      {admin&&activePanel==="pending"&&(
+        <PanelSection title={`대여 승인 대기 (${pendReqs.length})`}>
+          {pendReqs.length===0 ? <Empty text="승인 대기 중인 신청이 없습니다"/> : pendReqs.map(req=>{
+            const t=teachers.find(x=>x.id===req.teacher_id);
+            const reqRIs=ris.filter(ri=>ri.request_id===req.id);
+            return(
+              <div key={req.id} style={{...card,borderLeft:"3px solid #f59e0b",marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:15,color:DS.textPrimary}}>{t?.name||"-"}</div>
+                    <div style={{fontSize:12,color:DS.textSecondary,marginTop:4}}>{req.dispatch_location} · {fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}</div>
+                    {req.memo&&<div style={{fontSize:11,color:DS.textMuted,marginTop:2}}>{req.memo}</div>}
+                  </div>
+                  <Badge s="pending"/>
+                </div>
+                {reqRIs.map(ri=>(
+                  <div key={ri.id} style={{fontSize:12,color:DS.textSecondary,padding:"3px 0"}}>· {iname(ri.item_id,items)} ×{ri.quantity}개</div>
+                ))}
+                <div style={{display:"flex",gap:8,marginTop:10}}>
+                  <Btn sm color={DS.primary} onClick={()=>onApprove(req.id)}>승인</Btn>
+                  <Btn sm danger onClick={()=>{setRejectId(req.id);setReason("");}}>거절</Btn>
+                </div>
+              </div>
+            );
+          })}
+        </PanelSection>
+      )}
+
+      {admin&&activePanel==="overdue"&&(
+        <PanelSection title={`연체 (${overdueList.length})`}>
+          {overdueList.length===0 ? <Empty text="연체 건이 없습니다"/> : overdueList.map(ri=>{
+            const req=reqs.find(r=>r.id===ri.request_id);
+            const dd=ddayTag(ri.due_date);
+            return(
+              <div key={ri.id} style={{...card,borderLeft:"3px solid #dc2626",marginBottom:10}}>
+                <div style={{fontWeight:700,fontSize:14,color:"#dc2626"}}>{iname(ri.item_id,items)} ×{ri.quantity}</div>
+                <div style={{fontSize:12,color:DS.textSecondary,marginTop:6,lineHeight:1.7}}>
+                  <div>대여자: {req ? tname(req.teacher_id, teachers) : "-"}</div>
+                  <div>파견지: {req?.dispatch_location||"-"}</div>
+                  <div>반납예정: {fmt(ri.due_date)} · <span style={{fontWeight:800,color:dd?.color}}>{dd?.text}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </PanelSection>
+      )}
+
+      {admin&&activePanel==="returns"&&(
+        <PanelSection title={`반납 신청 (최근 7일 · ${pendRets.length})`}>
+          {pendRets.length===0 ? <Empty text="최근 7일 이내 반납 신청이 없습니다"/> : pendRets.map(ret=>{
+            const ri=ris.find(r=>r.id===ret.rental_item_id);
+            return(
+              <div key={ret.id} style={{...card,borderLeft:"3px solid #7c3aed",marginBottom:10}}>
+                <div style={{fontWeight:700,fontSize:14,color:DS.textPrimary}}>{iname(ri?.item_id,items)} ×{ret.quantity}개</div>
+                <div style={{fontSize:12,color:DS.textSecondary,marginTop:6,lineHeight:1.7}}>
+                  <div>반납자: {tname(ret.teacher_id,teachers)}</div>
+                  <div>신청일: {fmt(ret.created_at)} · <span style={{color:CC[ret.condition]?.c,fontWeight:700}}>{CC[ret.condition]?.l}</span></div>
+                  {ret.memo&&<div style={{color:DS.textMuted}}>{ret.memo}</div>}
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+                  <Btn sm color={DS.primary} onClick={()=>onApproveRet(ret.id)}>승인</Btn>
+                  {ret.condition==="damaged"&&<Btn sm danger onClick={()=>onDamage(ret.id)}>파손확인</Btn>}
+                  {ret.condition==="lost"&&<Btn sm color="#be185d" onClick={()=>onLoss(ret.id)}>분실확인</Btn>}
+                </div>
+              </div>
+            );
+          })}
+        </PanelSection>
+      )}
+
+      {admin&&activePanel==="damage"&&(
+        <PanelSection title={`파손·분실 신청 (최근 7일 · ${dmgPending.length})`}>
+          {dmgPending.length===0 ? <Empty text="처리할 파손·분실 신청이 없습니다"/> : dmgPending.map(ret=>{
+            const ri=ris.find(r=>r.id===ret.rental_item_id);
+            return(
+              <div key={ret.id} style={{...card,borderLeft:"3px solid #dc2626",marginBottom:10}}>
+                <div style={{fontWeight:700,fontSize:14}}>{iname(ri?.item_id,items)} ×{ret.quantity}개</div>
+                <div style={{fontSize:12,color:DS.textSecondary,marginTop:6}}>
+                  {tname(ret.teacher_id,teachers)} · {CC[ret.condition]?.l} · {fmt(ret.created_at)}
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:10}}>
+                  {ret.condition==="damaged"&&<Btn sm danger onClick={()=>onDamage(ret.id)}>파손확인</Btn>}
+                  {ret.condition==="lost"&&<Btn sm color="#be185d" onClick={()=>onLoss(ret.id)}>분실확인</Btn>}
+                  <Btn sm color={DS.primary} onClick={()=>onApproveRet(ret.id)}>승인</Btn>
+                </div>
+              </div>
+            );
+          })}
+        </PanelSection>
+      )}
+
+      {admin&&activePanel==="rented"&&(
+        <PanelSection title={`현재 대여 중 (${rentedLines.length}건)`}>
+          {rentedLines.length===0 ? <Empty text="대여 중인 교구가 없습니다"/> : rentedLines.map(({ri,req,teacher})=>{
+            const dd=ddayTag(ri.due_date);
+            return(
+              <div key={ri.id} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderTop:"1px solid #f1f5f9",fontSize:13}}>
+                <div>
+                  <div style={{fontWeight:600,color:DS.textPrimary}}>{iname(ri.item_id,items)} ×{ri.quantity}</div>
+                  <div style={{fontSize:11,color:DS.textMuted,marginTop:2}}>{teacher} · {req?.dispatch_location||"-"}</div>
+                </div>
+                <span style={{fontWeight:700,color:dd?.color}}>{dd?.text||"-"}</span>
+              </div>
+            );
+          })}
+        </PanelSection>
+      )}
+
+      {rejectId&&(
+        <Modal title="거절 사유 입력" onClose={()=>setRejectId(null)}>
+          <Txa2 label="거절 사유 *" value={reason} onChange={e=>setReason(e.target.value)} placeholder="거절 이유를 입력하세요"/>
+          <Btn full danger onClick={()=>{
+            if(!reason.trim())return alert("거절 사유를 입력하세요");
+            onReject(rejectId,reason);
+            setRejectId(null);
+          }}>거절 처리</Btn>
+        </Modal>
+      )}
+
+      {dueAlerts.length > 0 && (
+        <PanelSection title={`반납 임박 알림 (${dueAlerts.length}건)`}>
+          {dueAlerts.map(({ ri, d, itemName, teacher, dueDate }) => {
+            const dd = ddayTag(dueDate);
+            const urgent = d <= 0;
+            return (
+              <div key={ri.id} style={alertRowStyle(d)}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontWeight:600,color:urgent?"#dc2626":"#9a3412"}}>{itemName} ×{ri.quantity}</div>
+                  <div style={{fontSize:11,color:DS.textSecondary,marginTop:2}}>{teacher} · 반납예정 {fmt(dueDate)}</div>
+                </div>
+                <span style={{
+                  fontWeight:700,fontSize:12,flexShrink:0,
+                  color: urgent ? "#dc2626" : "#ea580c",
+                }}>{dd?.text}</span>
+              </div>
+            );
+          })}
+        </PanelSection>
+      )}
+
+      <PanelSection title="전체 교구 현황">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,fontSize:12}}>
+          {[["총 수량",totalQty],["대여 가능",availTotal],["대여 중",rentedNow],["품목 수",items.length]].map(([l,v])=>(
+            <div key={l} style={{background:"#f8fafc",borderRadius:8,padding:"10px 12px",display:"flex",justifyContent:"space-between"}}>
+              <span style={{color:DS.textSecondary}}>{l}</span>
+              <span style={{fontWeight:700,color:DS.textPrimary}}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </PanelSection>
+
+      {catStats.length > 0 && (
+        <PanelSection title="카테고리별 재고">
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {catStats.map(c => (
+              <div key={c.key}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+                  <span style={{fontWeight:600,color:DS.textPrimary}}>
+                    <span style={{display:"inline-block",width:4,height:12,background:c.color,borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>
+                    {c.label} ({c.count}종)
+                  </span>
+                  <span style={{color:DS.textMuted}}>가능 {c.avail} / 대여 {c.rented} / 전체 {c.total}</span>
+                </div>
+                <div style={{height:6,background:"#f1f5f9",borderRadius:3,overflow:"hidden"}}>
+                  <div style={{
+                    height:"100%",width:`${c.total ? Math.min(100,(c.rented/c.total)*100) : 0}%`,
+                    background:c.color,borderRadius:3,
+                  }}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        </PanelSection>
+      )}
+
+      {branchStats.length > 0 && (
+        <PanelSection title="보관 지점별 현황">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {branchStats.map(b => (
+              <div key={b.br} style={{background:"#f8fafc",borderRadius:8,padding:"12px",border:"1px solid #e2e8f0"}}>
+                <div style={{fontWeight:700,fontSize:13,color:DS.textPrimary,marginBottom:6}}>{b.br}</div>
+                <div style={{fontSize:11,color:DS.textSecondary,lineHeight:1.7}}>
+                  <div>{b.count}종 · 전체 {b.total}개</div>
+                  <div>대여 {b.rented} · 가능 {b.avail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </PanelSection>
+      )}
+
+      {admin&&teacherRows.length>0&&(
+        <PanelSection title="선생님별 보유 현황">
+          {teacherRows.map(t=>(
+            <div key={t.id} style={card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:7}}>
+                  <div style={{width:32,height:32,borderRadius:10,background:"#dcfce7",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:DS.primary}}>
+                    {t.name[0]}
+                  </div>
+                  <div>
+                    <span style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{t.name}</span>
+                    <div style={{marginTop:1}}><RoleBadge role={t.role}/></div>
+                  </div>
+                </div>
+                <span style={{background:"#ede9fe",color:"#7c3aed",padding:"4px 12px",borderRadius:99,fontSize:12,fontWeight:700}}>
+                  {t.held.reduce((s,r)=>s+r.quantity,0)}개
+                </span>
+              </div>
+              {t.held.map(ri=>{const dd=ddayTag(ri.due_date);const req=reqs.find(r=>r.id===ri.request_id);return(
+                <div key={ri.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderTop:"1px solid #f8fafc",color:DS.textSecondary}}>
+                  <span>{iname(ri.item_id,items)} · {req?.dispatch_location||"-"}</span>
+                  <span style={{color:dd?.color,fontWeight:dd?.urgent?800:500}}>×{ri.quantity} {dd?.text}</span>
+                </div>
+              );})}
+            </div>
+          ))}
+        </PanelSection>
+      )}
+
+      {!admin&&(()=>{
+        const mine=reqs.filter(r=>r.teacher_id===me.id&&["pending","approved","partial"].includes(r.status));
+        return(
+          <PanelSection title="내 대여 현황">
+            {!mine.length?<Empty text="현재 대여 중인 교구가 없어요"/>:mine.map(req=>{
+              const reqRIs=ris.filter(ri=>ri.request_id===req.id);
+              return(
+                <div key={req.id} style={{...card,borderLeft:`3px solid ${SC[req.status]?.c||"#e2e8f0"}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                    <div style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{req.dispatch_location}</div>
+                    <Badge s={req.status}/>
+                  </div>
+                  <div style={{fontSize:11,color:DS.textSecondary,marginBottom:8}}>{fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}</div>
+                  {reqRIs.map(ri=>{const dd=ddayTag(ri.due_date);return(
+                    <div key={ri.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderTop:"1px solid #f8fafc",color:DS.textSecondary}}>
+                      <span>{iname(ri.item_id,items)} ×{ri.quantity}</span>
+                      <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                        {dd&&<span style={{color:dd.color,fontWeight:dd.urgent?800:500,fontSize:11}}>{dd.text}</span>}
+                        <Badge s={ri.status}/>
+                      </div>
+                    </div>
+                  );})}
+                </div>
+              );
+            })}
+          </PanelSection>
+        );
+      })()}
+    </PageShell>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 교구 목록 — 리디자인
+// ═══════════════════════════════════════════════════════════════════════
+function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,openAddOnMount=false}) {
+  const [q,setQ]=useState("");const[catF,setCatF]=useState("ALL");const[brF,setBrF]=useState("ALL");
+  const[avOnly,setAvOnly]=useState(false);const[sortBy,setSortBy]=useState("code");
+  const[editItem,setEditItem]=useState(null);const[addOpen,setAddOpen]=useState(false);
+
+  useEffect(() => {
+    if (openAddOnMount && canManage(me)) setAddOpen(true);
+  }, [openAddOnMount, me]);
+  const cats=Object.keys(CAT);
+  const list=useMemo(()=>{
+    let r=items;
+    if(catF!=="ALL")r=r.filter(i=>i.category===catF);
+    if(brF!=="ALL")r=r.filter(i=>i.branch===brF);
+    if(avOnly)r=r.filter(i=>availQty(i,ris,rets)>0);
+    if(q.trim()){const lq=q.trim().toLowerCase();r=r.filter(i=>i.name.toLowerCase().includes(lq)||i.code.toLowerCase().includes(lq)||(i.alias||"").toLowerCase().includes(lq));}
+    if(sortBy==="name")r=[...r].sort((a,b)=>a.name.localeCompare(b.name));
+    else if(sortBy==="avail")r=[...r].sort((a,b)=>availQty(b,ris,rets)-availQty(a,ris,rets));
+    else r=[...r].sort((a,b)=>a.code.localeCompare(b.code));
+    return r;
+  },[items,catF,brF,avOnly,q,sortBy,ris,rets]);
+  const inCart=id=>cart.some(c=>c.item_id===id);
+  const toggle=item=>{if(inCart(item.id)){setCart(p=>p.filter(c=>c.item_id!==item.id));return;}if(availQty(item,ris,rets)===0)return;setCart(p=>[...p,{item_id:item.id,quantity:1,due_date:""}]);};
+  const availCount=useMemo(()=>items.reduce((s,i)=>s+availQty(i,ris,rets),0),[items,ris,rets]);
+
+  return(
+    <PageShell>
+      <PageHeader
+        me={me}
+        subtitle={PAGE_META.items.sub}
+        actions={canManage(me)?<Btn sm onClick={()=>setAddOpen(true)}>교구 추가</Btn>:null}
+      />
+
+      <div style={{
+        display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",
+        gap:14,marginBottom:24,
+      }}>
+        <DashStatCard label="전체 품목" value={items.length} iconMark="품목" iconBg={DS.primaryLight} iconColor={DS.primary}/>
+        <DashStatCard label="검색 결과" value={list.length} iconMark="검색" iconBg="#dbeafe" iconColor="#2563eb"/>
+        <DashStatCard label="대여 가능 수량" value={availCount} iconMark="가능" iconBg="#dcfce7" iconColor="#16a34a"/>
+        {cart.length>0&&(
+          <DashStatCard label="장바구니" value={cart.length} iconMark="장바구니" iconBg="#ede9fe" iconColor="#7c3aed"/>
+        )}
+      </div>
+
+      <PanelSection title="교구 검색">
+      <div style={{marginBottom:12}}>
+        <input value={q} onChange={e=>setQ(e.target.value)}
+          placeholder="교구명·코드·별칭 검색..."
+          style={{...inp,background:"#f8fafc",border:"1px solid #e8ecee",borderRadius:12,padding:"12px 14px"}}/>
+      </div>
+
+      <div style={{display:"flex",gap:4,overflowX:"auto",marginBottom:12,paddingBottom:2}}>
+        <button onClick={()=>setCatF("ALL")} style={{
+          padding:"10px 14px",border:"none",borderBottom:catF==="ALL"?`2px solid ${DS.primary}`:"2px solid transparent",
+          background:"transparent",whiteSpace:"nowrap",
+          color:catF==="ALL"?DS.primary:DS.textSecondary,
+          fontWeight:catF==="ALL"?700:500,fontSize:12,cursor:"pointer",flexShrink:0,
+          marginBottom:-1,
+        }}>전체</button>
+        {cats.map(c=>{const m=CAT[c];return(
+          <button key={c} onClick={()=>setCatF(c)} style={{
+            padding:"10px 14px",border:"none",borderBottom:catF===c?`2px solid ${DS.primary}`:"2px solid transparent",
+            background:"transparent",whiteSpace:"nowrap",
+            color:catF===c?DS.primary:DS.textSecondary,
+            fontWeight:catF===c?700:500,fontSize:12,cursor:"pointer",flexShrink:0,
+            marginBottom:-1,
+          }}>{m.label}</button>
+        );})}
+      </div>
+
+      <div style={{display:"flex",gap:6,marginBottom:10}}>
+        <select value={brF} onChange={e=>setBrF(e.target.value)} style={{...inp,flex:1,fontSize:12,padding:"9px 11px"}}>
+          <option value="ALL">전체 지점</option>
+          {BRANCHES.map(b=><option key={b}>{b}</option>)}
+        </select>
+        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...inp,flex:1,fontSize:12,padding:"9px 11px"}}>
+          <option value="code">코드순</option>
+          <option value="name">이름순</option>
+          <option value="avail">가능순</option>
+        </select>
+        <button onClick={()=>setAvOnly(v=>!v)} style={{
+          padding:"9px 13px",borderRadius:8,
+          border:`1px solid ${avOnly?DS.primary:"#e2e8f0"}`,
+          background:avOnly?DS.primaryLight:"#fff",
+          color:avOnly?DS.primary:"#94a3b8",
+          fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,
+          transition:"all 0.15s",
+        }}>대여가능</button>
+      </div>
+      </PanelSection>
+
+      <div style={{fontSize:13,color:DS.textSecondary,marginBottom:12,fontWeight:600}}>{list.length}개 교구</div>
+
+      <InfList all={list} renderItem={item=>{
+        const rented=rentedQty(item.id,ris,rets),pending=pendingQty(item.id,ris),avail=availQty(item,ris,rets),added=inCart(item.id);
+        return(
+          <div key={item.id} style={{
+            ...card,
+            border:added?`1px solid ${DS.primary}`:"1px solid #e8ecee",
+            transition:"all 0.15s",
+          }}>
+            <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10}}>
+              <div style={{
+                width:60,height:60,borderRadius:14,overflow:"hidden",
+                background:"#f1f5f9",flexShrink:0,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                border:"1px solid #e2e8f0",
+              }}>
+                {item.photo_url
+                  ? <img src={item.photo_url} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                  : <span style={{fontSize:11,fontWeight:700,color:DS.textMuted}}>{item.code?.slice(0,3)||"GTS"}</span>
+                }
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>
+                      {item.name}
+                      {item.alias&&<span style={{fontSize:11,color:DS.textMuted,marginLeft:5}}>({item.alias})</span>}
+                    </div>
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center",marginTop:4}}>
+                      <CatTag cat={item.category}/>
+                      <span style={{fontFamily:"monospace",fontSize:10,color:DS.textMuted,background:"#f8fafc",padding:"1px 6px",borderRadius:5}}>{item.code}</span>
+                      <span style={{fontSize:10,color:DS.textSecondary,background:"#f8fafc",padding:"1px 7px",borderRadius:99,border:"1px solid #e2e8f0"}}>{item.branch}</span>
+                    </div>
+                  </div>
+                  {canManage(me)&&(
+                    <button onClick={()=>setEditItem(item)} style={{
+                      background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,
+                      padding:"5px 9px",cursor:"pointer",fontSize:11,color:DS.textSecondary,
+                      marginLeft:8,flexShrink:0,fontWeight:600,
+                    }}>편집</button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 수량 표시 */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
+              {[["전체",item.total_quantity,"#334155","#f1f5f9"],["대여중",rented,"#7c3aed","#ede9fe"],["신청중",pending,"#d97706","#fef3c7"],["가능",avail,avail>0?"#16a34a":"#dc2626",avail>0?"#dcfce7":"#fee2e2"]].map(([l,v,c,bg])=>(
+                <div key={l} style={{background:bg,borderRadius:10,padding:"8px 4px",textAlign:"center"}}>
+                  <div style={{fontSize:18,fontWeight:900,color:c}}>{v}</div>
+                  <div style={{fontSize:10,color:c,fontWeight:700,opacity:0.7,marginTop:1}}>{l}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{display:"flex",gap:7}}>
+              <Btn sm ghost color={DS.textSecondary} onClick={()=>onDetail(item)}>상세보기</Btn>
+              <Btn sm
+                color={added?"#dc2626":avail>0?DS.primary:"#cbd5e1"}
+                disabled={!added&&avail===0}
+                onClick={()=>toggle(item)}>
+                {added?"빼기":avail>0?"담기":"불가"}
+              </Btn>
+            </div>
+          </div>
+        );
+      }}/>
+      {(addOpen||editItem)&&<ItemForm item={editItem} items={items} onSave={onSaveItem} onClose={()=>{setAddOpen(false);setEditItem(null);}}/>}
+    </PageShell>
+  );
+}
+
+function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me}) {
+  const avail=availQty(item,ris,rets),added=cart.some(c=>c.item_id===item.id);
+  const currR=ris.filter(ri=>["rented","partial_returned"].includes(ri.status)&&ri.item_id===item.id);
+  const history=useMemo(()=>buildItemRentalHistory(item.id,ris,reqs,teachers),[item.id,ris,reqs,teachers]);
+  const ytId=(url)=>{if(!url)return null;const m=url.match(/(?:v=|embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);return m?m[1]:null;};
+  const vid=ytId(item.youtube_url);
+  return(
+    <PageShell>
+      <button onClick={onBack} style={{
+        background:"#fff",border:"1px solid #e8ecee",borderRadius:10,
+        color:DS.primary,fontWeight:600,fontSize:12,cursor:"pointer",
+        padding:"8px 14px",marginBottom:20,fontFamily:"inherit",
+      }}>← 보유 자산으로</button>
+
+      <PageHeader me={me} subtitle={PAGE_META["item-detail"].sub}/>
+
+      <PanelSection>
+        {item.photo_url&&(
+          <div style={{width:"100%",height:200,borderRadius:14,overflow:"hidden",marginBottom:14}}>
+            <img src={item.photo_url} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+          </div>
+        )}
+        <div style={{display:"flex",gap:12,marginBottom:14}}>
+          {!item.photo_url&&(
+            <div style={{width:56,height:56,borderRadius:12,background:"#f8fafc",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:DS.textMuted,flexShrink:0,border:"1px solid #e2e8f0"}}>
+              {item.code?.slice(0,4)||"GTS"}
+            </div>
+          )}
+          <div>
+            <div style={{fontSize:18,fontWeight:900,color:DS.textPrimary}}>{item.name}</div>
+            {item.alias&&<div style={{fontSize:12,color:DS.textMuted,marginTop:2}}>({item.alias})</div>}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:5}}>
+              <CatTag cat={item.category}/>
+              <span style={{fontFamily:"monospace",fontSize:10,color:DS.textMuted,background:"#f8fafc",padding:"2px 7px",borderRadius:5}}>{item.code}</span>
+              <span style={{fontSize:10,background:"#f8fafc",color:DS.textSecondary,padding:"2px 8px",borderRadius:99,border:"1px solid #e2e8f0"}}>{item.branch}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:7,marginBottom:14}}>
+          {[["전체",item.total_quantity,"#334155","#f1f5f9"],["대여중",rentedQty(item.id,ris,rets),"#7c3aed","#ede9fe"],["신청중",pendingQty(item.id,ris),"#d97706","#fef3c7"],["가능",avail,avail>0?"#16a34a":"#dc2626",avail>0?"#dcfce7":"#fee2e2"]].map(([l,v,c,bg])=>(
+            <div key={l} style={{background:bg,borderRadius:12,padding:"10px 4px",textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:900,color:c}}>{v}</div>
+              <div style={{fontSize:10,color:c,fontWeight:700,opacity:0.7,marginTop:1}}>{l}</div>
+            </div>
+          ))}
+        </div>
+
+        <Btn full
+          color={added?"#dc2626":avail>0?DS.primary:"#cbd5e1"}
+          disabled={!added&&avail===0}
+          onClick={()=>{if(added)setCart(p=>p.filter(c=>c.item_id!==item.id));else setCart(p=>[...p,{item_id:item.id,quantity:1,due_date:""}]);}}>
+          {added?"장바구니에서 빼기":avail>0?"장바구니에 담기":"대여 불가"}
+        </Btn>
+
+        <div style={{...panelCard,padding:18,marginTop:14,textAlign:"center"}}>
+          <div style={{fontSize:12,fontWeight:700,color:DS.textSecondary,marginBottom:12}}>교구 QR 코드</div>
+          <div style={{display:"inline-block",padding:10,background:"#fff",borderRadius:12,border:"1px solid #e8ecee"}}>
+            <GearQrDisplay item={item} size={140}/>
+          </div>
+          <div style={{fontSize:10,color:DS.textMuted,marginTop:10,wordBreak:"break-all",lineHeight:1.5}}>
+            {itemQrPayload(item)}
+          </div>
+        </div>
+      </PanelSection>
+
+      {item.description&&(
+        <div style={card}>
+          <div style={{fontSize:12,fontWeight:700,color:DS.textSecondary,marginBottom:7}}>설명</div>
+          <div style={{fontSize:13,lineHeight:1.8,color:DS.textPrimary}}>{item.description}</div>
+        </div>
+      )}
+      {item.usage_description&&(
+        <div style={card}>
+          <div style={{fontSize:12,fontWeight:700,color:DS.textSecondary,marginBottom:7}}>사용 방법</div>
+          <div style={{fontSize:13,lineHeight:1.8,color:DS.textPrimary}}>{item.usage_description}</div>
+        </div>
+      )}
+      {item.safety_notes&&(
+        <div style={{...card,borderLeft:"3px solid #f59e0b"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#d97706",marginBottom:7}}>안전 주의사항</div>
+          <div style={{fontSize:13,lineHeight:1.8,color:DS.textPrimary}}>{item.safety_notes}</div>
+        </div>
+      )}
+      {vid&&(
+        <div style={card}>
+          <div style={{fontSize:12,fontWeight:700,color:DS.textSecondary,marginBottom:9}}>사용법 영상</div>
+          <div style={{borderRadius:12,overflow:"hidden"}}>
+            <iframe width="100%" height="195" src={`https://www.youtube.com/embed/${vid}`} frameBorder="0" allowFullScreen style={{display:"block"}}/>
+          </div>
+        </div>
+      )}
+      {currR.length>0&&(
+        <div style={card}>
+          <div style={{fontSize:12,fontWeight:700,color:DS.textSecondary,marginBottom:9}}>현재 대여 중</div>
+          {currR.map(ri=>{const req=reqs.find(r=>r.id===ri.request_id);const dd=ddayTag(ri.due_date);return(
+            <div key={ri.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderTop:"1px solid #f8fafc",color:DS.textSecondary}}>
+              <span>{req?tname(req.teacher_id,teachers):"-"} · {req?.dispatch_location||"-"}</span>
+              <span style={{color:dd?.color,fontWeight:dd?.urgent?800:500}}>×{ri.quantity} {dd?.text}</span>
+            </div>
+          );})}
+        </div>
+      )}
+
+      <PanelSection title={`대여 히스토리 (${history.length}건)`}>
+        {history.length===0 ? <Empty text="대여 기록이 없습니다"/> : (
+          <div style={{overflowX:"auto"}}>
+            <div style={{
+              display:"grid",gridTemplateColumns:"minmax(72px,1fr) minmax(56px,0.8fr) minmax(80px,1fr) minmax(48px,0.5fr) minmax(72px,0.8fr) minmax(64px,0.7fr)",
+              gap:8,padding:"8px 0",borderBottom:"1px solid #e2e8f0",fontSize:10,fontWeight:700,color:DS.textMuted,
+            }}>
+              <span>대여자</span><span>파견지</span><span>기간</span><span>수량</span><span>반납예정</span><span>상태</span>
+            </div>
+            {history.map(h=>{
+              const dd=ddayTag(h.due_date);
+              return(
+                <div key={h.id} style={{
+                  display:"grid",gridTemplateColumns:"minmax(72px,1fr) minmax(56px,0.8fr) minmax(80px,1fr) minmax(48px,0.5fr) minmax(72px,0.8fr) minmax(64px,0.7fr)",
+                  gap:8,padding:"10px 0",borderTop:"1px solid #f8fafc",fontSize:11,alignItems:"center",
+                }}>
+                  <span style={{fontWeight:600,color:DS.textPrimary}}>{h.teacherName}</span>
+                  <span style={{color:DS.textSecondary}}>{h.location}</span>
+                  <span style={{color:DS.textMuted,fontSize:10}}>{h.start?`${fmt(h.start)}~`:""}{h.end?fmt(h.end):"-"}</span>
+                  <span style={{fontWeight:700}}>{h.quantity}개</span>
+                  <span style={{color:dd?.color,fontWeight:dd?.urgent?700:500}}>{h.due_date?fmt(h.due_date):"-"}</span>
+                  <Badge s={h.status}/>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </PanelSection>
+    </PageShell>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 대여 현황 (선생님별) — 대시보드 스타일
+// ═══════════════════════════════════════════════════════════════════════
+function buildTeacherSummaries(teachers, reqs, ris, items) {
+  return teachers
+    .filter(t => t.role !== "superadmin")
+    .map(teacher => {
+      const lines = ris
+        .map(ri => {
+          const req = reqs.find(r => r.id === ri.request_id && r.teacher_id === teacher.id);
+          if (!req) return null;
+          const d = ri.due_date ? dday(ri.due_date) : null;
+          const isCurrent = ["rented", "partial_returned"].includes(ri.status);
+          const isOverdue = isCurrent && d !== null && d < 0;
+          const isReturned = ri.status === "returned";
+          return {
+            ri, req,
+            item: items.find(i => i.id === ri.item_id),
+            d, isCurrent, isOverdue, isReturned,
+            sortAt: ri.approved_at || ri.created_at || req.created_at || "",
+          };
+        })
+        .filter(Boolean);
+
+      const current = lines.filter(l => l.isCurrent);
+      const overdue = current.filter(l => l.isOverdue);
+      const returned = lines.filter(l => l.isReturned);
+
+      return {
+        teacher,
+        lines,
+        current,
+        overdue,
+        itemCount: current.length,
+        totalQty: current.reduce((s, l) => s + l.ri.quantity, 0),
+        hasOverdue: overdue.length > 0,
+        hasCurrent: current.length > 0,
+        returnedCount: returned.length,
+      };
+    });
+}
+
+function MiniBadge({label,bg,color}) {
+  return (
+    <span style={{
+      display:"inline-block",padding:"3px 10px",borderRadius:99,
+      fontSize:10,fontWeight:700,background:bg,color,
+    }}>{label}</span>
+  );
+}
+
+function RentalApprovalPage({me,reqs,ris,items,teachers,onApprove,onReject}) {
+  const [rejectId,setRejectId]=useState(null);
+  const [reason,setReason]=useState("");
+  const pendReqs=reqs.filter(r=>r.status==="pending");
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META["rental-approval"].sub} alertCount={pendReqs.length}/>
+
+      <div style={{
+        display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",
+        gap:14,marginBottom:24,
+      }}>
+        <DashStatCard label="승인 대기" value={pendReqs.length} iconMark="대기" iconBg="#fef3c7" iconColor="#d97706"/>
+      </div>
+
+      {pendReqs.length===0 ? (
+        <PanelSection title="대여 승인 대기">
+          <Empty text="승인 대기 중인 대여 신청이 없습니다"/>
+        </PanelSection>
+      ) : pendReqs.map(req=>{
+        const t=teachers.find(x=>x.id===req.teacher_id);
+        const reqRIs=ris.filter(ri=>ri.request_id===req.id);
+        return(
+          <PanelSection key={req.id} title={`${t?.name||"선생님"} · ${req.dispatch_location}`}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+              <div style={{fontSize:12,color:DS.textSecondary,lineHeight:1.7}}>
+                <div>파견 기간: {fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}</div>
+                {req.memo&&<div style={{marginTop:4,color:DS.textMuted}}>메모: {req.memo}</div>}
+                <div style={{marginTop:4}}>신청일: {fmt(req.created_at)}</div>
+              </div>
+              <Badge s="pending"/>
+            </div>
+            <div style={{marginBottom:12}}>
+              {reqRIs.map(ri=>(
+                <div key={ri.id} style={{
+                  fontSize:13,padding:"8px 0",borderTop:"1px solid #f1f5f9",
+                  display:"flex",justifyContent:"space-between",color:DS.textPrimary,
+                }}>
+                  <span style={{fontWeight:600}}>{iname(ri.item_id,items)}</span>
+                  <span style={{color:DS.textSecondary}}>×{ri.quantity}개 · 반납예정 {ri.due_date?fmt(ri.due_date):"-"}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <Btn sm color={DS.primary} onClick={()=>onApprove(req.id)}>승인</Btn>
+              <Btn sm danger onClick={()=>{setRejectId(req.id);setReason("");}}>거절</Btn>
+            </div>
+          </PanelSection>
+        );
+      })}
+
+      {rejectId&&(
+        <Modal title="거절 사유 입력" onClose={()=>setRejectId(null)}>
+          <Txa2 label="거절 사유 *" value={reason} onChange={e=>setReason(e.target.value)} placeholder="거절 이유를 입력하세요 (선생님에게 표시됩니다)"/>
+          <Btn full danger onClick={()=>{
+            if(!reason.trim())return alert("거절 사유를 입력하세요");
+            onReject(rejectId,reason);
+            setRejectId(null);
+          }}>거절 처리</Btn>
+        </Modal>
+      )}
+    </PageShell>
+  );
+}
+
+function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onDamage,onLoss}) {
+  const pendRets = filterReturnPendingLastWeek(rets);
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={`${PAGE_META["returns-approval"].sub} (최근 7일)`} alertCount={pendRets.length}/>
+      {pendRets.length === 0 ? (
+        <PanelSection title="반납 승인 대기">
+          <Empty text="승인 대기 중인 반납 신청이 없습니다"/>
+        </PanelSection>
+      ) : pendRets.map(ret => {
+        const ri = ris.find(r => r.id === ret.rental_item_id);
+        return (
+          <PanelSection key={ret.id} title={iname(ri?.item_id, items)}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+              <div style={{fontSize:13,color:DS.textSecondary,lineHeight:1.7}}>
+                <div>반납자: {tname(ret.teacher_id, teachers)}</div>
+                <div>수량: {ret.quantity}개 · <Badge s={ret.status}/></div>
+                {ret.memo && <div style={{marginTop:4,color:DS.textMuted}}>{ret.memo}</div>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <Btn sm color={DS.primary} onClick={() => onApproveRet(ret.id)}>승인</Btn>
+              {ret.condition === "damaged" && <Btn sm danger onClick={() => onDamage(ret.id)}>파손확인</Btn>}
+              {ret.condition === "lost" && <Btn sm color="#be185d" onClick={() => onLoss(ret.id)}>분실확인</Btn>}
+            </div>
+          </PanelSection>
+        );
+      })}
+    </PageShell>
+  );
+}
+
+function InstitutionsPage({me,items,ris}) {
+  const branches = useMemo(() => {
+    const list = [...new Set([...BRANCHES, ...items.map(i => i.branch).filter(Boolean)])];
+    return list.map(br => {
+      const brItems = items.filter(i => i.branch === br);
+      const total = brItems.reduce((s, i) => s + i.total_quantity, 0);
+      const rented = brItems.reduce((s, i) => s + rentedQty(i.id, ris), 0);
+      return { br, count: brItems.length, total, rented, avail: total - rented };
+    });
+  }, [items, ris]);
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META.institutions.sub}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:14}}>
+        {branches.map(b => (
+          <div key={b.br} style={panelCard}>
+            <div style={{fontSize:16,fontWeight:700,color:"#111827",marginBottom:10}}>{b.br}</div>
+            <div style={{fontSize:12,color:DS.textSecondary,lineHeight:1.8}}>
+              <div>교구 {b.count}종 · 전체 {b.total}개</div>
+              <div>대여 {b.rented} · 가능 {b.avail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </PageShell>
+  );
+}
+
+function StatsPage({me,items,ris,reqs,teachers}) {
+  const totalQty = items.reduce((s, i) => s + i.total_quantity, 0);
+  const rentedNow = ris.filter(r => ["rented", "partial_returned"].includes(r.status)).reduce((s, r) => s + r.quantity, 0);
+  const monthBars = useMemo(() => buildMonthlyRentalCounts(ris), [ris]);
+  const maxMonth = Math.max(1, ...monthBars.map(m => m.count));
+  const teacherCount = teachers.filter(t => t.role !== "superadmin").length;
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META.stats.sub}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14,marginBottom:24}}>
+        <DashStatCard label="전체 수량" value={totalQty} iconMark="수량" iconBg={DS.primaryLight} iconColor={DS.primary}/>
+        <DashStatCard label="대여 중" value={rentedNow} iconMark="대여" iconBg="#dbeafe" iconColor="#2563eb"/>
+        <DashStatCard label="교구 종류" value={items.length} iconMark="종류" iconBg="#f1f5f9" iconColor="#64748b"/>
+        <DashStatCard label="선생님" value={teacherCount} iconMark="인원" iconBg="#ede9fe" iconColor="#7c3aed"/>
+      </div>
+      <PanelSection title="월별 대여 수량">
+        <div style={{display:"flex",alignItems:"flex-end",gap:8,height:120}}>
+          {monthBars.map(m => (
+            <div key={m.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+              <div style={{
+                width:"100%",maxWidth:36,
+                height:`${Math.max(8,(m.count/maxMonth)*96)}px`,
+                background:`linear-gradient(180deg, ${DS.primary} 0%, #86efac 100%)`,
+                borderRadius:"6px 6px 2px 2px",minHeight:8,
+              }}/>
+              <span style={{fontSize:10,color:DS.textMuted}}>{m.label}</span>
+            </div>
+          ))}
+        </div>
+      </PanelSection>
+    </PageShell>
+  );
+}
+
+function NoticesPage({me,notices,onAdd,onDelete}) {
+  const canWrite = isAdmin(me);
+  const [title,setTitle]=useState("");
+  const [body,setBody]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  const handleAdd = async () => {
+    if (!title.trim()) return alert("제목을 입력하세요");
+    setSaving(true);
+    await onAdd({ title: title.trim(), body: body.trim() });
+    setTitle("");
+    setBody("");
+    setSaving(false);
+  };
+
+  const sorted = [...(notices || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META.notices.sub}/>
+
+      {canWrite && (
+        <PanelSection title="공지 작성">
+          <Inp2 label="제목 *" value={title} onChange={e=>setTitle(e.target.value)} placeholder="공지 제목"/>
+          <Txa2 label="내용" value={body} onChange={e=>setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
+          <Btn full onClick={handleAdd} disabled={saving}>{saving ? "등록 중..." : "공지 등록"}</Btn>
+        </PanelSection>
+      )}
+
+      <PanelSection title="공지 목록">
+        {sorted.length === 0 ? (
+          <Empty text="등록된 공지가 없습니다"/>
+        ) : sorted.map((n, i) => {
+          const isNew = n.created_at && Date.now() - new Date(n.created_at).getTime() <= WEEK_MS;
+          return (
+            <div key={n.id || i} style={{
+              padding:"14px 0",
+              borderTop:i>0?"1px solid #f1f5f9":"none",
+            }}>
+              <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+                <div style={{
+                  width:8,height:8,borderRadius:"50%",marginTop:6,flexShrink:0,
+                  background:isNew?DS.primary:"transparent",
+                }}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:15,fontWeight:700,color:"#111827"}}>{n.title}</div>
+                  <div style={{fontSize:11,color:DS.textMuted,marginTop:4}}>
+                    {fmt(n.created_at)} {n.author_name ? `· ${n.author_name}` : ""}
+                  </div>
+                  {n.body && (
+                    <div style={{fontSize:13,color:DS.textSecondary,marginTop:10,lineHeight:1.7,whiteSpace:"pre-wrap"}}>
+                      {n.body}
+                    </div>
+                  )}
+                </div>
+                {canWrite && (
+                  <button type="button" onClick={()=>{ if(confirm("이 공지를 삭제할까요?")) onDelete(n.id); }} style={{
+                    border:"none",background:"#fee2e2",color:"#dc2626",
+                    borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+                  }}>삭제</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </PanelSection>
+    </PageShell>
+  );
+}
+
+function SettingsPage({me,onChangePw,onLogout}) {
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META.settings.sub}/>
+      <PanelSection title="계정">
+        <div style={{fontSize:14,fontWeight:600,color:DS.textPrimary,marginBottom:4}}>{me.name}</div>
+        <div style={{marginBottom:16}}><RoleBadge role={me.role}/></div>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <Btn onClick={onChangePw}>비밀번호 변경</Btn>
+          <Btn danger onClick={onLogout}>로그아웃</Btn>
+        </div>
+      </PanelSection>
+    </PageShell>
+  );
+}
+
+function RentalManageHubPage({me,setPage}) {
+  const cards = [
+    { id: "rental-approval", label: "대여승인", desc: "선생님 대여 신청 승인", color: "#d97706" },
+    { id: "rental-status", label: "대여현황", desc: "선생님별 대여 현황", color: DS.primary },
+    { id: "returns-approval", label: "반납승인", desc: "반납 신청 승인", color: "#2563eb" },
+    { id: "overdue", label: "연체관리", desc: "연체 건 조회", color: "#dc2626" },
+  ];
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META["rental-manage"].sub}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14}}>
+        {cards.map(c => (
+          <button key={c.id} type="button" onClick={() => setPage(c.id)} style={{
+            ...panelCard,textAlign:"left",cursor:"pointer",fontFamily:"inherit",
+            borderLeft:`4px solid ${c.color}`,
+          }}>
+            <div style={{fontSize:16,fontWeight:700,color:"#111827",marginBottom:6}}>{c.label}</div>
+            <div style={{fontSize:12,color:DS.textSecondary}}>{c.desc}</div>
+          </button>
+        ))}
+      </div>
+    </PageShell>
+  );
+}
+
+function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, embedded = false }) {
+  const holdings = useMemo(
+    () => buildTeacherHoldingsByItem(me, reqs, ris, items, rets),
+    [me, reqs, ris, items, rets]
+  );
+  const totalHeld = holdings.reduce((s, h) => s + h.totalHeld, 0);
+  const totalPending = holdings.reduce((s, h) => s + h.totalPendingReturn, 0);
+
+  const body = (
+    <>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+        gap: 12,
+        marginBottom: 20,
+      }}>
+        <DashStatCard label="대여 교구 종류" value={holdings.length} iconMark="종류" iconBg={DS.primaryLight} iconColor={DS.primary}/>
+        <DashStatCard label="보유 수량" value={totalHeld} iconMark="수량" iconBg="#ede9fe" iconColor="#7c3aed"/>
+        <DashStatCard label="반납 승인 대기" value={totalPending} iconMark="대기" iconBg="#fef9c3" iconColor="#ca8a04"/>
+      </div>
+
+      {holdings.length === 0 ? (
+        <PanelSection title="대여 중인 교구">
+          <Empty text="현재 대여 중인 교구가 없습니다"/>
+        </PanelSection>
+      ) : (
+        <PanelSection title="교구별 대여 · 반납">
+          {holdings.map(group => {
+            const item = group.item;
+            const pendingRets = (rets || []).filter(
+              r => r.status === "return_pending" && group.lines.some(l => l.ri.id === r.rental_item_id)
+            );
+            return (
+              <div key={group.item_id} style={{
+                padding: "14px 0",
+                borderTop: "1px solid #f1f5f9",
+              }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                  {item?.photo_url ? (
+                    <img
+                      src={item.photo_url}
+                      alt={item.name}
+                      style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", flexShrink: 0 }}
+                    />
+                  ) : (
+                    <div style={{
+                      width: 56, height: 56, borderRadius: 10, background: "#f8fafc",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 10, fontWeight: 700, color: DS.textMuted, border: "1px solid #e2e8f0",
+                      flexShrink: 0,
+                    }}>
+                      {item?.code?.slice(0, 4) || "—"}
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: DS.textPrimary }}>{item?.name || "-"}</div>
+                    <div style={{ fontFamily: "monospace", fontSize: 11, color: DS.textMuted, marginTop: 3 }}>
+                      {item?.code}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
+                      <span style={{
+                        fontSize: 13, fontWeight: 800, color: "#7c3aed",
+                        background: "#ede9fe", padding: "4px 10px", borderRadius: 8,
+                      }}>
+                        대여 중 {group.totalHeld}개
+                      </span>
+                      {group.totalPendingReturn > 0 && (
+                        <Badge s="return_pending"/>
+                      )}
+                    </div>
+                    <div style={{ marginTop: 10, fontSize: 11, color: DS.textSecondary, lineHeight: 1.6 }}>
+                      {group.lines.map(line => {
+                        const dd = ddayTag(line.due_date);
+                        return (
+                          <div key={line.ri.id}>
+                            · {line.req?.dispatch_location || "파견지"} — 보유 {line.held}개
+                            {line.pendingRet > 0 && (
+                              <span style={{ color: "#ca8a04", fontWeight: 600 }}> (반납 대기 {line.pendingRet}개)</span>
+                            )}
+                            {dd && <span style={{ color: dd.color, marginLeft: 6 }}>{dd.text}</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {pendingRets.length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        {pendingRets.map(ret => (
+                          <div key={ret.id} style={{ fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
+                            └ 반납 요청 {ret.quantity}개 · <Badge s={ret.status}/>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ flexShrink: 0 }}>
+                    <Btn
+                      sm
+                      color="#f97316"
+                      disabled={group.totalReturnable <= 0}
+                      onClick={() => onReturnItem(group)}
+                    >
+                      {group.totalReturnable > 0 ? "반납 신청" : "반납 승인 대기"}
+                    </Btn>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </PanelSection>
+      )}
+    </>
+  );
+
+  if (embedded) return body;
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META["my-rental-status"].sub}/>
+      {body}
+    </PageShell>
+  );
+}
+
+function TeacherRentalReturnPage({
+  me, reqs, ris, items, rets, teachers, onReturnItem, initialTab = "rent",
+}) {
+  const [tab, setTab] = useState(initialTab);
+  useEffect(() => { setTab(initialTab); }, [initialTab]);
+
+  const pendingReturn = useMemo(() => {
+    const holdings = buildTeacherHoldingsByItem(me, reqs, ris, items, rets);
+    return holdings.reduce((s, h) => s + h.totalPendingReturn, 0);
+  }, [me, reqs, ris, items, rets]);
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META["rental-return"].sub}/>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        {[["rent", "대여 신청"], ["return", pendingReturn > 0 ? `반납 신청 (${pendingReturn})` : "반납 신청"]].map(([v, l]) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setTab(v)}
+            style={{
+              flex: 1,
+              padding: "12px 0",
+              borderRadius: 12,
+              border: "none",
+              background: tab === v ? DS.primary : "#f1f5f9",
+              color: tab === v ? "#fff" : DS.textSecondary,
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: "pointer",
+              boxShadow: tab === v ? `0 4px 16px ${DS.primary}33` : "none",
+              fontFamily: "inherit",
+            }}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+      {tab === "rent" ? (
+        <RentalsPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} rets={rets} embedded/>
+      ) : (
+        <MyRentalStatusPage
+          me={me}
+          reqs={reqs}
+          ris={ris}
+          items={items}
+          rets={rets}
+          onReturnItem={onReturnItem}
+          embedded
+        />
+      )}
+    </PageShell>
+  );
+}
+
+function QrPrintCard({ item, qrSize = 120 }) {
+  return (
+    <div className="gts-qr-print-card">
+      <div className="gts-qr-print-qr">
+        <GearQrDisplay item={item} size={qrSize}/>
+      </div>
+      <div className="gts-qr-print-meta">
+        <div className="gts-qr-print-photo">
+          {item.photo_url ? (
+            <img src={item.photo_url} alt={item.name}/>
+          ) : (
+            <span className="gts-qr-print-photo-fallback">{item.code?.slice(0, 4) || "GTS"}</span>
+          )}
+        </div>
+        <div className="gts-qr-print-name">{item.name}</div>
+        <div className="gts-qr-print-code">{item.code}</div>
+      </div>
+    </div>
+  );
+}
+
+function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDetail, onDismiss }) {
+  const avail = availQty(item, ris, rets);
+  const added = cart.some(c => c.item_id === item.id);
+  const teacher = me?.role === "teacher";
+  const canApply = teacher && item.status === "available";
+
+  const addToCart = () => {
+    if (!canApply) return;
+    if (added) {
+      setCart(p => p.filter(c => c.item_id !== item.id));
+      return;
+    }
+    if (avail <= 0) return alert("현재 대여 가능한 수량이 없습니다.");
+    setCart(p => [...p, { item_id: item.id, quantity: 1, due_date: "" }]);
+  };
+
+  return (
+    <PageShell>
+      <div className="no-print" style={{ marginBottom: 16 }}>
+        <button
+          type="button"
+          onClick={onDismiss}
+          style={{
+            background: "#fff", border: "1px solid #e8ecee", borderRadius: 10,
+            color: DS.primary, fontWeight: 600, fontSize: 12, cursor: "pointer",
+            padding: "8px 14px", fontFamily: "inherit",
+          }}
+        >
+          ← 이전
+        </button>
+      </div>
+
+      <PageHeader me={me} subtitle={PAGE_META["qr-rent"].sub}/>
+
+      <PanelSection>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
+          {item.photo_url ? (
+            <img
+              src={item.photo_url}
+              alt={item.name}
+              style={{ width: 120, height: 120, borderRadius: 14, objectFit: "cover", flexShrink: 0 }}
+            />
+          ) : (
+            <div style={{
+              width: 120, height: 120, borderRadius: 14, background: "#f8fafc",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 14, fontWeight: 700, color: DS.textMuted, border: "1px solid #e2e8f0",
+            }}>
+              {item.code?.slice(0, 4)}
+            </div>
+          )}
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: 20, fontWeight: 900, color: DS.textPrimary }}>{item.name}</div>
+            {item.alias && <div style={{ fontSize: 12, color: DS.textMuted, marginTop: 4 }}>({item.alias})</div>}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+              <CatTag cat={item.category}/>
+              <span style={{ fontFamily: "monospace", fontSize: 11, color: DS.textMuted, background: "#f8fafc", padding: "3px 8px", borderRadius: 6 }}>
+                {item.code}
+              </span>
+              <span style={{ fontSize: 11, background: "#f8fafc", padding: "3px 8px", borderRadius: 99, border: "1px solid #e2e8f0" }}>
+                {item.branch}
+              </span>
+            </div>
+            <div style={{
+              marginTop: 14, display: "inline-flex", alignItems: "center", gap: 8,
+              background: avail > 0 ? "#dcfce7" : "#fee2e2",
+              color: avail > 0 ? "#16a34a" : "#dc2626",
+              padding: "8px 14px", borderRadius: 10, fontWeight: 800, fontSize: 14,
+            }}>
+              대여 가능 {avail}개
+              <span style={{ fontWeight: 500, fontSize: 11, opacity: 0.85 }}>
+                / 전체 {item.total_quantity} · 대여중 {rentedQty(item.id, ris, rets)}
+              </span>
+            </div>
+            {item.description && (
+              <p style={{ fontSize: 13, color: DS.textSecondary, lineHeight: 1.7, marginTop: 12 }}>
+                {item.description}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {teacher ? (
+          <div className="no-print" style={{ display: "flex", gap: 8, marginTop: 18, flexWrap: "wrap" }}>
+            <Btn
+              full
+              color={added ? "#dc2626" : avail > 0 ? DS.primary : "#cbd5e1"}
+              disabled={!added && (avail === 0 || !canApply)}
+              onClick={addToCart}
+            >
+              {added ? "장바구니에서 빼기" : avail > 0 ? "장바구니에 담기" : "대여 불가"}
+            </Btn>
+            <Btn full ghost disabled={!cart.length} onClick={onOpenCart}>
+              대여 신청하기 ({cart.length}종)
+            </Btn>
+          </div>
+        ) : (
+          <div className="no-print" style={{ marginTop: 18 }}>
+            <Btn full onClick={onViewDetail}>교구 상세보기</Btn>
+          </div>
+        )}
+      </PanelSection>
+    </PageShell>
+  );
+}
+
+function ItemsQrPage({ me, items }) {
+  const canManageItems = isAdmin(me);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const sorted = useMemo(
+    () => [...items].sort((a, b) => (a.code || "").localeCompare(b.code || "")),
+    [items]
+  );
+
+  const regenerateAll = async () => {
+    if (!confirm(`${items.length}개 교구의 QR 이미지를 모두 다시 생성할까요?`)) return;
+    setBulkLoading(true);
+    for (const it of items) {
+      try { await createItemQr(it); } catch { /* skip */ }
+    }
+    setBulkLoading(false);
+    alert("QR 생성이 완료되었습니다.");
+  };
+
+  const printAll = () => window.print();
+
+  return (
+    <PageShell>
+      <PageHeader
+        me={me}
+        subtitle={PAGE_META["items-qr"].sub}
+        actions={(
+          <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Btn sm ghost onClick={printAll} disabled={!items.length}>전체 QR 출력</Btn>
+            {canManageItems && (
+              <Btn sm onClick={regenerateAll} disabled={bulkLoading || !items.length}>
+                {bulkLoading ? "생성 중..." : "스토리지 QR 재생성"}
+              </Btn>
+            )}
+          </div>
+        )}
+      />
+
+      {items.length === 0 ? (
+        <div className="no-print">
+          <PanelSection title="QR 목록">
+            <Empty text="등록된 교구가 없습니다"/>
+          </PanelSection>
+        </div>
+      ) : (
+        <>
+          <div className="no-print gts-qr-screen-grid">
+            {sorted.map(it => (
+              <QrPrintCard key={it.id} item={it} qrSize={128}/>
+            ))}
+          </div>
+
+          <div id="gts-qr-print-area" className="gts-qr-print-only">
+            <div className="gts-qr-print-header">GTS 교구 QR 코드</div>
+            <div className="gts-qr-print-grid">
+              {sorted.map(it => <QrPrintCard key={it.id} item={it}/>)}
+            </div>
+          </div>
+        </>
+      )}
+    </PageShell>
+  );
+}
+
+function RentalStatusPage({me,teachers,reqs,ris,items,initialFilter="all"}) {
+  const [filter,setFilter]=useState(initialFilter);
+  const [selected,setSelected]=useState(null);
+  const [modalTab,setModalTab]=useState("current");
+
+  useEffect(() => { setFilter(initialFilter); }, [initialFilter]);
+
+  const summaries=useMemo(
+    ()=>buildTeacherSummaries(teachers,reqs,ris,items),
+    [teachers,reqs,ris,items]
+  );
+
+  const filtered=useMemo(()=>{
+    if(filter==="active") return summaries.filter(s=>s.hasCurrent);
+    if(filter==="overdue") return summaries.filter(s=>s.hasOverdue);
+    if(filter==="none") return summaries.filter(s=>!s.hasCurrent);
+    return summaries;
+  },[summaries,filter]);
+
+  const stats=useMemo(()=>{
+    const renting=summaries.filter(s=>s.hasCurrent);
+    const overdue=summaries.filter(s=>s.hasOverdue);
+    const okRenting=renting.filter(s=>!s.hasOverdue).length;
+    return {
+      renting:renting.length,
+      overdue:overdue.length,
+      okRenting,
+      empty:summaries.filter(s=>!s.hasCurrent).length,
+      totalQty:summaries.reduce((s,x)=>s+x.totalQty,0),
+      totalTeachers:summaries.length,
+    };
+  },[summaries]);
+
+  const dueAlerts=useMemo(()=>getDueAlerts(ris,reqs,items,teachers),[ris,reqs,items,teachers]);
+  const monthBars=useMemo(()=>buildMonthlyRentalCounts(ris),[ris]);
+  const maxMonth=Math.max(1,...monthBars.map(m=>m.count));
+
+  const returnRate=useMemo(()=>{
+    const done=ris.filter(r=>r.status==="returned").length;
+    const all=ris.filter(r=>!["pending","rejected"].includes(r.status)).length;
+    return all ? Math.round((done/all)*100) : 100;
+  },[ris]);
+
+  const donutTotal=stats.totalTeachers||1;
+  const donutSegs=[
+    {n:stats.okRenting,color:"#16a34a",label:"정상 대여"},
+    {n:stats.overdue,color:"#dc2626",label:"연체"},
+    {n:stats.empty,color:"#cbd5e1",label:"대여 없음"},
+  ].filter(s=>s.n>0);
+  let donutCursor=0;
+  const donutGradient=donutSegs.length
+    ? `conic-gradient(${donutSegs.map(s=>{
+        const pct=(s.n/donutTotal)*100;
+        const from=donutCursor;
+        donutCursor+=pct;
+        return `${s.color} ${from}% ${donutCursor}%`;
+      }).join(", ")})`
+    : "conic-gradient(#e2e8f0 0% 100%)";
+
+  const openTeacher=(s)=>{setSelected(s);setModalTab("current");};
+
+  const statCard=(id,label,value,iconBg,iconColor,filterId,iconMark)=>{
+    const on=filter===filterId;
+    return(
+      <button key={id} type="button" onClick={()=>setFilter(filterId)} style={{
+        background:"#fff",borderRadius:18,padding:"20px 22px",
+        border:on?`2px solid ${DS.primary}`:"1px solid #e8ecee",
+        boxShadow:on?"0 8px 24px rgba(22,163,74,0.12)":"0 1px 4px rgba(0,0,0,0.04)",
+        display:"flex",alignItems:"center",gap:16,width:"100%",
+        cursor:"pointer",fontFamily:"inherit",textAlign:"left",
+        transition:"box-shadow 0.15s, border-color 0.15s",
+      }}>
+        <div style={{
+          width:52,height:52,borderRadius:14,flexShrink:0,
+          background:iconBg,display:"flex",alignItems:"center",justifyContent:"center",
+          fontSize:13,fontWeight:800,color:iconColor,
+        }}>{iconMark}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:12,color:DS.textMuted,fontWeight:500,marginBottom:4}}>{label}</div>
+          <div style={{fontSize:28,fontWeight:800,color:"#111827",letterSpacing:"-0.5px",lineHeight:1}}>{value}</div>
+        </div>
+        <span style={{color:"#cbd5e1",fontSize:18,fontWeight:300}}>›</span>
+      </button>
+    );
+  };
+
+  const filterChip=(id,label)=>{
+    const on=filter===id;
+    return(
+      <button key={id} type="button" onClick={()=>setFilter(id)} style={{
+        padding:"8px 14px",borderRadius:99,border:"none",
+        background:on?DS.primary:"#f1f5f9",
+        color:on?"#fff":DS.textSecondary,
+        fontSize:12,fontWeight:on?700:500,cursor:"pointer",fontFamily:"inherit",
+      }}>{label}</button>
+    );
+  };
+
+  return(
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META["rental-status"].sub} alertCount={dueAlerts.length}/>
+
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",
+        gap:14,marginBottom:24,
+      }}>
+        {statCard("renting","대여 중 선생님",stats.renting,DS.primaryLight,DS.primary,"active","대여")}
+        {statCard("overdue","연체",stats.overdue,"#fee2e2","#dc2626","overdue","연체")}
+        {statCard("empty","대여 없음",stats.empty,"#f1f5f9","#64748b","none","없음")}
+        {statCard("qty","총 대여 수량",stats.totalQty,"#dbeafe","#2563eb","all","수량")}
+      </div>
+
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"minmax(0,1.35fr) minmax(280px,0.85fr)",
+        gap:18,marginBottom:18,
+      }}>
+        <div style={panelCard}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div style={{fontSize:16,fontWeight:700,color:"#111827"}}>선생님별 대여 현황</div>
+            <button type="button" onClick={()=>setFilter("all")} style={{
+              border:"none",background:"transparent",color:DS.primary,
+              fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
+            }}>전체 보기</button>
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:18}}>
+            {filterChip("all","전체")}
+            {filterChip("active","대여중")}
+            {filterChip("overdue","연체")}
+            {filterChip("none","없음")}
+          </div>
+
+          {filtered.length===0 ? (
+            <div style={{textAlign:"center",padding:"48px 16px"}}>
+              <div style={{
+                width:72,height:72,borderRadius:20,background:"#f8fafc",
+                margin:"0 auto 16px",display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:13,fontWeight:700,color:"#94a3b8",letterSpacing:"0.05em",
+              }}>EMPTY</div>
+              <div style={{fontSize:14,color:DS.textMuted,marginBottom:4}}>해당하는 선생님이 없습니다</div>
+              <div style={{fontSize:12,color:DS.textMuted}}>다른 필터를 선택해 보세요</div>
+            </div>
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:420,overflowY:"auto",paddingRight:4}}>
+              {filtered.map(s=>{
+                const overdueCard=s.hasOverdue;
+                return(
+                  <div
+                    key={s.teacher.id}
+                    onClick={()=>openTeacher(s)}
+                    style={{
+                      display:"flex",alignItems:"center",gap:14,padding:"14px 16px",
+                      borderRadius:14,cursor:"pointer",
+                      border:overdueCard?"1px solid #fecaca":"1px solid #f1f5f9",
+                      background:overdueCard?"#fffafa":"#fafbfc",
+                      transition:"background 0.15s",
+                    }}
+                    onMouseEnter={e=>{e.currentTarget.style.background=overdueCard?"#fef2f2":"#f1f5f9";}}
+                    onMouseLeave={e=>{e.currentTarget.style.background=overdueCard?"#fffafa":"#fafbfc";}}
+                  >
+                    <div style={{
+                      width:42,height:42,borderRadius:12,flexShrink:0,
+                      background:overdueCard?"#fee2e2":DS.primaryLight,
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:16,fontWeight:800,color:overdueCard?"#dc2626":DS.primary,
+                    }}>{s.teacher.name[0]}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:14,color:overdueCard?"#dc2626":"#111827"}}>{s.teacher.name}</div>
+                      <div style={{fontSize:12,color:DS.textMuted,marginTop:3}}>
+                        대여 {s.itemCount}종 · {s.totalQty}개
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:5,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                      {s.hasCurrent&&<MiniBadge label="대여중" bg="#ede9fe" color="#7c3aed"/>}
+                      {s.hasOverdue&&<MiniBadge label="연체" bg="#fee2e2" color="#dc2626"/>}
+                      {!s.hasCurrent&&<MiniBadge label="없음" bg="#f1f5f9" color="#94a3b8"/>}
+                    </div>
+                    <span style={{color:"#cbd5e1",marginLeft:4}}>›</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div style={panelCard}>
+          <div style={{fontSize:16,fontWeight:700,color:"#111827",marginBottom:16}}>반납 임박 · 연체</div>
+          {dueAlerts.length===0 ? (
+            <div style={{textAlign:"center",padding:"40px 12px",color:DS.textMuted,fontSize:13}}>
+              임박·연체 항목이 없습니다
+            </div>
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:0,maxHeight:420,overflowY:"auto"}}>
+              {dueAlerts.slice(0,12).map(({ri,d,itemName,teacher,dueDate},i)=>{
+                const urgent=d<=0;
+                return(
+                  <div key={ri.id} style={{
+                    display:"flex",gap:12,padding:"14px 0",
+                    borderTop:i>0?"1px solid #f1f5f9":"none",alignItems:"flex-start",
+                  }}>
+                    <div style={{
+                      width:8,height:8,borderRadius:"50%",marginTop:6,flexShrink:0,
+                      background:urgent?"#dc2626":DS.primary,
+                    }}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:"#111827",lineHeight:1.4}}>
+                        {itemName} · {teacher}
+                      </div>
+                      <div style={{fontSize:11,color:DS.textMuted,marginTop:4}}>
+                        반납예정 {fmt(dueDate)}
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize:11,fontWeight:800,flexShrink:0,
+                      color:urgent?"#dc2626":"#ea580c",
+                    }}>{ddayTag(dueDate)?.text}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",
+        gap:18,
+      }}>
+        <div style={panelCard}>
+          <div style={{fontSize:15,fontWeight:700,color:"#111827",marginBottom:18}}>선생님 현황 요약</div>
+          <div style={{display:"flex",alignItems:"center",gap:20}}>
+            <div style={{
+              width:120,height:120,borderRadius:"50%",background:donutGradient,
+              display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+            }}>
+              <div style={{
+                width:76,height:76,borderRadius:"50%",background:"#fff",
+                display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+              }}>
+                <div style={{fontSize:22,fontWeight:800,color:"#111827"}}>{donutTotal}</div>
+                <div style={{fontSize:10,color:DS.textMuted}}>명</div>
+              </div>
+            </div>
+            <div style={{flex:1,display:"flex",flexDirection:"column",gap:10}}>
+              {donutSegs.map(s=>(
+                <div key={s.label} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
+                  <span style={{width:10,height:10,borderRadius:3,background:s.color,flexShrink:0}}/>
+                  <span style={{color:DS.textSecondary,flex:1}}>{s.label}</span>
+                  <span style={{fontWeight:700,color:"#111827"}}>{s.n}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div style={panelCard}>
+          <div style={{fontSize:15,fontWeight:700,color:"#111827",marginBottom:18}}>월별 대여 수량</div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:8,height:120}}>
+            {monthBars.map(m=>(
+              <div key={m.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+                <div style={{
+                  width:"100%",maxWidth:36,
+                  height:`${Math.max(8,(m.count/maxMonth)*96)}px`,
+                  background:`linear-gradient(180deg, ${DS.primary} 0%, #86efac 100%)`,
+                  borderRadius:"6px 6px 2px 2px",
+                  minHeight:8,
+                }}/>
+                <span style={{fontSize:10,color:DS.textMuted}}>{m.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={panelCard}>
+          <div style={{fontSize:15,fontWeight:700,color:"#111827",marginBottom:18}}>반납 완료율</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:"8px 0"}}>
+            <div style={{position:"relative",width:120,height:120}}>
+              <svg width="120" height="120" viewBox="0 0 120 120" style={{transform:"rotate(-90deg)"}}>
+                <circle cx="60" cy="60" r="50" fill="none" stroke="#f1f5f9" strokeWidth="12"/>
+                <circle cx="60" cy="60" r="50" fill="none" stroke={DS.primary} strokeWidth="12"
+                  strokeDasharray={`${returnRate*3.14} 314`} strokeLinecap="round"/>
+              </svg>
+              <div style={{
+                position:"absolute",inset:0,display:"flex",flexDirection:"column",
+                alignItems:"center",justifyContent:"center",
+              }}>
+                <div style={{fontSize:26,fontWeight:800,color:"#111827"}}>{returnRate}%</div>
+                <div style={{fontSize:10,color:DS.textMuted}}>완료</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {selected&&(
+        <div style={{
+          position:"fixed",inset:0,background:"rgba(15,23,42,0.45)",
+          backdropFilter:"blur(4px)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:20,
+        }} onClick={()=>setSelected(null)}>
+          <div style={{
+            background:"#fff",borderRadius:20,width:"100%",maxWidth:560,
+            maxHeight:"88vh",overflow:"hidden",display:"flex",flexDirection:"column",
+            boxShadow:"0 24px 48px rgba(0,0,0,0.18)",
+          }} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:"20px 22px 0",borderBottom:"1px solid #f1f5f9"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+                <div>
+                  <div style={{fontSize:18,fontWeight:700,color:selected.hasOverdue?"#dc2626":DS.textPrimary}}>
+                    {selected.teacher.name}
+                  </div>
+                  <div style={{fontSize:12,color:DS.textMuted,marginTop:4}}>
+                    대여 {selected.itemCount}종 · 총 {selected.totalQty}개
+                  </div>
+                </div>
+                <button onClick={()=>setSelected(null)} style={{
+                  background:"#f1f5f9",border:"none",borderRadius:8,
+                  padding:"8px 12px",cursor:"pointer",fontSize:12,fontWeight:600,color:DS.textSecondary,
+                }}>닫기</button>
+              </div>
+              <div style={{display:"flex",gap:0}}>
+                {[["current","현재 대여중"],["history","전체 히스토리"]].map(([id,label])=>{
+                  const on=modalTab===id;
+                  return(
+                    <button key={id} onClick={()=>setModalTab(id)} style={{
+                      flex:1,padding:"12px 0",border:"none",background:"transparent",
+                      borderBottom:on?`2px solid ${DS.primary}`:"2px solid transparent",
+                      color:on?DS.primary:DS.textMuted,fontWeight:on?700:500,
+                      fontSize:13,cursor:"pointer",fontFamily:"inherit",
+                    }}>{label}</button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{padding:"16px 22px 22px",overflowY:"auto",flex:1}}>
+              {modalTab==="current" ? (
+                selected.current.length===0 ? (
+                  <Empty text="현재 대여 중인 교구가 없습니다"/>
+                ) : selected.current.map(({ri,req,item,isOverdue})=>{
+                  const dd=ddayTag(ri.due_date);
+                  const urgent=isOverdue||dd?.urgent;
+                  return(
+                    <div key={ri.id} style={{
+                      padding:"14px",marginBottom:10,borderRadius:12,
+                      border:urgent?"1px solid #fecaca":"1px solid #e2e8f0",
+                      background:urgent?"#fef2f2":"#f8fafc",
+                    }}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                        <div style={{fontWeight:700,fontSize:14,color:DS.textPrimary}}>{item?.name||"-"}</div>
+                        <span style={{fontWeight:800,fontSize:12,color:dd?.color||DS.textMuted}}>{dd?.text||"-"}</span>
+                      </div>
+                      <div style={{fontSize:12,color:DS.textSecondary,lineHeight:1.7}}>
+                        <div>수량 {ri.quantity}개 · {req.dispatch_location}</div>
+                        <div>반납예정 {ri.due_date?fmt(ri.due_date):"-"}</div>
+                      </div>
+                      <div style={{marginTop:8}}><Badge s={ri.status}/></div>
+                    </div>
+                  );
+                })
+              ) : (
+                selected.lines.length===0 ? (
+                  <Empty text="대여 기록이 없습니다"/>
+                ) : (
+                  <div>
+                    <div style={{
+                      display:"grid",gridTemplateColumns:"72px 1fr 40px 1fr 64px",
+                      gap:8,padding:"8px 0",borderBottom:"1px solid #e2e8f0",
+                      fontSize:10,fontWeight:700,color:DS.textMuted,
+                    }}>
+                      <span>날짜</span><span>교구</span><span>수량</span><span>파견지</span><span>상태</span>
+                    </div>
+                    {[...selected.lines].sort((a,b)=>new Date(b.sortAt)-new Date(a.sortAt)).map(l=>{
+                      const dateStr=l.sortAt?fmt(l.sortAt):fmt(l.req?.dispatch_start);
+                      return(
+                        <div key={l.ri.id} style={{
+                          display:"grid",gridTemplateColumns:"72px 1fr 40px 1fr 64px",
+                          gap:8,padding:"10px 0",borderBottom:"1px solid #f8fafc",
+                          fontSize:11,alignItems:"center",
+                        }}>
+                          <span style={{color:DS.textMuted}}>{dateStr}</span>
+                          <span style={{fontWeight:600,color:DS.textPrimary}}>{l.item?.name||"-"}</span>
+                          <span style={{fontWeight:700}}>{l.ri.quantity}</span>
+                          <span style={{color:DS.textSecondary}}>{l.req?.dispatch_location||"-"}</span>
+                          <Badge s={l.ri.status}/>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </PageShell>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 대여 신청 관리
+// ═══════════════════════════════════════════════════════════════════════
+function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,embedded=false}) {
+  const admin=isAdmin(me);
+  const[tab,setTab]=useState("active");
+  const[rejectId,setRejectId]=useState(null);
+  const[reason,setReason]=useState("");
+  const mine=admin?reqs:reqs.filter(r=>r.teacher_id===me.id);
+  const active=mine.filter(r=>["pending","approved","partial"].includes(r.status));
+  const done=mine.filter(r=>["rejected","completed"].includes(r.status));
+  const list=tab==="active"?active:done;
+  const pendingCount=active.filter(r=>r.status==="pending").length;
+
+  const body = (
+    <>
+      <div style={{
+        display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",
+        gap:14,marginBottom:24,
+      }}>
+        <DashStatCard label="진행 중" value={active.length} iconMark="진행" iconBg={DS.primaryLight} iconColor={DS.primary}/>
+        <DashStatCard label="완료·거절" value={done.length} iconMark="완료" iconBg="#f1f5f9" iconColor="#64748b"/>
+        {admin&&<DashStatCard label="승인 대기" value={pendingCount} iconMark="대기" iconBg="#fef3c7" iconColor="#d97706"/>}
+      </div>
+
+      {!admin && !embedded && active.length > 0 && (
+        <div style={{
+          background: "#fff7ed",
+          border: "1px solid #fed7aa",
+          borderRadius: 12,
+          padding: "12px 16px",
+          marginBottom: 16,
+          fontSize: 13,
+          color: "#9a3412",
+          lineHeight: 1.6,
+        }}>
+          교구 <strong>반납 신청</strong>은 <strong>「반납 신청」</strong> 탭에서 교구별로 진행해 주세요.
+        </div>
+      )}
+
+      <PanelSection title="대여 신청 목록">
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        {[["active",`진행중 ${active.length}`,DS.primary],["done",`완료 ${done.length}`,"#64748b"]].map(([v,l,c])=>(
+          <button key={v} onClick={()=>setTab(v)} style={{
+            flex:1,padding:"12px 0",borderRadius:12,border:"none",
+            background:tab===v?c:"#f1f5f9",
+            color:tab===v?"#fff":DS.textSecondary,
+            fontWeight:700,fontSize:13,cursor:"pointer",
+            boxShadow:tab===v?`0 4px 16px ${c}33`:"none",
+            transition:"all 0.2s",fontFamily:"inherit",
+          }}>{l}</button>
+        ))}
+      </div>
+
+      {!list.length&&<Empty text="해당하는 대여 기록이 없습니다"/>}
+      {list.map(req=>{
+        const t=teachers.find(x=>x.id===req.teacher_id);
+        const reqRIs=ris.filter(ri=>ri.request_id===req.id);
+        return(
+          <div key={req.id} style={{...card,borderLeft:`3px solid ${SC[req.status]?.c||"#e2e8f0"}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+              <div>
+                {admin&&(
+                  <div style={{fontSize:11,fontWeight:700,color:DS.primary,marginBottom:3}}>
+                    {t?.name} <RoleBadge role={t?.role}/>
+                  </div>
+                )}
+                <div style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{req.dispatch_location}</div>
+                <div style={{fontSize:11,color:DS.textSecondary,marginTop:2}}>{fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}</div>
+                {req.memo&&<div style={{fontSize:11,color:DS.textMuted,marginTop:1}}>{req.memo}</div>}
+                {req.rejection_reason&&(
+                  <div style={{fontSize:11,color:"#dc2626",background:"#fee2e2",padding:"4px 8px",borderRadius:7,marginTop:5,fontWeight:600}}>
+                    거절: {req.rejection_reason}
+                  </div>
+                )}
+              </div>
+              <Badge s={req.status}/>
+            </div>
+            {reqRIs.map(ri=>{const dd=ddayTag(ri.due_date);const relRets=rets.filter(r=>r.rental_item_id===ri.id);return(
+              <div key={ri.id} style={{padding:"7px 0",borderTop:"1px solid #f8fafc"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:13,fontWeight:600,color:DS.textPrimary}}>{iname(ri.item_id,items)} ×{ri.quantity}</span>
+                  <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                    {dd&&<span style={{fontSize:11,color:dd.color,fontWeight:dd.urgent?800:500}}>{dd.text}</span>}
+                    <Badge s={ri.status}/>
+                  </div>
+                </div>
+                {relRets.map(ret=>(
+                  <div key={ret.id} style={{fontSize:10,color:DS.textMuted,marginTop:3}}>
+                    └ 반납 신청 {ret.quantity}개 ({CC[ret.condition]?.l}) · <Badge s={ret.status}/>
+                  </div>
+                ))}
+              </div>
+            );})}
+            {admin&&req.status==="pending"&&(
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                <Btn sm color={DS.primary} onClick={()=>onApprove(req.id)}>승인</Btn>
+                <Btn sm danger onClick={()=>{setRejectId(req.id);setReason("");}}>거절</Btn>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {rejectId&&(
+        <Modal title="거절 사유 입력" onClose={()=>setRejectId(null)}>
+          <Txa2 label="거절 사유 *" value={reason} onChange={e=>setReason(e.target.value)} placeholder="거절 이유 입력 (선생님에게 표시됩니다)"/>
+          <Btn full danger onClick={()=>{if(!reason.trim())return alert("사유를 입력하세요");onReject(rejectId,reason);setRejectId(null);}}>거절 처리</Btn>
+        </Modal>
+      )}
+      </PanelSection>
+    </>
+  );
+
+  if (embedded) return body;
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META.rentals.sub} alertCount={admin ? pendingCount : 0}/>
+      {body}
+    </PageShell>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 장바구니 모달 — 리디자인
+// ═══════════════════════════════════════════════════════════════════════
+function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
+  const[f,setF]=useState({dispatch_location:"",dispatch_start:"",dispatch_end:"",memo:""});
+  const[details,setDetails]=useState(cart.map(c=>({...c,quantity:1,due_date:""})));
+  const setD=(id,k,v)=>setDetails(p=>p.map(c=>c.item_id===id?{...c,[k]:v}:c));
+  const remove=(id)=>{setCart(p=>p.filter(c=>c.item_id!==id));setDetails(p=>p.filter(c=>c.item_id!==id));};
+  const submit=()=>{
+    if(!f.dispatch_location.trim())return alert("파견지를 입력하세요");
+    if(!f.dispatch_start||!f.dispatch_end)return alert("파견 기간을 입력하세요");
+    if(!details.length)return alert("교구를 담아주세요");
+    for(const c of details){const item=items.find(i=>i.id===c.item_id);const av=item?availQty(item,ris,rets):0;if(c.quantity<1||c.quantity>av)return alert(`${item?.name} 수량 오류 (가능: ${av}개)`);}
+    onSubmit({...f,items:details});onClose();
+  };
+  return(
+    <Modal title={`대여 신청 (${details.length}종)`} onClose={onClose}>
+      <Inp2 label="파견지 *" value={f.dispatch_location} onChange={e=>setF(p=>({...p,dispatch_location:e.target.value}))} placeholder="예: 은빛유치원 (성동구)"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
+        <Inp2 label="파견 시작일 *" type="date" value={f.dispatch_start} onChange={e=>setF(p=>({...p,dispatch_start:e.target.value}))}/>
+        <Inp2 label="파견 종료일 *" type="date" value={f.dispatch_end} onChange={e=>setF(p=>({...p,dispatch_end:e.target.value}))}/>
+      </div>
+      <Txa2 label="메모" value={f.memo} onChange={e=>setF(p=>({...p,memo:e.target.value}))}/>
+      <div style={{borderTop:`1px solid ${DS.inputBorder}`,paddingTop:14,marginBottom:14}}>
+        <div style={{fontWeight:800,fontSize:13,color:DS.textPrimary,marginBottom:10}}>신청 교구 ({details.length}종)</div>
+        {!details.length&&<Empty text="교구를 담아주세요"/>}
+        {details.map(c=>{const item=items.find(i=>i.id===c.item_id);const av=item?availQty(item,ris,rets):0;return(
+          <div key={c.item_id} style={{...card,padding:"13px",marginBottom:9}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+              <div style={{display:"flex",alignItems:"center",gap:9}}>
+                {item?.photo_url
+                  ?<img src={item.photo_url} alt="" style={{width:40,height:40,borderRadius:10,objectFit:"cover"}}/>
+                  :<div style={{width:40,height:40,borderRadius:8,background:"#f8fafc",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:DS.textMuted,border:"1px solid #e2e8f0"}}>{item?.code?.slice(0,3)||"—"}</div>
+                }
+                <div>
+                  <span style={{fontWeight:800,fontSize:13,color:DS.textPrimary}}>{item?.name}</span>
+                  <div style={{fontSize:10,color:DS.textMuted,marginTop:1}}>{item?.code}</div>
+                </div>
+              </div>
+              <button onClick={()=>remove(c.item_id)} style={{background:"#fee2e2",border:"none",color:"#dc2626",cursor:"pointer",fontSize:12,borderRadius:8,padding:"4px 10px",fontWeight:600,fontFamily:"inherit"}}>삭제</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 9px"}}>
+              <div>
+                <label style={lbl}>수량 (최대 {av})</label>
+                <input type="number" min={1} max={av} value={c.quantity} onChange={e=>setD(c.item_id,"quantity",parseInt(e.target.value)||1)} style={{...inp,padding:"9px 11px",fontSize:14}}/>
+              </div>
+              <div>
+                <label style={lbl}>반납 예정일</label>
+                <input type="date" value={c.due_date} onChange={e=>setD(c.item_id,"due_date",e.target.value)} style={{...inp,padding:"9px 11px",fontSize:14}}/>
+              </div>
+            </div>
+          </div>
+        );})}
+      </div>
+      <Btn full onClick={submit}>대여 신청하기</Btn>
+    </Modal>
+  );
+}
+
+function ItemReturnModal({ group, onSubmit, onClose }) {
+  const max = group.totalReturnable;
+  const [f, setF] = useState({ quantity: max || 1, condition: "normal", memo: "" });
+
+  useEffect(() => {
+    setF(p => ({ ...p, quantity: max || 1 }));
+  }, [max, group.item_id]);
+
+  return (
+    <Modal title={`반납 신청 — ${group.item?.name || ""}`} onClose={onClose}>
+      <div style={{ background: "#fff7ed", borderRadius: 10, padding: "10px 13px", marginBottom: 13, fontSize: 12, color: "#92400e", fontWeight: 600, lineHeight: 1.6 }}>
+        교구 종류 기준 반납 · 반납 가능 <strong>{max}개</strong>
+        <div style={{ fontWeight: 500, marginTop: 4, fontSize: 11 }}>
+          대여 중 {group.totalHeld}개
+          {group.totalPendingReturn > 0 && ` · 승인 대기 ${group.totalPendingReturn}개`}
+        </div>
+      </div>
+      <Inp2
+        label={`반납 수량 (최대 ${max})`}
+        type="number"
+        min={1}
+        max={max}
+        value={f.quantity}
+        onChange={e => setF(p => ({ ...p, quantity: e.target.value }))}
+      />
+      <Sel2 label="반납 상태" value={f.condition} onChange={e => setF(p => ({ ...p, condition: e.target.value }))}>
+        <option value="normal">정상</option>
+        <option value="damaged">파손</option>
+        <option value="lost">분실</option>
+        <option value="shortage">수량부족</option>
+      </Sel2>
+      <Txa2 label="메모" value={f.memo} onChange={e => setF(p => ({ ...p, memo: e.target.value }))}/>
+      <Btn full color="#f97316" onClick={() => {
+        const q = parseInt(f.quantity, 10) || 0;
+        if (q < 1 || q > max) return alert(`1~${max}개 사이로 입력하세요`);
+        onSubmit({
+          itemId: group.item_id,
+          quantity: q,
+          condition: f.condition,
+          memo: f.memo,
+          lines: group.lines,
+        });
+      }}>
+        반납 신청하기
+      </Btn>
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// APP ROOT — 리디자인
+// ═══════════════════════════════════════════════════════════════════════
+export default function App() {
+  const [session,    setSession]    = useState(null);
+  const [authReady,  setAuthReady]  = useState(false);
+  const [me,         setMe]         = useState(null);
+  const [meLoading,  setMeLoading]  = useState(false);
+  const [activeApp,  setActiveApp]  = useState(null);
+
+  useEffect(() => {
+    const scan = parseGearScanFromLocation();
+    if (scan) {
+      saveGearScan(scan);
+      clearGearScanUrl();
+    }
+  }, []);
+
+  useEffect(()=>{
+    supabase.auth.getSession().then(({data:{session}})=>{ setSession(session); setAuthReady(true); });
+    const {data:{subscription}} = supabase.auth.onAuthStateChange((_,session)=>{
+      setSession(session);
+      if (!session) { setMe(null); setActiveApp(null); }
+    });
+    return ()=>subscription.unsubscribe();
+  },[]);
+
+  useEffect(() => {
+    if (!me || !session) return;
+    if (peekGearScan()) setActiveApp("edu");
+  }, [me, session]);
+
+  useEffect(()=>{
+    if (!session) return;
+    setMeLoading(true);
+    supabase.from("teachers").select("*").eq("id",session.user.id).single()
+      .then(({data:meData})=>{
+        if (meData?.active === false) {
+          supabase.auth.signOut();
+          alert("비활성화된 계정입니다. 관리자에게 문의하세요.");
+          return;
+        }
+        setMe(meData);
+      })
+      .catch(e=>console.error(e))
+      .finally(()=>setMeLoading(false));
+  },[session]);
+
+  const logout = async () => {
+    if (!confirm("로그아웃 하시겠습니까?")) return;
+    await supabase.auth.signOut();
+  };
+
+  if (!authReady) return (
+    <div style={{minHeight:"100vh",background:"#0d1f12",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Spinner/>
+    </div>
+  );
+  if (!session) return <LoginPage/>;
+  if (meLoading||!me) return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0D1829 0%,#1C2951 50%,#0D1829 100%)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Noto Sans KR',sans-serif"}}>
+      <Spinner text="로그인 확인 중..."/>
+    </div>
+  );
+  if (activeApp === "edu") return <EquipmentApp onBack={()=>setActiveApp(null)} me={me} session={session}/>;
+  if (activeApp === "growth") return <GrowthApp onBack={()=>setActiveApp(null)} supabaseUser={me}/>;
+  return <HubPage me={me} onSelect={setActiveApp} onLogout={logout}/>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 홈 허브 — GTS 통합 플랫폼
+// ═══════════════════════════════════════════════════════════════════════
+function HubIconCube({ color }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" aria-hidden>
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+      <line x1="12" y1="22.08" x2="12" y2="12"/>
+    </svg>
+  );
+}
+
+function HubIconUser({ color }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" aria-hidden>
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+      <circle cx="12" cy="7" r="4"/>
+    </svg>
+  );
+}
+
+function HubIconCalendar({ color }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" aria-hidden>
+      <rect x="3" y="4" width="18" height="18" rx="2"/>
+      <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+      <line x1="3" y1="10" x2="21" y2="10"/>
+    </svg>
+  );
+}
+
+function HubIconBook({ color }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" aria-hidden>
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+    </svg>
+  );
+}
+
+const HUB_MODULES = [
+  {
+    id: "edu",
+    title: "교구 시스템",
+    desc: "교구 대여부터 반납, 재고 관리까지 체계적으로 관리하세요.",
+    color: "#22c55e",
+    bg: "linear-gradient(145deg, #0a1f14 0%, #12261a 100%)",
+    border: "rgba(34, 197, 94, 0.35)",
+    features: ["교구 대여 신청", "반납 관리", "재고 현황", "파손·수리 관리", "교구 사용 설명서"],
+    btn: "교구 시스템 입장 →",
+    Icon: HubIconCube,
+    wide: false,
+    ready: true,
+  },
+  {
+    id: "pe",
+    title: "체육 프로그램",
+    desc: "연령별 체육 프로그램을 확인하고 수업을 준비하세요.",
+    color: "#3b82f6",
+    bg: "linear-gradient(145deg, #0c1629 0%, #132240 100%)",
+    border: "rgba(59, 130, 246, 0.35)",
+    features: ["3-4세 프로그램", "5-6세 프로그램", "7세 프로그램", "영어체육 프로그램"],
+    btn: "체육 프로그램 입장 →",
+    Icon: HubIconUser,
+    wide: false,
+    ready: false,
+  },
+  {
+    id: "schedule",
+    title: "스케줄 관리",
+    desc: "선생님 일정과 수업 일정을 한눈에 관리하세요.",
+    color: "#a855f7",
+    bg: "linear-gradient(145deg, #150d24 0%, #1f1535 100%)",
+    border: "rgba(168, 85, 247, 0.35)",
+    features: ["선생님 월별 일정", "원 수업 일정", "개인 레슨 일정", "행사 일정"],
+    btn: "스케줄 관리 입장 →",
+    Icon: HubIconCalendar,
+    wide: false,
+    ready: false,
+  },
+  {
+    id: "resources",
+    title: "수업 자료실",
+    desc: "수업 준비에 필요한 다양한 자료를 확인하세요.",
+    color: "#f97316",
+    bg: "linear-gradient(145deg, #1f1408 0%, #2a1a0c 100%)",
+    border: "rgba(249, 115, 22, 0.35)",
+    features: ["교구 사용 설명서", "수업 대본", "영어 표현", "노래·동작 자료", "신입 교사 연수 자료"],
+    btn: "수업 자료실 입장 →",
+    Icon: HubIconBook,
+    wide: true,
+    ready: false,
+  },
+];
+
+function HubModuleCard({ mod, onEnter }) {
+  const { Icon } = mod;
+  return (
+    <div
+      className={`hub-card${mod.wide ? " hub-card-wide" : ""}`}
+      style={{
+        background: mod.bg,
+        border: `1px solid ${mod.border}`,
+        borderRadius: 16,
+        overflow: "hidden",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div style={{ padding: mod.wide ? "28px 32px 20px" : "26px 26px 18px", flex: 1 }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: 12,
+          background: "rgba(255,255,255,0.04)",
+          border: `1px solid ${mod.border}`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          marginBottom: 18,
+        }}>
+          <Icon color={mod.color}/>
+        </div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 8 }}>{mod.title}</div>
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.55, marginBottom: mod.wide ? 20 : 18 }}>
+          {mod.desc}
+        </div>
+        <div style={mod.wide ? {
+          display: "grid",
+          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+          gap: "6px 24px",
+        } : undefined}>
+          {mod.features.map(t => (
+            <div key={t} style={{
+              display: "flex", alignItems: "center", gap: 8,
+              marginBottom: 7, fontSize: 12, color: "rgba(255,255,255,0.68)",
+            }}>
+              <div style={{ width: 5, height: 5, borderRadius: "50%", background: mod.color, flexShrink: 0 }}/>
+              {t}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding: mod.wide ? "0 32px 28px" : "0 26px 26px" }}>
+        <button
+          type="button"
+          onClick={() => onEnter(mod)}
+          style={{
+            width: "100%",
+            padding: "12px 16px",
+            borderRadius: 10,
+            background: "rgba(255,255,255,0.04)",
+            color: mod.color,
+            fontSize: 14,
+            fontWeight: 800,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            border: `1px solid ${mod.border}`,
+            transition: "background 0.15s",
+          }}
+        >
+          {mod.btn}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function HubPage({ me, onSelect, onLogout }) {
+  const [isPC, setIsPC] = useState(typeof window !== "undefined" && window.innerWidth >= 900);
+  useEffect(() => {
+    const handle = () => setIsPC(window.innerWidth >= 900);
+    window.addEventListener("resize", handle);
+    return () => window.removeEventListener("resize", handle);
+  }, []);
+
+  const handleEnter = (mod) => {
+    if (mod.ready && mod.id === "edu") {
+      onSelect("edu");
+      return;
+    }
+    alert("준비 중입니다. 곧 이용하실 수 있습니다.");
+  };
+
+  const logoutBtn = {
+    background: "transparent",
+    border: "1px solid rgba(255,255,255,0.35)",
+    borderRadius: 8,
+    padding: "7px 14px",
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  };
+
+  return (
+    <div
+      className="hub-page"
+      style={{
+        minHeight: "100vh",
+        background: "linear-gradient(165deg, #060d18 0%, #0d1829 42%, #121f38 100%)",
+        fontFamily: "'Noto Sans KR', 'Inter', 'Apple SD Gothic Neo', sans-serif",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&display=swap');
+        .hub-page * { box-sizing: border-box; }
+        .hub-card { transition: transform 0.2s, box-shadow 0.2s; }
+        .hub-card:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 14px 44px rgba(0, 0, 0, 0.45) !important;
+        }
+        .hub-modules {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 20px;
+          width: 100%;
+          max-width: 1120px;
+        }
+        .hub-card-wide { grid-column: span 2; }
+        @media (max-width: 900px) {
+          .hub-modules {
+            grid-template-columns: 1fr;
+          }
+          .hub-card-wide { grid-column: span 1; }
+        }
+      `}</style>
+
+      <header style={{
+        padding: isPC ? "18px 40px" : "14px 20px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        flexWrap: "wrap",
+        gap: 12,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <GtsHexLogo size={36}/>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 900, color: "#fff", letterSpacing: "-0.02em" }}>GTS 통합 플랫폼</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 3 }}>
+              교구 관리 · 체육 프로그램 · 스케줄 관리 · 자료실
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(255,255,255,0.9)" }}>{me.name}님</span>
+          <RoleBadge role={me.role}/>
+          <button type="button" onClick={onLogout} style={logoutBtn}>로그아웃</button>
+        </div>
+      </header>
+
+      <main style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: isPC ? "48px 40px 32px" : "32px 20px 24px",
+      }}>
+        <div style={{ textAlign: "center", marginBottom: isPC ? 40 : 28, maxWidth: 640 }}>
+          <h1 style={{
+            fontSize: isPC ? 28 : 22,
+            fontWeight: 900,
+            color: "#fff",
+            margin: "0 0 10px",
+            letterSpacing: "-0.03em",
+          }}>
+            어떤 시스템을 사용하시겠어요?
+          </h1>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.42)", margin: 0, lineHeight: 1.6 }}>
+            하나의 계정으로 모든 GTS 서비스를 이용할 수 있습니다
+          </p>
+        </div>
+
+        <div className="hub-modules">
+          {HUB_MODULES.map(mod => (
+            <HubModuleCard key={mod.id} mod={mod} onEnter={handleEnter}/>
+          ))}
+        </div>
+      </main>
+
+      <footer style={{ textAlign: "center", padding: "24px 20px 28px" }}>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginBottom: 6 }}>
+          GTS 통합 플랫폼 · 교구 관리 · 체육 프로그램 · 스케줄 관리 · 자료실
+        </div>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.22)" }}>
+          © 2025 GTS. All rights reserved.
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 교구 대여 시스템
+// ═══════════════════════════════════════════════════════════════════════
+function EquipmentApp({ onBack, me, session }) {
+  const [items,      setItems]      = useState([]);
+  const [teachers,   setTeachers]   = useState([]);
+  const [reqs,       setReqs]       = useState([]);
+  const [ris,        setRIs]        = useState([]);
+  const [rets,       setRets]       = useState([]);
+  const [notices,    setNotices]    = useState([]);
+  const [dataLoading,setDataLoading]= useState(false);
+  const [page,       setPage]       = useState("dashboard");
+  const [cart,       setCart]       = useState([]);
+  const [showCart,   setShowCart]   = useState(false);
+  const [detailItem, setDetailItem] = useState(null);
+  const [scanRentItem,setScanRentItem]= useState(null);
+  const [itemReturnGroup,setItemReturnGroup] = useState(null);
+  const [showPwModal,setShowPwModal]= useState(false);
+  const [showProfile,setShowProfile]= useState(false);
+  const [isPC,setIsPC] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
+
+  useEffect(()=>{
+    const handle = () => setIsPC(window.innerWidth >= 768);
+    window.addEventListener("resize", handle);
+    return () => window.removeEventListener("resize", handle);
+  }, []);
+
+  useEffect(()=>{ loadAll(); },[]);
+
+  useEffect(() => {
+    if (dataLoading || !items.length) return;
+    const scan = consumeGearScan();
+    if (!scan) return;
+    const item = findItemByScan(items, scan);
+    if (item) {
+      setScanRentItem(item);
+      setPage("qr-rent");
+    } else {
+      alert("QR로 연결된 교구를 찾을 수 없습니다.");
+    }
+  }, [dataLoading, items]);
+
+  const loadAll = async () => {
+    setDataLoading(true);
+    try {
+      const [{data:ts},{data:its},{data:rqs},{data:riData},{data:retData}] = await Promise.all([
+        supabase.from("teachers").select("*").order("created_at"),
+        supabase.from("items").select("*").order("code"),
+        supabase.from("rental_requests").select("*").order("created_at",{ascending:false}),
+        supabase.from("rental_items").select("*"),
+        supabase.from("return_requests").select("*").order("created_at",{ascending:false}),
+      ]);
+      setTeachers(ts||[]); setItems(its||[]); setReqs(rqs||[]); setRIs(riData||[]); setRets(retData||[]);
+      const noticeList = await fetchNotices();
+      setNotices(noticeList);
+    } catch(e) { console.error(e); }
+    setDataLoading(false);
+  };
+
+  const addNotice = async ({ title, body }) => {
+    const row = {
+      title,
+      body: body || "",
+      author_id: me.id,
+      author_name: me.name,
+      created_at: new Date().toISOString(),
+    };
+    const next = await persistNotice(row, notices);
+    setNotices(next);
+    alert("공지가 등록되었습니다.");
+  };
+
+  const deleteNotice = async (id) => {
+    const next = await removeNotice(id, notices);
+    setNotices(next);
+  };
+
+  const logout = async () => {
+    if (!confirm("로그아웃 하시겠습니까?")) return;
+    await supabase.auth.signOut();
+  };
+
+  const submitRent = async ({dispatch_location,dispatch_start,dispatch_end,memo,items:ci}) => {
+    const {data:newReq,error}=await supabase.from("rental_requests").insert({teacher_id:me.id,dispatch_location,dispatch_start,dispatch_end,memo,status:"pending"}).select().single();
+    if(error||!newReq){alert("신청 오류: "+error?.message);return;}
+    const {data:newRIs}=await supabase.from("rental_items").insert(ci.map(c=>({request_id:newReq.id,item_id:c.item_id,quantity:c.quantity,due_date:c.due_date||dispatch_end,status:"pending"}))).select();
+    setReqs(p=>[newReq,...p]); setRIs(p=>[...p,...(newRIs||[])]); setCart([]);
+    alert("대여 신청이 완료되었습니다.\n관리자 승인 후 대여가 확정됩니다.");
+  };
+
+  const approveReq = async (reqId) => {
+    if (!canManage(me)) return;
+    const now=new Date().toISOString();
+    await supabase.from("rental_requests").update({status:"approved",approved_by:me.id,approved_at:now}).eq("id",reqId);
+    await supabase.from("rental_items").update({status:"rented",approved_by:me.id,approved_at:now}).eq("request_id",reqId).eq("status","pending");
+    setReqs(p=>p.map(r=>r.id===reqId?{...r,status:"approved",approved_by:me.id,approved_at:now}:r));
+    setRIs(p=>p.map(ri=>ri.request_id===reqId&&ri.status==="pending"?{...ri,status:"rented",approved_by:me.id,approved_at:now}:ri));
+    alert("대여 신청이 승인되었습니다.");
+  };
+
+  const rejectReq = async (reqId,reason) => {
+    if (!canManage(me)) return;
+    const now=new Date().toISOString();
+    await supabase.from("rental_requests").update({status:"rejected",rejected_by:me.id,rejected_at:now,rejection_reason:reason}).eq("id",reqId);
+    await supabase.from("rental_items").update({status:"rejected"}).eq("request_id",reqId).eq("status","pending");
+    setReqs(p=>p.map(r=>r.id===reqId?{...r,status:"rejected",rejected_by:me.id,rejected_at:now,rejection_reason:reason}:r));
+    setRIs(p=>p.map(ri=>ri.request_id===reqId&&ri.status==="pending"?{...ri,status:"rejected"}:ri));
+    alert("대여 신청이 거절되었습니다.");
+  };
+
+  const submitReturnByItem = async ({ quantity, condition, memo, lines }) => {
+    let remaining = quantity;
+    const sorted = [...lines].sort(
+      (a, b) => new Date(a.ri.approved_at || a.req?.created_at || 0) - new Date(b.ri.approved_at || b.req?.created_at || 0)
+    );
+    const payloads = [];
+    for (const line of sorted) {
+      if (remaining <= 0) break;
+      if (line.returnable <= 0) continue;
+      const q = Math.min(remaining, line.returnable);
+      payloads.push({
+        rental_item_id: line.ri.id,
+        quantity: q,
+        condition,
+        memo: memo || "",
+        teacher_id: me.id,
+        status: "return_pending",
+      });
+      remaining -= q;
+    }
+    if (remaining > 0) {
+      alert("반납 가능 수량을 초과했습니다.");
+      return;
+    }
+    const created = [];
+    for (const row of payloads) {
+      const { data, error } = await supabase.from("return_requests").insert(row).select().single();
+      if (error) {
+        alert("반납 신청 오류: " + error.message);
+        return;
+      }
+      created.push(data);
+    }
+    setRets(p => [...created, ...p]);
+    setItemReturnGroup(null);
+    alert(
+      created.length > 1
+        ? `반납 신청 ${created.length}건이 접수되었습니다.\n상태: 반납 승인 대기 · 관리자 승인 후 재고가 복구됩니다.`
+        : "반납 신청이 접수되었습니다.\n상태: 반납 승인 대기 · 관리자 승인 후 재고가 복구됩니다."
+    );
+  };
+
+  const approveReturn = async (retId) => {
+    if (!canManage(me)) return;
+    const now=new Date().toISOString();
+    const ret=rets.find(r=>r.id===retId);
+    await supabase.from("return_requests").update({status:"return_approved",approved_by:me.id,approved_at:now}).eq("id",retId);
+    if(ret){
+      const ri=ris.find(r=>r.id===ret.rental_item_id);
+      if(ri){
+        const approved=[...rets.filter(r=>r.rental_item_id===ret.rental_item_id&&r.status==="return_approved"),ret].reduce((s,r)=>s+r.quantity,0);
+        const ns=approved>=ri.quantity?"returned":"partial_returned";
+        await supabase.from("rental_items").update({status:ns}).eq("id",ri.id);
+        setRIs(p=>p.map(r=>r.id===ri.id?{...r,status:ns}:r));
+        const allRI=ris.filter(r=>r.request_id===ri.request_id);
+        const allDone=allRI.every(r=>r.id===ri.id?ns==="returned":r.status==="returned");
+        const rs=allDone?"completed":"partial";
+        await supabase.from("rental_requests").update({status:rs}).eq("id",ri.request_id);
+        setReqs(p=>p.map(r=>r.id===ri.request_id&&r.status!=="rejected"?{...r,status:rs}:r));
+      }
+    }
+    setRets(p=>p.map(r=>r.id===retId?{...r,status:"return_approved",approved_by:me.id,approved_at:now}:r));
+    alert("반납이 승인되었습니다. 재고가 반영되었습니다.");
+  };
+
+  const confirmDamage=async(id)=>{if(!canManage(me))return;const now=new Date().toISOString();await supabase.from("return_requests").update({status:"damage_confirmed",approved_by:me.id,approved_at:now}).eq("id",id);setRets(p=>p.map(r=>r.id===id?{...r,status:"damage_confirmed",approved_by:me.id,approved_at:now}:r));};
+  const confirmLoss=async(id)=>{if(!canManage(me))return;const now=new Date().toISOString();await supabase.from("return_requests").update({status:"loss_confirmed",approved_by:me.id,approved_at:now}).eq("id",id);setRets(p=>p.map(r=>r.id===id?{...r,status:"loss_confirmed",approved_by:me.id,approved_at:now}:r));};
+
+  const saveItem = async (data,editId) => {
+    if(!canManage(me)){alert("권한이 없습니다");return;}
+    const trySave = async (payload) => {
+      if(editId) return supabase.from("items").update(payload).eq("id",editId).select().single();
+      return supabase.from("items").insert(payload).select().single();
+    };
+    let { data: row, error } = await trySave(data);
+    if (error?.message?.includes("qr_url")) {
+      const { qr_url, ...rest } = data;
+      ({ data: row, error } = await trySave(rest));
+    }
+    if (error) {
+      alert("저장 오류: " + error.message);
+      return;
+    }
+    if (row) {
+      if (editId) setItems(p => p.map(i => i.id === editId ? row : i));
+      else setItems(p => [...p, row]);
+    }
+    return row;
+  };
+
+  if (dataLoading) return (
+    <div style={{minHeight:"100vh",background:DS.pageBg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Noto Sans KR',sans-serif"}}>
+      <Spinner text="데이터 불러오는 중..."/>
+    </div>
+  );
+
+  const admin  = isAdmin(me);
+  const superA = isSuperAdmin(me);
+  const reqBadge = reqs.filter(r=>r.status==="pending").length;
+  const retBadge = filterReturnPendingLastWeek(rets).length;
+  const badge  = reqBadge + retBadge;
+
+  const sidebarNav = buildSidebarNav(me);
+  const mobileNav = flattenSidebarNav(sidebarNav);
+
+  const goItemsFromDetail = () => setPage("items");
+
+  const renderPage = () => {
+    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","stats","settings","rental-manage"].includes(page)) {
+      return (
+        <PageShell>
+          <div style={{textAlign:"center",padding:"70px 20px"}}>
+            <div style={{fontWeight:700,fontSize:16,color:"#dc2626"}}>접근 권한이 없습니다</div>
+          </div>
+        </PageShell>
+      );
+    }
+    if (admin && !superA && ["accounts","items-register","items-qr","settings"].includes(page)) {
+      return (
+        <PageShell>
+          <div style={{textAlign:"center",padding:"70px 20px"}}>
+            <div style={{fontWeight:700,fontSize:16,color:"#dc2626"}}>접근 권한이 없습니다</div>
+          </div>
+        </PageShell>
+      );
+    }
+
+    return (
+      <>
+        {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
+        {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} items={items}/>}
+        {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} items={items} initialFilter="overdue"/>}
+        {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem}/>}
+        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} openAddOnMount/>}
+        {page==="items-qr"&&<ItemsQrPage me={me} items={items}/>}
+        {page==="item-detail"&&detailItem&&<ItemDetailPage item={detailItem} ris={ris} rets={rets} reqs={reqs} teachers={teachers} cart={cart} setCart={setCart} onBack={goItemsFromDetail} me={me}/>}
+        {page==="qr-rent"&&scanRentItem&&(
+          <QrRentPage
+            item={scanRentItem}
+            ris={ris}
+            rets={rets}
+            cart={cart}
+            setCart={setCart}
+            me={me}
+            onOpenCart={()=>setShowCart(true)}
+            onViewDetail={()=>{setDetailItem(scanRentItem);setPage("item-detail");}}
+            onDismiss={()=>{
+              setScanRentItem(null);
+              setPage(me?.role==="teacher"?"rental-return":"items");
+            }}
+          />
+        )}
+        {(page==="rental-return"||(me?.role==="teacher"&&(page==="rentals"||page==="my-rental-status")))&&me?.role==="teacher"&&(
+          <TeacherRentalReturnPage
+            me={me}
+            reqs={reqs}
+            ris={ris}
+            items={items}
+            rets={rets}
+            teachers={teachers}
+            onReturnItem={setItemReturnGroup}
+            initialTab={page==="my-rental-status"?"return":"rent"}
+          />
+        )}
+        {page==="rentals"&&me?.role!=="teacher"&&<RentalsPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} rets={rets} onApprove={approveReq} onReject={rejectReq}/>}
+        {page==="rental-approval"&&<RentalApprovalPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} onApprove={approveReq} onReject={rejectReq}/>}
+        {page==="returns-approval"&&<ReturnsApprovalPage me={me} rets={rets} ris={ris} items={items} teachers={teachers} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
+        {page==="rental-manage"&&<RentalManageHubPage me={me} setPage={setPage}/>}
+        {page==="stats"&&<StatsPage me={me} items={items} ris={ris} reqs={reqs} teachers={teachers}/>}
+        {page==="notices"&&<NoticesPage me={me} notices={notices} onAdd={addNotice} onDelete={deleteNotice}/>}
+        {page==="settings"&&<SettingsPage me={me} onChangePw={()=>setShowPwModal(true)} onLogout={logout}/>}
+        {page==="accounts"&&superA&&<AccountsPage me={me} teachers={teachers} setTeachers={setTeachers} ris={ris} reqs={reqs} items={items}/>}
+      </>
+    );
+  };
+
+  // ── PC 레이아웃 ──────────────────────────────────────────
+  if (isPC) {
+    const SIDEBAR_W = 256;
+    const sb = DARK_SB;
+    return (
+      <div style={{
+        display:"flex",minHeight:"100vh",
+        background:DS.pageBg,
+        fontFamily:"'Noto Sans KR','Apple SD Gothic Neo',sans-serif",
+      }}>
+        <style>{`
+          *{box-sizing:border-box;}
+          ::-webkit-scrollbar{width:5px}
+          ::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:99px}
+          ::-webkit-scrollbar-track{background:transparent}
+          @keyframes spin{to{transform:rotate(360deg)}}
+        `}</style>
+
+        {/* ── 사이드바 ── */}
+        <div className="no-print" style={{
+          width:SIDEBAR_W,
+          background:sb.bg,
+          borderRight:"none",
+          display:"flex",flexDirection:"column",
+          position:"fixed",top:0,left:0,bottom:0,
+          zIndex:100,
+        }}>
+          <div style={{padding:"20px 18px 16px"}}>
+            <button onClick={onBack} style={{
+              background:"rgba(255,255,255,0.08)",
+              border:"1px solid rgba(255,255,255,0.1)",
+              borderRadius:8,padding:"6px 12px",
+              color:"rgba(255,255,255,0.7)",
+              fontSize:11,fontWeight:600,
+              cursor:"pointer",fontFamily:"inherit",
+              marginBottom:18,
+            }}>← 홈</button>
+
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:22}}>
+              <GtsLogo height={36}/>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:"#fff",letterSpacing:"-0.3px"}}>GTS</div>
+                <div style={{fontSize:10,color:sb.muted,marginTop:2,lineHeight:1.3}}>대여 관리 시스템</div>
+              </div>
+            </div>
+          </div>
+
+          {cart.length>0&&(
+            <div style={{padding:"0 16px 10px"}}>
+              <button onClick={()=>setShowCart(true)} style={{
+                width:"100%",padding:"10px 14px",
+                background:"rgba(22,163,74,0.15)",
+                border:"1px solid rgba(22,163,74,0.35)",
+                borderRadius:8,cursor:"pointer",
+                color:"#86efac",fontWeight:600,fontSize:12,
+                textAlign:"left",display:"flex",alignItems:"center",gap:8,
+                fontFamily:"inherit",
+              }}>
+                <span>장바구니</span>
+                <span style={{
+                  marginLeft:"auto",background:DS.primary,color:"#fff",
+                  borderRadius:99,padding:"1px 8px",fontSize:10,fontWeight:700,
+                }}>{cart.length}</span>
+              </button>
+            </div>
+          )}
+
+          <SidebarNav
+            nav={sidebarNav}
+            page={page}
+            setPage={setPage}
+            sb={sb}
+            badge={badge}
+            reqBadge={reqBadge}
+            retBadge={retBadge}
+            admin={admin}
+          />
+
+          <div style={{padding:"12px 14px 20px"}}>
+            <div style={{
+              background:sb.profileBg,border:`1px solid ${sb.profileBorder}`,
+              borderRadius:14,padding:"14px 14px 12px",
+            }}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <div style={{
+                  width:40,height:40,borderRadius:12,flexShrink:0,
+                  background:"rgba(22,163,74,0.25)",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:15,fontWeight:800,color:"#86efac",
+                }}>{me.name[0]}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:13,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {me.name}님
+                  </div>
+                  <div style={{fontSize:11,color:sb.muted,marginTop:2}}>{ROLE_CFG[me.role]?.label}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setShowPwModal(true)} style={{
+                  flex:1,padding:"8px",borderRadius:8,border:"none",
+                  background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.65)",
+                  fontSize:11,cursor:"pointer",fontFamily:"inherit",
+                }}>설정</button>
+                <button onClick={logout} style={{
+                  flex:1,padding:"8px",borderRadius:8,border:"none",
+                  background:"rgba(220,38,38,0.15)",color:"#fca5a5",
+                  fontSize:11,cursor:"pointer",fontFamily:"inherit",
+                }}>로그아웃</button>
+              </div>
+            </div>
+            <div style={{
+              marginTop:14,height:56,borderRadius:12,overflow:"hidden",
+              background:"linear-gradient(135deg, rgba(22,163,74,0.2) 0%, rgba(17,24,39,0.8) 100%)",
+              display:"flex",alignItems:"flex-end",justifyContent:"center",gap:6,paddingBottom:8,
+            }}>
+              {[28,36,22,32].map((h,i)=>(
+                <div key={i} style={{
+                  width:14,height:h,borderRadius:4,
+                  background:`rgba(22,163,74,${0.35 + i * 0.12})`,
+                }}/>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── 메인 콘텐츠 ── */}
+        <div style={{
+          marginLeft:SIDEBAR_W,
+          flex:1,
+          padding:"32px 36px",
+          maxWidth:`calc(100vw - ${SIDEBAR_W}px)`,
+          overflowY:"auto",
+          minHeight:"100vh",
+        }}>
+          {renderPage()}
+        </div>
+
+        {showCart&&<CartModal cart={cart} setCart={setCart} items={items} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
+        {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
+        {showPwModal&&<ChangePwModal onClose={()=>setShowPwModal(false)}/>}
+      </div>
+    );
+  }
+
+  // ── 모바일 레이아웃 ──────────────────────────────────────
+  const mobileTitle = (PAGE_META[page] || PAGE_META.dashboard).title;
+  return (
+    <div style={{
+      maxWidth:520,margin:"0 auto",
+      minHeight:"100vh",
+      background:DS.pageBg,
+      fontFamily:"'Noto Sans KR','Apple SD Gothic Neo',sans-serif",
+      paddingBottom:90,
+    }}>
+      <style>{`*{box-sizing:border-box;} @keyframes spin{to{transform:rotate(360deg)}}`}</style>
+
+      <div className="no-print" style={{
+        background:DARK_SB.bg,
+        padding:"14px 16px",
+        position:"sticky",top:0,zIndex:200,
+        display:"flex",justifyContent:"space-between",alignItems:"center",
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={onBack} style={{
+            background:"rgba(255,255,255,0.08)",
+            border:"1px solid rgba(255,255,255,0.1)",
+            borderRadius:8,padding:"6px 12px",
+            color:"rgba(255,255,255,0.75)",
+            fontSize:11,fontWeight:600,
+            cursor:"pointer",fontFamily:"inherit",
+            flexShrink:0,
+          }}>← 홈</button>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <GtsLogo height={26}/>
+            <div>
+              <div style={{fontSize:14,fontWeight:800,color:"#fff"}}>{mobileTitle}</div>
+              <div style={{fontSize:10,color:DARK_SB.muted,marginTop:1}}>{me.name}</div>
+            </div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:7,alignItems:"center"}}>
+          {cart.length>0&&(
+            <button onClick={()=>setShowCart(true)} style={{
+              background:"rgba(22,163,74,0.2)",
+              border:"1px solid rgba(22,163,74,0.35)",
+              borderRadius:8,
+              padding:"7px 12px",cursor:"pointer",
+              color:"#86efac",fontWeight:600,fontSize:11,
+              fontFamily:"inherit",
+            }}>장바구니 {cart.length}</button>
+          )}
+          <button onClick={()=>setShowProfile(v=>!v)} style={{
+            background:"rgba(255,255,255,0.08)",
+            border:"1px solid rgba(255,255,255,0.1)",
+            borderRadius:8,padding:"7px 12px",
+            cursor:"pointer",color:"#fff",fontWeight:600,fontSize:12,
+            fontFamily:"inherit",
+          }}>{me.name[0]}</button>
+        </div>
+      </div>
+
+      {/* 프로필 드롭다운 */}
+      {showProfile&&(
+        <>
+          <div style={{
+            position:"fixed",top:62,right:8,
+            background:"#fff",borderRadius:16,
+            boxShadow:"0 8px 32px rgba(0,0,0,0.15)",
+            zIndex:300,padding:"8px 0",minWidth:200,
+            border:"1px solid #e2e8f0",
+          }} onClick={()=>setShowProfile(false)}>
+            <div style={{padding:"12px 16px",borderBottom:"1px solid #f1f5f9"}}>
+              <div style={{fontWeight:800,fontSize:13,color:DS.textPrimary}}>{me.name}</div>
+              <div style={{marginTop:4}}><RoleBadge role={me.role}/></div>
+              <div style={{fontSize:11,color:DS.textMuted,marginTop:4,overflow:"hidden",textOverflow:"ellipsis"}}>{session.user.email}</div>
+            </div>
+            <button onClick={()=>{setShowPwModal(true);setShowProfile(false);}} style={{
+              display:"block",width:"100%",padding:"13px 16px",border:"none",
+              background:"none",textAlign:"left",fontSize:13,cursor:"pointer",
+              color:DS.textSecondary,fontFamily:"inherit",fontWeight:600,
+            }}>비밀번호 변경</button>
+            <button onClick={()=>{logout();setShowProfile(false);}} style={{
+              display:"block",width:"100%",padding:"13px 16px",border:"none",
+              background:"none",textAlign:"left",fontSize:13,cursor:"pointer",
+              color:"#dc2626",fontFamily:"inherit",fontWeight:600,
+            }}>로그아웃</button>
+          </div>
+          <div style={{position:"fixed",inset:0,zIndex:299}} onClick={()=>setShowProfile(false)}/>
+        </>
+      )}
+
+      <div style={{padding:"16px 14px"}}>{renderPage()}</div>
+
+      {/* 하단 내비 */}
+      <div className="no-print" style={{
+        position:"fixed",bottom:0,left:"50%",
+        transform:"translateX(-50%)",
+        width:"100%",maxWidth:520,
+        background:DARK_SB.bg,
+        borderTop:"1px solid rgba(255,255,255,0.08)",
+        display:"flex",
+        boxShadow:"0 -4px 24px rgba(0,0,0,0.25)",
+      }}>
+        <div style={{display:"flex",overflowX:"auto",width:"100%"}}>
+        {mobileNav.map(n=>{
+          const active = isNavPageActive(page, n.id);
+          return (
+            <button key={n.id} onClick={()=>setPage(n.id)} style={{
+              flex:"1 0 auto",minWidth:56,padding:"11px 8px 9px",border:"none",
+              background:"transparent",
+              display:"flex",flexDirection:"column",
+              alignItems:"center",gap:3,
+              cursor:"pointer",position:"relative",
+              fontFamily:"inherit",
+            }}>
+              <span style={{
+                fontSize:9,fontWeight:active?700:500,
+                color:active?"#86efac":DARK_SB.muted,
+                transition:"color 0.15s",whiteSpace:"nowrap",
+              }}>{n.label}</span>
+              {n.id==="dashboard"&&badge>0&&admin&&(
+                <span style={{
+                  position:"absolute",top:6,right:4,
+                  background:"#ef4444",color:"#fff",
+                  borderRadius:99,fontSize:8,fontWeight:900,
+                  padding:"1px 4px",minWidth:12,textAlign:"center",
+                }}>{badge}</span>
+              )}
+              {active&&(
+                <div style={{
+                  position:"absolute",top:0,left:"15%",right:"15%",
+                  height:2.5,
+                  background:DS.primary,
+                  borderRadius:"0 0 4px 4px",
+                }}/>
+              )}
+            </button>
+          );
+        })}
+        </div>
+      </div>
+
+      {showCart&&<CartModal cart={cart} setCart={setCart} items={items} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
+      {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
+      {showPwModal&&<ChangePwModal onClose={()=>setShowPwModal(false)}/>}
+    </div>
+  );
+}
