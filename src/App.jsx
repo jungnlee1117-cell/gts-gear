@@ -33,6 +33,12 @@ const CAT = {
   TARGET: { label:"표적교구",  color:"#0d9488", icon:"🎯" },
   SPC:    { label:"특수교구",  color:"#7c3aed", icon:"⭐" },
 };
+
+/** 카테고리 드롭다운·필터용 고정 목록 (STACK 포함) */
+const CAT_KEYS = [
+  "AIR", "BALL", "BAL", "SPORT", "TOOL", "DIG", "MAT", "GROUP", "BLOCK", "STACK", "TARGET", "SPC",
+];
+
 const BRANCHES = ["사무실","엘리트코어","삼성점","한남점"];
 
 const DEFAULT_PHOTO_POSITION = "center center";
@@ -2004,12 +2010,12 @@ function PhotoUploader({ itemCode, currentUrl, position, onUploaded, onPositionC
 // 교구 추가/편집 폼
 // ═══════════════════════════════════════════════════════════════════════
 function itemToFormState(item) {
-  const cats = Object.keys(CAT);
+  const defaultCat = CAT[item?.category] ? item.category : CAT_KEYS[0];
   return {
     code: item?.code || "",
     name: item?.name || "",
     alias: item?.alias || "",
-    category: item?.category || cats[0],
+    category: defaultCat,
     total_quantity: item?.total_quantity ?? 0,
     branch: item?.branch || BRANCHES[0],
     description: item?.description || "",
@@ -2024,7 +2030,6 @@ function itemToFormState(item) {
 }
 
 function ItemForm({item, items, onSave, onClose}) {
-  const cats = Object.keys(CAT);
   const isNew = !item?.id;
   const isEdit = Boolean(item?.id);
   const [f, setF] = useState(() => itemToFormState(item));
@@ -2107,7 +2112,9 @@ function ItemForm({item, items, onSave, onClose}) {
         <div style={{fontSize:12,fontWeight:600,color:DS.textSecondary,marginBottom:10}}>카테고리 · 교구 코드</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
           <Sel2 label="카테고리 *" value={f.category} onChange={e=>onCategoryChange(e.target.value)}>
-            {cats.map(c=><option key={c} value={c}>{CAT[c].label} ({c})</option>)}
+            {CAT_KEYS.map(c => (
+              <option key={c} value={c}>{CAT[c].label} ({c})</option>
+            ))}
           </Sel2>
           <Inp2
             label="교구 코드 *"
@@ -2450,7 +2457,7 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
     return {...t,held};
   }).filter(t=>t.held.length>0);
 
-  const catStats = useMemo(() => Object.keys(CAT).map(key => {
+  const catStats = useMemo(() => CAT_KEYS.map(key => {
     const catItems = items.filter(i => i.category === key);
     const total = catItems.reduce((s, i) => s + i.total_quantity, 0);
     const rented = catItems.reduce((s, i) => s + rentedQty(i.id, ris), 0);
@@ -2764,12 +2771,11 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
   const [q,setQ]=useState("");const[catF,setCatF]=useState("ALL");const[brF,setBrF]=useState("ALL");
   const[avOnly,setAvOnly]=useState(false);const[sortBy,setSortBy]=useState("code");
   const[editItem,setEditItem]=useState(null);const[addOpen,setAddOpen]=useState(false);
-  const superA = isSuperAdmin(me);
 
   useEffect(() => {
     if (openAddOnMount && canManage(me)) setAddOpen(true);
   }, [openAddOnMount, me]);
-  const cats=Object.keys(CAT);
+  const cats = CAT_KEYS;
   const list=useMemo(()=>{
     let r=items;
     if(catF!=="ALL")r=r.filter(i=>i.category===catF);
@@ -2786,7 +2792,7 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
   const availCount=useMemo(()=>items.reduce((s,i)=>s+availQty(i,ris,rets),0),[items,ris,rets]);
 
   const handleDelete = async (item) => {
-    if (!onDeleteItem) return;
+    if (!isSuperAdmin(me) || !onDeleteItem) return;
     const ok = await onDeleteItem(item);
     if (ok && editItem?.id === item.id) setEditItem(null);
   };
@@ -2893,27 +2899,29 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
                       <span style={{fontSize:10,color:DS.textSecondary,background:"#f8fafc",padding:"1px 7px",borderRadius:99,border:"1px solid #e2e8f0"}}>{item.branch}</span>
                     </div>
                   </div>
-                  {canManage(me)&&(
-                    <div style={{ display: "flex", gap: 6, marginLeft: 8, flexShrink: 0 }}>
-                      <button
-                        type="button"
-                        onClick={e=>{ e.stopPropagation(); setEditItem({ ...item }); }}
-                        style={{
-                          background: DS.primaryLight,
-                          border: `1px solid ${DS.primary}`,
-                          borderRadius: 8,
-                          minHeight: 36,
-                          padding: "8px 12px",
-                          cursor: "pointer",
-                          fontSize: 12,
-                          color: DS.primary,
-                          fontWeight: 700,
-                          fontFamily: "inherit",
-                        }}
-                      >
-                        편집
-                      </button>
-                      {superA && onDeleteItem && (
+                  {(canManage(me) || isSuperAdmin(me)) && (
+                    <div style={{ display: "flex", gap: 6, marginLeft: 8, flexShrink: 0, flexWrap: "wrap" }}>
+                      {canManage(me) && (
+                        <button
+                          type="button"
+                          onClick={e=>{ e.stopPropagation(); setEditItem({ ...item }); }}
+                          style={{
+                            background: DS.primaryLight,
+                            border: `1px solid ${DS.primary}`,
+                            borderRadius: 8,
+                            minHeight: 36,
+                            padding: "8px 12px",
+                            cursor: "pointer",
+                            fontSize: 12,
+                            color: DS.primary,
+                            fontWeight: 700,
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          편집
+                        </button>
+                      )}
+                      {isSuperAdmin(me) && (
                         <button
                           type="button"
                           onClick={e=>{
@@ -5020,11 +5028,12 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   const deleteItem = async (item) => {
+    if (!item?.id) return false;
     if (!isSuperAdmin(me)) {
-      alert("권한이 없습니다");
+      alert("슈퍼관리자만 교구를 삭제할 수 있습니다.");
       return false;
     }
-    if (!confirm("정말 삭제하시겠습니까?")) return false;
+    if (!window.confirm("정말 삭제하시겠습니까?")) return false;
     const { error } = await supabase.from("items").delete().eq("id", item.id);
     if (error) {
       alert("삭제 오류: " + error.message);
@@ -5036,6 +5045,7 @@ function EquipmentApp({ onBack, me, session }) {
       setPage("items");
     }
     await reloadItems();
+    alert("교구가 삭제되었습니다.");
     return true;
   };
 
