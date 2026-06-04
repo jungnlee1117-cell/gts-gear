@@ -28,34 +28,67 @@ const CAT = {
   DIG:    { label:"디지털",    color:"#db2777", icon:"💡" },
   MAT:    { label:"매트/기구", color:"#65a30d", icon:"🟩" },
   GROUP:  { label:"단체놀이",  color:"#d97706", icon:"👥" },
-  BLOCK:  { label:"블록",      color:"#dc2626", icon:"🧱" },
   STACK:  { label:"쌓기",      color:"#8b5cf6", icon:"🏗️" },
   TARGET: { label:"표적교구",  color:"#0d9488", icon:"🎯" },
-  SPC:    { label:"특수교구",  color:"#7c3aed", icon:"⭐" },
+  ETC:    { label:"기타교구",  color:"#7c3aed", icon:"⭐" },
 };
 
-/** 카테고리 드롭다운·필터용 고정 목록 (STACK 포함) */
+/** 카테고리 드롭다운·필터·통계용 고정 목록 */
 const CAT_KEYS = [
-  "AIR", "BALL", "BAL", "SPORT", "TOOL", "DIG", "MAT", "GROUP", "BLOCK", "STACK", "TARGET", "SPC",
+  "AIR", "BALL", "BAL", "SPORT", "TOOL", "DIG", "MAT", "GROUP", "STACK", "TARGET", "ETC",
 ];
+
+/** DB 레거시 카테고리 → 현재 카테고리 키 (SPC → ETC) */
+function normalizeCategoryKey(cat) {
+  if (cat === "SPC") return "ETC";
+  return cat;
+}
+
+function categoryMatchesFilter(itemCategory, filterKey) {
+  return normalizeCategoryKey(itemCategory) === filterKey;
+}
+
+function getCategoryMeta(cat) {
+  const key = normalizeCategoryKey(cat);
+  if (CAT[key]) return CAT[key];
+  if (cat === "BLOCK") return { label: "블록(구)", color: "#94a3b8", icon: "📦" };
+  return { label: cat || "-", color: "#94a3b8", icon: "?" };
+}
 
 const BRANCHES = ["사무실","엘리트코어","삼성점","한남점"];
 
-const DEFAULT_PHOTO_POSITION = "center center";
-const PHOTO_POSITION_OPTIONS = [
-  { value: "center top", label: "상단중앙" },
-  { value: "center center", label: "중앙" },
-  { value: "center bottom", label: "하단중앙" },
-  { value: "left center", label: "좌측" },
-  { value: "right center", label: "우측" },
-  { value: "left top", label: "좌상단" },
-  { value: "right top", label: "우상단" },
-  { value: "left bottom", label: "좌하단" },
-  { value: "right bottom", label: "우하단" },
-];
+const DEFAULT_PHOTO_POSITION = "50% 50%";
+
+const PHOTO_POSITION_PRESETS = {
+  "center top": "50% 0%",
+  "center center": "50% 50%",
+  "center bottom": "50% 100%",
+  "left center": "0% 50%",
+  "right center": "100% 50%",
+  "left top": "0% 0%",
+  "right top": "100% 0%",
+  "left bottom": "0% 100%",
+  "right bottom": "100% 100%",
+};
+
+function parsePhotoPosition(pos) {
+  if (!pos) return { x: 50, y: 50 };
+  const pct = String(pos).match(/^(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/);
+  if (pct) return { x: parseFloat(pct[1]), y: parseFloat(pct[2]) };
+  const preset = PHOTO_POSITION_PRESETS[pos];
+  if (preset) return parsePhotoPosition(preset);
+  return { x: 50, y: 50 };
+}
+
+function formatPhotoPosition(x, y) {
+  const clamp = (n) => Math.min(100, Math.max(0, Math.round(n)));
+  return `${clamp(x)}% ${clamp(y)}%`;
+}
 
 function itemPhotoPosition(item) {
-  return item?.photo_position || DEFAULT_PHOTO_POSITION;
+  const raw = item?.photo_position || DEFAULT_PHOTO_POSITION;
+  const preset = PHOTO_POSITION_PRESETS[raw];
+  return preset || raw;
 }
 
 function itemPhotoStyle(item, extra = {}) {
@@ -1225,7 +1258,7 @@ function RoleBadge({role}) {
 }
 
 function CatTag({cat}) {
-  const m = CAT[cat]||{label:cat,color:"#94a3b8"};
+  const m = getCategoryMeta(cat);
   return (
     <span style={{
       display:"inline-block",
@@ -1896,12 +1929,52 @@ function ChangePwModal({ email, onClose }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// 교구 삭제 — 연결 대여·반납 기록 정리
+// ═══════════════════════════════════════════════════════════════════════
+async function deleteItemRelatedRecords(itemId) {
+  const { data: riRows, error: fetchErr } = await supabase
+    .from("rental_items")
+    .select("id, request_id")
+    .eq("item_id", itemId);
+  if (fetchErr) throw new Error(fetchErr.message);
+
+  const riIds = (riRows || []).map(r => r.id);
+  const requestIds = [...new Set((riRows || []).map(r => r.request_id).filter(Boolean))];
+
+  if (riIds.length) {
+    const { error: retErr } = await supabase
+      .from("return_requests")
+      .delete()
+      .in("rental_item_id", riIds);
+    if (retErr) throw new Error(retErr.message);
+  }
+
+  const { error: riErr } = await supabase.from("rental_items").delete().eq("item_id", itemId);
+  if (riErr) throw new Error(riErr.message);
+
+  for (const reqId of requestIds) {
+    const { data: remaining, error: remErr } = await supabase
+      .from("rental_items")
+      .select("id")
+      .eq("request_id", reqId)
+      .limit(1);
+    if (remErr) throw new Error(remErr.message);
+    if (!remaining?.length) {
+      const { error: reqErr } = await supabase.from("rental_requests").delete().eq("id", reqId);
+      if (reqErr) throw new Error(reqErr.message);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // 사진 업로드
 // ═══════════════════════════════════════════════════════════════════════
 function PhotoUploader({ itemCode, currentUrl, position, onUploaded, onPositionChange }) {
-  const [loading,setLoading] = useState(false);
-  const [preview,setPreview] = useState(currentUrl||null);
+  const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState(currentUrl || null);
+  const [dragging, setDragging] = useState(false);
   const fileRef = useRef(null);
+  const frameRef = useRef(null);
   const activePosition = position || DEFAULT_PHOTO_POSITION;
 
   useEffect(() => {
@@ -1911,97 +1984,147 @@ function PhotoUploader({ itemCode, currentUrl, position, onUploaded, onPositionC
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5*1024*1024) { alert("사진은 5MB 이하만 가능합니다"); return; }
+    if (file.size > 5 * 1024 * 1024) { alert("사진은 5MB 이하만 가능합니다"); return; }
     const reader = new FileReader();
     reader.onload = ev => setPreview(ev.target.result);
     reader.readAsDataURL(file);
     setLoading(true);
-    const ext  = file.name.split(".").pop();
+    const ext = file.name.split(".").pop();
     const path = `items/${itemCode}_${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("item-photos").upload(path, file, { upsert:true });
+    const { error } = await supabase.storage.from("item-photos").upload(path, file, { upsert: true });
     if (error) { alert("업로드 실패: " + error.message); setLoading(false); return; }
     const { data } = supabase.storage.from("item-photos").getPublicUrl(path);
     onUploaded(data.publicUrl);
     setLoading(false);
   };
 
+  const applyPositionFromPointer = (clientX, clientY) => {
+    const el = frameRef.current;
+    if (!el || !onPositionChange) return;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = ((clientX - rect.left) / rect.width) * 100;
+    const y = ((clientY - rect.top) / rect.height) * 100;
+    onPositionChange(formatPhotoPosition(x, y));
+  };
+
+  const onFramePointerDown = (e) => {
+    if (!preview || !onPositionChange) return;
+    e.preventDefault();
+    e.stopPropagation();
+    frameRef.current?.setPointerCapture(e.pointerId);
+    setDragging(true);
+    applyPositionFromPointer(e.clientX, e.clientY);
+  };
+
+  const onFramePointerMove = (e) => {
+    if (!dragging) return;
+    applyPositionFromPointer(e.clientX, e.clientY);
+  };
+
+  const onFramePointerUp = (e) => {
+    setDragging(false);
+    try { frameRef.current?.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+
+  const posLabel = (() => {
+    const { x, y } = parsePhotoPosition(activePosition);
+    return `${x}% · ${y}%`;
+  })();
+
   return (
-    <div style={{marginBottom:16}}>
+    <div style={{ marginBottom: 16 }}>
       <label style={lbl}>교구 사진</label>
-      <div
-        onClick={()=>!loading && fileRef.current?.click()}
-        style={{
-          width:"100%",height:160,borderRadius:14,
-          border:`2px dashed ${DS.inputBorder}`,
-          background:"#fafafa",
-          display:"flex",flexDirection:"column",
-          alignItems:"center",justifyContent:"center",
-          cursor:"pointer",overflow:"hidden",position:"relative",
-          transition:"border-color 0.2s",
-        }}>
-        {preview ? (
-          <>
+      {!preview ? (
+        <div
+          onClick={() => !loading && fileRef.current?.click()}
+          style={{
+            width: "100%", height: 160, borderRadius: 14,
+            border: `2px dashed ${DS.inputBorder}`,
+            background: "#fafafa",
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <div style={{ fontSize: 12, color: DS.textMuted, fontWeight: 500 }}>
+            {loading ? "업로드 중..." : "사진을 눌러서 추가하세요"}
+          </div>
+          <div style={{ fontSize: 10, color: "#cbd5e1", marginTop: 3 }}>JPG, PNG (최대 5MB)</div>
+        </div>
+      ) : (
+        <>
+          <div
+            ref={frameRef}
+            onPointerDown={onFramePointerDown}
+            onPointerMove={onFramePointerMove}
+            onPointerUp={onFramePointerUp}
+            onPointerCancel={onFramePointerUp}
+            style={{
+              width: "100%", height: 160, borderRadius: 14,
+              border: `2px solid ${dragging ? DS.primary : DS.inputBorder}`,
+              overflow: "hidden", position: "relative",
+              cursor: dragging ? "grabbing" : "grab",
+              touchAction: "none",
+              background: "#e2e8f0",
+            }}
+          >
             <img
               src={preview}
               alt="교구 사진"
+              draggable={false}
               style={{
-                width:"100%",height:"100%",objectFit:"cover",
+                width: "100%", height: "100%", objectFit: "cover",
                 objectPosition: activePosition,
+                pointerEvents: "none", userSelect: "none",
               }}
             />
-            <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.3)",display:"flex",alignItems:"center",justifyContent:"center",opacity:0,transition:"opacity 0.2s"}}
-              onMouseEnter={e=>e.currentTarget.style.opacity=1}
-              onMouseLeave={e=>e.currentTarget.style.opacity=0}>
-              <span style={{color:"#fff",fontWeight:700,fontSize:13}}>사진 변경</span>
+            <div style={{
+              position: "absolute", inset: 0,
+              border: dragging ? `2px solid ${DS.primary}` : "2px dashed rgba(255,255,255,0.5)",
+              pointerEvents: "none",
+            }}/>
+          </div>
+          {onPositionChange && (
+            <div style={{ marginTop: 8, fontSize: 11, color: DS.textSecondary, lineHeight: 1.5 }}>
+              <span style={{ fontWeight: 600 }}>드래그</span>하여 보이는 영역을 조절하세요
+              <span style={{ fontFamily: "monospace", marginLeft: 8, color: DS.primary, fontWeight: 700 }}>
+                {posLabel}
+              </span>
             </div>
-          </>
-        ) : (
-          <>
-            <div style={{fontSize:12,color:DS.textMuted,fontWeight:500}}>{loading?"업로드 중...":"사진을 눌러서 추가하세요"}</div>
-            <div style={{fontSize:10,color:"#cbd5e1",marginTop:3}}>JPG, PNG (최대 5MB)</div>
-          </>
-        )}
-      </div>
-      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
-      {preview && onPositionChange && (
-        <div style={{ marginTop: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: DS.textSecondary, marginBottom: 8 }}>
-            표시 위치 (object-position)
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              style={{
+                padding: "8px 12px", minHeight: 36, borderRadius: 8,
+                border: `1px solid ${DS.primary}`, background: DS.primaryLight,
+                color: DS.primary, fontSize: 12, fontWeight: 700,
+                cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              사진 변경
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPreview(null);
+                onUploaded("");
+                onPositionChange?.(DEFAULT_PHOTO_POSITION);
+              }}
+              style={{
+                padding: "8px 12px", minHeight: 36, borderRadius: 8,
+                border: "none", background: "transparent",
+                color: DS.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              사진 제거
+            </button>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {PHOTO_POSITION_OPTIONS.map(opt => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={e => { e.stopPropagation(); onPositionChange(opt.value); }}
-                style={{
-                  padding: "8px 10px",
-                  minHeight: 36,
-                  borderRadius: 8,
-                  border: `1px solid ${activePosition === opt.value ? DS.primary : "#e2e8f0"}`,
-                  background: activePosition === opt.value ? DS.primaryLight : "#fff",
-                  color: activePosition === opt.value ? DS.primary : DS.textSecondary,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        </>
       )}
-      {preview && (
-        <button
-          type="button"
-          onClick={()=>{ setPreview(null); onUploaded(""); onPositionChange?.(DEFAULT_PHOTO_POSITION); }}
-          style={{ marginTop: 8, background: "none", border: "none", color: DS.textMuted, fontSize: 11, cursor: "pointer", fontFamily: "inherit", minHeight: 36 }}
-        >
-          사진 제거
-        </button>
-      )}
+      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }}/>
     </div>
   );
 }
@@ -2010,7 +2133,8 @@ function PhotoUploader({ itemCode, currentUrl, position, onUploaded, onPositionC
 // 교구 추가/편집 폼
 // ═══════════════════════════════════════════════════════════════════════
 function itemToFormState(item) {
-  const defaultCat = CAT[item?.category] ? item.category : CAT_KEYS[0];
+  const normalized = normalizeCategoryKey(item?.category);
+  const defaultCat = CAT[normalized] ? normalized : CAT_KEYS[0];
   return {
     code: item?.code || "",
     name: item?.name || "",
@@ -2096,7 +2220,7 @@ function ItemForm({item, items, onSave, onClose}) {
     onClose();
   };
 
-  const catLabel = CAT[f.category]?.label || f.category;
+  const catLabel = getCategoryMeta(f.category).label;
 
   return (
     <Modal title={item?"교구 편집":"교구 추가"} onClose={onClose}>
@@ -2458,7 +2582,7 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
   }).filter(t=>t.held.length>0);
 
   const catStats = useMemo(() => CAT_KEYS.map(key => {
-    const catItems = items.filter(i => i.category === key);
+    const catItems = items.filter(i => categoryMatchesFilter(i.category, key));
     const total = catItems.reduce((s, i) => s + i.total_quantity, 0);
     const rented = catItems.reduce((s, i) => s + rentedQty(i.id, ris), 0);
     const avail = catItems.reduce((s, i) => s + availQty(i, ris, rets), 0);
@@ -2778,7 +2902,7 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
   const cats = CAT_KEYS;
   const list=useMemo(()=>{
     let r=items;
-    if(catF!=="ALL")r=r.filter(i=>i.category===catF);
+    if(catF!=="ALL")r=r.filter(i=>categoryMatchesFilter(i.category,catF));
     if(brF!=="ALL")r=r.filter(i=>i.branch===brF);
     if(avOnly)r=r.filter(i=>availQty(i,ris,rets)>0);
     if(q.trim()){const lq=q.trim().toLowerCase();r=r.filter(i=>i.name.toLowerCase().includes(lq)||i.code.toLowerCase().includes(lq)||(i.alias||"").toLowerCase().includes(lq));}
@@ -5033,19 +5157,31 @@ function EquipmentApp({ onBack, me, session }) {
       alert("슈퍼관리자만 교구를 삭제할 수 있습니다.");
       return false;
     }
-    if (!window.confirm("정말 삭제하시겠습니까?")) return false;
-    const { error } = await supabase.from("items").delete().eq("id", item.id);
-    if (error) {
-      alert("삭제 오류: " + error.message);
+    const confirmed = window.confirm(
+      "정말 삭제하시겠습니까?\n\n연결된 대여·반납 기록도 함께 삭제됩니다."
+    );
+    if (!confirmed) return false;
+
+    try {
+      await deleteItemRelatedRecords(item.id);
+    } catch (e) {
+      alert("연결 기록 삭제 오류: " + (e?.message || e));
       return false;
     }
+
+    const { error } = await supabase.from("items").delete().eq("id", item.id);
+    if (error) {
+      alert("교구 삭제 오류: " + error.message);
+      return false;
+    }
+
     setCart(p => p.filter(c => c.item_id !== item.id));
     if (detailItem?.id === item.id) {
       setDetailItem(null);
       setPage("items");
     }
-    await reloadItems();
-    alert("교구가 삭제되었습니다.");
+    await loadAll();
+    alert("교구와 연결된 대여 기록이 삭제되었습니다.");
     return true;
   };
 
