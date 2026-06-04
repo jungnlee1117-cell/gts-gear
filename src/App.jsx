@@ -497,6 +497,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "items-qr") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h2v2h-2zM18 14h3v3h-3zM14 18h2v3h-2zM18 18h3v3h-3z"/></svg>;
   if (id === "my-rental-status") return <svg {...s} viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
   if (id === "rental-manage") return <svg {...s} viewBox="0 0 24 24"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/><path d="M21 12H3"/></svg>;
+  if (id === "more") return <svg {...s} viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill={color} stroke="none"/><circle cx="12" cy="12" r="1.2" fill={color} stroke="none"/><circle cx="19" cy="12" r="1.2" fill={color} stroke="none"/></svg>;
   return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>;
 }
 
@@ -506,7 +507,9 @@ function isNavPageActive(page, navId) {
     gear: ["items", "item-detail", "items-register", "items-qr"],
     rental: ["rental-approval", "rental-status", "returns-approval", "overdue"],
     "rental-manage": ["rental-approval", "rental-status", "returns-approval", "overdue", "rental-manage", "rentals"],
-    "rental-return": ["rental-return", "rentals", "my-rental-status"],
+    "rental-return": ["rental-return", "rentals", "my-rental-status", "return-request"],
+    "return-request": ["return-request", "my-rental-status"],
+    "my-rental-status": ["my-rental-status", "return-request"],
   };
   if (page === navId) return true;
   return (aliases[navId] || []).includes(page);
@@ -578,6 +581,130 @@ function flattenSidebarNav(nav) {
     }
   });
   return out;
+}
+
+function buildMobileBottomNav(me) {
+  const superA = isSuperAdmin(me);
+  const admin = isAdmin(me) && !superA;
+  if (superA || admin) {
+    return [
+      { id: "dashboard", label: "대시보드", glyph: "dashboard" },
+      { id: "items", label: "전체교구", glyph: "items" },
+      { id: "rental-manage", label: "대여관리", glyph: "rental-manage" },
+      { id: "returns-approval", label: "반납관리", glyph: "returns-approval" },
+      { id: "more", label: "더보기", glyph: "more" },
+    ];
+  }
+  return [
+    { id: "dashboard", label: "대시보드", glyph: "dashboard" },
+    { id: "items", label: "교구검색", glyph: "items" },
+    { id: "my-rental-status", label: "내대여현황", glyph: "my-rental-status" },
+    { id: "return-request", label: "반납요청", glyph: "returns-approval" },
+    { id: "more", label: "더보기", glyph: "more" },
+  ];
+}
+
+function buildMobileMoreNav(me, bottomNav) {
+  const pinned = new Set(bottomNav.filter(n => n.id !== "more").map(n => n.id));
+  const isTeacher = me?.role === "teacher" && !isAdmin(me);
+  const all = flattenSidebarNav(buildSidebarNav(me));
+  const extra = isTeacher
+    ? [{ id: "rental-return", label: "대여 신청", glyph: "rental-return" }]
+    : [];
+  const seen = new Set();
+  return [...all, ...extra].filter(n => {
+    if (pinned.has(n.id) || seen.has(n.id)) return false;
+    seen.add(n.id);
+    return true;
+  });
+}
+
+function MobileMoreSheet({ items, page, onSelect, onClose }) {
+  return (
+    <>
+      <div
+        role="presentation"
+        onClick={onClose}
+        style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 350 }}
+      />
+      <div style={{
+        position: "fixed",
+        left: "50%",
+        transform: "translateX(-50%)",
+        bottom: 0,
+        width: "100%",
+        maxWidth: 520,
+        background: "#fff",
+        borderRadius: "16px 16px 0 0",
+        zIndex: 360,
+        padding: "12px 12px calc(16px + env(safe-area-inset-bottom, 0px))",
+        boxShadow: "0 -8px 32px rgba(0,0,0,0.18)",
+        maxHeight: "min(70vh, 420px)",
+        overflowY: "auto",
+      }}>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "4px 8px 12px",
+          borderBottom: "1px solid #f1f5f9",
+          marginBottom: 8,
+        }}>
+          <span style={{ fontSize: 14, fontWeight: 800, color: DS.textPrimary }}>메뉴</span>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: "#f1f5f9",
+              borderRadius: 8,
+              padding: "6px 12px",
+              fontSize: 12,
+              fontWeight: 600,
+              color: DS.textSecondary,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            닫기
+          </button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+          {items.map(n => {
+            const active = isNavPageActive(page, n.id);
+            return (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => onSelect(n.id)}
+                style={{
+                  border: active ? `1.5px solid ${DS.primary}` : "1px solid #e2e8f0",
+                  background: active ? "#f0fdf4" : "#fff",
+                  borderRadius: 12,
+                  padding: "12px 6px",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <NavGlyph id={n.glyph || n.id} color={active ? DS.primary : "#64748b"} size={20}/>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: active ? 700 : 600,
+                  color: active ? DS.primary : DS.textSecondary,
+                  lineHeight: 1.25,
+                  textAlign: "center",
+                }}>{n.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
 }
 
 function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, admin }) {
@@ -736,6 +863,7 @@ const PAGE_META = {
   notices:            { title: "공지사항",     sub: "공지를 확인하고 관리자는 새 공지를 등록할 수 있습니다." },
   settings:           { title: "설정",         sub: "계정 및 시스템 설정을 관리합니다." },
   "my-rental-status": { title: "내 대여현황",  sub: "대여 중인 교구를 확인하고 교구별 반납 신청을 합니다." },
+  "return-request":   { title: "반납요청",    sub: "대여 중인 교구의 반납을 신청합니다." },
   "qr-rent":          { title: "QR 대여 신청", sub: "스캔한 교구의 대여 가능 수량을 확인하고 신청합니다." },
   "item-detail":      { title: "교구 상세",    sub: "교구 정보와 대여 이력을 확인합니다." },
 };
@@ -1470,34 +1598,89 @@ function LoginPage() {
 // ═══════════════════════════════════════════════════════════════════════
 // 비밀번호 변경
 // ═══════════════════════════════════════════════════════════════════════
-function ChangePwModal({onClose}) {
-  const [next,setNext] = useState("");
-  const [conf,setConf] = useState("");
-  const [loading,setLoading] = useState(false);
-  const [err,setErr] = useState("");
-  const [ok,setOk] = useState(false);
+function ChangePwModal({ email, onClose }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [conf, setConf] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState(false);
+
   const handle = async () => {
-    if (next.length < 6) { setErr("6자 이상 입력하세요"); return; }
-    if (next !== conf)   { setErr("비밀번호가 일치하지 않습니다"); return; }
-    setLoading(true); setErr("");
-    const { error } = await supabase.auth.updateUser({ password:next });
+    if (!current) { setErr("현재 비밀번호를 입력하세요"); return; }
+    if (next.length < 6) { setErr("새 비밀번호는 6자 이상이어야 합니다"); return; }
+    if (next !== conf) { setErr("새 비밀번호가 일치하지 않습니다"); return; }
+    if (current === next) { setErr("새 비밀번호는 현재 비밀번호와 달라야 합니다"); return; }
+    if (!email?.trim()) { setErr("로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요."); return; }
+
+    setLoading(true);
+    setErr("");
+
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: current,
+    });
+    if (verifyError) {
+      setLoading(false);
+      setErr(
+        verifyError.message.includes("Invalid login")
+          ? "현재 비밀번호가 올바르지 않습니다"
+          : verifyError.message
+      );
+      return;
+    }
+
+    const { error } = await supabase.auth.updateUser({ password: next });
     setLoading(false);
     if (error) { setErr(error.message); return; }
+    setCurrent("");
+    setNext("");
+    setConf("");
     setOk(true);
   };
+
   return (
     <Modal title="비밀번호 변경" onClose={onClose}>
       {ok ? (
-        <div style={{textAlign:"center",padding:"28px 0"}}>
-          <div style={{fontWeight:700,fontSize:16,color:DS.textPrimary,marginBottom:18}}>변경 완료</div>
+        <div style={{ textAlign: "center", padding: "28px 0" }}>
+          <div style={{ fontWeight: 700, fontSize: 16, color: DS.textPrimary, marginBottom: 8 }}>변경 완료</div>
+          <div style={{ fontSize: 13, color: DS.textMuted, marginBottom: 18, lineHeight: 1.5 }}>
+            비밀번호가 변경되었습니다.
+          </div>
           <Btn full onClick={onClose}>확인</Btn>
         </div>
       ) : (
         <>
-          <Inp2 label="새 비밀번호 (6자 이상)" type="password" value={next} onChange={e=>setNext(e.target.value)}/>
-          <Inp2 label="비밀번호 확인" type="password" value={conf} onChange={e=>setConf(e.target.value)}/>
-          {err && <div style={{background:"#fee2e2",color:"#dc2626",borderRadius:8,padding:"10px 13px",fontSize:12,fontWeight:600,marginBottom:12}}>{err}</div>}
-          <Btn full onClick={handle} disabled={loading}>{loading?"변경 중...":"비밀번호 변경"}</Btn>
+          <Inp2
+            label="현재 비밀번호"
+            type="password"
+            value={current}
+            onChange={e => setCurrent(e.target.value)}
+            autoComplete="current-password"
+          />
+          <Inp2
+            label="새 비밀번호 (6자 이상)"
+            type="password"
+            value={next}
+            onChange={e => setNext(e.target.value)}
+            autoComplete="new-password"
+          />
+          <Inp2
+            label="새 비밀번호 확인"
+            type="password"
+            value={conf}
+            onChange={e => setConf(e.target.value)}
+            autoComplete="new-password"
+          />
+          {err && (
+            <div style={{
+              background: "#fee2e2", color: "#dc2626", borderRadius: 8,
+              padding: "10px 13px", fontSize: 12, fontWeight: 600, marginBottom: 12,
+            }}>{err}</div>
+          )}
+          <Btn full onClick={handle} disabled={loading}>
+            {loading ? "변경 중..." : "비밀번호 변경"}
+          </Btn>
         </>
       )}
     </Modal>
@@ -4290,6 +4473,7 @@ function EquipmentApp({ onBack, me, session }) {
   const [itemReturnGroup,setItemReturnGroup] = useState(null);
   const [showPwModal,setShowPwModal]= useState(false);
   const [showProfile,setShowProfile]= useState(false);
+  const [showMobileMore,setShowMobileMore] = useState(false);
   const [isPC,setIsPC] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
 
   useEffect(()=>{
@@ -4484,7 +4668,8 @@ function EquipmentApp({ onBack, me, session }) {
   const badge  = reqBadge + retBadge;
 
   const sidebarNav = buildSidebarNav(me);
-  const mobileNav = flattenSidebarNav(sidebarNav);
+  const mobileBottomNav = buildMobileBottomNav(me);
+  const mobileMoreNav = buildMobileMoreNav(me, mobileBottomNav);
 
   const goItemsFromDetail = () => setPage("items");
 
@@ -4533,7 +4718,7 @@ function EquipmentApp({ onBack, me, session }) {
             }}
           />
         )}
-        {(page==="rental-return"||(me?.role==="teacher"&&(page==="rentals"||page==="my-rental-status")))&&me?.role==="teacher"&&(
+        {(page==="rental-return"||(me?.role==="teacher"&&(page==="rentals"||page==="my-rental-status"||page==="return-request")))&&me?.role==="teacher"&&(
           <TeacherRentalReturnPage
             me={me}
             reqs={reqs}
@@ -4542,7 +4727,7 @@ function EquipmentApp({ onBack, me, session }) {
             rets={rets}
             teachers={teachers}
             onReturnItem={setItemReturnGroup}
-            initialTab={page==="my-rental-status"?"return":"rent"}
+            initialTab={page==="my-rental-status"||page==="return-request"?"return":"rent"}
           />
         )}
         {page==="rentals"&&me?.role!=="teacher"&&<RentalsPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} rets={rets} onApprove={approveReq} onReject={rejectReq}/>}
@@ -4659,7 +4844,7 @@ function EquipmentApp({ onBack, me, session }) {
                   flex:1,padding:"8px",borderRadius:8,border:"none",
                   background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.65)",
                   fontSize:11,cursor:"pointer",fontFamily:"inherit",
-                }}>설정</button>
+                }}>비밀번호 변경</button>
                 <button onClick={logout} style={{
                   flex:1,padding:"8px",borderRadius:8,border:"none",
                   background:"rgba(220,38,38,0.15)",color:"#fca5a5",
@@ -4696,7 +4881,7 @@ function EquipmentApp({ onBack, me, session }) {
 
         {showCart&&<CartModal cart={cart} setCart={setCart} items={items} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
         {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
-        {showPwModal&&<ChangePwModal onClose={()=>setShowPwModal(false)}/>}
+        {showPwModal&&<ChangePwModal email={session.user.email} onClose={()=>setShowPwModal(false)}/>}
       </div>
     );
   }
@@ -4790,6 +4975,15 @@ function EquipmentApp({ onBack, me, session }) {
 
       <div style={{padding:"16px 14px"}}>{renderPage()}</div>
 
+      {showMobileMore&&(
+        <MobileMoreSheet
+          items={mobileMoreNav}
+          page={page}
+          onSelect={id=>{ setPage(id); setShowMobileMore(false); }}
+          onClose={()=>setShowMobileMore(false)}
+        />
+      )}
+
       {/* 하단 내비 */}
       <div className="no-print" style={{
         position:"fixed",bottom:0,left:"50%",
@@ -4799,36 +4993,72 @@ function EquipmentApp({ onBack, me, session }) {
         borderTop:"1px solid rgba(255,255,255,0.08)",
         display:"flex",
         boxShadow:"0 -4px 24px rgba(0,0,0,0.25)",
+        zIndex:200,
       }}>
-        <div style={{display:"flex",overflowX:"auto",width:"100%"}}>
-        {mobileNav.map(n=>{
-          const active = isNavPageActive(page, n.id);
+        <div style={{ display:"flex", width:"100%" }}>
+        {mobileBottomNav.map(n=>{
+          const moreActive = n.id === "more" && mobileMoreNav.some(m => isNavPageActive(page, m.id));
+          const active = n.id === "more" ? moreActive : isNavPageActive(page, n.id);
           return (
-            <button key={n.id} onClick={()=>setPage(n.id)} style={{
-              flex:"1 0 auto",minWidth:56,padding:"11px 8px 9px",border:"none",
-              background:"transparent",
-              display:"flex",flexDirection:"column",
-              alignItems:"center",gap:3,
-              cursor:"pointer",position:"relative",
-              fontFamily:"inherit",
-            }}>
+            <button
+              key={n.id}
+              type="button"
+              onClick={()=>{
+                if (n.id === "more") setShowMobileMore(true);
+                else { setPage(n.id); setShowMobileMore(false); }
+              }}
+              style={{
+                flex:1,
+                minWidth:0,
+                padding:"6px 2px 5px",
+                border:"none",
+                background:"transparent",
+                display:"flex",
+                flexDirection:"column",
+                alignItems:"center",
+                gap:2,
+                cursor:"pointer",
+                position:"relative",
+                fontFamily:"inherit",
+              }}
+            >
+              <NavGlyph
+                id={n.glyph || n.id}
+                color={active ? "#86efac" : DARK_SB.muted}
+                size={15}
+              />
               <span style={{
-                fontSize:9,fontWeight:active?700:500,
+                fontSize:8,
+                fontWeight:active?700:500,
                 color:active?"#86efac":DARK_SB.muted,
-                transition:"color 0.15s",whiteSpace:"nowrap",
+                transition:"color 0.15s",
+                lineHeight:1.15,
+                textAlign:"center",
+                maxWidth:"100%",
+                overflow:"hidden",
+                textOverflow:"ellipsis",
+                whiteSpace:"nowrap",
               }}>{n.label}</span>
               {n.id==="dashboard"&&badge>0&&admin&&(
                 <span style={{
-                  position:"absolute",top:6,right:4,
+                  position:"absolute",top:3,right:"12%",
                   background:"#ef4444",color:"#fff",
-                  borderRadius:99,fontSize:8,fontWeight:900,
-                  padding:"1px 4px",minWidth:12,textAlign:"center",
+                  borderRadius:99,fontSize:7,fontWeight:900,
+                  padding:"1px 3px",minWidth:10,textAlign:"center",
                 }}>{badge}</span>
+              )}
+              {n.id==="returns-approval"&&retBadge>0&&(
+                <span style={{
+                  position:"absolute",top:3,right:"12%",
+                  background:"#ef4444",color:"#fff",
+                  borderRadius:99,fontSize:7,fontWeight:900,
+                  padding:"1px 3px",minWidth:10,textAlign:"center",
+                }}>{retBadge}</span>
               )}
               {active&&(
                 <div style={{
-                  position:"absolute",top:0,left:"15%",right:"15%",
-                  height:2.5,
+                  position:"absolute",top:0,left:"18%",right:"18%",
+                  height:2,
                   background:DS.primary,
                   borderRadius:"0 0 4px 4px",
                 }}/>
@@ -4841,7 +5071,7 @@ function EquipmentApp({ onBack, me, session }) {
 
       {showCart&&<CartModal cart={cart} setCart={setCart} items={items} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
       {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
-      {showPwModal&&<ChangePwModal onClose={()=>setShowPwModal(false)}/>}
+      {showPwModal&&<ChangePwModal email={session.user.email} onClose={()=>setShowPwModal(false)}/>}
     </div>
   );
 }
