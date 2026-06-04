@@ -110,6 +110,66 @@ function GearItemImg({ item, alt, style }) {
   );
 }
 
+function CategoryIconFallback({ category, size = 80 }) {
+  const meta = getCategoryMeta(category);
+  return (
+    <span
+      role="img"
+      aria-label={meta.label}
+      style={{
+        fontSize: Math.round(size * 0.44),
+        lineHeight: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: "100%",
+        height: "100%",
+        background: `${meta.color}20`,
+      }}
+    >
+      {meta.icon}
+    </span>
+  );
+}
+
+/** 교구 목록 카드 썸네일 (80×80, cover / 카테고리 아이콘 폴백) */
+function GearItemThumbnail({ item, size = 80 }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const showPhoto = Boolean(item?.photo_url) && !imgFailed;
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [item?.id, item?.photo_url]);
+
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 14,
+        overflow: "hidden",
+        background: "#f8fafc",
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        border: "1px solid #e2e8f0",
+      }}
+    >
+      {showPhoto ? (
+        <img
+          src={item.photo_url}
+          alt={item.name}
+          onError={() => setImgFailed(true)}
+          style={itemPhotoStyle(item, { width: "100%", height: "100%" })}
+        />
+      ) : (
+        <CategoryIconFallback category={item?.category} size={size} />
+      )}
+    </div>
+  );
+}
+
 const ROLE_CFG = {
   superadmin: { label:"슈퍼관리자", bg:"#fef9c3", color:"#854d0e" },
   admin:      { label:"관리자",     bg:"#fee2e2", color:"#991b1b" },
@@ -2999,17 +3059,7 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
             transition:"all 0.15s",
           }}>
             <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10}}>
-              <div style={{
-                width:60,height:60,borderRadius:14,overflow:"hidden",
-                background:"#f1f5f9",flexShrink:0,
-                display:"flex",alignItems:"center",justifyContent:"center",
-                border:"1px solid #e2e8f0",
-              }}>
-                {item.photo_url
-                  ? <GearItemImg item={item}/>
-                  : <span style={{fontSize:11,fontWeight:700,color:DS.textMuted}}>{item.code?.slice(0,3)||"GTS"}</span>
-                }
-              </div>
+              <GearItemThumbnail item={item} size={80}/>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                   <div style={{flex:1}}>
