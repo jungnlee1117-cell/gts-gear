@@ -29,10 +29,47 @@ const CAT = {
   MAT:    { label:"매트/기구", color:"#65a30d", icon:"🟩" },
   GROUP:  { label:"단체놀이",  color:"#d97706", icon:"👥" },
   BLOCK:  { label:"블록",      color:"#dc2626", icon:"🧱" },
+  STACK:  { label:"쌓기",      color:"#8b5cf6", icon:"🏗️" },
   TARGET: { label:"표적교구",  color:"#0d9488", icon:"🎯" },
   SPC:    { label:"특수교구",  color:"#7c3aed", icon:"⭐" },
 };
 const BRANCHES = ["사무실","엘리트코어","삼성점","한남점"];
+
+const DEFAULT_PHOTO_POSITION = "center center";
+const PHOTO_POSITION_OPTIONS = [
+  { value: "center top", label: "상단중앙" },
+  { value: "center center", label: "중앙" },
+  { value: "center bottom", label: "하단중앙" },
+  { value: "left center", label: "좌측" },
+  { value: "right center", label: "우측" },
+  { value: "left top", label: "좌상단" },
+  { value: "right top", label: "우상단" },
+  { value: "left bottom", label: "좌하단" },
+  { value: "right bottom", label: "우하단" },
+];
+
+function itemPhotoPosition(item) {
+  return item?.photo_position || DEFAULT_PHOTO_POSITION;
+}
+
+function itemPhotoStyle(item, extra = {}) {
+  return {
+    objectFit: "cover",
+    objectPosition: itemPhotoPosition(item),
+    ...extra,
+  };
+}
+
+function GearItemImg({ item, alt, style }) {
+  if (!item?.photo_url) return null;
+  return (
+    <img
+      src={item.photo_url}
+      alt={alt ?? item.name}
+      style={itemPhotoStyle(item, { width: "100%", height: "100%", ...style })}
+    />
+  );
+}
 
 const ROLE_CFG = {
   superadmin: { label:"슈퍼관리자", bg:"#fef9c3", color:"#854d0e" },
@@ -1855,10 +1892,15 @@ function ChangePwModal({ email, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════
 // 사진 업로드
 // ═══════════════════════════════════════════════════════════════════════
-function PhotoUploader({itemCode, currentUrl, onUploaded}) {
+function PhotoUploader({ itemCode, currentUrl, position, onUploaded, onPositionChange }) {
   const [loading,setLoading] = useState(false);
   const [preview,setPreview] = useState(currentUrl||null);
   const fileRef = useRef(null);
+  const activePosition = position || DEFAULT_PHOTO_POSITION;
+
+  useEffect(() => {
+    setPreview(currentUrl || null);
+  }, [currentUrl]);
 
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
@@ -1893,7 +1935,14 @@ function PhotoUploader({itemCode, currentUrl, onUploaded}) {
         }}>
         {preview ? (
           <>
-            <img src={preview} alt="교구 사진" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            <img
+              src={preview}
+              alt="교구 사진"
+              style={{
+                width:"100%",height:"100%",objectFit:"cover",
+                objectPosition: activePosition,
+              }}
+            />
             <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.3)",display:"flex",alignItems:"center",justifyContent:"center",opacity:0,transition:"opacity 0.2s"}}
               onMouseEnter={e=>e.currentTarget.style.opacity=1}
               onMouseLeave={e=>e.currentTarget.style.opacity=0}>
@@ -1908,8 +1957,42 @@ function PhotoUploader({itemCode, currentUrl, onUploaded}) {
         )}
       </div>
       <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
+      {preview && onPositionChange && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: DS.textSecondary, marginBottom: 8 }}>
+            표시 위치 (object-position)
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {PHOTO_POSITION_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={e => { e.stopPropagation(); onPositionChange(opt.value); }}
+                style={{
+                  padding: "8px 10px",
+                  minHeight: 36,
+                  borderRadius: 8,
+                  border: `1px solid ${activePosition === opt.value ? DS.primary : "#e2e8f0"}`,
+                  background: activePosition === opt.value ? DS.primaryLight : "#fff",
+                  color: activePosition === opt.value ? DS.primary : DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {preview && (
-        <button onClick={()=>{setPreview(null);onUploaded("");}} style={{marginTop:6,background:"none",border:"none",color:DS.textMuted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+        <button
+          type="button"
+          onClick={()=>{ setPreview(null); onUploaded(""); onPositionChange?.(DEFAULT_PHOTO_POSITION); }}
+          style={{ marginTop: 8, background: "none", border: "none", color: DS.textMuted, fontSize: 11, cursor: "pointer", fontFamily: "inherit", minHeight: 36 }}
+        >
           사진 제거
         </button>
       )}
@@ -1920,21 +2003,39 @@ function PhotoUploader({itemCode, currentUrl, onUploaded}) {
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 추가/편집 폼
 // ═══════════════════════════════════════════════════════════════════════
+function itemToFormState(item) {
+  const cats = Object.keys(CAT);
+  return {
+    code: item?.code || "",
+    name: item?.name || "",
+    alias: item?.alias || "",
+    category: item?.category || cats[0],
+    total_quantity: item?.total_quantity ?? 0,
+    branch: item?.branch || BRANCHES[0],
+    description: item?.description || "",
+    usage_description: item?.usage_description || "",
+    safety_notes: item?.safety_notes || "",
+    youtube_url: item?.youtube_url || "",
+    status: item?.status || "available",
+    photo_url: item?.photo_url || "",
+    photo_position: item?.photo_position || DEFAULT_PHOTO_POSITION,
+    qr_url: item?.qr_url || "",
+  };
+}
+
 function ItemForm({item, items, onSave, onClose}) {
   const cats = Object.keys(CAT);
   const isNew = !item?.id;
-  const [f,setF] = useState({
-    code:item?.code||"", name:item?.name||"", alias:item?.alias||"",
-    category:item?.category||cats[0], total_quantity:item?.total_quantity||0,
-    branch:item?.branch||BRANCHES[0], description:item?.description||"",
-    usage_description:item?.usage_description||"", safety_notes:item?.safety_notes||"",
-    youtube_url:item?.youtube_url||"", status:item?.status||"available",
-    photo_url:item?.photo_url||"",
-    qr_url:item?.qr_url||"",
-  });
+  const isEdit = Boolean(item?.id);
+  const [f, setF] = useState(() => itemToFormState(item));
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const [saving,setSaving] = useState(false);
   const [autoCode,setAutoCode] = useState(isNew && !item?.code);
+
+  useEffect(() => {
+    setF(itemToFormState(item));
+    setAutoCode(!item?.id && !item?.code);
+  }, [item?.id]);
 
   const qrItem = useMemo(
     () => ({ id: item?.id, code: f.code.trim() }),
@@ -1956,11 +2057,28 @@ function ItemForm({item, items, onSave, onClose}) {
   };
 
   const handleSave = async () => {
-    if (!f.code.trim()||!f.name.trim()) { alert("코드와 교구명은 필수입니다"); return; }
+    if (!f.code.trim() || !f.name.trim()) {
+      alert("교구명과 교구 코드는 필수입니다");
+      return;
+    }
     setSaving(true);
-    const payload = { ...f, total_quantity: parseInt(f.total_quantity) || 0 };
+    const payload = {
+      ...f,
+      code: f.code.trim(),
+      name: f.name.trim(),
+      total_quantity: parseInt(f.total_quantity, 10) || 0,
+      ...(isEdit ? {
+        alias: item.alias ?? f.alias ?? "",
+        usage_description: item.usage_description ?? f.usage_description ?? "",
+        safety_notes: item.safety_notes ?? f.safety_notes ?? "",
+        youtube_url: item.youtube_url ?? f.youtube_url ?? "",
+        qr_url: item.qr_url ?? f.qr_url ?? "",
+      } : {}),
+    };
     const row = await onSave(payload, item?.id);
-    if (row) {
+    setSaving(false);
+    if (!row) return;
+    if (isNew) {
       try {
         const uploaded = await createItemQr(row);
         if (uploaded && uploaded !== row.qr_url) {
@@ -1970,7 +2088,6 @@ function ItemForm({item, items, onSave, onClose}) {
         console.warn("QR 생성 실패", e);
       }
     }
-    setSaving(false);
     onClose();
   };
 
@@ -1978,7 +2095,13 @@ function ItemForm({item, items, onSave, onClose}) {
 
   return (
     <Modal title={item?"교구 편집":"교구 추가"} onClose={onClose}>
-      <PhotoUploader itemCode={f.code||"new"} currentUrl={f.photo_url} onUploaded={url=>set("photo_url",url)}/>
+      <PhotoUploader
+        itemCode={f.code || "new"}
+        currentUrl={f.photo_url}
+        position={f.photo_position}
+        onUploaded={url => set("photo_url", url)}
+        onPositionChange={pos => set("photo_position", pos)}
+      />
 
       <div style={{...panelCard,padding:"16px 18px",marginBottom:14}}>
         <div style={{fontSize:12,fontWeight:600,color:DS.textSecondary,marginBottom:10}}>카테고리 · 교구 코드</div>
@@ -2025,8 +2148,8 @@ function ItemForm({item, items, onSave, onClose}) {
         </div>
       )}
 
-      <Inp2 label="교구명 *" value={f.name} onChange={e=>set("name",e.target.value)}/>
-      <Inp2 label="검색 별칭" value={f.alias} onChange={e=>set("alias",e.target.value)} placeholder="별명, 영문명 등"/>
+      <Inp2 label="교구명 *" value={f.name} onChange={e=>set("name",e.target.value)} placeholder="교구명 입력"/>
+
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
         <Sel2 label="보관 지점" value={f.branch} onChange={e=>set("branch",e.target.value)}>
           {BRANCHES.map(b=><option key={b}>{b}</option>)}
@@ -2038,10 +2161,15 @@ function ItemForm({item, items, onSave, onClose}) {
         <option value="maintenance">점검중</option>
         <option value="retired">퇴역</option>
       </Sel2>
-      <Txa2 label="설명" value={f.description} onChange={e=>set("description",e.target.value)}/>
-      <Txa2 label="사용법" value={f.usage_description} onChange={e=>set("usage_description",e.target.value)}/>
-      <Txa2 label="안전 주의사항" value={f.safety_notes} onChange={e=>set("safety_notes",e.target.value)}/>
-      <Inp2 label="유튜브 URL" value={f.youtube_url} onChange={e=>set("youtube_url",e.target.value)} placeholder="https://youtube.com/watch?v=..."/>
+      <Txa2 label="설명" value={f.description} onChange={e=>set("description",e.target.value)} placeholder="교구 설명"/>
+      {!isEdit && (
+        <>
+          <Inp2 label="검색 별칭" value={f.alias} onChange={e=>set("alias",e.target.value)} placeholder="별명, 영문명 등"/>
+          <Txa2 label="사용법" value={f.usage_description} onChange={e=>set("usage_description",e.target.value)}/>
+          <Txa2 label="안전 주의사항" value={f.safety_notes} onChange={e=>set("safety_notes",e.target.value)}/>
+          <Inp2 label="유튜브 URL" value={f.youtube_url} onChange={e=>set("youtube_url",e.target.value)} placeholder="https://youtube.com/watch?v=..."/>
+        </>
+      )}
       <div style={{display:"flex",gap:8,marginTop:4}}>
         <Btn full onClick={handleSave} disabled={saving}>{saving?"저장 중...":"저장"}</Btn>
         <Btn full color="#94a3b8" onClick={onClose}>취소</Btn>
@@ -2632,10 +2760,11 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 목록 — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
-function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,openAddOnMount=false}) {
+function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,onDeleteItem,openAddOnMount=false}) {
   const [q,setQ]=useState("");const[catF,setCatF]=useState("ALL");const[brF,setBrF]=useState("ALL");
   const[avOnly,setAvOnly]=useState(false);const[sortBy,setSortBy]=useState("code");
   const[editItem,setEditItem]=useState(null);const[addOpen,setAddOpen]=useState(false);
+  const superA = isSuperAdmin(me);
 
   useEffect(() => {
     if (openAddOnMount && canManage(me)) setAddOpen(true);
@@ -2655,6 +2784,12 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
   const inCart=id=>cart.some(c=>c.item_id===id);
   const toggle=item=>{if(inCart(item.id)){setCart(p=>p.filter(c=>c.item_id!==item.id));return;}if(availQty(item,ris,rets)===0)return;setCart(p=>[...p,{item_id:item.id,quantity:1,due_date:""}]);};
   const availCount=useMemo(()=>items.reduce((s,i)=>s+availQty(i,ris,rets),0),[items,ris,rets]);
+
+  const handleDelete = async (item) => {
+    if (!onDeleteItem) return;
+    const ok = await onDeleteItem(item);
+    if (ok && editItem?.id === item.id) setEditItem(null);
+  };
 
   return(
     <PageShell>
@@ -2741,7 +2876,7 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
                 border:"1px solid #e2e8f0",
               }}>
                 {item.photo_url
-                  ? <img src={item.photo_url} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                  ? <GearItemImg item={item}/>
                   : <span style={{fontSize:11,fontWeight:700,color:DS.textMuted}}>{item.code?.slice(0,3)||"GTS"}</span>
                 }
               </div>
@@ -2759,11 +2894,49 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
                     </div>
                   </div>
                   {canManage(me)&&(
-                    <button onClick={()=>setEditItem(item)} style={{
-                      background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,
-                      padding:"5px 9px",cursor:"pointer",fontSize:11,color:DS.textSecondary,
-                      marginLeft:8,flexShrink:0,fontWeight:600,
-                    }}>편집</button>
+                    <div style={{ display: "flex", gap: 6, marginLeft: 8, flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={e=>{ e.stopPropagation(); setEditItem({ ...item }); }}
+                        style={{
+                          background: DS.primaryLight,
+                          border: `1px solid ${DS.primary}`,
+                          borderRadius: 8,
+                          minHeight: 36,
+                          padding: "8px 12px",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          color: DS.primary,
+                          fontWeight: 700,
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        편집
+                      </button>
+                      {superA && onDeleteItem && (
+                        <button
+                          type="button"
+                          onClick={e=>{
+                            e.stopPropagation();
+                            handleDelete(item);
+                          }}
+                          style={{
+                            background: "#fee2e2",
+                            border: "1px solid #fecaca",
+                            borderRadius: 8,
+                            minHeight: 36,
+                            padding: "8px 12px",
+                            cursor: "pointer",
+                            fontSize: 12,
+                            color: "#dc2626",
+                            fontWeight: 700,
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          삭제
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -2791,7 +2964,15 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
           </div>
         );
       }}/>
-      {(addOpen||editItem)&&<ItemForm item={editItem} items={items} onSave={onSaveItem} onClose={()=>{setAddOpen(false);setEditItem(null);}}/>}
+      {(addOpen||editItem)&&(
+        <ItemForm
+          key={editItem?.id || "new-item"}
+          item={editItem}
+          items={items}
+          onSave={onSaveItem}
+          onClose={()=>{ setAddOpen(false); setEditItem(null); }}
+        />
+      )}
     </PageShell>
   );
 }
@@ -2815,7 +2996,7 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me}) {
       <PanelSection>
         {item.photo_url&&(
           <div style={{width:"100%",height:200,borderRadius:14,overflow:"hidden",marginBottom:14}}>
-            <img src={item.photo_url} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            <GearItemImg item={item}/>
           </div>
         )}
         <div style={{display:"flex",gap:12,marginBottom:14}}>
@@ -3295,11 +3476,9 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, embedded
               }}>
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
                   {item?.photo_url ? (
-                    <img
-                      src={item.photo_url}
-                      alt={item.name}
-                      style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", flexShrink: 0 }}
-                    />
+                    <div style={{ width: 56, height: 56, borderRadius: 10, overflow: "hidden", flexShrink: 0 }}>
+                      <GearItemImg item={item} style={{ width: 56, height: 56 }}/>
+                    </div>
                   ) : (
                     <div style={{
                       width: 56, height: 56, borderRadius: 10, background: "#f8fafc",
@@ -3442,7 +3621,7 @@ function QrPrintCard({ item, qrSize = 120 }) {
       <div className="gts-qr-print-meta">
         <div className="gts-qr-print-photo">
           {item.photo_url ? (
-            <img src={item.photo_url} alt={item.name}/>
+            <img src={item.photo_url} alt={item.name} style={itemPhotoStyle(item)}/>
           ) : (
             <span className="gts-qr-print-photo-fallback">{item.code?.slice(0, 4) || "GTS"}</span>
           )}
@@ -3491,11 +3670,9 @@ function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDeta
       <PanelSection>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
           {item.photo_url ? (
-            <img
-              src={item.photo_url}
-              alt={item.name}
-              style={{ width: 120, height: 120, borderRadius: 14, objectFit: "cover", flexShrink: 0 }}
-            />
+            <div style={{ width: 120, height: 120, borderRadius: 14, overflow: "hidden", flexShrink: 0 }}>
+              <GearItemImg item={item} style={{ width: 120, height: 120, borderRadius: 14 }}/>
+            </div>
           ) : (
             <div style={{
               width: 120, height: 120, borderRadius: 14, background: "#f8fafc",
@@ -4178,7 +4355,11 @@ function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
               <div style={{display:"flex",alignItems:"center",gap:9}}>
                 {item?.photo_url
-                  ?<img src={item.photo_url} alt="" style={{width:40,height:40,borderRadius:10,objectFit:"cover"}}/>
+                  ? (
+                    <div style={{ width: 40, height: 40, borderRadius: 10, overflow: "hidden", flexShrink: 0 }}>
+                      <GearItemImg item={item} style={{ width: 40, height: 40, borderRadius: 10 }}/>
+                    </div>
+                  )
                   :<div style={{width:40,height:40,borderRadius:8,background:"#f8fafc",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:DS.textMuted,border:"1px solid #e2e8f0"}}>{item?.code?.slice(0,3)||"—"}</div>
                 }
                 <div>
@@ -4799,26 +4980,63 @@ function EquipmentApp({ onBack, me, session }) {
   const confirmDamage=async(id)=>{if(!canManage(me))return;const now=new Date().toISOString();await supabase.from("return_requests").update({status:"damage_confirmed",approved_by:me.id,approved_at:now}).eq("id",id);setRets(p=>p.map(r=>r.id===id?{...r,status:"damage_confirmed",approved_by:me.id,approved_at:now}:r));};
   const confirmLoss=async(id)=>{if(!canManage(me))return;const now=new Date().toISOString();await supabase.from("return_requests").update({status:"loss_confirmed",approved_by:me.id,approved_at:now}).eq("id",id);setRets(p=>p.map(r=>r.id===id?{...r,status:"loss_confirmed",approved_by:me.id,approved_at:now}:r));};
 
-  const saveItem = async (data,editId) => {
-    if(!canManage(me)){alert("권한이 없습니다");return;}
+  const reloadItems = async () => {
+    const { data, error } = await supabase.from("items").select("*").order("code");
+    if (error) {
+      console.error("교구 목록 새로고침 실패", error);
+      return;
+    }
+    setItems(data || []);
+  };
+
+  const saveItem = async (data, editId) => {
+    if (!canManage(me)) {
+      alert("권한이 없습니다");
+      return null;
+    }
     const trySave = async (payload) => {
-      if(editId) return supabase.from("items").update(payload).eq("id",editId).select().single();
+      if (editId) return supabase.from("items").update(payload).eq("id", editId).select().single();
       return supabase.from("items").insert(payload).select().single();
     };
-    let { data: row, error } = await trySave(data);
+    let payload = { ...data };
+    let { data: row, error } = await trySave(payload);
     if (error?.message?.includes("qr_url")) {
-      const { qr_url, ...rest } = data;
-      ({ data: row, error } = await trySave(rest));
+      const { qr_url, ...rest } = payload;
+      payload = rest;
+      ({ data: row, error } = await trySave(payload));
+    }
+    if (error?.message?.includes("photo_position")) {
+      const { photo_position, ...rest } = payload;
+      payload = rest;
+      ({ data: row, error } = await trySave(payload));
     }
     if (error) {
       alert("저장 오류: " + error.message);
-      return;
+      return null;
     }
-    if (row) {
-      if (editId) setItems(p => p.map(i => i.id === editId ? row : i));
-      else setItems(p => [...p, row]);
-    }
+    await reloadItems();
+    if (editId && detailItem?.id === editId && row) setDetailItem(row);
     return row;
+  };
+
+  const deleteItem = async (item) => {
+    if (!isSuperAdmin(me)) {
+      alert("권한이 없습니다");
+      return false;
+    }
+    if (!confirm("정말 삭제하시겠습니까?")) return false;
+    const { error } = await supabase.from("items").delete().eq("id", item.id);
+    if (error) {
+      alert("삭제 오류: " + error.message);
+      return false;
+    }
+    setCart(p => p.filter(c => c.item_id !== item.id));
+    if (detailItem?.id === item.id) {
+      setDetailItem(null);
+      setPage("items");
+    }
+    await reloadItems();
+    return true;
   };
 
   if (dataLoading) return (
@@ -4864,8 +5082,8 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
         {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} items={items}/>}
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} items={items} initialFilter="overdue"/>}
-        {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem}/>}
-        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} openAddOnMount/>}
+        {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem}/>}
+        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
         {page==="items-qr"&&<ItemsQrPage me={me} items={items}/>}
         {page==="item-detail"&&detailItem&&<ItemDetailPage item={detailItem} ris={ris} rets={rets} reqs={reqs} teachers={teachers} cart={cart} setCart={setCart} onBack={goItemsFromDetail} me={me}/>}
         {page==="qr-rent"&&scanRentItem&&(
