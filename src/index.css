@@ -67,11 +67,60 @@ body {
 }
 
 #root:has(.login-page),
-#root:has(.hub-page) {
+#root:has(.hub-page),
+#root:has(.equipment-app) {
   width: 100%;
   max-width: none;
   border: none;
   text-align: left;
+}
+
+@media (max-width: 767px) {
+  .equipment-app--mobile .mobile-content {
+    padding: 16px 16px 8px;
+  }
+
+  .equipment-app--mobile .page-header-greeting {
+    display: none;
+  }
+
+  .equipment-app--mobile .page-header-block {
+    margin-bottom: 20px;
+  }
+
+  .equipment-app--mobile .page-header-subtitle {
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  .equipment-app--mobile .panel-section-card {
+    margin-bottom: 20px;
+    padding: 18px 16px;
+    border-radius: 16px;
+  }
+
+  .equipment-app--mobile .mobile-content button {
+    min-height: 44px;
+  }
+
+  .equipment-app--mobile .mobile-bottom-nav button {
+    min-height: 56px;
+  }
+
+  .equipment-app--mobile input,
+  .equipment-app--mobile select,
+  .equipment-app--mobile textarea {
+    font-size: 16px;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 h1,

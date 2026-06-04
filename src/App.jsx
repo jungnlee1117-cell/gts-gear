@@ -629,11 +629,10 @@ function MobileMoreSheet({ items, page, onSelect, onClose }) {
       />
       <div style={{
         position: "fixed",
-        left: "50%",
-        transform: "translateX(-50%)",
+        left: 0,
+        right: 0,
         bottom: 0,
         width: "100%",
-        maxWidth: 520,
         background: "#fff",
         borderRadius: "16px 16px 0 0",
         zIndex: 360,
@@ -641,6 +640,7 @@ function MobileMoreSheet({ items, page, onSelect, onClose }) {
         boxShadow: "0 -8px 32px rgba(0,0,0,0.18)",
         maxHeight: "min(70vh, 420px)",
         overflowY: "auto",
+        animation: "slideUp 0.22s ease-out",
       }}>
         <div style={{
           display: "flex",
@@ -658,8 +658,9 @@ function MobileMoreSheet({ items, page, onSelect, onClose }) {
               border: "none",
               background: "#f1f5f9",
               borderRadius: 8,
-              padding: "6px 12px",
-              fontSize: 12,
+              padding: "10px 14px",
+              minHeight: 44,
+              fontSize: 13,
               fontWeight: 600,
               color: DS.textSecondary,
               cursor: "pointer",
@@ -681,18 +682,20 @@ function MobileMoreSheet({ items, page, onSelect, onClose }) {
                   border: active ? `1.5px solid ${DS.primary}` : "1px solid #e2e8f0",
                   background: active ? "#f0fdf4" : "#fff",
                   borderRadius: 12,
-                  padding: "12px 6px",
+                  padding: "14px 8px",
+                  minHeight: 72,
                   cursor: "pointer",
                   fontFamily: "inherit",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  gap: 6,
+                  justifyContent: "center",
+                  gap: 8,
                 }}
               >
-                <NavGlyph id={n.glyph || n.id} color={active ? DS.primary : "#64748b"} size={20}/>
+                <NavGlyph id={n.glyph || n.id} color={active ? DS.primary : "#64748b"} size={22}/>
                 <span style={{
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: active ? 700 : 600,
                   color: active ? DS.primary : DS.textSecondary,
                   lineHeight: 1.25,
@@ -707,7 +710,7 @@ function MobileMoreSheet({ items, page, onSelect, onClose }) {
   );
 }
 
-function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, admin }) {
+function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, admin, touchMode = false }) {
   const [expanded, setExpanded] = useState(() => {
     const init = {};
     nav.forEach(n => {
@@ -735,7 +738,10 @@ function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, admin }
         onClick={() => setPage(id)}
         style={{
           width: "100%",
-          padding: indent ? "9px 14px 9px 38px" : "11px 14px",
+          padding: touchMode
+            ? (indent ? "12px 14px 12px 38px" : "13px 14px")
+            : (indent ? "9px 14px 9px 38px" : "11px 14px"),
+          minHeight: touchMode ? 44 : undefined,
           borderRadius: indent ? 8 : 10,
           border: "none",
           background: active ? sb.activeBg : "transparent",
@@ -787,7 +793,8 @@ function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, admin }
               onClick={() => toggleGroup(n.id)}
               style={{
                 width: "100%",
-                padding: "11px 14px",
+                padding: touchMode ? "13px 14px" : "11px 14px",
+                minHeight: touchMode ? 44 : undefined,
                 borderRadius: 10,
                 border: "none",
                 background: groupActive && !open ? "rgba(255,255,255,0.06)" : "transparent",
@@ -816,6 +823,164 @@ function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, admin }
         );
       })}
     </nav>
+  );
+}
+
+function MobileNavDrawer({
+  open, onClose, nav, page, setPage, sb, badge, reqBadge, retBadge, admin,
+  me, onBack, onLogout, onChangePw, cartCount, onOpenCart,
+}) {
+  if (!open) return null;
+  const navigate = (id) => {
+    setPage(id);
+    onClose();
+  };
+  const touchBtn = {
+    minHeight: 44,
+    padding: "11px 14px",
+    borderRadius: 10,
+    border: "none",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    fontSize: 13,
+    fontWeight: 600,
+  };
+  return (
+    <>
+      <div
+        role="presentation"
+        onClick={onClose}
+        style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", zIndex: 400 }}
+      />
+      <aside style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        bottom: 0,
+        width: "min(288px, 86vw)",
+        background: sb.bg,
+        zIndex: 410,
+        display: "flex",
+        flexDirection: "column",
+        boxShadow: "4px 0 32px rgba(0,0,0,0.35)",
+      }}>
+        <div style={{ padding: "16px 14px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <GtsHexLogo size={32}/>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>GTS</div>
+                <div style={{ fontSize: 10, color: sb.muted, marginTop: 2 }}>대여 관리</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="메뉴 닫기"
+              style={{
+                ...touchBtn,
+                width: 44,
+                minWidth: 44,
+                padding: 0,
+                background: "rgba(255,255,255,0.08)",
+                color: "#fff",
+                border: "1px solid rgba(255,255,255,0.12)",
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => { onBack(); onClose(); }}
+            style={{
+              ...touchBtn,
+              width: "100%",
+              background: "rgba(255,255,255,0.08)",
+              color: "rgba(255,255,255,0.85)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              textAlign: "left",
+            }}
+          >
+            ← 통합 플랫폼 홈
+          </button>
+        </div>
+
+        {cartCount > 0 && (
+          <div style={{ padding: "10px 12px 0" }}>
+            <button
+              type="button"
+              onClick={() => { onOpenCart(); onClose(); }}
+              style={{
+                ...touchBtn,
+                width: "100%",
+                background: "rgba(22,163,74,0.15)",
+                color: "#86efac",
+                border: "1px solid rgba(22,163,74,0.35)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <span>장바구니</span>
+              <span style={{
+                background: DS.primary, color: "#fff", borderRadius: 99,
+                padding: "2px 8px", fontSize: 11, fontWeight: 700,
+              }}>{cartCount}</span>
+            </button>
+          </div>
+        )}
+
+        <SidebarNav
+          nav={nav}
+          page={page}
+          setPage={navigate}
+          sb={sb}
+          badge={badge}
+          reqBadge={reqBadge}
+          retBadge={retBadge}
+          admin={admin}
+          touchMode
+        />
+
+        <div style={{ padding: "12px 14px calc(16px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+          <div style={{
+            background: sb.profileBg,
+            border: `1px solid ${sb.profileBorder}`,
+            borderRadius: 14,
+            padding: "12px 14px",
+            marginBottom: 10,
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#fff", marginBottom: 4 }}>{me.name}님</div>
+            <div style={{ marginBottom: 10 }}><RoleBadge role={me.role}/></div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => { onChangePw(); onClose(); }}
+                style={{
+                  ...touchBtn,
+                  background: "rgba(255,255,255,0.06)",
+                  color: "rgba(255,255,255,0.75)",
+                }}
+              >
+                비밀번호 변경
+              </button>
+              <button
+                type="button"
+                onClick={() => { onLogout(); onClose(); }}
+                style={{
+                  ...touchBtn,
+                  background: "rgba(220,38,38,0.15)",
+                  color: "#fca5a5",
+                }}
+              >
+                로그아웃
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }
 
@@ -874,12 +1039,12 @@ function PageShell({children,style}) {
 
 function PageHeader({me,subtitle,alertCount=0,actions}) {
   return (
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:28,gap:16,flexWrap:"wrap"}}>
+    <div className="page-header-block" style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:28,gap:16,flexWrap:"wrap"}}>
       <div>
-        <div style={{fontSize:26,fontWeight:800,color:"#111827",letterSpacing:"-0.5px",marginBottom:8}}>
+        <div className="page-header-greeting" style={{fontSize:26,fontWeight:800,color:"#111827",letterSpacing:"-0.5px",marginBottom:8}}>
           안녕하세요, {me.name}님
         </div>
-        <div style={{fontSize:14,color:DS.textSecondary,lineHeight:1.5}}>{subtitle}</div>
+        <div className="page-header-subtitle" style={{fontSize:14,color:DS.textSecondary,lineHeight:1.5}}>{subtitle}</div>
       </div>
       <div style={{display:"flex",gap:10,alignItems:"center"}}>
         {alertCount>0&&(
@@ -937,7 +1102,7 @@ function DashStatCard({label,value,iconMark,iconBg,iconColor,onClick,active}) {
 
 function PanelSection({title,action,actionLabel,children,style}) {
   return (
-    <div style={{...panelCard,marginBottom:18,...style}}>
+    <div className="panel-section-card" style={{...panelCard,marginBottom:18,...style}}>
       {(title||action)&&(
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           {title&&<div style={{fontSize:16,fontWeight:700,color:"#111827"}}>{title}</div>}
@@ -4474,6 +4639,7 @@ function EquipmentApp({ onBack, me, session }) {
   const [showPwModal,setShowPwModal]= useState(false);
   const [showProfile,setShowProfile]= useState(false);
   const [showMobileMore,setShowMobileMore] = useState(false);
+  const [showMobileDrawer,setShowMobileDrawer] = useState(false);
   const [isPC,setIsPC] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
 
   useEffect(()=>{
@@ -4747,7 +4913,7 @@ function EquipmentApp({ onBack, me, session }) {
     const SIDEBAR_W = 256;
     const sb = DARK_SB;
     return (
-      <div style={{
+      <div className="equipment-app equipment-app--desktop" style={{
         display:"flex",minHeight:"100vh",
         background:DS.pageBg,
         fontFamily:"'Noto Sans KR','Apple SD Gothic Neo',sans-serif",
@@ -4888,92 +5054,177 @@ function EquipmentApp({ onBack, me, session }) {
 
   // ── 모바일 레이아웃 ──────────────────────────────────────
   const mobileTitle = (PAGE_META[page] || PAGE_META.dashboard).title;
-  return (
-    <div style={{
-      maxWidth:520,margin:"0 auto",
-      minHeight:"100vh",
-      background:DS.pageBg,
-      fontFamily:"'Noto Sans KR','Apple SD Gothic Neo',sans-serif",
-      paddingBottom:90,
-    }}>
-      <style>{`*{box-sizing:border-box;} @keyframes spin{to{transform:rotate(360deg)}}`}</style>
+  const mobileIconBtn = {
+    width: 44,
+    height: 44,
+    minWidth: 44,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 10,
+    cursor: "pointer",
+    padding: 0,
+    fontFamily: "inherit",
+    color: "#fff",
+    flexShrink: 0,
+  };
 
-      <div className="no-print" style={{
-        background:DARK_SB.bg,
-        padding:"14px 16px",
-        position:"sticky",top:0,zIndex:200,
-        display:"flex",justifyContent:"space-between",alignItems:"center",
+  return (
+    <div className="equipment-app equipment-app--mobile" style={{
+      width: "100%",
+      maxWidth: "100%",
+      margin: 0,
+      minHeight: "100vh",
+      background: DS.pageBg,
+      fontFamily: "'Noto Sans KR','Apple SD Gothic Neo',sans-serif",
+      paddingBottom: "calc(72px + env(safe-area-inset-bottom, 0px))",
+    }}>
+      <style>{`
+        *{box-sizing:border-box;}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+      `}</style>
+
+      <MobileNavDrawer
+        open={showMobileDrawer}
+        onClose={()=>setShowMobileDrawer(false)}
+        nav={sidebarNav}
+        page={page}
+        setPage={setPage}
+        sb={DARK_SB}
+        badge={badge}
+        reqBadge={reqBadge}
+        retBadge={retBadge}
+        admin={admin}
+        me={me}
+        onBack={onBack}
+        onLogout={logout}
+        onChangePw={()=>setShowPwModal(true)}
+        cartCount={cart.length}
+        onOpenCart={()=>setShowCart(true)}
+      />
+
+      <header className="no-print" style={{
+        background: DARK_SB.bg,
+        padding: "6px 8px",
+        paddingTop: "calc(6px + env(safe-area-inset-top, 0px))",
+        position: "sticky",
+        top: 0,
+        zIndex: 200,
+        display: "flex",
+        alignItems: "center",
+        minHeight: 56,
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
       }}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <button onClick={onBack} style={{
-            background:"rgba(255,255,255,0.08)",
-            border:"1px solid rgba(255,255,255,0.1)",
-            borderRadius:8,padding:"6px 12px",
-            color:"rgba(255,255,255,0.75)",
-            fontSize:11,fontWeight:600,
-            cursor:"pointer",fontFamily:"inherit",
-            flexShrink:0,
-          }}>← 홈</button>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <GtsLogo height={26}/>
-            <div>
-              <div style={{fontSize:14,fontWeight:800,color:"#fff"}}>{mobileTitle}</div>
-              <div style={{fontSize:10,color:DARK_SB.muted,marginTop:1}}>{me.name}</div>
-            </div>
-          </div>
-        </div>
-        <div style={{display:"flex",gap:7,alignItems:"center"}}>
-          {cart.length>0&&(
-            <button onClick={()=>setShowCart(true)} style={{
-              background:"rgba(22,163,74,0.2)",
-              border:"1px solid rgba(22,163,74,0.35)",
-              borderRadius:8,
-              padding:"7px 12px",cursor:"pointer",
-              color:"#86efac",fontWeight:600,fontSize:11,
-              fontFamily:"inherit",
-            }}>장바구니 {cart.length}</button>
+        <button
+          type="button"
+          aria-label="메뉴 열기"
+          onClick={()=>setShowMobileDrawer(true)}
+          style={mobileIconBtn}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>
+          </svg>
+        </button>
+
+        <h1 style={{
+          position: "absolute",
+          left: 56,
+          right: 56,
+          margin: 0,
+          textAlign: "center",
+          fontSize: 15,
+          fontWeight: 800,
+          color: "#fff",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          pointerEvents: "none",
+        }}>{mobileTitle}</h1>
+
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+          {cart.length > 0 && (
+            <button
+              type="button"
+              onClick={()=>setShowCart(true)}
+              aria-label={`장바구니 ${cart.length}개`}
+              style={{
+                ...mobileIconBtn,
+                width: "auto",
+                minWidth: 44,
+                padding: "0 10px",
+                gap: 6,
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#86efac",
+                background: "rgba(22,163,74,0.2)",
+                border: "1px solid rgba(22,163,74,0.35)",
+              }}
+            >
+              {cart.length}
+            </button>
           )}
-          <button onClick={()=>setShowProfile(v=>!v)} style={{
-            background:"rgba(255,255,255,0.08)",
-            border:"1px solid rgba(255,255,255,0.1)",
-            borderRadius:8,padding:"7px 12px",
-            cursor:"pointer",color:"#fff",fontWeight:600,fontSize:12,
-            fontFamily:"inherit",
-          }}>{me.name[0]}</button>
+          <button
+            type="button"
+            aria-label="프로필 메뉴"
+            onClick={()=>setShowProfile(v=>!v)}
+            style={mobileIconBtn}
+          >
+            <span style={{ fontSize: 15, fontWeight: 800, color: "#86efac" }}>{me.name[0]}</span>
+          </button>
         </div>
-      </div>
+      </header>
 
       {/* 프로필 드롭다운 */}
       {showProfile&&(
         <>
           <div style={{
-            position:"fixed",top:62,right:8,
-            background:"#fff",borderRadius:16,
-            boxShadow:"0 8px 32px rgba(0,0,0,0.15)",
-            zIndex:300,padding:"8px 0",minWidth:200,
-            border:"1px solid #e2e8f0",
-          }} onClick={()=>setShowProfile(false)}>
-            <div style={{padding:"12px 16px",borderBottom:"1px solid #f1f5f9"}}>
-              <div style={{fontWeight:800,fontSize:13,color:DS.textPrimary}}>{me.name}</div>
-              <div style={{marginTop:4}}><RoleBadge role={me.role}/></div>
-              <div style={{fontSize:11,color:DS.textMuted,marginTop:4,overflow:"hidden",textOverflow:"ellipsis"}}>{session.user.email}</div>
+            position: "fixed",
+            top: "calc(56px + env(safe-area-inset-top, 0px))",
+            right: 8,
+            background: "#fff",
+            borderRadius: 16,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
+            zIndex: 300,
+            padding: "8px 0",
+            minWidth: 220,
+            border: "1px solid #e2e8f0",
+          }}>
+            <div style={{ padding: "14px 16px", borderBottom: "1px solid #f1f5f9" }}>
+              <div style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary }}>{me.name}</div>
+              <div style={{ marginTop: 6 }}><RoleBadge role={me.role}/></div>
+              <div style={{ fontSize: 12, color: DS.textMuted, marginTop: 6, overflow: "hidden", textOverflow: "ellipsis" }}>{session.user.email}</div>
             </div>
-            <button onClick={()=>{setShowPwModal(true);setShowProfile(false);}} style={{
-              display:"block",width:"100%",padding:"13px 16px",border:"none",
-              background:"none",textAlign:"left",fontSize:13,cursor:"pointer",
-              color:DS.textSecondary,fontFamily:"inherit",fontWeight:600,
-            }}>비밀번호 변경</button>
-            <button onClick={()=>{logout();setShowProfile(false);}} style={{
-              display:"block",width:"100%",padding:"13px 16px",border:"none",
-              background:"none",textAlign:"left",fontSize:13,cursor:"pointer",
-              color:"#dc2626",fontFamily:"inherit",fontWeight:600,
-            }}>로그아웃</button>
+            <button
+              type="button"
+              onClick={()=>{ setShowPwModal(true); setShowProfile(false); }}
+              style={{
+                display: "block", width: "100%", minHeight: 44, padding: "12px 16px", border: "none",
+                background: "none", textAlign: "left", fontSize: 14, cursor: "pointer",
+                color: DS.textSecondary, fontFamily: "inherit", fontWeight: 600,
+              }}
+            >
+              비밀번호 변경
+            </button>
+            <button
+              type="button"
+              onClick={()=>{ logout(); setShowProfile(false); }}
+              style={{
+                display: "block", width: "100%", minHeight: 44, padding: "12px 16px", border: "none",
+                background: "none", textAlign: "left", fontSize: 14, cursor: "pointer",
+                color: "#dc2626", fontFamily: "inherit", fontWeight: 600,
+              }}
+            >
+              로그아웃
+            </button>
           </div>
-          <div style={{position:"fixed",inset:0,zIndex:299}} onClick={()=>setShowProfile(false)}/>
+          <div style={{ position: "fixed", inset: 0, zIndex: 299 }} onClick={()=>setShowProfile(false)}/>
         </>
       )}
 
-      <div style={{padding:"16px 14px"}}>{renderPage()}</div>
+      <div className="mobile-content">{renderPage()}</div>
 
       {showMobileMore&&(
         <MobileMoreSheet
@@ -4984,18 +5235,20 @@ function EquipmentApp({ onBack, me, session }) {
         />
       )}
 
-      {/* 하단 내비 */}
-      <div className="no-print" style={{
-        position:"fixed",bottom:0,left:"50%",
-        transform:"translateX(-50%)",
-        width:"100%",maxWidth:520,
-        background:DARK_SB.bg,
-        borderTop:"1px solid rgba(255,255,255,0.08)",
-        display:"flex",
-        boxShadow:"0 -4px 24px rgba(0,0,0,0.25)",
-        zIndex:200,
+      {/* 하단 탭 내비 */}
+      <nav className="no-print mobile-bottom-nav" aria-label="주요 메뉴" style={{
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        width: "100%",
+        background: DARK_SB.bg,
+        borderTop: "1px solid rgba(255,255,255,0.08)",
+        boxShadow: "0 -4px 24px rgba(0,0,0,0.25)",
+        zIndex: 200,
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
       }}>
-        <div style={{ display:"flex", width:"100%" }}>
+        <div style={{ display: "flex", width: "100%", minHeight: 56 }}>
         {mobileBottomNav.map(n=>{
           const moreActive = n.id === "more" && mobileMoreNav.some(m => isNavPageActive(page, m.id));
           const active = n.id === "more" ? moreActive : isNavPageActive(page, n.id);
@@ -5003,41 +5256,44 @@ function EquipmentApp({ onBack, me, session }) {
             <button
               key={n.id}
               type="button"
+              aria-label={n.label}
+              aria-current={active ? "page" : undefined}
               onClick={()=>{
                 if (n.id === "more") setShowMobileMore(true);
-                else { setPage(n.id); setShowMobileMore(false); }
+                else { setPage(n.id); setShowMobileMore(false); setShowMobileDrawer(false); }
               }}
               style={{
-                flex:1,
-                minWidth:0,
-                padding:"6px 2px 5px",
-                border:"none",
-                background:"transparent",
-                display:"flex",
-                flexDirection:"column",
-                alignItems:"center",
-                gap:2,
-                cursor:"pointer",
-                position:"relative",
-                fontFamily:"inherit",
+                flex: 1,
+                minWidth: 0,
+                minHeight: 56,
+                padding: "6px 4px",
+                border: "none",
+                background: "transparent",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 3,
+                cursor: "pointer",
+                position: "relative",
+                fontFamily: "inherit",
               }}
             >
               <NavGlyph
                 id={n.glyph || n.id}
                 color={active ? "#86efac" : DARK_SB.muted}
-                size={15}
+                size={17}
               />
               <span style={{
-                fontSize:8,
-                fontWeight:active?700:500,
-                color:active?"#86efac":DARK_SB.muted,
-                transition:"color 0.15s",
-                lineHeight:1.15,
-                textAlign:"center",
-                maxWidth:"100%",
-                overflow:"hidden",
-                textOverflow:"ellipsis",
-                whiteSpace:"nowrap",
+                fontSize: 9,
+                fontWeight: active ? 700 : 500,
+                color: active ? "#86efac" : DARK_SB.muted,
+                lineHeight: 1.15,
+                textAlign: "center",
+                maxWidth: "100%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}>{n.label}</span>
               {n.id==="dashboard"&&badge>0&&admin&&(
                 <span style={{
@@ -5067,7 +5323,7 @@ function EquipmentApp({ onBack, me, session }) {
           );
         })}
         </div>
-      </div>
+      </nav>
 
       {showCart&&<CartModal cart={cart} setCart={setCart} items={items} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
       {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
