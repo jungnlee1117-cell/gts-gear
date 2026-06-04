@@ -3109,7 +3109,77 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
   );
 }
 
+function ImageLightbox({ src, alt, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="사진 원본 보기"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 500,
+        background: "rgba(15, 23, 42, 0.88)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="닫기"
+        style={{
+          position: "fixed",
+          top: 16,
+          right: 16,
+          zIndex: 502,
+          width: 44,
+          height: 44,
+          borderRadius: 10,
+          border: "1px solid rgba(255,255,255,0.25)",
+          background: "rgba(255,255,255,0.12)",
+          color: "#fff",
+          fontSize: 20,
+          cursor: "pointer",
+          fontFamily: "inherit",
+        }}
+      >
+        ✕
+      </button>
+      <img
+        src={src}
+        alt={alt}
+        onClick={e => e.stopPropagation()}
+        style={{
+          maxWidth: "min(100%, 1200px)",
+          maxHeight: "calc(100vh - 48px)",
+          width: "auto",
+          height: "auto",
+          objectFit: "contain",
+          borderRadius: 8,
+          boxShadow: "0 16px 48px rgba(0,0,0,0.45)",
+        }}
+      />
+    </div>
+  );
+}
+
 function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me}) {
+  const [photoLightbox, setPhotoLightbox] = useState(false);
   const avail=availQty(item,ris,rets),added=cart.some(c=>c.item_id===item.id);
   const currR=ris.filter(ri=>["rented","partial_returned"].includes(ri.status)&&ri.item_id===item.id);
   const history=useMemo(()=>buildItemRentalHistory(item.id,ris,reqs,teachers),[item.id,ris,reqs,teachers]);
@@ -3126,10 +3196,50 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me}) {
       <PageHeader me={me} subtitle={PAGE_META["item-detail"].sub}/>
 
       <PanelSection>
-        {item.photo_url&&(
-          <div style={{width:"100%",height:200,borderRadius:14,overflow:"hidden",marginBottom:14}}>
-            <GearItemImg item={item}/>
-          </div>
+        {item.photo_url && (
+          <>
+            <button
+              type="button"
+              onClick={() => setPhotoLightbox(true)}
+              aria-label="사진 원본 크기로 보기"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "100%",
+                height: 300,
+                marginBottom: 14,
+                padding: 12,
+                borderRadius: 14,
+                border: "1px solid #e2e8f0",
+                background: "#f8fafc",
+                cursor: "zoom-in",
+                fontFamily: "inherit",
+                overflow: "hidden",
+              }}
+            >
+              <img
+                src={item.photo_url}
+                alt={item.name}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                  width: "auto",
+                  height: "auto",
+                  objectFit: "contain",
+                  objectPosition: "center center",
+                  pointerEvents: "none",
+                }}
+              />
+            </button>
+            {photoLightbox && (
+              <ImageLightbox
+                src={item.photo_url}
+                alt={item.name}
+                onClose={() => setPhotoLightbox(false)}
+              />
+            )}
+          </>
         )}
         <div style={{display:"flex",gap:12,marginBottom:14}}>
           {!item.photo_url&&(
