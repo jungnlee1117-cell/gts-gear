@@ -33,10 +33,8 @@ const CAT = {
   ETC:    { label:"기타교구",  color:"#7c3aed", icon:"⭐" },
 };
 
-/** 카테고리 드롭다운·필터·통계용 고정 목록 */
-const CAT_KEYS = [
-  "AIR", "BALL", "BAL", "SPORT", "TOOL", "DIG", "MAT", "GROUP", "STACK", "TARGET", "ETC",
-];
+/** CAT 객체 키 목록 (카테고리 탭·필터·통계) */
+const CAT_KEYS = Object.keys(CAT);
 
 /** DB 레거시 카테고리 → 현재 카테고리 키 (SPC → ETC) */
 function normalizeCategoryKey(cat) {
@@ -297,8 +295,74 @@ function fmtShort(d) {
   return `${dt.getMonth() + 1}/${dt.getDate()}`;
 }
 
+function parseLocalDay(value) {
+  if (!value) return null;
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, d] = raw.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return null;
+  return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+}
+
+function todayLocalDay() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function getScheduleTiming(start, end) {
+  const today = todayLocalDay();
+  const s = parseLocalDay(start);
+  const e = parseLocalDay(end);
+  if (!s || !e) return null;
+  if (e < today) return "past";
+  if (s > today) return "future";
+  return "current";
+}
+
+function scheduleDedupeKey(teacherId, start, end) {
+  return `${teacherId}|${toDateInputValue(start)}|${toDateInputValue(end)}`;
+}
+
+function scheduleLineColor(line) {
+  if (line.type === "confirmed") return "#0d9488";
+  if (line.timing === "future") return "#2563eb";
+  if (line.type === "rental") return "#ea580c";
+  return "#2563eb";
+}
+
 function buildItemScheduleLines(itemId, { ris, rets, reqs, reservations, teachers }) {
-  const lines = [];
+  const entries = [];
+  const confirmedReqIds = new Set();
+
+  (reservations || []).forEach(res => {
+    if (res.item_id !== itemId) return;
+    if (!["pending", "confirmed"].includes(res.status)) return;
+    const timing = getScheduleTiming(res.start_date, res.end_date);
+    if (!timing || timing === "past") return;
+    if (res.status === "confirmed" && res.rental_request_id) {
+      confirmedReqIds.add(res.rental_request_id);
+    }
+    const name = tname(res.teacher_id, teachers);
+    let statusLabel;
+    if (res.status === "confirmed") {
+      statusLabel = timing === "future" ? "예정" : "예약확정";
+    } else {
+      statusLabel = timing === "future" ? "예정" : "예약";
+    }
+    entries.push({
+      teacherId: res.teacher_id,
+      start: res.start_date,
+      end: res.end_date,
+      timing,
+      priority: res.status === "confirmed" ? 3 : 2,
+      key: `res-${res.id}`,
+      type: res.status === "confirmed" ? "confirmed" : "reservation",
+      text: `${name} 선생님 ${statusLabel} (${fmtShort(res.start_date)} ~ ${fmtShort(res.end_date)})`,
+    });
+  });
 
   (ris || []).forEach(ri => {
     if (ri.item_id !== itemId) return;
@@ -306,28 +370,41 @@ function buildItemScheduleLines(itemId, { ris, rets, reqs, reservations, teacher
     const held = heldQtyForRi(ri, rets);
     if (held <= 0) return;
     const req = (reqs || []).find(r => r.id === ri.request_id);
-    const name = req ? tname(req.teacher_id, teachers) : "-";
+    if (req?.id && confirmedReqIds.has(req.id)) return;
+
     const start = req?.dispatch_start || ri.approved_at;
     const end = req?.dispatch_end || ri.due_date;
-    lines.push({
-      type: "rental",
+    const timing = getScheduleTiming(start, end);
+    if (!timing || timing === "past") return;
+
+    const teacherId = req?.teacher_id || `ri-${ri.id}`;
+    const name = req ? tname(req.teacher_id, teachers) : "-";
+    const statusLabel = timing === "future" ? "예정" : "대여중";
+
+    entries.push({
+      teacherId,
+      start,
+      end,
+      timing,
+      priority: 1,
       key: `rent-${ri.id}`,
-      text: `${name} 선생님 대여중 (${fmtShort(start)} ~ ${fmtShort(end)})`,
+      type: "rental",
+      text: `${name} 선생님 ${statusLabel} (${fmtShort(start)} ~ ${fmtShort(end)})`,
     });
   });
 
-  (reservations || []).forEach(res => {
-    if (res.item_id !== itemId) return;
-    if (!["pending", "confirmed"].includes(res.status)) return;
-    const name = tname(res.teacher_id, teachers);
-    lines.push({
-      type: "reservation",
-      key: `res-${res.id}`,
-      text: `${name} 선생님 예약 (${fmtShort(res.start_date)} ~ ${fmtShort(res.end_date)})`,
-    });
+  const byKey = new Map();
+  entries.forEach(entry => {
+    const dk = scheduleDedupeKey(entry.teacherId, entry.start, entry.end);
+    const existing = byKey.get(dk);
+    if (!existing || entry.priority > existing.priority) {
+      byKey.set(dk, entry);
+    }
   });
 
-  return lines.sort((a, b) => a.text.localeCompare(b.text, "ko"));
+  return [...byKey.values()]
+    .sort((a, b) => a.text.localeCompare(b.text, "ko"))
+    .map(({ key, text, type, timing }) => ({ key, text, type, timing }));
 }
 
 function ItemScheduleLines({ lines }) {
@@ -339,7 +416,7 @@ function ItemScheduleLines({ lines }) {
           key={line.key}
           style={{
             fontSize: 12,
-            color: line.type === "rental" ? "#ea580c" : "#2563eb",
+            color: scheduleLineColor(line),
             lineHeight: 1.45,
           }}
         >
@@ -3703,10 +3780,8 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
         >
           전체
         </button>
-        {CAT_KEYS.map(c => {
+        {Object.keys(CAT).map(c => {
           const m = CAT[c];
-          const count = items.filter(i => categoryMatchesFilter(i.category, c)).length;
-          if (!count) return null;
           return (
             <button
               key={c}
