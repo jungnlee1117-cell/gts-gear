@@ -294,6 +294,19 @@ function buildItemRenterSummary(itemId, ris, rets, reqs, teachers) {
 function pendingQty(iid, ris) {
   return ris.filter(r => r.item_id === iid && r.status === "pending").reduce((s, r) => s + r.quantity, 0);
 }
+
+function getTeacherPendingReservation(reservations, teacherId, itemId) {
+  return (reservations || []).find(
+    r => r.teacher_id === teacherId && r.item_id === itemId && r.status === "pending"
+  );
+}
+
+function reservationDisplayStatus(res) {
+  if (res.status === "pending") return "pending";
+  if (res.status === "confirmed") return "confirmed";
+  if (res.status === "cancelled" && res.rejection_reason) return "rejected";
+  return "cancelled";
+}
 function availQty(item, ris, rets = []) {
   return Math.max(0, item.total_quantity - rentedQty(item.id, ris, rets) - pendingQty(item.id, ris));
 }
@@ -603,6 +616,12 @@ const SC = {
   loss_confirmed:   {l:"분실확인",  bg:"#fce7f3",c:"#be185d"},
   cancelled:        {l:"취소됨",    bg:"#f1f5f9",c:"#64748b"},
 };
+const RSC = {
+  pending:   { l: "대기", bg: "#fef3c7", c: "#d97706" },
+  confirmed: { l: "승인", bg: "#dcfce7", c: "#16a34a" },
+  rejected:  { l: "거절", bg: "#fee2e2", c: "#dc2626" },
+  cancelled: { l: "취소", bg: "#f1f5f9", c: "#64748b" },
+};
 const CC = {
   normal:   {l:"정상",    c:"#16a34a"},
   damaged:  {l:"파손",    c:"#dc2626"},
@@ -706,6 +725,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "items-qr") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h2v2h-2zM18 14h3v3h-3zM14 18h2v3h-2zM18 18h3v3h-3z"/></svg>;
   if (id === "qr-scan") return <svg {...s} viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>;
   if (id === "my-rental-status") return <svg {...s} viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+  if (id === "my-reservations") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>;
   if (id === "rental-manage") return <svg {...s} viewBox="0 0 24 24"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/><path d="M21 12H3"/></svg>;
   if (id === "more") return <svg {...s} viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill={color} stroke="none"/><circle cx="12" cy="12" r="1.2" fill={color} stroke="none"/><circle cx="19" cy="12" r="1.2" fill={color} stroke="none"/></svg>;
   return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>;
@@ -716,7 +736,7 @@ function isNavPageActive(page, navId) {
     items: ["items", "item-detail"],
     "items-browse": ["items-browse"],
     gear: ["items", "item-detail", "items-register", "items-qr"],
-    rental: ["rental-approval", "rental-status", "returns-approval", "overdue"],
+    rental: ["rental-approval", "rental-status", "returns-approval", "overdue", "reservation-approval"],
     "rental-manage": ["rental-approval", "rental-status", "returns-approval", "overdue", "rental-manage", "rentals"],
     "rental-return": ["rental-return", "rentals", "my-rental-status", "return-request"],
     "return-request": ["return-request", "my-rental-status"],
@@ -745,6 +765,7 @@ function buildSidebarNav(me) {
         type: "group", id: "rental", label: "대여관리", glyph: "rental-manage",
         children: [
           { id: "rental-approval", label: "대여승인" },
+          { id: "reservation-approval", label: "예약승인" },
           { id: "rental-status", label: "대여현황" },
           { id: "returns-approval", label: "반납승인" },
           { id: "overdue", label: "연체관리" },
@@ -766,6 +787,7 @@ function buildSidebarNav(me) {
         type: "group", id: "rental", label: "대여관리", glyph: "rental-manage",
         children: [
           { id: "rental-approval", label: "대여승인" },
+          { id: "reservation-approval", label: "예약승인" },
           { id: "rental-status", label: "대여현황" },
           { id: "returns-approval", label: "반납승인" },
           { id: "overdue", label: "연체관리" },
@@ -784,6 +806,7 @@ function buildSidebarNav(me) {
     { type: "item", id: "items", label: "교구검색", glyph: "items" },
     { type: "item", id: "qr-scan", label: "QR 스캔", glyph: "qr-scan" },
     { type: "item", id: "rental-return", label: "대여 반납신청", glyph: "rental-return" },
+    { type: "item", id: "my-reservations", label: "내 예약 현황", glyph: "my-reservations" },
     { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
   ];
 }
@@ -926,7 +949,7 @@ function MobileMoreSheet({ items, page, onSelect, onClose }) {
   );
 }
 
-function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, admin, touchMode = false }) {
+function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, resBadge, admin, touchMode = false }) {
   const [expanded, setExpanded] = useState(() => {
     const init = {};
     nav.forEach(n => {
@@ -1032,6 +1055,7 @@ function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, admin, 
             {open && n.children.map(c => {
               let childBadge = 0;
               if (c.id === "rental-approval" && reqBadge > 0) childBadge = reqBadge;
+              if (c.id === "reservation-approval" && resBadge > 0) childBadge = resBadge;
               if (c.id === "returns-approval" && retBadge > 0) childBadge = retBadge;
               return itemBtn(c.id, c.label, n.glyph, true, childBadge);
             })}
@@ -1043,7 +1067,7 @@ function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, admin, 
 }
 
 function MobileNavDrawer({
-  open, onClose, nav, page, setPage, sb, badge, reqBadge, retBadge, admin,
+  open, onClose, nav, page, setPage, sb, badge, reqBadge, retBadge, resBadge, admin,
   me, onBack, onLogout, onChangePw, cartCount, onOpenCart,
 }) {
   if (!open) return null;
@@ -1155,6 +1179,7 @@ function MobileNavDrawer({
           badge={badge}
           reqBadge={reqBadge}
           retBadge={retBadge}
+          resBadge={resBadge}
           admin={admin}
           touchMode
         />
@@ -1404,6 +1429,8 @@ const PAGE_META = {
   notices:            { title: "공지사항",     sub: "공지를 확인하고 관리자는 새 공지를 등록할 수 있습니다." },
   settings:           { title: "설정",         sub: "계정 및 시스템 설정을 관리합니다." },
   "my-rental-status": { title: "내 대여현황",  sub: "대여 중인 교구를 확인하고 교구별 반납 신청을 합니다." },
+  "my-reservations":  { title: "내 예약 현황", sub: "교구 예약 상태를 확인하고 승인 전 예약을 취소할 수 있습니다." },
+  "reservation-approval": { title: "예약 승인", sub: "선생님의 교구 예약을 검토하고 승인·거절합니다." },
   "return-request":   { title: "반납요청",    sub: "대여 중인 교구의 반납을 신청합니다." },
   "qr-rent":          { title: "QR 대여 신청", sub: "스캔한 교구의 대여 가능 수량을 확인하고 신청합니다." },
   "item-detail":      { title: "교구 상세",    sub: "교구 정보와 대여 이력을 확인합니다." },
@@ -1546,6 +1573,23 @@ function Badge({s}) {
       background:c.bg,
       color:c.c,
       letterSpacing:"0.01em",
+    }}>{c.l}</span>
+  );
+}
+
+function ReservationBadge({ res }) {
+  const key = reservationDisplayStatus(res);
+  const c = RSC[key] || RSC.pending;
+  return (
+    <span style={{
+      display: "inline-block",
+      padding: "3px 10px",
+      borderRadius: 99,
+      fontSize: 11,
+      fontWeight: 700,
+      background: c.bg,
+      color: c.c,
+      letterSpacing: "0.01em",
     }}>{c.l}</span>
   );
 }
@@ -2895,11 +2939,13 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
 // ═══════════════════════════════════════════════════════════════════════
 // 대시보드 — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
-function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApproveRet,onDamage,onLoss}) {
+function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,onReject,onApproveRet,onDamage,onLoss,onApproveReservation,onRejectReservation}) {
   const admin = isAdmin(me);
   const [activePanel,setActivePanel]=useState(null);
   const [rejectId,setRejectId]=useState(null);
   const [reason,setReason]=useState("");
+  const [rejectResId,setRejectResId]=useState(null);
+  const [resReason,setResReason]=useState("");
 
   const itemCount = items.length;
   const availItemCount = items.filter(i => availQty(i, ris, rets) > 0).length;
@@ -2908,6 +2954,8 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
   ).size;
   const pendReqs = reqs.filter(r=>r.status==="pending");
   const pendingN = pendReqs.length;
+  const pendReservations = (reservations || []).filter(r => r.status === "pending");
+  const pendingResN = pendReservations.length;
   const overdueList = ris.filter(r=>["rented","partial_returned"].includes(r.status)&&dday(r.due_date)!==null&&dday(r.due_date)<0);
   const pendRets = filterReturnPendingLastWeek(rets);
   const retPendN = pendRets.length;
@@ -2971,6 +3019,7 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
           <>
             <Stat label="대여 중 품목" value={rentedItemCount} color="#2563eb" onClick={()=>togglePanel("rented")} active={activePanel==="rented"}/>
             <Stat label="승인 대기" value={pendingN} color="#d97706" onClick={()=>togglePanel("pending")} active={activePanel==="pending"}/>
+            <Stat label="예약 대기" value={pendingResN} color="#0d9488" onClick={()=>togglePanel("reservations")} active={activePanel==="reservations"}/>
             <Stat label="연체" value={overdueList.length} color="#dc2626" onClick={()=>togglePanel("overdue")} active={activePanel==="overdue"}/>
             <Stat label="반납 신청" value={retPendN} color="#7c3aed" onClick={()=>togglePanel("returns")} active={activePanel==="returns"}/>
             <Stat label="파손/분실" value={dmgN} color="#dc2626" iconMark="파손" onClick={()=>togglePanel("damage")} active={activePanel==="damage"}/>
@@ -3004,6 +3053,31 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
                 <div style={{display:"flex",gap:8,marginTop:10}}>
                   <Btn sm color={DS.primary} onClick={()=>onApprove(req.id)}>승인</Btn>
                   <Btn sm danger onClick={()=>{setRejectId(req.id);setReason("");}}>거절</Btn>
+                </div>
+              </div>
+            );
+          })}
+        </PanelSection>
+      )}
+
+      {admin&&activePanel==="reservations"&&(
+        <PanelSection title={`예약 승인 대기 (${pendReservations.length})`}>
+          {pendReservations.length===0 ? <Empty text="승인 대기 중인 예약이 없습니다"/> : pendReservations.map(res=>{
+            const t=teachers.find(x=>x.id===res.teacher_id);
+            const item=items.find(i=>i.id===res.item_id);
+            return(
+              <div key={res.id} style={{...card,borderLeft:"3px solid #0d9488",marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:15,color:DS.textPrimary}}>{t?.name||"-"} · {item?.name||"-"}</div>
+                    <div style={{fontSize:12,color:DS.textSecondary,marginTop:4}}>{res.location} · {fmt(res.start_date)} ~ {fmt(res.end_date)}</div>
+                    <div style={{fontSize:12,color:DS.textSecondary,marginTop:2}}>수량 {res.quantity}개 · 신청 {fmt(res.created_at)}</div>
+                  </div>
+                  <ReservationBadge res={res}/>
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:10}}>
+                  <Btn sm color={DS.primary} onClick={()=>onApproveReservation(res.id)}>승인</Btn>
+                  <Btn sm danger onClick={()=>{setRejectResId(res.id);setResReason("");}}>거절</Btn>
                 </div>
               </div>
             );
@@ -3098,6 +3172,17 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
             if(!reason.trim())return alert("거절 사유를 입력하세요");
             onReject(rejectId,reason);
             setRejectId(null);
+          }}>거절 처리</Btn>
+        </Modal>
+      )}
+
+      {rejectResId&&(
+        <Modal title="예약 거절 사유" onClose={()=>setRejectResId(null)}>
+          <Txa2 label="거절 사유 *" value={resReason} onChange={e=>setResReason(e.target.value)} placeholder="거절 이유를 입력하세요"/>
+          <Btn full danger onClick={()=>{
+            if(!resReason.trim())return alert("거절 사유를 입력하세요");
+            onRejectReservation(rejectResId,resReason);
+            setRejectResId(null);
           }}>거절 처리</Btn>
         </Modal>
       )}
@@ -3468,17 +3553,22 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,onDeta
   );
 }
 
-function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, onDetail, onOpenCart }) {
+function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, reservations, onDetail, onOpenCart, onSubmitReservation, onCancelReservation }) {
   const [catF, setCatF] = useState("ALL");
+  const [availF, setAvailF] = useState("ALL");
   const [lightbox, setLightbox] = useState(null);
+  const [reserveItem, setReserveItem] = useState(null);
 
   const list = useMemo(() => {
     let r = [...items];
     if (catF !== "ALL") r = r.filter(i => categoryMatchesFilter(i.category, catF));
+    if (availF === "available") r = r.filter(i => availQty(i, ris, rets) > 0);
+    if (availF === "unavailable") r = r.filter(i => availQty(i, ris, rets) === 0);
     return r.sort((a, b) => a.name.localeCompare(b.name, "ko"));
-  }, [items, catF]);
+  }, [items, catF, availF, ris, rets]);
 
   const inCart = id => cart.some(c => c.item_id === id);
+  const pendingRes = itemId => getTeacherPendingReservation(reservations, me.id, itemId);
 
   const handleRent = (item) => {
     if (availQty(item, ris, rets) === 0) return;
@@ -3488,11 +3578,37 @@ function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, onDetail, onOpen
     onOpenCart?.();
   };
 
+  const availFilterBtn = (key, label) => {
+    const active = availF === key;
+    return (
+      <button
+        key={key}
+        type="button"
+        onClick={() => setAvailF(key)}
+        style={{
+          padding: "9px 14px",
+          borderRadius: 8,
+          border: `1px solid ${active ? DS.primary : "#e2e8f0"}`,
+          background: active ? DS.primaryLight : "#fff",
+          color: active ? DS.primary : DS.textSecondary,
+          fontWeight: active ? 700 : 500,
+          fontSize: 12,
+          cursor: "pointer",
+          whiteSpace: "nowrap",
+          flexShrink: 0,
+          fontFamily: "inherit",
+        }}
+      >
+        {label}
+      </button>
+    );
+  };
+
   return (
     <PageShell>
       <PageHeader me={me} subtitle={PAGE_META["items-browse"].sub}/>
 
-      <div style={{ display: "flex", gap: 4, overflowX: "auto", marginBottom: 16, paddingBottom: 2 }}>
+      <div style={{ display: "flex", gap: 4, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
         <button
           type="button"
           onClick={() => setCatF("ALL")}
@@ -3543,19 +3659,36 @@ function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, onDetail, onOpen
         })}
       </div>
 
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {availFilterBtn("ALL", "전체")}
+        {availFilterBtn("available", "대여가능")}
+        {availFilterBtn("unavailable", "대여불가")}
+      </div>
+
       <div style={{ fontSize: 13, color: DS.textSecondary, marginBottom: 14, fontWeight: 600 }}>
         {list.length}개 교구
       </div>
 
       {list.length === 0 ? (
         <PanelSection title="교구 목록">
-          <Empty text={catF === "ALL" ? "등록된 교구가 없습니다" : "해당 카테고리 교구가 없습니다"}/>
+          <Empty text={
+            catF !== "ALL" && availF !== "ALL"
+              ? "해당 조건의 교구가 없습니다"
+              : catF !== "ALL"
+                ? "해당 카테고리 교구가 없습니다"
+                : availF === "available"
+                  ? "대여 가능한 교구가 없습니다"
+                  : availF === "unavailable"
+                    ? "대여 불가 교구가 없습니다"
+                    : "등록된 교구가 없습니다"
+          }/>
         </PanelSection>
       ) : (
         <div className="gts-items-browse-grid">
           {list.map(item => {
             const avail = availQty(item, ris, rets);
             const added = inCart(item.id);
+            const myRes = pendingRes(item.id);
             const hasPhoto = Boolean(item.photo_url);
             return (
               <div
@@ -3639,7 +3772,7 @@ function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, onDetail, onOpen
                   }}>
                     대여 가능 {avail}개
                   </div>
-                  <div style={{ marginTop: "auto", paddingTop: 14 }}>
+                  <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                     <Btn
                       full
                       color={avail > 0 ? DS.primary : "#cbd5e1"}
@@ -3648,6 +3781,28 @@ function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, onDetail, onOpen
                     >
                       {avail > 0 ? (added ? "대여 신청 (장바구니)" : "대여 신청") : "대여 불가"}
                     </Btn>
+                    {myRes ? (
+                      <Btn
+                        full
+                        ghost
+                        color="#dc2626"
+                        onClick={() => {
+                          if (!confirm("예약을 취소하시겠습니까?")) return;
+                          onCancelReservation?.(myRes.id);
+                        }}
+                      >
+                        예약취소
+                      </Btn>
+                    ) : (
+                      <Btn
+                        full
+                        ghost
+                        color="#0d9488"
+                        onClick={() => setReserveItem(item)}
+                      >
+                        예약하기
+                      </Btn>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3661,6 +3816,17 @@ function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, onDetail, onOpen
           src={lightbox.src}
           alt={lightbox.alt}
           onClose={() => setLightbox(null)}
+        />
+      )}
+
+      {reserveItem && (
+        <ReservationModal
+          item={reserveItem}
+          onClose={() => setReserveItem(null)}
+          onSubmit={(payload) => {
+            onSubmitReservation?.({ ...payload, item_id: reserveItem.id });
+            setReserveItem(null);
+          }}
         />
       )}
     </PageShell>
@@ -4111,6 +4277,111 @@ function RentalApprovalPage({me,reqs,ris,items,teachers,onApprove,onReject}) {
           }}>거절 처리</Btn>
         </Modal>
       )}
+    </PageShell>
+  );
+}
+
+function ReservationApprovalPage({ me, reservations, items, teachers, onApprove, onReject }) {
+  const [rejectId, setRejectId] = useState(null);
+  const [reason, setReason] = useState("");
+  const pendRes = (reservations || []).filter(r => r.status === "pending");
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META["reservation-approval"].sub} alertCount={pendRes.length}/>
+
+      <div style={{
+        display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+        gap: 14, marginBottom: 24,
+      }}>
+        <DashStatCard label="예약 대기" value={pendRes.length} iconMark="예약" iconBg="#ccfbf1" iconColor="#0d9488"/>
+      </div>
+
+      {pendRes.length === 0 ? (
+        <PanelSection title="예약 승인 대기">
+          <Empty text="승인 대기 중인 예약이 없습니다"/>
+        </PanelSection>
+      ) : pendRes.map(res => {
+        const t = teachers.find(x => x.id === res.teacher_id);
+        const item = items.find(i => i.id === res.item_id);
+        return (
+          <PanelSection key={res.id} title={`${t?.name || "선생님"} · ${item?.name || "-"}`}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.7 }}>
+                <div>사용 장소: {res.location}</div>
+                <div>예약 기간: {fmt(res.start_date)} ~ {fmt(res.end_date)}</div>
+                <div>수량: {res.quantity}개</div>
+                <div style={{ marginTop: 4 }}>신청일: {fmt(res.created_at)}</div>
+              </div>
+              <ReservationBadge res={res}/>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn sm color={DS.primary} onClick={() => onApprove(res.id)}>승인</Btn>
+              <Btn sm danger onClick={() => { setRejectId(res.id); setReason(""); }}>거절</Btn>
+            </div>
+          </PanelSection>
+        );
+      })}
+
+      {rejectId && (
+        <Modal title="예약 거절 사유" onClose={() => setRejectId(null)}>
+          <Txa2 label="거절 사유 *" value={reason} onChange={e => setReason(e.target.value)} placeholder="거절 이유를 입력하세요"/>
+          <Btn full danger onClick={() => {
+            if (!reason.trim()) return alert("거절 사유를 입력하세요");
+            onReject(rejectId, reason);
+            setRejectId(null);
+          }}>거절 처리</Btn>
+        </Modal>
+      )}
+    </PageShell>
+  );
+}
+
+function MyReservationsPage({ me, reservations, items, onCancel }) {
+  const mine = useMemo(
+    () => (reservations || [])
+      .filter(r => r.teacher_id === me.id)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+    [reservations, me.id]
+  );
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META["my-reservations"].sub}/>
+
+      {mine.length === 0 ? (
+        <PanelSection title="내 예약">
+          <Empty text="예약 내역이 없습니다"/>
+        </PanelSection>
+      ) : mine.map(res => {
+        const item = items.find(i => i.id === res.item_id);
+        return (
+          <PanelSection key={res.id} title={item?.name || "교구"}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
+              <div style={{ fontSize: 13, color: DS.textSecondary, lineHeight: 1.7 }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                  <CatTag cat={item?.category}/>
+                  <span style={{ fontFamily: "monospace", fontSize: 10, color: DS.textMuted }}>{item?.code}</span>
+                </div>
+                <div>사용 장소: {res.location}</div>
+                <div>예약 기간: {fmt(res.start_date)} ~ {fmt(res.end_date)}</div>
+                <div>수량: {res.quantity}개</div>
+                <div>신청일: {fmt(res.created_at)}</div>
+                {res.rejection_reason && (
+                  <div style={{ marginTop: 6, color: "#dc2626", fontWeight: 600 }}>거절 사유: {res.rejection_reason}</div>
+                )}
+              </div>
+              <ReservationBadge res={res}/>
+            </div>
+            {res.status === "pending" && (
+              <Btn sm ghost color="#dc2626" onClick={() => {
+                if (!confirm("예약을 취소하시겠습니까?")) return;
+                onCancel(res.id);
+              }}>예약 취소</Btn>
+            )}
+          </PanelSection>
+        );
+      })}
     </PageShell>
   );
 }
@@ -5801,6 +6072,54 @@ function validateCartRentalDates(dispatchStart, dispatchEnd, detailItems) {
   return null;
 }
 
+function validateReservationDates(startYmd, endYmd) {
+  if (!startYmd || !endYmd) return "예약 기간을 입력하세요";
+  const endDiff = dayDiffFromRentalStart(startYmd, endYmd);
+  if (endDiff !== null && endDiff < 0) return RENTAL_ERR_END_BEFORE_START;
+  if (endDiff !== null && endDiff > RENTAL_MAX_DAYS) return RENTAL_ERR_MAX_PERIOD;
+  return null;
+}
+
+function ReservationModal({ item, onClose, onSubmit }) {
+  const [f, setF] = useState({ location: "", start_date: "", end_date: "", quantity: 1 });
+
+  const submit = () => {
+    if (!f.location.trim()) return alert("사용 장소를 입력하세요");
+    const dateErr = validateReservationDates(f.start_date, f.end_date);
+    if (dateErr) return alert(dateErr);
+    const maxQty = item?.total_quantity || 1;
+    if (f.quantity < 1 || f.quantity > maxQty) return alert(`수량은 1~${maxQty}개까지 가능합니다`);
+    onSubmit({
+      location: f.location.trim(),
+      start_date: f.start_date,
+      end_date: f.end_date,
+      quantity: f.quantity,
+    });
+  };
+
+  return (
+    <Modal title={`교구 예약 · ${item?.name || ""}`} onClose={onClose}>
+      <Inp2 label="사용 장소 *" value={f.location} onChange={e => setF(p => ({ ...p, location: e.target.value }))} placeholder="예: 은빛유치원 (성동구)"/>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+        <Inp2 label="예약 시작일 *" type="date" value={f.start_date} onChange={e => setF(p => ({ ...p, start_date: e.target.value }))}/>
+        <Inp2 label="예약 종료일 *" type="date" value={f.end_date} onChange={e => setF(p => ({ ...p, end_date: e.target.value }))}/>
+      </div>
+      <Inp2
+        label={`수량 * (최대 ${item?.total_quantity || 1}개)`}
+        type="number"
+        min={1}
+        max={item?.total_quantity || 1}
+        value={f.quantity}
+        onChange={e => setF(p => ({ ...p, quantity: parseInt(e.target.value, 10) || 1 }))}
+      />
+      <div style={{ fontSize: 12, color: DS.textMuted, marginBottom: 14, lineHeight: 1.6 }}>
+        예약 기간은 최대 4주(28일)까지 가능합니다. 관리자 승인 후 해당 날짜에 대여가 확정됩니다.
+      </div>
+      <Btn full onClick={submit}>예약 신청</Btn>
+    </Modal>
+  );
+}
+
 function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
   const[f,setF]=useState({dispatch_location:"",dispatch_start:"",dispatch_end:"",memo:""});
   const[details,setDetails]=useState(()=>cart.map(c=>({
@@ -6401,6 +6720,7 @@ function EquipmentApp({ onBack, me, session }) {
   const [reqs,       setReqs]       = useState([]);
   const [ris,        setRIs]        = useState([]);
   const [rets,       setRets]       = useState([]);
+  const [reservations,setReservations]= useState([]);
   const [notices,    setNotices]    = useState([]);
   const [dataLoading,setDataLoading]= useState(false);
   const [page,       setPage]       = useState("dashboard");
@@ -6440,14 +6760,15 @@ function EquipmentApp({ onBack, me, session }) {
   const loadAll = async () => {
     setDataLoading(true);
     try {
-      const [ts, {data:its},{data:rqs},{data:riData},{data:retData}] = await Promise.all([
+      const [ts, {data:its},{data:rqs},{data:riData},{data:retData},{data:resData}] = await Promise.all([
         fetchTeachers(),
         supabase.from("items").select("*").order("code"),
         supabase.from("rental_requests").select("*").order("created_at",{ascending:false}),
         supabase.from("rental_items").select("*"),
         supabase.from("return_requests").select("*").order("created_at",{ascending:false}),
+        supabase.from("reservations").select("*").order("created_at",{ascending:false}),
       ]);
-      setTeachers(ts||[]); setItems(its||[]); setReqs(rqs||[]); setRIs(riData||[]); setRets(retData||[]);
+      setTeachers(ts||[]); setItems(its||[]); setReqs(rqs||[]); setRIs(riData||[]); setRets(retData||[]); setReservations(resData||[]);
       const noticeList = await fetchNotices();
       setNotices(noticeList);
     } catch(e) { console.error(e); }
@@ -6483,6 +6804,140 @@ function EquipmentApp({ onBack, me, session }) {
     const {data:newRIs}=await supabase.from("rental_items").insert(ci.map(c=>({request_id:newReq.id,item_id:c.item_id,quantity:c.quantity,due_date:c.due_date||dispatch_end,status:"pending"}))).select();
     setReqs(p=>[newReq,...p]); setRIs(p=>[...p,...(newRIs||[])]); setCart([]);
     alert("대여 신청이 완료되었습니다.\n관리자 승인 후 대여가 확정됩니다.");
+  };
+
+  const submitReservation = async ({ item_id, location, start_date, end_date, quantity }) => {
+    const dateErr = validateReservationDates(start_date, end_date);
+    if (dateErr) { alert(dateErr); return false; }
+    const item = items.find(i => i.id === item_id);
+    const maxQty = item?.total_quantity || 1;
+    if (quantity < 1 || quantity > maxQty) {
+      alert(`수량은 1~${maxQty}개까지 가능합니다`);
+      return false;
+    }
+    const existing = getTeacherPendingReservation(reservations, me.id, item_id);
+    if (existing) {
+      alert("이미 예약 대기 중인 교구입니다.");
+      return false;
+    }
+
+    const { data, error } = await supabase.from("reservations").insert({
+      teacher_id: me.id,
+      item_id,
+      quantity,
+      start_date,
+      end_date,
+      location: location.trim(),
+      status: "pending",
+    }).select().single();
+
+    if (error || !data) {
+      alert("예약 신청 오류: " + (error?.message || "알 수 없는 오류"));
+      return false;
+    }
+    setReservations(p => [data, ...p]);
+    alert("예약 신청이 완료되었습니다.\n관리자 승인 후 대여가 확정됩니다.");
+    return true;
+  };
+
+  const cancelReservation = async (resId) => {
+    const res = reservations.find(r => r.id === resId);
+    if (!res || res.teacher_id !== me.id || res.status !== "pending") {
+      alert("취소할 수 없는 예약입니다.");
+      return false;
+    }
+    const { error } = await supabase.from("reservations").update({ status: "cancelled" }).eq("id", resId);
+    if (error) {
+      alert("예약 취소 오류: " + error.message);
+      return false;
+    }
+    setReservations(p => p.map(r => (r.id === resId ? { ...r, status: "cancelled" } : r)));
+    alert("예약이 취소되었습니다.");
+    return true;
+  };
+
+  const approveReservation = async (resId) => {
+    if (!canManage(me)) return false;
+    const res = reservations.find(r => r.id === resId);
+    if (!res || res.status !== "pending") {
+      alert("승인할 수 없는 예약입니다.");
+      return false;
+    }
+    const now = new Date().toISOString();
+    const { data: newReq, error: reqErr } = await supabase.from("rental_requests").insert({
+      teacher_id: res.teacher_id,
+      dispatch_location: res.location,
+      dispatch_start: res.start_date,
+      dispatch_end: res.end_date,
+      memo: "교구 예약 승인",
+      status: "approved",
+      approved_by: me.id,
+      approved_at: now,
+    }).select().single();
+
+    if (reqErr || !newReq) {
+      alert("대여 생성 오류: " + (reqErr?.message || "알 수 없는 오류"));
+      return false;
+    }
+
+    const { data: newRIs, error: riErr } = await supabase.from("rental_items").insert({
+      request_id: newReq.id,
+      item_id: res.item_id,
+      quantity: res.quantity,
+      due_date: res.end_date,
+      status: "rented",
+      approved_by: me.id,
+      approved_at: now,
+    }).select();
+
+    if (riErr || !newRIs?.length) {
+      alert("교구 항목 생성 오류: " + (riErr?.message || "알 수 없는 오류"));
+      return false;
+    }
+
+    const { error: resErr } = await supabase.from("reservations").update({
+      status: "confirmed",
+      approved_by: me.id,
+      approved_at: now,
+      rental_request_id: newReq.id,
+    }).eq("id", resId);
+
+    if (resErr) {
+      alert("예약 상태 업데이트 오류: " + resErr.message);
+      return false;
+    }
+
+    setReqs(p => [newReq, ...p]);
+    setRIs(p => [...p, ...newRIs]);
+    setReservations(p => p.map(r => (
+      r.id === resId
+        ? { ...r, status: "confirmed", approved_by: me.id, approved_at: now, rental_request_id: newReq.id }
+        : r
+    )));
+    alert("예약이 승인되어 대여가 확정되었습니다.");
+    return true;
+  };
+
+  const rejectReservation = async (resId, reason) => {
+    if (!canManage(me)) return false;
+    const res = reservations.find(r => r.id === resId);
+    if (!res || res.status !== "pending") {
+      alert("거절할 수 없는 예약입니다.");
+      return false;
+    }
+    const { error } = await supabase.from("reservations").update({
+      status: "cancelled",
+      rejection_reason: reason,
+    }).eq("id", resId);
+    if (error) {
+      alert("예약 거절 오류: " + error.message);
+      return false;
+    }
+    setReservations(p => p.map(r => (
+      r.id === resId ? { ...r, status: "cancelled", rejection_reason: reason } : r
+    )));
+    alert("예약이 거절되었습니다.");
+    return true;
   };
 
   const approveReq = async (reqId) => {
@@ -6778,7 +7233,8 @@ function EquipmentApp({ onBack, me, session }) {
   const superA = isSuperAdmin(me);
   const reqBadge = reqs.filter(r=>r.status==="pending").length;
   const retBadge = filterReturnPendingLastWeek(rets).length;
-  const badge  = reqBadge + retBadge;
+  const resBadge = reservations.filter(r=>r.status==="pending").length;
+  const badge  = reqBadge + retBadge + resBadge;
 
   const sidebarNav = buildSidebarNav(me);
   const mobileBottomNav = buildMobileBottomNav(me);
@@ -6793,7 +7249,7 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   const renderPage = () => {
-    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","stats","report","settings","rental-manage"].includes(page)) {
+    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","stats","report","settings","rental-manage","reservation-approval"].includes(page)) {
       return (
         <PageShell>
           <div style={{textAlign:"center",padding:"70px 20px"}}>
@@ -6814,7 +7270,7 @@ function EquipmentApp({ onBack, me, session }) {
 
     return (
       <>
-        {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
+        {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} reservations={reservations} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss} onApproveReservation={approveReservation} onRejectReservation={rejectReservation}/>}
         {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} onForceReturn={forceReturnRentalItem}/>}
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} initialFilter="overdue" onForceReturn={forceReturnRentalItem}/>}
         {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>openItemDetail(item,"items")} onSaveItem={saveItem} onDeleteItem={deleteItem}/>}
@@ -6827,8 +7283,11 @@ function EquipmentApp({ onBack, me, session }) {
             rets={rets}
             cart={cart}
             setCart={setCart}
+            reservations={reservations}
             onDetail={item=>openItemDetail(item,"items-browse")}
             onOpenCart={()=>setShowCart(true)}
+            onSubmitReservation={submitReservation}
+            onCancelReservation={cancelReservation}
           />
         )}
         {page==="items-qr"&&isAdmin(me)&&<ItemsQrPage me={me} items={items}/>}
@@ -6886,6 +7345,8 @@ function EquipmentApp({ onBack, me, session }) {
         )}
         {page==="rentals"&&me?.role!=="teacher"&&<RentalsPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} rets={rets} onApprove={approveReq} onReject={rejectReq}/>}
         {page==="rental-approval"&&<RentalApprovalPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} onApprove={approveReq} onReject={rejectReq}/>}
+        {page==="reservation-approval"&&<ReservationApprovalPage me={me} reservations={reservations} items={items} teachers={teachers} onApprove={approveReservation} onReject={rejectReservation}/>}
+        {page==="my-reservations"&&<MyReservationsPage me={me} reservations={reservations} items={items} onCancel={cancelReservation}/>}
         {page==="returns-approval"&&<ReturnsApprovalPage me={me} rets={rets} ris={ris} items={items} teachers={teachers} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
         {page==="rental-manage"&&<RentalManageHubPage me={me} setPage={setPage}/>}
         {page==="stats"&&<StatsPage me={me} items={items} ris={ris} reqs={reqs} teachers={teachers}/>}
@@ -6972,6 +7433,7 @@ function EquipmentApp({ onBack, me, session }) {
             badge={badge}
             reqBadge={reqBadge}
             retBadge={retBadge}
+            resBadge={resBadge}
             admin={admin}
           />
 
@@ -7086,6 +7548,7 @@ function EquipmentApp({ onBack, me, session }) {
         badge={badge}
         reqBadge={reqBadge}
         retBadge={retBadge}
+        resBadge={resBadge}
         admin={admin}
         me={me}
         onBack={onBack}
