@@ -233,6 +233,13 @@ async function removeNotice(id, existing) {
   return next;
 }
 
+/** teachers + auth.users 이메일 (get_teachers_with_email RPC) */
+async function fetchTeachers() {
+  const { data, error } = await supabase.rpc("get_teachers_with_email");
+  if (error) throw error;
+  return data || [];
+}
+
 function dday(due) {
   if (!due) return null;
   return Math.floor((new Date(due) - new Date()) / 86400000);
@@ -2568,6 +2575,19 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
   const [loading,setLoading] = useState(false);
   const [err,setErr]         = useState("");
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await fetchTeachers();
+        if (!cancelled && rows) setTeachers(rows);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [setTeachers]);
+
   const loadLogs = async () => {
     const { data } = await supabase.from("activity_logs").select("*").order("created_at",{ascending:false}).limit(50);
     setLogs(data||[]);
@@ -2642,7 +2662,13 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
       }).eq("id", data.user.id);
     }
     const { data:newT } = await supabase.from("teachers").select("*").eq("id",data.user.id).single();
-    if (newT) setTeachers(p=>[...p.filter(x=>x.id!==newT.id), newT]);
+    try {
+      const rows = await fetchTeachers();
+      if (rows?.length) setTeachers(rows);
+      else if (newT) setTeachers(p => [...p.filter(x => x.id !== newT.id), { ...newT, email: f.email.trim() }]);
+    } catch {
+      if (newT) setTeachers(p => [...p.filter(x => x.id !== newT.id), { ...newT, email: f.email.trim() }]);
+    }
     await logAction("account_create","계정 생성",{id:data.user.id,name:f.name});
     setF({name:"",phone:"",email:"",password:"",role:"teacher"});
     setAddOpen(false); setLoading(false);
@@ -2662,7 +2688,7 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
   );
 
   const AccountTeacherInfo = ({ t, showSelfBadge = false }) => {
-    const email = t.email || (t.id === me?.id ? me?.email : null) || "-";
+    const email = (t.email && String(t.email).trim()) || "-";
     return (
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -5315,6 +5341,9 @@ export default function App() {
           return;
         }
         setMe(meData ? { ...meData, email: meData.email || session.user.email || "" } : null);
+        if (meData?.id && session.user.email && !String(meData.email || "").trim()) {
+          supabase.from("teachers").update({ email: session.user.email }).eq("id", meData.id);
+        }
       })
       .catch(e=>console.error(e))
       .finally(()=>setMeLoading(false));
@@ -5683,8 +5712,8 @@ function EquipmentApp({ onBack, me, session }) {
   const loadAll = async () => {
     setDataLoading(true);
     try {
-      const [{data:ts},{data:its},{data:rqs},{data:riData},{data:retData}] = await Promise.all([
-        supabase.from("teachers").select("*").order("created_at"),
+      const [ts, {data:its},{data:rqs},{data:riData},{data:retData}] = await Promise.all([
+        fetchTeachers(),
         supabase.from("items").select("*").order("code"),
         supabase.from("rental_requests").select("*").order("created_at",{ascending:false}),
         supabase.from("rental_items").select("*"),
