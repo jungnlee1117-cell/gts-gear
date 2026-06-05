@@ -266,6 +266,24 @@ function rentedQty(iid, ris, rets = []) {
     .filter(r => r.item_id === iid && ["rented", "partial_returned"].includes(r.status))
     .reduce((s, r) => s + heldQtyForRi(r, rets), 0);
 }
+function buildItemRenterSummary(itemId, ris, rets, reqs, teachers) {
+  const byTeacher = new Map();
+  (ris || [])
+    .filter(ri => ri.item_id === itemId && ["rented", "partial_returned"].includes(ri.status))
+    .forEach(ri => {
+      const held = heldQtyForRi(ri, rets);
+      if (held <= 0) return;
+      const req = (reqs || []).find(r => r.id === ri.request_id);
+      const tid = req?.teacher_id;
+      if (!tid) return;
+      byTeacher.set(tid, (byTeacher.get(tid) || 0) + held);
+    });
+  return [...byTeacher.entries()]
+    .map(([tid, qty]) => ({ teacherId: tid, name: tname(tid, teachers), qty }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+    .map(r => `${r.name} ${r.qty}개`)
+    .join(" · ");
+}
 function pendingQty(iid, ris) {
   return ris.filter(r => r.item_id === iid && r.status === "pending").reduce((s, r) => s + r.quantity, 0);
 }
@@ -3114,7 +3132,7 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 목록 — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
-function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,onDeleteItem,openAddOnMount=false}) {
+function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,onDetail,onSaveItem,onDeleteItem,openAddOnMount=false}) {
   const [q,setQ]=useState("");const[catF,setCatF]=useState("ALL");const[brF,setBrF]=useState("ALL");
   const[avOnly,setAvOnly]=useState(false);const[sortBy,setSortBy]=useState("code");
   const[editItem,setEditItem]=useState(null);const[addOpen,setAddOpen]=useState(false);
@@ -3143,6 +3161,15 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
     const ok = await onDeleteItem(item);
     if (ok && editItem?.id === item.id) setEditItem(null);
   };
+
+  const renterSummaryByItem = useMemo(() => {
+    const map = new Map();
+    items.forEach(item => {
+      const summary = buildItemRenterSummary(item.id, ris, rets, reqs, teachers);
+      if (summary) map.set(item.id, summary);
+    });
+    return map;
+  }, [items, ris, rets, reqs, teachers]);
 
   return(
     <PageShell>
@@ -3296,6 +3323,19 @@ function ItemsPage({items,setItems,ris,rets,me,cart,setCart,onDetail,onSaveItem,
                 </div>
               ))}
             </div>
+
+            {rented >= 1 && renterSummaryByItem.get(item.id) && (
+              <div style={{
+                fontSize: 12,
+                color: DS.textSecondary,
+                marginBottom: 10,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}>
+                {renterSummaryByItem.get(item.id)}
+              </div>
+            )}
 
             <div style={{display:"flex",gap:7}}>
               <Btn sm ghost color={DS.textSecondary} onClick={()=>onDetail(item)}>상세보기</Btn>
@@ -4984,22 +5024,37 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,embedde
 // ═══════════════════════════════════════════════════════════════════════
 function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
   const[f,setF]=useState({dispatch_location:"",dispatch_start:"",dispatch_end:"",memo:""});
-  const[details,setDetails]=useState(cart.map(c=>({...c,quantity:1,due_date:""})));
-  const setD=(id,k,v)=>setDetails(p=>p.map(c=>c.item_id===id?{...c,[k]:v}:c));
+  const[details,setDetails]=useState(()=>cart.map(c=>({
+    ...c,
+    quantity: c.quantity || 1,
+    due_date: c.due_date || "",
+    due_date_custom: false,
+  })));
+  const setD=(id,k,v)=>{
+    if (k === "due_date") {
+      setDetails(p=>p.map(c=>c.item_id===id?{...c,due_date:v,due_date_custom:true}:c));
+      return;
+    }
+    setDetails(p=>p.map(c=>c.item_id===id?{...c,[k]:v}:c));
+  };
+  const handleEndDateChange=(value)=>{
+    setF(p=>({...p,dispatch_end:value}));
+    setDetails(p=>p.map(c=>c.due_date_custom?c:{...c,due_date:value}));
+  };
   const remove=(id)=>{setCart(p=>p.filter(c=>c.item_id!==id));setDetails(p=>p.filter(c=>c.item_id!==id));};
   const submit=()=>{
-    if(!f.dispatch_location.trim())return alert("파견지를 입력하세요");
-    if(!f.dispatch_start||!f.dispatch_end)return alert("파견 기간을 입력하세요");
+    if(!f.dispatch_location.trim())return alert("사용 장소를 입력하세요");
+    if(!f.dispatch_start||!f.dispatch_end)return alert("대여 기간을 입력하세요");
     if(!details.length)return alert("교구를 담아주세요");
     for(const c of details){const item=items.find(i=>i.id===c.item_id);const av=item?availQty(item,ris,rets):0;if(c.quantity<1||c.quantity>av)return alert(`${item?.name} 수량 오류 (가능: ${av}개)`);}
-    onSubmit({...f,items:details});onClose();
+    onSubmit({...f,items:details.map(({ due_date_custom, ...c }) => c)});onClose();
   };
   return(
     <Modal title={`대여 신청 (${details.length}종)`} onClose={onClose}>
-      <Inp2 label="파견지 *" value={f.dispatch_location} onChange={e=>setF(p=>({...p,dispatch_location:e.target.value}))} placeholder="예: 은빛유치원 (성동구)"/>
+      <Inp2 label="사용 장소 *" value={f.dispatch_location} onChange={e=>setF(p=>({...p,dispatch_location:e.target.value}))} placeholder="예: 은빛유치원 (성동구)"/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
-        <Inp2 label="파견 시작일 *" type="date" value={f.dispatch_start} onChange={e=>setF(p=>({...p,dispatch_start:e.target.value}))}/>
-        <Inp2 label="파견 종료일 *" type="date" value={f.dispatch_end} onChange={e=>setF(p=>({...p,dispatch_end:e.target.value}))}/>
+        <Inp2 label="대여 시작일 *" type="date" value={f.dispatch_start} onChange={e=>setF(p=>({...p,dispatch_start:e.target.value}))}/>
+        <Inp2 label="대여 종료일 *" type="date" value={f.dispatch_end} onChange={e=>handleEndDateChange(e.target.value)}/>
       </div>
       <Txa2 label="메모" value={f.memo} onChange={e=>setF(p=>({...p,memo:e.target.value}))}/>
       <div style={{borderTop:`1px solid ${DS.inputBorder}`,paddingTop:14,marginBottom:14}}>
@@ -5777,8 +5832,8 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
         {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} items={items}/>}
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} items={items} initialFilter="overdue"/>}
-        {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem}/>}
-        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
+        {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem}/>}
+        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
         {page==="items-qr"&&<ItemsQrPage me={me} items={items}/>}
         {page==="item-detail"&&detailItem&&<ItemDetailPage item={detailItem} ris={ris} rets={rets} reqs={reqs} teachers={teachers} cart={cart} setCart={setCart} onBack={goItemsFromDetail} me={me} onForceReturn={forceReturnRentalItem}/>}
         {page==="qr-rent"&&scanRentItem&&(
