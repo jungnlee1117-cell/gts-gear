@@ -625,6 +625,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "accounts") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/></svg>;
   if (id === "institutions") return <svg {...s} viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/></svg>;
   if (id === "stats") return <svg {...s} viewBox="0 0 24 24"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>;
+  if (id === "report") return <svg {...s} viewBox="0 0 24 24"><path d="M5 21V7"/><path d="M12 21V3"/><path d="M19 21V9"/></svg>;
   if (id === "notices") return <svg {...s} viewBox="0 0 24 24"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3z"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
   if (id === "settings") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>;
   if (id === "overdue") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>;
@@ -677,6 +678,7 @@ function buildSidebarNav(me) {
       },
       { type: "item", id: "accounts", label: "선생님관리", glyph: "accounts" },
       { type: "item", id: "stats", label: "통계", glyph: "stats" },
+      { type: "item", id: "report", label: "리포트", glyph: "report" },
       { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
       { type: "item", id: "settings", label: "설정", glyph: "settings" },
     ];
@@ -696,6 +698,7 @@ function buildSidebarNav(me) {
         ],
       },
       { type: "item", id: "stats", label: "통계", glyph: "stats" },
+      { type: "item", id: "report", label: "리포트", glyph: "report" },
       { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
     ];
   }
@@ -1138,6 +1141,163 @@ function buildMonthlyRentalCounts(ris) {
   return months;
 }
 
+function buildRecentMonthOptions(count = 12) {
+  const options = [];
+  const now = new Date();
+  for (let i = 0; i < count; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    options.push({ key, label: `${d.getFullYear()}년 ${d.getMonth() + 1}월` });
+  }
+  return options;
+}
+
+function toMonthKey(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function isInMonthKey(iso, monthKey) {
+  return toMonthKey(iso) === monthKey;
+}
+
+function riRentalAt(ri) {
+  return ri.approved_at || ri.created_at;
+}
+
+function itemCurrentStatusLabel(item, ris, rets) {
+  if (!item) return "-";
+  const rented = rentedQty(item.id, ris, rets);
+  const avail = availQty(item, ris, rets);
+  if (rented > 0) return { label: "대여중", key: "rented" };
+  if (avail > 0) return { label: "대여가능", key: "available" };
+  return { label: "재고없음", key: "empty" };
+}
+
+function computeMonthlyReport(monthKey, { ris, rets, reqs, items, teachers }) {
+  const monthRis = (ris || []).filter(ri => {
+    if (["pending", "rejected"].includes(ri.status)) return false;
+    return isInMonthKey(riRentalAt(ri), monthKey);
+  });
+
+  const totalRentals = monthRis.length;
+
+  const monthReturnApproved = (rets || []).filter(
+    r => r.status === "return_approved" && isInMonthKey(r.approved_at || r.created_at, monthKey)
+  );
+  const returnedRiIds = new Set(monthReturnApproved.map(r => r.rental_item_id));
+  const returnedCount = returnedRiIds.size;
+  const returnRate = totalRentals > 0 ? Math.round((returnedCount / totalRentals) * 100) : 0;
+
+  const damageCount = (rets || []).filter(
+    r => r.condition === "damaged" && isInMonthKey(r.created_at, monthKey)
+  ).length;
+  const lossCount = (rets || []).filter(
+    r => r.condition === "lost" && isInMonthKey(r.created_at, monthKey)
+  ).length;
+
+  const teacherStatsMap = new Map();
+  const ensureTeacherRow = (tid) => {
+    if (!tid) return null;
+    if (!teacherStatsMap.has(tid)) {
+      teacherStatsMap.set(tid, {
+        teacherId: tid,
+        name: tname(tid, teachers),
+        rentals: 0,
+        returned: 0,
+        unreturned: 0,
+        damage: 0,
+      });
+    }
+    return teacherStatsMap.get(tid);
+  };
+
+  monthRis.forEach(ri => {
+    const req = reqs.find(r => r.id === ri.request_id);
+    const row = ensureTeacherRow(req?.teacher_id);
+    if (!row) return;
+    row.rentals += 1;
+    if (ri.status === "returned") row.returned += 1;
+    else if (["rented", "partial_returned"].includes(ri.status)) row.unreturned += 1;
+  });
+
+  (rets || []).forEach(ret => {
+    if (ret.condition !== "damaged" || !isInMonthKey(ret.created_at, monthKey)) return;
+    const row = ensureTeacherRow(ret.teacher_id);
+    if (row) row.damage += 1;
+  });
+
+  const teacherStats = [...teacherStatsMap.values()]
+    .filter(t => t.rentals > 0 || t.damage > 0)
+    .sort((a, b) => b.rentals - a.rentals || a.name.localeCompare(b.name, "ko"));
+
+  const itemRentalCounts = new Map();
+  monthRis.forEach(ri => {
+    itemRentalCounts.set(ri.item_id, (itemRentalCounts.get(ri.item_id) || 0) + 1);
+  });
+  const topItems = [...itemRentalCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([itemId, rentalCount]) => {
+      const item = items.find(i => i.id === itemId);
+      const status = itemCurrentStatusLabel(item, ris, rets);
+      return {
+        itemId,
+        name: item?.name || "-",
+        rentalCount,
+        statusLabel: status.label,
+        statusKey: status.key,
+      };
+    });
+
+  const incidents = (rets || [])
+    .filter(r => ["damaged", "lost"].includes(r.condition) && isInMonthKey(r.created_at, monthKey))
+    .map(r => {
+      const ri = ris.find(x => x.id === r.rental_item_id);
+      return {
+        id: r.id,
+        itemName: iname(ri?.item_id, items),
+        teacherName: tname(r.teacher_id, teachers),
+        date: r.created_at,
+        condition: r.condition,
+        status: r.status,
+      };
+    })
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  return {
+    totalRentals,
+    returnedCount,
+    returnRate,
+    damageCount,
+    lossCount,
+    teacherStats,
+    topItems,
+    incidents,
+  };
+}
+
+function LucideBarChart2({ size = 20, color = DS.primary }) {
+  const s = {
+    width: size,
+    height: size,
+    stroke: color,
+    fill: "none",
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+  return (
+    <svg {...s} viewBox="0 0 24 24" aria-hidden>
+      <line x1="18" y1="20" x2="18" y2="10"/>
+      <line x1="12" y1="20" x2="12" y2="4"/>
+      <line x1="6" y1="20" x2="6" y2="14"/>
+    </svg>
+  );
+}
+
 const panelCard = {
   background: "#fff",
   borderRadius: 20,
@@ -1161,6 +1321,7 @@ const PAGE_META = {
   institutions:       { title: "기관관리",     sub: "보관 지점·기관 정보를 관리합니다." },
   accounts:           { title: "선생님관리",   sub: "계정과 권한을 관리합니다." },
   stats:              { title: "통계",         sub: "대여·재고 통계를 확인합니다." },
+  report:             { title: "월간 리포트",  sub: "월별 대여·반납·파손·분실 현황을 분석합니다." },
   notices:            { title: "공지사항",     sub: "공지를 확인하고 관리자는 새 공지를 등록할 수 있습니다." },
   settings:           { title: "설정",         sub: "계정 및 시스템 설정을 관리합니다." },
   "my-rental-status": { title: "내 대여현황",  sub: "대여 중인 교구를 확인하고 교구별 반납 신청을 합니다." },
@@ -2616,9 +2777,11 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
   const [rejectId,setRejectId]=useState(null);
   const [reason,setReason]=useState("");
 
-  const totalQty = items.reduce((s,i)=>s+i.total_quantity,0);
-  const availTotal = items.reduce((s,i)=>s+availQty(i,ris,rets),0);
-  const rentedNow= ris.filter(r=>["rented","partial_returned"].includes(r.status)).reduce((s,r)=>s+r.quantity,0);
+  const itemCount = items.length;
+  const availItemCount = items.filter(i => availQty(i, ris, rets) > 0).length;
+  const rentedItemCount = new Set(
+    ris.filter(r => ["rented", "partial_returned"].includes(r.status)).map(r => r.item_id)
+  ).size;
   const pendReqs = reqs.filter(r=>r.status==="pending");
   const pendingN = pendReqs.length;
   const overdueList = ris.filter(r=>["rented","partial_returned"].includes(r.status)&&dday(r.due_date)!==null&&dday(r.due_date)<0);
@@ -2678,11 +2841,11 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
         gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",
         gap:14,marginBottom:24,
       }}>
-        <Stat label="전체 보유" value={totalQty} color="#16a34a"/>
-        <Stat label="대여 가능" value={availTotal} color="#16a34a"/>
+        <Stat label="전체 품목" value={itemCount} color="#16a34a"/>
+        <Stat label="대여 가능 품목" value={availItemCount} color="#16a34a"/>
         {admin ? (
           <>
-            <Stat label="대여 중" value={rentedNow} color="#2563eb" onClick={()=>togglePanel("rented")} active={activePanel==="rented"}/>
+            <Stat label="대여 중 품목" value={rentedItemCount} color="#2563eb" onClick={()=>togglePanel("rented")} active={activePanel==="rented"}/>
             <Stat label="승인 대기" value={pendingN} color="#d97706" onClick={()=>togglePanel("pending")} active={activePanel==="pending"}/>
             <Stat label="연체" value={overdueList.length} color="#dc2626" onClick={()=>togglePanel("overdue")} active={activePanel==="overdue"}/>
             <Stat label="반납 신청" value={retPendN} color="#7c3aed" onClick={()=>togglePanel("returns")} active={activePanel==="returns"}/>
@@ -2690,8 +2853,8 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
           </>
         ) : (
           <>
-            <Stat label="대여 중" value={rentedNow} color="#2563eb"/>
-            <Stat label="교구 종류" value={items.length} color="#64748b"/>
+            <Stat label="대여 중 품목" value={rentedItemCount} color="#2563eb"/>
+            <Stat label="전체 품목" value={itemCount} color="#64748b"/>
           </>
         )}
       </div>
@@ -2838,7 +3001,7 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,onApprove,onReject,onApp
 
       <PanelSection title="전체 교구 현황">
         <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,fontSize:12}}>
-          {[["총 수량",totalQty],["대여 가능",availTotal],["대여 중",rentedNow],["품목 수",items.length]].map(([l,v])=>(
+          {[["전체 품목",itemCount],["대여 가능 품목",availItemCount],["대여 중 품목",rentedItemCount]].map(([l,v])=>(
             <div key={l} style={{background:"#f8fafc",borderRadius:8,padding:"10px 12px",display:"flex",justifyContent:"space-between"}}>
               <span style={{color:DS.textSecondary}}>{l}</span>
               <span style={{fontWeight:700,color:DS.textPrimary}}>{v}</span>
@@ -3228,8 +3391,9 @@ function ImageLightbox({ src, alt, onClose }) {
   );
 }
 
-function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me}) {
+function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me,onForceReturn}) {
   const [photoLightbox, setPhotoLightbox] = useState(false);
+  const admin = canManage(me);
   const avail=availQty(item,ris,rets),added=cart.some(c=>c.item_id===item.id);
   const currR=ris.filter(ri=>["rented","partial_returned"].includes(ri.status)&&ri.item_id===item.id);
   const history=useMemo(()=>buildItemRentalHistory(item.id,ris,reqs,teachers),[item.id,ris,reqs,teachers]);
@@ -3361,16 +3525,66 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me}) {
           </div>
         </div>
       )}
-      {currR.length>0&&(
-        <div style={card}>
-          <div style={{fontSize:12,fontWeight:700,color:DS.textSecondary,marginBottom:9}}>현재 대여 중</div>
-          {currR.map(ri=>{const req=reqs.find(r=>r.id===ri.request_id);const dd=ddayTag(ri.due_date);return(
-            <div key={ri.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderTop:"1px solid #f8fafc",color:DS.textSecondary}}>
-              <span>{req?tname(req.teacher_id,teachers):"-"} · {req?.dispatch_location||"-"}</span>
-              <span style={{color:dd?.color,fontWeight:dd?.urgent?800:500}}>×{ri.quantity} {dd?.text}</span>
-            </div>
-          );})}
-        </div>
+      {currR.length > 0 && (
+        <PanelSection title={`현재 대여 중 (${currR.length}건)`}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {currR.map(ri => {
+              const req = reqs.find(r => r.id === ri.request_id);
+              const dd = ddayTag(ri.due_date);
+              const teacherName = req ? tname(req.teacher_id, teachers) : "-";
+              return (
+                <div
+                  key={ri.id}
+                  style={{
+                    ...card,
+                    marginBottom: 0,
+                    borderLeft: `3px solid ${DS.primary}`,
+                    padding: "14px 16px",
+                  }}
+                >
+                  <div style={{ fontWeight: 800, fontSize: 15, color: DS.textPrimary, marginBottom: 10 }}>
+                    {teacherName}
+                  </div>
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    gap: "10px 16px",
+                    fontSize: 12,
+                  }}>
+                    <div>
+                      <div style={{ color: DS.textMuted, marginBottom: 3 }}>파견지</div>
+                      <div style={{ fontWeight: 600, color: DS.textPrimary }}>{req?.dispatch_location || "-"}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: DS.textMuted, marginBottom: 3 }}>수량</div>
+                      <div style={{ fontWeight: 700, color: DS.textPrimary }}>{ri.quantity}개</div>
+                    </div>
+                    <div>
+                      <div style={{ color: DS.textMuted, marginBottom: 3 }}>파견 기간</div>
+                      <div style={{ fontWeight: 600, color: DS.textSecondary, lineHeight: 1.45 }}>
+                        {req?.dispatch_start || req?.dispatch_end
+                          ? `${fmt(req.dispatch_start)} ~ ${fmt(req.dispatch_end)}`
+                          : "-"}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ color: DS.textMuted, marginBottom: 3 }}>반납예정</div>
+                      <div style={{ fontWeight: 700, color: dd?.color || DS.textPrimary }}>
+                        {ri.due_date ? fmt(ri.due_date) : "-"}
+                        {dd?.text ? ` · ${dd.text}` : ""}
+                      </div>
+                    </div>
+                  </div>
+                  {admin && onForceReturn && (
+                    <div style={{ marginTop: 12 }}>
+                      <Btn sm danger onClick={() => onForceReturn(ri)}>강제 반납</Btn>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </PanelSection>
       )}
 
       <PanelSection title={`대여 히스토리 (${history.length}건)`}>
@@ -3579,6 +3793,155 @@ function InstitutionsPage({me,items,ris}) {
           </div>
         ))}
       </div>
+    </PageShell>
+  );
+}
+
+function ReportPage({ me, items, ris, rets, reqs, teachers }) {
+  const monthOptions = useMemo(() => buildRecentMonthOptions(12), []);
+  const [monthKey, setMonthKey] = useState(() => monthOptions[0]?.key || "");
+
+  const report = useMemo(
+    () => computeMonthlyReport(monthKey, { ris, rets, reqs, items, teachers }),
+    [monthKey, ris, rets, reqs, items, teachers]
+  );
+
+  const selectedLabel = monthOptions.find(m => m.key === monthKey)?.label || "";
+
+  const tableHead = {
+    display: "grid",
+    gap: 8,
+    padding: "8px 0",
+    borderBottom: "1px solid #e2e8f0",
+    fontSize: 10,
+    fontWeight: 700,
+    color: DS.textMuted,
+  };
+  const tableRow = {
+    display: "grid",
+    gap: 8,
+    padding: "10px 0",
+    borderTop: "1px solid #f8fafc",
+    fontSize: 12,
+    alignItems: "center",
+  };
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META.report.sub}/>
+
+      <div style={{ ...panelCard, marginBottom: 20, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <div style={{
+          width: 44, height: 44, borderRadius: 12, background: DS.primaryLight,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        }}>
+          <LucideBarChart2 size={22}/>
+        </div>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 12, color: DS.textMuted, fontWeight: 600, marginBottom: 6 }}>조회 월</div>
+          <select
+            value={monthKey}
+            onChange={e => setMonthKey(e.target.value)}
+            style={{ ...inp, maxWidth: 280, margin: 0 }}
+          >
+            {monthOptions.map(m => (
+              <option key={m.key} value={m.key}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ fontSize: 13, color: DS.textSecondary, fontWeight: 600 }}>
+          {selectedLabel} 기준
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginBottom: 24 }}>
+        <DashStatCard label="전체 대여 건수" value={report.totalRentals} iconMark="대여" iconBg={DS.primaryLight} iconColor={DS.primary}/>
+        <DashStatCard
+          label="반납 완료 · 반납률"
+          value={`${report.returnedCount}건 · ${report.returnRate}%`}
+          iconMark="반납"
+          iconBg="#dcfce7"
+          iconColor="#16a34a"
+        />
+        <DashStatCard label="파손 건수" value={report.damageCount} iconMark="파손" iconBg="#fee2e2" iconColor="#dc2626"/>
+        <DashStatCard label="분실 건수" value={report.lossCount} iconMark="분실" iconBg="#fce7f3" iconColor="#be185d"/>
+      </div>
+
+      <PanelSection title={`강사별 대여 현황 (${report.teacherStats.length}명)`}>
+        {report.teacherStats.length === 0 ? (
+          <Empty text="해당 월 대여 기록이 없습니다"/>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ ...tableHead, gridTemplateColumns: "minmax(88px,1.2fr) repeat(4, minmax(56px, 0.7fr))" }}>
+              <span>강사명</span><span>대여건수</span><span>반납완료</span><span>미반납</span><span>파손</span>
+            </div>
+            {report.teacherStats.map(t => (
+              <div key={t.teacherId} style={{ ...tableRow, gridTemplateColumns: "minmax(88px,1.2fr) repeat(4, minmax(56px, 0.7fr))" }}>
+                <span style={{ fontWeight: 700, color: DS.textPrimary }}>{t.name}</span>
+                <span style={{ fontWeight: 700 }}>{t.rentals}</span>
+                <span style={{ fontWeight: 700, color: "#16a34a" }}>{t.returned}</span>
+                <span style={{ fontWeight: 700, color: t.unreturned > 0 ? "#ea580c" : DS.textSecondary }}>{t.unreturned}</span>
+                <span style={{ fontWeight: 700, color: t.damage > 0 ? "#dc2626" : DS.textSecondary }}>{t.damage}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </PanelSection>
+
+      <PanelSection title="교구별 사용 빈도 TOP 10">
+        {report.topItems.length === 0 ? (
+          <Empty text="해당 월 대여된 교구가 없습니다"/>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ ...tableHead, gridTemplateColumns: "minmax(120px,1.5fr) minmax(64px,0.7fr) minmax(80px,0.8fr)" }}>
+              <span>교구명</span><span>대여횟수</span><span>현재상태</span>
+            </div>
+            {report.topItems.map((row, i) => (
+              <div key={row.itemId} style={{ ...tableRow, gridTemplateColumns: "minmax(120px,1.5fr) minmax(64px,0.7fr) minmax(80px,0.8fr)" }}>
+                <span style={{ fontWeight: 700, color: DS.textPrimary }}>
+                  <span style={{ color: DS.textMuted, marginRight: 6, fontWeight: 600 }}>{i + 1}.</span>
+                  {row.name}
+                </span>
+                <span style={{ fontWeight: 800, color: DS.primary }}>{row.rentalCount}</span>
+                <span style={{
+                  display: "inline-block",
+                  padding: "3px 10px",
+                  borderRadius: 99,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  background: row.statusKey === "rented" ? "#ede9fe" : row.statusKey === "available" ? "#dcfce7" : "#f1f5f9",
+                  color: row.statusKey === "rented" ? "#7c3aed" : row.statusKey === "available" ? "#16a34a" : "#64748b",
+                }}>{row.statusLabel}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </PanelSection>
+
+      <PanelSection title={`파손·분실 상세 내역 (${report.incidents.length}건)`}>
+        {report.incidents.length === 0 ? (
+          <Empty text="해당 월 파손·분실 내역이 없습니다"/>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ ...tableHead, gridTemplateColumns: "minmax(100px,1.2fr) minmax(72px,1fr) minmax(80px,0.8fr) minmax(72px,0.8fr)" }}>
+              <span>교구명</span><span>강사명</span><span>날짜</span><span>상태</span>
+            </div>
+            {report.incidents.map(inc => (
+              <div key={inc.id} style={{ ...tableRow, gridTemplateColumns: "minmax(100px,1.2fr) minmax(72px,1fr) minmax(80px,0.8fr) minmax(72px,0.8fr)" }}>
+                <span style={{ fontWeight: 700, color: DS.textPrimary }}>{inc.itemName}</span>
+                <span style={{ color: DS.textSecondary }}>{inc.teacherName}</span>
+                <span style={{ color: DS.textMuted, fontSize: 11 }}>{fmt(inc.date)}</span>
+                <span style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, color: CC[inc.condition]?.c,
+                  }}>{CC[inc.condition]?.l}</span>
+                  <Badge s={inc.status}/>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </PanelSection>
     </PageShell>
   );
 }
@@ -5246,6 +5609,32 @@ function EquipmentApp({ onBack, me, session }) {
     );
   };
 
+  const forceReturnRentalItem = async (ri) => {
+    if (!canManage(me)) return;
+    if (!ri?.id) return;
+    const itemName = iname(ri.item_id, items);
+    if (!confirm(`강제 반납 처리하시겠습니까?\n\n${itemName} ×${ri.quantity}개`)) return;
+
+    const { error } = await supabase.from("rental_items").update({ status: "returned" }).eq("id", ri.id);
+    if (error) {
+      alert("강제 반납 오류: " + error.message);
+      return;
+    }
+
+    setRIs(p => p.map(r => (r.id === ri.id ? { ...r, status: "returned" } : r)));
+
+    const related = ris.filter(r => r.request_id === ri.request_id);
+    const allReturned = related.every(r => (r.id === ri.id ? true : r.status === "returned"));
+    if (allReturned && ri.request_id) {
+      await supabase.from("rental_requests").update({ status: "completed" }).eq("id", ri.request_id);
+      setReqs(p => p.map(r => (
+        r.id === ri.request_id && r.status !== "rejected" ? { ...r, status: "completed" } : r
+      )));
+    }
+
+    alert("강제 반납 처리되었습니다. 재고가 반영됩니다.");
+  };
+
   const approveReturn = async (retId) => {
     if (!canManage(me)) return;
     const now=new Date().toISOString();
@@ -5364,7 +5753,7 @@ function EquipmentApp({ onBack, me, session }) {
   const goItemsFromDetail = () => setPage("items");
 
   const renderPage = () => {
-    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","stats","settings","rental-manage"].includes(page)) {
+    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","stats","report","settings","rental-manage"].includes(page)) {
       return (
         <PageShell>
           <div style={{textAlign:"center",padding:"70px 20px"}}>
@@ -5391,7 +5780,7 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem}/>}
         {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
         {page==="items-qr"&&<ItemsQrPage me={me} items={items}/>}
-        {page==="item-detail"&&detailItem&&<ItemDetailPage item={detailItem} ris={ris} rets={rets} reqs={reqs} teachers={teachers} cart={cart} setCart={setCart} onBack={goItemsFromDetail} me={me}/>}
+        {page==="item-detail"&&detailItem&&<ItemDetailPage item={detailItem} ris={ris} rets={rets} reqs={reqs} teachers={teachers} cart={cart} setCart={setCart} onBack={goItemsFromDetail} me={me} onForceReturn={forceReturnRentalItem}/>}
         {page==="qr-rent"&&scanRentItem&&(
           <QrRentPage
             item={scanRentItem}
@@ -5425,6 +5814,7 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="returns-approval"&&<ReturnsApprovalPage me={me} rets={rets} ris={ris} items={items} teachers={teachers} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
         {page==="rental-manage"&&<RentalManageHubPage me={me} setPage={setPage}/>}
         {page==="stats"&&<StatsPage me={me} items={items} ris={ris} reqs={reqs} teachers={teachers}/>}
+        {page==="report"&&isAdmin(me)&&<ReportPage me={me} items={items} ris={ris} rets={rets} reqs={reqs} teachers={teachers}/>}
         {page==="notices"&&<NoticesPage me={me} notices={notices} onAdd={addNotice} onDelete={deleteNotice}/>}
         {page==="settings"&&<SettingsPage me={me} onChangePw={()=>setShowPwModal(true)} onLogout={logout}/>}
         {page==="accounts"&&superA&&<AccountsPage me={me} teachers={teachers} setTeachers={setTeachers} ris={ris} reqs={reqs} items={items}/>}
