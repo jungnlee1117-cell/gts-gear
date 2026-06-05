@@ -167,6 +167,14 @@ code {
   background: var(--code-bg);
 }
 
+/* ── 교구 둘러보기 카드 그리드 ── */
+.gts-items-browse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
 /* ── GTS 교구 QR 카드 (화면 · 인쇄 공통) ── */
 .gts-qr-screen-grid {
   display: grid;

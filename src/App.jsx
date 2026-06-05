@@ -692,6 +692,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "dashboard") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>;
   if (id === "rental-status") return <svg {...s} viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
   if (id === "items") return <svg {...s} viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>;
+  if (id === "items-browse") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>;
   if (id === "rentals" || id === "rental-return") return <svg {...s} viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>;
   if (id === "accounts") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/></svg>;
   if (id === "institutions") return <svg {...s} viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/></svg>;
@@ -713,6 +714,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
 function isNavPageActive(page, navId) {
   const aliases = {
     items: ["items", "item-detail"],
+    "items-browse": ["items-browse"],
     gear: ["items", "item-detail", "items-register", "items-qr"],
     rental: ["rental-approval", "rental-status", "returns-approval", "overdue"],
     "rental-manage": ["rental-approval", "rental-status", "returns-approval", "overdue", "rental-manage", "rentals"],
@@ -778,6 +780,7 @@ function buildSidebarNav(me) {
 
   return [
     { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
+    { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
     { type: "item", id: "items", label: "교구검색", glyph: "items" },
     { type: "item", id: "qr-scan", label: "QR 스캔", glyph: "qr-scan" },
     { type: "item", id: "rental-return", label: "대여 반납신청", glyph: "rental-return" },
@@ -1384,6 +1387,7 @@ const PAGE_META = {
   dashboard:          { title: "대시보드",     sub: "오늘도 안정적이고 효율적인 자산 관리를 시작해보세요." },
   "rental-status":    { title: "대여현황",     sub: "선생님별 대여·반납 현황을 한눈에 확인하세요." },
   items:              { title: "전체교구",     sub: "교구 재고를 조회하고 관리합니다." },
+  "items-browse":     { title: "교구 둘러보기", sub: "카테고리별 교구 사진과 대여 가능 수량을 확인합니다." },
   "items-register":   { title: "교구등록",     sub: "새 교구를 등록합니다." },
   "items-qr":         { title: "QR관리",       sub: "교구 QR 코드를 관리합니다." },
   "qr-scan":          { title: "QR 스캔",      sub: "교구 QR 코드를 스캔하여 상세 정보를 확인하고 대여 신청합니다." },
@@ -1403,6 +1407,14 @@ const PAGE_META = {
   "return-request":   { title: "반납요청",    sub: "대여 중인 교구의 반납을 신청합니다." },
   "qr-rent":          { title: "QR 대여 신청", sub: "스캔한 교구의 대여 가능 수량을 확인하고 신청합니다." },
   "item-detail":      { title: "교구 상세",    sub: "교구 정보와 대여 이력을 확인합니다." },
+};
+
+const DETAIL_BACK_LABELS = {
+  items: "교구 검색",
+  "items-register": "교구 관리",
+  "items-browse": "교구 둘러보기",
+  "qr-scan": "QR 스캔",
+  "qr-rent": "QR 대여",
 };
 
 function PageShell({children,style}) {
@@ -3456,6 +3468,205 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,onDeta
   );
 }
 
+function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, onDetail, onOpenCart }) {
+  const [catF, setCatF] = useState("ALL");
+  const [lightbox, setLightbox] = useState(null);
+
+  const list = useMemo(() => {
+    let r = [...items];
+    if (catF !== "ALL") r = r.filter(i => categoryMatchesFilter(i.category, catF));
+    return r.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  }, [items, catF]);
+
+  const inCart = id => cart.some(c => c.item_id === id);
+
+  const handleRent = (item) => {
+    if (availQty(item, ris, rets) === 0) return;
+    if (!inCart(item.id)) {
+      setCart(p => [...p, { item_id: item.id, quantity: 1, due_date: "" }]);
+    }
+    onOpenCart?.();
+  };
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META["items-browse"].sub}/>
+
+      <div style={{ display: "flex", gap: 4, overflowX: "auto", marginBottom: 16, paddingBottom: 2 }}>
+        <button
+          type="button"
+          onClick={() => setCatF("ALL")}
+          style={{
+            padding: "10px 14px",
+            border: "none",
+            borderBottom: catF === "ALL" ? `2px solid ${DS.primary}` : "2px solid transparent",
+            background: "transparent",
+            whiteSpace: "nowrap",
+            color: catF === "ALL" ? DS.primary : DS.textSecondary,
+            fontWeight: catF === "ALL" ? 700 : 500,
+            fontSize: 12,
+            cursor: "pointer",
+            flexShrink: 0,
+            marginBottom: -1,
+            fontFamily: "inherit",
+          }}
+        >
+          전체
+        </button>
+        {CAT_KEYS.map(c => {
+          const m = CAT[c];
+          const count = items.filter(i => categoryMatchesFilter(i.category, c)).length;
+          if (!count) return null;
+          return (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCatF(c)}
+              style={{
+                padding: "10px 14px",
+                border: "none",
+                borderBottom: catF === c ? `2px solid ${DS.primary}` : "2px solid transparent",
+                background: "transparent",
+                whiteSpace: "nowrap",
+                color: catF === c ? DS.primary : DS.textSecondary,
+                fontWeight: catF === c ? 700 : 500,
+                fontSize: 12,
+                cursor: "pointer",
+                flexShrink: 0,
+                marginBottom: -1,
+                fontFamily: "inherit",
+              }}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ fontSize: 13, color: DS.textSecondary, marginBottom: 14, fontWeight: 600 }}>
+        {list.length}개 교구
+      </div>
+
+      {list.length === 0 ? (
+        <PanelSection title="교구 목록">
+          <Empty text={catF === "ALL" ? "등록된 교구가 없습니다" : "해당 카테고리 교구가 없습니다"}/>
+        </PanelSection>
+      ) : (
+        <div className="gts-items-browse-grid">
+          {list.map(item => {
+            const avail = availQty(item, ris, rets);
+            const added = inCart(item.id);
+            const hasPhoto = Boolean(item.photo_url);
+            return (
+              <div
+                key={item.id}
+                style={{
+                  ...panelCard,
+                  marginBottom: 0,
+                  padding: 0,
+                  overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (hasPhoto) setLightbox({ src: item.photo_url, alt: item.name });
+                  }}
+                  disabled={!hasPhoto}
+                  aria-label={hasPhoto ? `${item.name} 사진 크게 보기` : `${item.name} 사진 없음`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "100%",
+                    height: 200,
+                    padding: 12,
+                    border: "none",
+                    borderBottom: "1px solid #e8ecee",
+                    background: "#f8fafc",
+                    cursor: hasPhoto ? "zoom-in" : "default",
+                    fontFamily: "inherit",
+                    overflow: "hidden",
+                  }}
+                >
+                  {hasPhoto ? (
+                    <img
+                      src={item.photo_url}
+                      alt={item.name}
+                      style={{
+                        maxWidth: "100%",
+                        maxHeight: "100%",
+                        width: "auto",
+                        height: "auto",
+                        objectFit: "contain",
+                        objectPosition: "center center",
+                        pointerEvents: "none",
+                      }}
+                    />
+                  ) : (
+                    <CategoryIconFallback category={item.category} size={120}/>
+                  )}
+                </button>
+
+                <div style={{ padding: "14px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
+                  <button
+                    type="button"
+                    onClick={() => onDetail?.(item)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      margin: 0,
+                      textAlign: "left",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, fontSize: 15, color: DS.textPrimary, lineHeight: 1.35 }}>
+                      {item.name}
+                    </div>
+                  </button>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                    <CatTag cat={item.category}/>
+                  </div>
+                  <div style={{
+                    marginTop: 10,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: avail > 0 ? "#16a34a" : "#dc2626",
+                  }}>
+                    대여 가능 {avail}개
+                  </div>
+                  <div style={{ marginTop: "auto", paddingTop: 14 }}>
+                    <Btn
+                      full
+                      color={avail > 0 ? DS.primary : "#cbd5e1"}
+                      disabled={avail === 0}
+                      onClick={() => handleRent(item)}
+                    >
+                      {avail > 0 ? (added ? "대여 신청 (장바구니)" : "대여 신청") : "대여 불가"}
+                    </Btn>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {lightbox && (
+        <ImageLightbox
+          src={lightbox.src}
+          alt={lightbox.alt}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+    </PageShell>
+  );
+}
+
 function ImageLightbox({ src, alt, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -3525,7 +3736,7 @@ function ImageLightbox({ src, alt, onClose }) {
   );
 }
 
-function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me,onForceReturn}) {
+function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLabel="보유 자산으로",me,onForceReturn}) {
   const [photoLightbox, setPhotoLightbox] = useState(false);
   const admin = canManage(me);
   const avail=availQty(item,ris,rets),added=cart.some(c=>c.item_id===item.id);
@@ -3539,7 +3750,7 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me,onFo
         background:"#fff",border:"1px solid #e8ecee",borderRadius:10,
         color:DS.primary,fontWeight:600,fontSize:12,cursor:"pointer",
         padding:"8px 14px",marginBottom:20,fontFamily:"inherit",
-      }}>← 보유 자산으로</button>
+      }}>← {backLabel}</button>
 
       <PageHeader me={me} subtitle={PAGE_META["item-detail"].sub}/>
 
@@ -6196,6 +6407,7 @@ function EquipmentApp({ onBack, me, session }) {
   const [cart,       setCart]       = useState([]);
   const [showCart,   setShowCart]   = useState(false);
   const [detailItem, setDetailItem] = useState(null);
+  const [detailBackPage, setDetailBackPage] = useState("items");
   const [scanRentItem,setScanRentItem]= useState(null);
   const [itemReturnGroup,setItemReturnGroup] = useState(null);
   const [showPwModal,setShowPwModal]= useState(false);
@@ -6572,7 +6784,13 @@ function EquipmentApp({ onBack, me, session }) {
   const mobileBottomNav = buildMobileBottomNav(me);
   const mobileMoreNav = buildMobileMoreNav(me, mobileBottomNav);
 
-  const goItemsFromDetail = () => setPage("items");
+  const goItemsFromDetail = () => setPage(detailBackPage || "items");
+
+  const openItemDetail = (item, fromPage = page) => {
+    setDetailItem(item);
+    setDetailBackPage(fromPage);
+    setPage("item-detail");
+  };
 
   const renderPage = () => {
     if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","stats","report","settings","rental-manage"].includes(page)) {
@@ -6599,17 +6817,43 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
         {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} onForceReturn={forceReturnRentalItem}/>}
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} initialFilter="overdue" onForceReturn={forceReturnRentalItem}/>}
-        {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem}/>}
-        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
+        {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>openItemDetail(item,"items")} onSaveItem={saveItem} onDeleteItem={deleteItem}/>}
+        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>openItemDetail(item,"items-register")} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
+        {page==="items-browse"&&(
+          <ItemsBrowsePage
+            me={me}
+            items={items}
+            ris={ris}
+            rets={rets}
+            cart={cart}
+            setCart={setCart}
+            onDetail={item=>openItemDetail(item,"items-browse")}
+            onOpenCart={()=>setShowCart(true)}
+          />
+        )}
         {page==="items-qr"&&isAdmin(me)&&<ItemsQrPage me={me} items={items}/>}
         {page==="qr-scan"&&(
           <QrScanPage
             me={me}
             items={items}
-            onFound={(item) => { setDetailItem(item); setPage("item-detail"); }}
+            onFound={(item) => openItemDetail(item, "qr-scan")}
           />
         )}
-        {page==="item-detail"&&detailItem&&<ItemDetailPage item={detailItem} ris={ris} rets={rets} reqs={reqs} teachers={teachers} cart={cart} setCart={setCart} onBack={goItemsFromDetail} me={me} onForceReturn={forceReturnRentalItem}/>}
+        {page==="item-detail"&&detailItem&&(
+          <ItemDetailPage
+            item={detailItem}
+            ris={ris}
+            rets={rets}
+            reqs={reqs}
+            teachers={teachers}
+            cart={cart}
+            setCart={setCart}
+            onBack={goItemsFromDetail}
+            backLabel={DETAIL_BACK_LABELS[detailBackPage] || "보유 자산으로"}
+            me={me}
+            onForceReturn={forceReturnRentalItem}
+          />
+        )}
         {page==="qr-rent"&&scanRentItem&&(
           <QrRentPage
             item={scanRentItem}
@@ -6619,7 +6863,7 @@ function EquipmentApp({ onBack, me, session }) {
             setCart={setCart}
             me={me}
             onOpenCart={()=>setShowCart(true)}
-            onViewDetail={()=>{setDetailItem(scanRentItem);setPage("item-detail");}}
+            onViewDetail={()=>openItemDetail(scanRentItem,"qr-rent")}
             onDismiss={()=>{
               setScanRentItem(null);
               setPage(me?.role==="teacher"?"rental-return":"items");
