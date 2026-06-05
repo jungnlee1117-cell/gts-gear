@@ -199,6 +199,15 @@ function filterReturnPendingLastWeek(rets) {
 
 const NOTICES_STORAGE_KEY = "gts_notices";
 
+const NOTICE_IMPORTANCE = {
+  normal: { label: "일반", bg: "#f1f5f9", color: "#64748b" },
+  important: { label: "중요", bg: "#fee2e2", color: "#dc2626" },
+};
+
+function normalizeNoticeImportance(value) {
+  return value === "important" ? "important" : "normal";
+}
+
 async function fetchNotices() {
   const { data, error } = await supabase.from("notices").select("*").order("created_at", { ascending: false });
   if (!error && data) return data;
@@ -213,12 +222,29 @@ async function persistNotice(notice, existing) {
   const { data, error } = await supabase.from("notices").insert({
     title: notice.title,
     body: notice.body,
+    importance: normalizeNoticeImportance(notice.importance),
     author_id: notice.author_id,
     author_name: notice.author_name,
   }).select().single();
   if (!error && data) return [data, ...existing];
-  const row = { ...notice, id: notice.id || crypto.randomUUID() };
+  const row = { ...notice, id: notice.id || crypto.randomUUID(), importance: normalizeNoticeImportance(notice.importance) };
   const next = [row, ...existing];
+  localStorage.setItem(NOTICES_STORAGE_KEY, JSON.stringify(next));
+  return next;
+}
+
+async function updateNoticeRecord(id, patch, existing) {
+  const payload = {
+    title: patch.title,
+    body: patch.body ?? "",
+    importance: normalizeNoticeImportance(patch.importance),
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase.from("notices").update(payload).eq("id", id).select().single();
+  if (!error && data) return existing.map(n => (n.id === id ? data : n));
+  const next = existing.map(n => (
+    n.id === id ? { ...n, ...payload } : n
+  ));
   localStorage.setItem(NOTICES_STORAGE_KEY, JSON.stringify(next));
   return next;
 }
@@ -4814,18 +4840,85 @@ function StatsPage({me,items,ris,reqs,teachers}) {
   );
 }
 
-function NoticesPage({me,notices,onAdd,onDelete}) {
+function NoticeImportanceBadge({ importance }) {
+  const key = normalizeNoticeImportance(importance);
+  const cfg = NOTICE_IMPORTANCE[key];
+  return (
+    <span style={{
+      display: "inline-block",
+      padding: "2px 8px",
+      borderRadius: 99,
+      fontSize: 10,
+      fontWeight: 700,
+      background: cfg.bg,
+      color: cfg.color,
+    }}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function NoticeEditModal({ notice, onClose, onSave }) {
+  const [title, setTitle] = useState(notice?.title || "");
+  const [body, setBody] = useState(notice?.body || "");
+  const [importance, setImportance] = useState(normalizeNoticeImportance(notice?.importance));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setTitle(notice?.title || "");
+    setBody(notice?.body || "");
+    setImportance(normalizeNoticeImportance(notice?.importance));
+  }, [notice]);
+
+  const submit = async () => {
+    if (!title.trim()) return alert("제목을 입력하세요");
+    setSaving(true);
+    const ok = await onSave({
+      id: notice.id,
+      title: title.trim(),
+      body: body.trim(),
+      importance,
+    });
+    setSaving(false);
+    if (ok) onClose();
+  };
+
+  return (
+    <Modal title="공지 수정" onClose={onClose}>
+      <Inp2 label="제목 *" value={title} onChange={e => setTitle(e.target.value)} placeholder="공지 제목"/>
+      <Txa2 label="내용" value={body} onChange={e => setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
+      <div style={{ marginBottom: 14 }}>
+        <label style={lbl}>중요도 *</label>
+        <select
+          value={importance}
+          onChange={e => setImportance(e.target.value)}
+          style={{ ...inp, padding: "10px 12px", fontSize: 14 }}
+        >
+          <option value="normal">일반</option>
+          <option value="important">중요</option>
+        </select>
+      </div>
+      <Btn full onClick={submit} disabled={saving}>{saving ? "저장 중..." : "저장"}</Btn>
+    </Modal>
+  );
+}
+
+function NoticesPage({ me, notices, onAdd, onUpdate, onDelete }) {
   const canWrite = isAdmin(me);
-  const [title,setTitle]=useState("");
-  const [body,setBody]=useState("");
-  const [saving,setSaving]=useState(false);
+  const canDelete = isSuperAdmin(me);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [importance, setImportance] = useState("normal");
+  const [saving, setSaving] = useState(false);
+  const [editNotice, setEditNotice] = useState(null);
 
   const handleAdd = async () => {
     if (!title.trim()) return alert("제목을 입력하세요");
     setSaving(true);
-    await onAdd({ title: title.trim(), body: body.trim() });
+    await onAdd({ title: title.trim(), body: body.trim(), importance });
     setTitle("");
     setBody("");
+    setImportance("normal");
     setSaving(false);
   };
 
@@ -4837,8 +4930,19 @@ function NoticesPage({me,notices,onAdd,onDelete}) {
 
       {canWrite && (
         <PanelSection title="공지 작성">
-          <Inp2 label="제목 *" value={title} onChange={e=>setTitle(e.target.value)} placeholder="공지 제목"/>
-          <Txa2 label="내용" value={body} onChange={e=>setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
+          <Inp2 label="제목 *" value={title} onChange={e => setTitle(e.target.value)} placeholder="공지 제목"/>
+          <Txa2 label="내용" value={body} onChange={e => setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
+          <div style={{ marginBottom: 14 }}>
+            <label style={lbl}>중요도 *</label>
+            <select
+              value={importance}
+              onChange={e => setImportance(e.target.value)}
+              style={{ ...inp, padding: "10px 12px", fontSize: 14 }}
+            >
+              <option value="normal">일반</option>
+              <option value="important">중요</option>
+            </select>
+          </div>
           <Btn full onClick={handleAdd} disabled={saving}>{saving ? "등록 중..." : "공지 등록"}</Btn>
         </PanelSection>
       )}
@@ -4848,38 +4952,77 @@ function NoticesPage({me,notices,onAdd,onDelete}) {
           <Empty text="등록된 공지가 없습니다"/>
         ) : sorted.map((n, i) => {
           const isNew = n.created_at && Date.now() - new Date(n.created_at).getTime() <= WEEK_MS;
+          const isImportant = normalizeNoticeImportance(n.importance) === "important";
           return (
             <div key={n.id || i} style={{
-              padding:"14px 0",
-              borderTop:i>0?"1px solid #f1f5f9":"none",
+              padding: "14px 0",
+              borderTop: i > 0 ? "1px solid #f1f5f9" : "none",
             }}>
-              <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                 <div style={{
-                  width:8,height:8,borderRadius:"50%",marginTop:6,flexShrink:0,
-                  background:isNew?DS.primary:"transparent",
+                  width: 8, height: 8, borderRadius: "50%", marginTop: 6, flexShrink: 0,
+                  background: isNew ? DS.primary : "transparent",
                 }}/>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:15,fontWeight:700,color:"#111827"}}>{n.title}</div>
-                  <div style={{fontSize:11,color:DS.textMuted,marginTop:4}}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: isImportant ? "#dc2626" : "#111827" }}>
+                      {n.title}
+                    </div>
+                    <NoticeImportanceBadge importance={n.importance}/>
+                  </div>
+                  <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 4 }}>
                     {fmt(n.created_at)} {n.author_name ? `· ${n.author_name}` : ""}
+                    {n.updated_at && n.updated_at !== n.created_at ? ` · 수정 ${fmt(n.updated_at)}` : ""}
                   </div>
                   {n.body && (
-                    <div style={{fontSize:13,color:DS.textSecondary,marginTop:10,lineHeight:1.7,whiteSpace:"pre-wrap"}}>
+                    <div style={{ fontSize: 13, color: DS.textSecondary, marginTop: 10, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
                       {n.body}
                     </div>
                   )}
                 </div>
-                {canWrite && (
-                  <button type="button" onClick={()=>{ if(confirm("이 공지를 삭제할까요?")) onDelete(n.id); }} style={{
-                    border:"none",background:"#fee2e2",color:"#dc2626",
-                    borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",
-                  }}>삭제</button>
+                {(canWrite || canDelete) && (
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+                    {canWrite && (
+                      <button
+                        type="button"
+                        onClick={() => setEditNotice(n)}
+                        style={{
+                          border: "none", background: DS.primaryLight, color: DS.primary,
+                          borderRadius: 8, padding: "6px 10px", fontSize: 11, fontWeight: 600,
+                          cursor: "pointer", fontFamily: "inherit",
+                        }}
+                      >
+                        수정
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => { if (confirm("이 공지를 삭제할까요?")) onDelete(n.id); }}
+                        style={{
+                          border: "none", background: "#fee2e2", color: "#dc2626",
+                          borderRadius: 8, padding: "6px 10px", fontSize: 11, fontWeight: 600,
+                          cursor: "pointer", fontFamily: "inherit",
+                        }}
+                      >
+                        삭제
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
           );
         })}
       </PanelSection>
+
+      {editNotice && (
+        <NoticeEditModal
+          notice={editNotice}
+          onClose={() => setEditNotice(null)}
+          onSave={onUpdate}
+        />
+      )}
     </PageShell>
   );
 }
@@ -6963,10 +7106,11 @@ function EquipmentApp({ onBack, me, session }) {
     setDataLoading(false);
   };
 
-  const addNotice = async ({ title, body }) => {
+  const addNotice = async ({ title, body, importance = "normal" }) => {
     const row = {
       title,
       body: body || "",
+      importance,
       author_id: me.id,
       author_name: me.name,
       created_at: new Date().toISOString(),
@@ -6976,9 +7120,38 @@ function EquipmentApp({ onBack, me, session }) {
     alert("공지가 등록되었습니다.");
   };
 
+  const refreshNotices = async () => {
+    const noticeList = await fetchNotices();
+    setNotices(noticeList);
+  };
+
+  const updateNotice = async ({ id, title, body, importance }) => {
+    const payload = {
+      title,
+      body: body || "",
+      importance: normalizeNoticeImportance(importance),
+    };
+    const { error } = await supabase.from("notices").update({
+      ...payload,
+      updated_at: new Date().toISOString(),
+    }).eq("id", id);
+
+    if (error) {
+      const next = await updateNoticeRecord(id, payload, notices);
+      setNotices(next);
+      alert("공지가 수정되었습니다.");
+      return true;
+    }
+
+    await refreshNotices();
+    alert("공지가 수정되었습니다.");
+    return true;
+  };
+
   const deleteNotice = async (id) => {
     const next = await removeNotice(id, notices);
     setNotices(next);
+    await refreshNotices();
   };
 
   const logout = async () => {
@@ -7541,7 +7714,7 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="rental-manage"&&<RentalManageHubPage me={me} setPage={setPage}/>}
         {page==="stats"&&<StatsPage me={me} items={items} ris={ris} reqs={reqs} teachers={teachers}/>}
         {page==="report"&&isAdmin(me)&&<ReportPage me={me} items={items} ris={ris} rets={rets} reqs={reqs} teachers={teachers}/>}
-        {page==="notices"&&<NoticesPage me={me} notices={notices} onAdd={addNotice} onDelete={deleteNotice}/>}
+        {page==="notices"&&<NoticesPage me={me} notices={notices} onAdd={addNotice} onUpdate={updateNotice} onDelete={deleteNotice}/>}
         {page==="settings"&&<SettingsPage me={me} onChangePw={()=>setShowPwModal(true)} onLogout={logout}/>}
         {page==="accounts"&&superA&&<AccountsPage me={me} teachers={teachers} setTeachers={setTeachers} ris={ris} reqs={reqs} items={items}/>}
       </>
