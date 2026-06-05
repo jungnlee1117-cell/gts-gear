@@ -499,11 +499,16 @@ function GearQrDisplay({ item, size = 160, style }) {
   );
 }
 
-function buildItemRentalHistory(itemId, ris, reqs, teachers) {
+const FORCE_RETURN_MEMO = "강제 반납 (관리자 처리)";
+
+function buildItemRentalHistory(itemId, ris, reqs, teachers, rets) {
   return ris
     .filter(ri => ri.item_id === itemId)
     .map(ri => {
       const req = reqs.find(r => r.id === ri.request_id);
+      const forceRet = (rets || [])
+        .filter(r => r.rental_item_id === ri.id && r.status === "return_approved" && (r.memo || "").includes("강제 반납"))
+        .sort((a, b) => new Date(b.approved_at || 0) - new Date(a.approved_at || 0))[0];
       return {
         ...ri,
         req,
@@ -512,6 +517,9 @@ function buildItemRentalHistory(itemId, ris, reqs, teachers) {
         start: req?.dispatch_start,
         end: req?.dispatch_end,
         sortAt: ri.approved_at || ri.created_at || req?.created_at || "",
+        forceReturn: forceRet || null,
+        forceReturnBy: forceRet ? tname(forceRet.approved_by, teachers) : null,
+        forceReturnAt: forceRet?.approved_at || null,
       };
     })
     .sort((a, b) => new Date(b.sortAt) - new Date(a.sortAt));
@@ -2616,9 +2624,22 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
     await new Promise(r=>setTimeout(r,800));
     const { data:existing } = await supabase.from("teachers").select("id").eq("id",data.user.id).single();
     if (!existing) {
-      await supabase.from("teachers").insert({id:data.user.id,name:f.name.trim(),phone:f.phone.trim(),role:f.role,active:true});
+      await supabase.from("teachers").insert({
+        id: data.user.id,
+        name: f.name.trim(),
+        phone: f.phone.trim(),
+        email: f.email.trim(),
+        role: f.role,
+        active: true,
+      });
     } else {
-      await supabase.from("teachers").update({name:f.name.trim(),phone:f.phone.trim(),role:f.role,active:true}).eq("id",data.user.id);
+      await supabase.from("teachers").update({
+        name: f.name.trim(),
+        phone: f.phone.trim(),
+        email: f.email.trim(),
+        role: f.role,
+        active: true,
+      }).eq("id", data.user.id);
     }
     const { data:newT } = await supabase.from("teachers").select("*").eq("id",data.user.id).single();
     if (newT) setTeachers(p=>[...p.filter(x=>x.id!==newT.id), newT]);
@@ -2639,6 +2660,28 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
       textTransform:"uppercase",
     }}>{text}</div>
   );
+
+  const AccountTeacherInfo = ({ t, showSelfBadge = false }) => {
+    const email = t.email || (t.id === me?.id ? me?.email : null) || "-";
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary }}>{t.name}</span>
+          <RoleBadge role={t.role} />
+          {showSelfBadge && t.id === me.id && (
+            <span style={{ background: "#dcfce7", color: "#16a34a", padding: "2px 8px", borderRadius: 99, fontSize: 10, fontWeight: 700 }}>나</span>
+          )}
+          {t.active === false && (
+            <span style={{ background: "#fee2e2", color: "#dc2626", padding: "2px 7px", borderRadius: 99, fontSize: 10, fontWeight: 700 }}>비활성</span>
+          )}
+        </div>
+        <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 5, lineHeight: 1.55 }}>
+          <div>{t.phone || "-"}</div>
+          <div style={{ color: DS.textMuted, marginTop: 2, wordBreak: "break-all" }}>{email}</div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <PageShell>
@@ -2675,14 +2718,7 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
       {teachers.filter(t=>t.role==="superadmin").map(t=>(
         <div key={t.id} style={{...card,borderLeft:"3px solid #854d0e"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div>
-              <div style={{display:"flex",alignItems:"center",gap:7}}>
-                <span style={{fontWeight:800,fontSize:14}}>{t.name}</span>
-                <RoleBadge role={t.role}/>
-                {t.id===me.id&&<span style={{background:"#dcfce7",color:"#16a34a",padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:700}}>나</span>}
-              </div>
-              <div style={{fontSize:11,color:DS.textSecondary,marginTop:3}}>{t.phone||"-"}</div>
-            </div>
+            <AccountTeacherInfo t={t} showSelfBadge/>
             <div style={{fontSize:11,color:DS.textMuted,fontWeight:600}}>변경 불가</div>
           </div>
         </div>
@@ -2696,13 +2732,8 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
           <div key={t.id} style={{...card,borderLeft:"3px solid #dc2626",opacity:t.active===false?0.5:1}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-                  <span style={{fontWeight:800,fontSize:14}}>{t.name}</span>
-                  <RoleBadge role={t.role}/>
-                  {t.active===false&&<span style={{background:"#fee2e2",color:"#dc2626",padding:"2px 7px",borderRadius:99,fontSize:10,fontWeight:700}}>비활성</span>}
-                </div>
-                <div style={{fontSize:11,color:DS.textSecondary}}>{t.phone||"-"}</div>
-                <div style={{fontSize:11,color:DS.textMuted,marginTop:1}}>보유 교구: {held.reduce((s,r)=>s+r.quantity,0)}개</div>
+                <AccountTeacherInfo t={t}/>
+                <div style={{fontSize:11,color:DS.textMuted,marginTop:6}}>보유 교구: {held.reduce((s,r)=>s+r.quantity,0)}개</div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:5}}>
                 <Btn sm ghost danger onClick={()=>demoteToTeacher(t)}>관리자 해제</Btn>
@@ -2722,13 +2753,8 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
           <div key={t.id} style={{...card,opacity:t.active===false?0.5:1}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-                  <span style={{fontWeight:800,fontSize:14}}>{t.name}</span>
-                  <RoleBadge role={t.role}/>
-                  {t.active===false&&<span style={{background:"#fee2e2",color:"#dc2626",padding:"2px 7px",borderRadius:99,fontSize:10,fontWeight:700}}>비활성</span>}
-                </div>
-                <div style={{fontSize:11,color:DS.textSecondary}}>{t.phone||"-"}</div>
-                <div style={{fontSize:11,color:DS.textMuted,marginTop:1}}>보유: {held.reduce((s,r)=>s+r.quantity,0)}개</div>
+                <AccountTeacherInfo t={t}/>
+                <div style={{fontSize:11,color:DS.textMuted,marginTop:6}}>보유: {held.reduce((s,r)=>s+r.quantity,0)}개</div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:5}}>
                 <Btn sm color={DS.primary} onClick={()=>promoteToAdmin(t)}>관리자 임명</Btn>
@@ -3436,7 +3462,7 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me,onFo
   const admin = canManage(me);
   const avail=availQty(item,ris,rets),added=cart.some(c=>c.item_id===item.id);
   const currR=ris.filter(ri=>["rented","partial_returned"].includes(ri.status)&&ri.item_id===item.id);
-  const history=useMemo(()=>buildItemRentalHistory(item.id,ris,reqs,teachers),[item.id,ris,reqs,teachers]);
+  const history=useMemo(()=>buildItemRentalHistory(item.id,ris,reqs,teachers,rets),[item.id,ris,reqs,teachers,rets]);
   const ytId=(url)=>{if(!url)return null;const m=url.match(/(?:v=|embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);return m?m[1]:null;};
   const vid=ytId(item.youtube_url);
   return(
@@ -3617,7 +3643,7 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me,onFo
                   </div>
                   {admin && onForceReturn && (
                     <div style={{ marginTop: 12 }}>
-                      <Btn sm danger onClick={() => onForceReturn(ri)}>강제 반납</Btn>
+                      <ForceReturnButton ri={ri} me={me} onForceReturn={onForceReturn}/>
                     </div>
                   )}
                 </div>
@@ -3648,7 +3674,18 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me,onFo
                   <span style={{color:DS.textMuted,fontSize:10}}>{h.start?`${fmt(h.start)}~`:""}{h.end?fmt(h.end):"-"}</span>
                   <span style={{fontWeight:700}}>{h.quantity}개</span>
                   <span style={{color:dd?.color,fontWeight:dd?.urgent?700:500}}>{h.due_date?fmt(h.due_date):"-"}</span>
-                  <Badge s={h.status}/>
+                  {h.forceReturn ? (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", lineHeight: 1.4 }}>
+                      {FORCE_RETURN_MEMO}
+                      {h.forceReturnBy && (
+                        <span style={{ display: "block", color: DS.textMuted, fontWeight: 600, marginTop: 2 }}>
+                          {h.forceReturnBy} · {fmt(h.forceReturnAt)}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <Badge s={h.status}/>
+                  )}
                 </div>
               );
             })}
@@ -3662,7 +3699,7 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,me,onFo
 // ═══════════════════════════════════════════════════════════════════════
 // 대여 현황 (선생님별) — 대시보드 스타일
 // ═══════════════════════════════════════════════════════════════════════
-function buildTeacherSummaries(teachers, reqs, ris, items) {
+function buildTeacherSummaries(teachers, reqs, ris, items, rets) {
   return teachers
     .filter(t => t.role !== "superadmin")
     .map(teacher => {
@@ -3674,11 +3711,17 @@ function buildTeacherSummaries(teachers, reqs, ris, items) {
           const isCurrent = ["rented", "partial_returned"].includes(ri.status);
           const isOverdue = isCurrent && d !== null && d < 0;
           const isReturned = ri.status === "returned";
+          const forceRet = (rets || [])
+            .filter(r => r.rental_item_id === ri.id && r.status === "return_approved" && (r.memo || "").includes("강제 반납"))
+            .sort((a, b) => new Date(b.approved_at || 0) - new Date(a.approved_at || 0))[0];
           return {
             ri, req,
             item: items.find(i => i.id === ri.item_id),
             d, isCurrent, isOverdue, isReturned,
             sortAt: ri.approved_at || ri.created_at || req.created_at || "",
+            forceReturn: forceRet || null,
+            forceReturnBy: forceRet ? tname(forceRet.approved_by, teachers) : null,
+            forceReturnAt: forceRet?.approved_at || null,
           };
         })
         .filter(Boolean);
@@ -3707,6 +3750,23 @@ function MiniBadge({label,bg,color}) {
       display:"inline-block",padding:"3px 10px",borderRadius:99,
       fontSize:10,fontWeight:700,background:bg,color,
     }}>{label}</span>
+  );
+}
+
+function ForceReturnButton({ ri, me, onForceReturn, onClick }) {
+  if (!canManage(me) || !onForceReturn || !ri?.id) return null;
+  return (
+    <Btn
+      sm
+      danger
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.(e);
+        onForceReturn(ri);
+      }}
+    >
+      강제 반납 처리
+    </Btn>
   );
 }
 
@@ -4495,17 +4555,33 @@ function ItemsQrPage({ me, items }) {
   );
 }
 
-function RentalStatusPage({me,teachers,reqs,ris,items,initialFilter="all"}) {
+function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",onForceReturn}) {
   const [filter,setFilter]=useState(initialFilter);
   const [selected,setSelected]=useState(null);
   const [modalTab,setModalTab]=useState("current");
+  const isOverduePage = initialFilter === "overdue";
 
   useEffect(() => { setFilter(initialFilter); }, [initialFilter]);
 
   const summaries=useMemo(
-    ()=>buildTeacherSummaries(teachers,reqs,ris,items),
-    [teachers,reqs,ris,items]
+    ()=>buildTeacherSummaries(teachers,reqs,ris,items,rets),
+    [teachers,reqs,ris,items,rets]
   );
+
+  const overdueItems=useMemo(()=>ris
+    .filter(ri=>["rented","partial_returned"].includes(ri.status)&&dday(ri.due_date)!==null&&dday(ri.due_date)<0)
+    .map(ri=>{
+      const req=reqs.find(r=>r.id===ri.request_id);
+      return {
+        ri,
+        req,
+        teacher:req? tname(req.teacher_id,teachers):"-",
+        itemName:iname(ri.item_id,items),
+        dd:ddayTag(ri.due_date),
+      };
+    })
+    .sort((a,b)=>dday(a.ri.due_date)-dday(b.ri.due_date)),
+  [ris,reqs,teachers,items]);
 
   const filtered=useMemo(()=>{
     if(filter==="active") return summaries.filter(s=>s.hasCurrent);
@@ -4595,7 +4671,38 @@ function RentalStatusPage({me,teachers,reqs,ris,items,initialFilter="all"}) {
 
   return(
     <PageShell>
-      <PageHeader me={me} subtitle={PAGE_META["rental-status"].sub} alertCount={dueAlerts.length}/>
+      <PageHeader
+        me={me}
+        subtitle={isOverduePage ? PAGE_META.overdue.sub : PAGE_META["rental-status"].sub}
+        alertCount={dueAlerts.length}
+      />
+
+      {isOverduePage && (
+        <PanelSection title={`연체 목록 (${overdueItems.length}건)`}>
+          {overdueItems.length === 0 ? (
+            <Empty text="연체 건이 없습니다"/>
+          ) : overdueItems.map(({ ri, req, teacher, itemName, dd }) => (
+            <div key={ri.id} style={{ ...card, borderLeft: "3px solid #dc2626", marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: "#dc2626" }}>
+                    {itemName} ×{ri.quantity}개
+                  </div>
+                  <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 6, lineHeight: 1.7 }}>
+                    <div>대여자: {teacher}</div>
+                    <div>사용 장소: {req?.dispatch_location || "-"}</div>
+                    <div>
+                      반납예정: {fmt(ri.due_date)} ·{" "}
+                      <span style={{ fontWeight: 800, color: dd?.color }}>{dd?.text}</span>
+                    </div>
+                  </div>
+                </div>
+                <ForceReturnButton ri={ri} me={me} onForceReturn={onForceReturn}/>
+              </div>
+            </div>
+          ))}
+        </PanelSection>
+      )}
 
       <div style={{
         display:"grid",
@@ -4707,6 +4814,11 @@ function RentalStatusPage({me,teachers,reqs,ris,items,initialFilter="all"}) {
                       <div style={{fontSize:11,color:DS.textMuted,marginTop:4}}>
                         반납예정 {fmt(dueDate)}
                       </div>
+                      {urgent && (
+                        <div style={{ marginTop: 8 }}>
+                          <ForceReturnButton ri={ri} me={me} onForceReturn={onForceReturn}/>
+                        </div>
+                      )}
                     </div>
                     <span style={{
                       fontSize:11,fontWeight:800,flexShrink:0,
@@ -4853,7 +4965,10 @@ function RentalStatusPage({me,teachers,reqs,ris,items,initialFilter="all"}) {
                         <div>수량 {ri.quantity}개 · {req.dispatch_location}</div>
                         <div>반납예정 {ri.due_date?fmt(ri.due_date):"-"}</div>
                       </div>
-                      <div style={{marginTop:8}}><Badge s={ri.status}/></div>
+                      <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <Badge s={ri.status}/>
+                        {isOverdue && <ForceReturnButton ri={ri} me={me} onForceReturn={onForceReturn}/>}
+                      </div>
                     </div>
                   );
                 })
@@ -4881,7 +4996,18 @@ function RentalStatusPage({me,teachers,reqs,ris,items,initialFilter="all"}) {
                           <span style={{fontWeight:600,color:DS.textPrimary}}>{l.item?.name||"-"}</span>
                           <span style={{fontWeight:700}}>{l.ri.quantity}</span>
                           <span style={{color:DS.textSecondary}}>{l.req?.dispatch_location||"-"}</span>
-                          <Badge s={l.ri.status}/>
+                          {l.forceReturn ? (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", lineHeight: 1.35 }}>
+                              {FORCE_RETURN_MEMO}
+                              {l.forceReturnBy && (
+                                <span style={{ display: "block", color: DS.textMuted, fontWeight: 600 }}>
+                                  {l.forceReturnBy} · {fmt(l.forceReturnAt)}
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <Badge s={l.ri.status}/>
+                          )}
                         </div>
                       );
                     })}
@@ -5188,7 +5314,7 @@ export default function App() {
           alert("비활성화된 계정입니다. 관리자에게 문의하세요.");
           return;
         }
-        setMe(meData);
+        setMe(meData ? { ...meData, email: meData.email || session.user.email || "" } : null);
       })
       .catch(e=>console.error(e))
       .finally(()=>setMeLoading(false));
@@ -5667,8 +5793,27 @@ function EquipmentApp({ onBack, me, session }) {
   const forceReturnRentalItem = async (ri) => {
     if (!canManage(me)) return;
     if (!ri?.id) return;
-    const itemName = iname(ri.item_id, items);
-    if (!confirm(`강제 반납 처리하시겠습니까?\n\n${itemName} ×${ri.quantity}개`)) return;
+    if (!confirm("강제 반납 처리하시겠습니까?")) return;
+
+    const now = new Date().toISOString();
+    const req = reqs.find(r => r.id === ri.request_id);
+    const qty = Math.max(1, heldQtyForRi(ri, rets) || ri.quantity);
+
+    const { data: newRet, error: retErr } = await supabase.from("return_requests").insert({
+      rental_item_id: ri.id,
+      quantity: qty,
+      condition: "normal",
+      memo: FORCE_RETURN_MEMO,
+      teacher_id: req?.teacher_id || me.id,
+      status: "return_approved",
+      approved_by: me.id,
+      approved_at: now,
+    }).select().single();
+
+    if (retErr) {
+      alert("강제 반납 기록 저장 오류: " + retErr.message);
+      return;
+    }
 
     const { error } = await supabase.from("rental_items").update({ status: "returned" }).eq("id", ri.id);
     if (error) {
@@ -5676,7 +5821,18 @@ function EquipmentApp({ onBack, me, session }) {
       return;
     }
 
+    await supabase.from("activity_logs").insert({
+      entity_type: "rental_item",
+      entity_id: ri.id,
+      action: FORCE_RETURN_MEMO,
+      actor_id: me.id,
+      actor_name: me.name,
+      target_id: req?.teacher_id || null,
+      target_name: req ? tname(req.teacher_id, teachers) : "-",
+    });
+
     setRIs(p => p.map(r => (r.id === ri.id ? { ...r, status: "returned" } : r)));
+    if (newRet) setRets(p => [newRet, ...p]);
 
     const related = ris.filter(r => r.request_id === ri.request_id);
     const allReturned = related.every(r => (r.id === ri.id ? true : r.status === "returned"));
@@ -5687,7 +5843,7 @@ function EquipmentApp({ onBack, me, session }) {
       )));
     }
 
-    alert("강제 반납 처리되었습니다. 재고가 반영됩니다.");
+    alert(`강제 반납 처리되었습니다.\n처리자: ${me.name}\n처리 시간: ${fmtdt(now)}`);
   };
 
   const approveReturn = async (retId) => {
@@ -5830,8 +5986,8 @@ function EquipmentApp({ onBack, me, session }) {
     return (
       <>
         {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
-        {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} items={items}/>}
-        {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} items={items} initialFilter="overdue"/>}
+        {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} onForceReturn={forceReturnRentalItem}/>}
+        {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} initialFilter="overdue" onForceReturn={forceReturnRentalItem}/>}
         {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem}/>}
         {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
         {page==="items-qr"&&<ItemsQrPage me={me} items={items}/>}
