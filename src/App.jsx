@@ -297,6 +297,20 @@ function pendingQty(iid, ris) {
 function availQty(item, ris, rets = []) {
   return Math.max(0, item.total_quantity - rentedQty(item.id, ris, rets) - pendingQty(item.id, ris));
 }
+function availQtyForRentalEdit(item, ris, rets, currentPendingQty = 0) {
+  return availQty(item, ris, rets) + (currentPendingQty || 0);
+}
+function toDateInputValue(value) {
+  if (!value) return "";
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return raw.slice(0, 10);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const d = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 
 function buildTeacherHoldingsByItem(me, reqs, ris, items, rets) {
   const activeRis = ris.filter(ri => {
@@ -410,6 +424,29 @@ function findItemByScan(items, scan) {
     return items.find(i => i.code === code || i.code?.toLowerCase() === code.toLowerCase()) || null;
   }
   return null;
+}
+
+function parseQrScanText(text) {
+  if (!text?.trim()) return null;
+  const raw = text.trim();
+  try {
+    const url = new URL(raw);
+    const gear_id = url.searchParams.get("gear_id");
+    const gear_item = url.searchParams.get("gear_item");
+    if (gear_id || gear_item) return { gear_id: gear_id || null, gear_item: gear_item || null };
+  } catch {
+    /* not a URL */
+  }
+  if (/^https?:\/\//i.test(raw)) {
+    const q = raw.split("?")[1];
+    if (q) {
+      const p = new URLSearchParams(q);
+      const gear_id = p.get("gear_id");
+      const gear_item = p.get("gear_item");
+      if (gear_id || gear_item) return { gear_id: gear_id || null, gear_item: gear_item || null };
+    }
+  }
+  return { gear_id: null, gear_item: raw };
 }
 
 function getItemQrPublicUrl(code, qrUrl) {
@@ -564,6 +601,7 @@ const SC = {
   return_approved:  {l:"반납완료",  bg:"#dcfce7",c:"#16a34a"},
   damage_confirmed: {l:"파손확인",  bg:"#fee2e2",c:"#dc2626"},
   loss_confirmed:   {l:"분실확인",  bg:"#fce7f3",c:"#be185d"},
+  cancelled:        {l:"취소됨",    bg:"#f1f5f9",c:"#64748b"},
 };
 const CC = {
   normal:   {l:"정상",    c:"#16a34a"},
@@ -665,6 +703,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "returns-approval") return <svg {...s} viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>;
   if (id === "rental-approval") return <svg {...s} viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/></svg>;
   if (id === "items-qr") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h2v2h-2zM18 14h3v3h-3zM14 18h2v3h-2zM18 18h3v3h-3z"/></svg>;
+  if (id === "qr-scan") return <svg {...s} viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>;
   if (id === "my-rental-status") return <svg {...s} viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
   if (id === "rental-manage") return <svg {...s} viewBox="0 0 24 24"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/><path d="M21 12H3"/></svg>;
   if (id === "more") return <svg {...s} viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill={color} stroke="none"/><circle cx="12" cy="12" r="1.2" fill={color} stroke="none"/><circle cx="19" cy="12" r="1.2" fill={color} stroke="none"/></svg>;
@@ -732,6 +771,7 @@ function buildSidebarNav(me) {
       },
       { type: "item", id: "stats", label: "통계", glyph: "stats" },
       { type: "item", id: "report", label: "리포트", glyph: "report" },
+      { type: "item", id: "items-qr", label: "QR관리", glyph: "items-qr" },
       { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
     ];
   }
@@ -739,6 +779,7 @@ function buildSidebarNav(me) {
   return [
     { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
     { type: "item", id: "items", label: "교구검색", glyph: "items" },
+    { type: "item", id: "qr-scan", label: "QR 스캔", glyph: "qr-scan" },
     { type: "item", id: "rental-return", label: "대여 반납신청", glyph: "rental-return" },
     { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
   ];
@@ -1345,6 +1386,7 @@ const PAGE_META = {
   items:              { title: "전체교구",     sub: "교구 재고를 조회하고 관리합니다." },
   "items-register":   { title: "교구등록",     sub: "새 교구를 등록합니다." },
   "items-qr":         { title: "QR관리",       sub: "교구 QR 코드를 관리합니다." },
+  "qr-scan":          { title: "QR 스캔",      sub: "교구 QR 코드를 스캔하여 상세 정보를 확인하고 대여 신청합니다." },
   rentals:            { title: "대여신청",     sub: "교구 대여 신청 내역을 확인합니다." },
   "rental-return":    { title: "대여 반납신청", sub: "교구 대여 신청과 반납 신청을 합니다." },
   "rental-manage":    { title: "대여관리",     sub: "대여·반납·연체 업무를 처리합니다." },
@@ -4218,13 +4260,25 @@ function RentalManageHubPage({me,setPage}) {
   );
 }
 
-function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, embedded = false }) {
+function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancelRequest, onEditRequest, embedded = false }) {
   const holdings = useMemo(
     () => buildTeacherHoldingsByItem(me, reqs, ris, items, rets),
     [me, reqs, ris, items, rets]
   );
+  const pendingReqs = useMemo(
+    () => reqs.filter(r => r.teacher_id === me.id && r.status === "pending")
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+    [reqs, me.id]
+  );
   const totalHeld = holdings.reduce((s, h) => s + h.totalHeld, 0);
   const totalPending = holdings.reduce((s, h) => s + h.totalPendingReturn, 0);
+
+  const renderPendingActions = (req) => (
+    <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+      <Btn sm onClick={() => onEditRequest?.(req)}>신청 수정</Btn>
+      <Btn sm ghost danger onClick={() => onCancelRequest?.(req.id)}>신청 취소</Btn>
+    </div>
+  );
 
   const body = (
     <>
@@ -4234,10 +4288,40 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, embedded
         gap: 12,
         marginBottom: 20,
       }}>
+        <DashStatCard label="승인 대기" value={pendingReqs.length} iconMark="대기" iconBg="#fef3c7" iconColor="#d97706"/>
         <DashStatCard label="대여 교구 종류" value={holdings.length} iconMark="종류" iconBg={DS.primaryLight} iconColor={DS.primary}/>
         <DashStatCard label="보유 수량" value={totalHeld} iconMark="수량" iconBg="#ede9fe" iconColor="#7c3aed"/>
-        <DashStatCard label="반납 승인 대기" value={totalPending} iconMark="대기" iconBg="#fef9c3" iconColor="#ca8a04"/>
+        <DashStatCard label="반납 승인 대기" value={totalPending} iconMark="반납" iconBg="#fef9c3" iconColor="#ca8a04"/>
       </div>
+
+      {pendingReqs.length > 0 && (
+        <PanelSection title={`승인 대기 중인 신청 (${pendingReqs.length}건)`}>
+          {pendingReqs.map(req => {
+            const reqRIs = ris.filter(ri => ri.request_id === req.id);
+            return (
+              <div key={req.id} style={{ ...card, borderLeft: "3px solid #d97706", marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary }}>{req.dispatch_location}</div>
+                    <div style={{ fontSize: 11, color: DS.textSecondary, marginTop: 2 }}>
+                      {fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}
+                    </div>
+                    {req.memo && <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 1 }}>{req.memo}</div>}
+                  </div>
+                  <Badge s="pending"/>
+                </div>
+                {reqRIs.map(ri => (
+                  <div key={ri.id} style={{ fontSize: 12, padding: "6px 0", borderTop: "1px solid #f8fafc", color: DS.textSecondary }}>
+                    {iname(ri.item_id, items)} ×{ri.quantity}개
+                    {ri.due_date && <span style={{ marginLeft: 8, color: DS.textMuted }}>반납예정 {fmt(ri.due_date)}</span>}
+                  </div>
+                ))}
+                {renderPendingActions(req)}
+              </div>
+            );
+          })}
+        </PanelSection>
+      )}
 
       {holdings.length === 0 ? (
         <PanelSection title="대여 중인 교구">
@@ -4339,15 +4423,18 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, embedded
 }
 
 function TeacherRentalReturnPage({
-  me, reqs, ris, items, rets, teachers, onReturnItem, initialTab = "rent",
+  me, reqs, ris, items, rets, teachers, onReturnItem, onCancelRequest, onUpdateRequest, initialTab = "rent",
 }) {
   const [tab, setTab] = useState(initialTab);
+  const [editReq, setEditReq] = useState(null);
   useEffect(() => { setTab(initialTab); }, [initialTab]);
 
   const pendingReturn = useMemo(() => {
     const holdings = buildTeacherHoldingsByItem(me, reqs, ris, items, rets);
     return holdings.reduce((s, h) => s + h.totalPendingReturn, 0);
   }, [me, reqs, ris, items, rets]);
+
+  const editReqRIs = editReq ? ris.filter(ri => ri.request_id === editReq.id) : [];
 
   return (
     <PageShell>
@@ -4377,7 +4464,17 @@ function TeacherRentalReturnPage({
         ))}
       </div>
       {tab === "rent" ? (
-        <RentalsPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} rets={rets} embedded/>
+        <RentalsPage
+          me={me}
+          reqs={reqs}
+          ris={ris}
+          items={items}
+          teachers={teachers}
+          rets={rets}
+          embedded
+          onCancelRequest={onCancelRequest}
+          onEditRequest={setEditReq}
+        />
       ) : (
         <MyRentalStatusPage
           me={me}
@@ -4386,14 +4483,30 @@ function TeacherRentalReturnPage({
           items={items}
           rets={rets}
           onReturnItem={onReturnItem}
+          onCancelRequest={onCancelRequest}
+          onEditRequest={setEditReq}
           embedded
+        />
+      )}
+      {editReq && (
+        <EditRentalRequestModal
+          req={editReq}
+          reqRIs={editReqRIs}
+          items={items}
+          ris={ris}
+          rets={rets}
+          onSubmit={async (payload) => {
+            const ok = await onUpdateRequest(editReq.id, payload);
+            if (ok) setEditReq(null);
+          }}
+          onClose={() => setEditReq(null)}
         />
       )}
     </PageShell>
   );
 }
 
-function QrPrintCard({ item, qrSize = 120 }) {
+function QrPrintCard({ item, qrSize = 120, showCategory = false }) {
   return (
     <div className="gts-qr-print-card">
       <div className="gts-qr-print-qr">
@@ -4409,8 +4522,176 @@ function QrPrintCard({ item, qrSize = 120 }) {
         </div>
         <div className="gts-qr-print-name">{item.name}</div>
         <div className="gts-qr-print-code">{item.code}</div>
+        {showCategory && (
+          <div style={{ marginTop: 4 }}>
+            <CatTag cat={item.category}/>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function QrScreenCard({ item, qrSize = 128 }) {
+  return (
+    <div className="gts-qr-screen-card" style={{
+      ...panelCard,
+      marginBottom: 0,
+      padding: "16px 14px",
+      textAlign: "center",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+    }}>
+      <div style={{
+        display: "inline-flex",
+        padding: 8,
+        background: "#fff",
+        border: "1px solid #e8ecee",
+        borderRadius: 10,
+        marginBottom: 12,
+      }}>
+        <GearQrDisplay item={item} size={qrSize}/>
+      </div>
+      <div className="gts-qr-print-name">{item.name}</div>
+      <div className="gts-qr-print-code" style={{ marginBottom: 8 }}>{item.code}</div>
+      <CatTag cat={item.category}/>
+    </div>
+  );
+}
+
+function QrScanPage({ me, items, onFound }) {
+  const videoRef = useRef(null);
+  const handledRef = useRef(false);
+  const [manual, setManual] = useState("");
+  const [cameraErr, setCameraErr] = useState("");
+  const [cameraReady, setCameraReady] = useState(false);
+
+  const resolveScan = useCallback((text) => {
+    if (handledRef.current) return;
+    const scan = parseQrScanText(text);
+    const item = findItemByScan(items, scan);
+    if (!item) {
+      alert("등록되지 않은 교구입니다.");
+      return;
+    }
+    handledRef.current = true;
+    onFound(item);
+  }, [items, onFound]);
+
+  useEffect(() => {
+    handledRef.current = false;
+    let stream = null;
+    let raf = 0;
+    let detector = null;
+    let cancelled = false;
+
+    const start = async () => {
+      if (typeof window === "undefined" || !window.isSecureContext) {
+        setCameraErr("카메라 스캔은 HTTPS 또는 localhost 환경에서 사용할 수 있습니다. 교구 코드를 직접 입력해 주세요.");
+        return;
+      }
+      if (!("BarcodeDetector" in window)) {
+        setCameraErr("이 브라우저는 카메라 QR 스캔을 지원하지 않습니다. 교구 코드 또는 QR URL을 직접 입력해 주세요.");
+        return;
+      }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false,
+        });
+        if (cancelled || !videoRef.current) return;
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        setCameraReady(true);
+        detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+        const tick = async () => {
+          if (cancelled || handledRef.current || !videoRef.current || !detector) return;
+          try {
+            const codes = await detector.detect(videoRef.current);
+            if (codes?.length) {
+              resolveScan(codes[0].rawValue);
+              return;
+            }
+          } catch {
+            /* frame skip */
+          }
+          raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+      } catch {
+        setCameraErr("카메라 접근 권한이 필요합니다. 교구 코드를 직접 입력해 주세요.");
+      }
+    };
+
+    start();
+    return () => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+      stream?.getTracks().forEach(t => t.stop());
+    };
+  }, [resolveScan]);
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META["qr-scan"].sub}/>
+      <PanelSection title="카메라 스캔">
+        {cameraErr ? (
+          <div style={{
+            background: "#fff7ed",
+            border: "1px solid #fed7aa",
+            borderRadius: 12,
+            padding: "12px 14px",
+            fontSize: 13,
+            color: "#9a3412",
+            lineHeight: 1.6,
+            marginBottom: 14,
+          }}>
+            {cameraErr}
+          </div>
+        ) : (
+          <div style={{
+            position: "relative",
+            borderRadius: 14,
+            overflow: "hidden",
+            background: "#0f172a",
+            aspectRatio: "4 / 3",
+            maxHeight: 360,
+            marginBottom: 14,
+          }}>
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+            {cameraReady && (
+              <div style={{
+                position: "absolute",
+                inset: "18%",
+                border: "2px solid rgba(255,255,255,0.85)",
+                borderRadius: 12,
+                boxShadow: "0 0 0 9999px rgba(15,23,42,0.35)",
+                pointerEvents: "none",
+              }}/>
+            )}
+          </div>
+        )}
+        <div style={{ fontSize: 12, color: DS.textMuted, lineHeight: 1.6 }}>
+          QR 코드를 프레임 안에 맞추면 자동으로 교구 상세 페이지로 이동합니다.
+        </div>
+      </PanelSection>
+
+      <PanelSection title="직접 입력">
+        <Inp2
+          label="교구 코드 또는 QR URL"
+          value={manual}
+          onChange={e => setManual(e.target.value)}
+          placeholder="예: AIR-001 또는 QR 링크"
+        />
+        <Btn full onClick={() => resolveScan(manual)} disabled={!manual.trim()}>교구 찾기</Btn>
+      </PanelSection>
+    </PageShell>
   );
 }
 
@@ -4418,10 +4699,9 @@ function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDeta
   const avail = availQty(item, ris, rets);
   const added = cart.some(c => c.item_id === item.id);
   const teacher = me?.role === "teacher";
-  const canApply = teacher && item.status === "available";
 
   const addToCart = () => {
-    if (!canApply) return;
+    if (!teacher) return;
     if (added) {
       setCart(p => p.filter(c => c.item_id !== item.id));
       return;
@@ -4499,7 +4779,7 @@ function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDeta
             <Btn
               full
               color={added ? "#dc2626" : avail > 0 ? DS.primary : "#cbd5e1"}
-              disabled={!added && (avail === 0 || !canApply)}
+              disabled={!added && avail === 0}
               onClick={addToCart}
             >
               {added ? "장바구니에서 빼기" : avail > 0 ? "장바구니에 담기" : "대여 불가"}
@@ -4521,10 +4801,31 @@ function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDeta
 function ItemsQrPage({ me, items }) {
   const canManageItems = isAdmin(me);
   const [bulkLoading, setBulkLoading] = useState(false);
-  const sorted = useMemo(
-    () => [...items].sort((a, b) => (a.code || "").localeCompare(b.code || "")),
-    [items]
-  );
+  const [catF, setCatF] = useState("ALL");
+  const [printFilter, setPrintFilter] = useState("ALL");
+
+  useEffect(() => {
+    const reset = () => setPrintFilter("ALL");
+    window.addEventListener("afterprint", reset);
+    return () => window.removeEventListener("afterprint", reset);
+  }, []);
+
+  const filtered = useMemo(() => {
+    let r = [...items];
+    if (catF !== "ALL") r = r.filter(i => categoryMatchesFilter(i.category, catF));
+    return r.sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+  }, [items, catF]);
+
+  const printItems = useMemo(() => {
+    let r = [...items];
+    if (printFilter !== "ALL") r = r.filter(i => categoryMatchesFilter(i.category, printFilter));
+    return r.sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+  }, [items, printFilter]);
+
+  const printCategory = (key) => {
+    setPrintFilter(key);
+    requestAnimationFrame(() => setTimeout(() => window.print(), 80));
+  };
 
   const regenerateAll = async () => {
     if (!confirm(`${items.length}개 교구의 QR 이미지를 모두 다시 생성할까요?`)) return;
@@ -4536,7 +4837,14 @@ function ItemsQrPage({ me, items }) {
     alert("QR 생성이 완료되었습니다.");
   };
 
-  const printAll = () => window.print();
+  const printAll = () => {
+    setPrintFilter("ALL");
+    requestAnimationFrame(() => setTimeout(() => window.print(), 80));
+  };
+
+  const printHeaderLabel = printFilter === "ALL"
+    ? "GTS 교구 QR 코드"
+    : `GTS 교구 QR 코드 — ${getCategoryMeta(printFilter).label}`;
 
   return (
     <PageShell>
@@ -4546,6 +4854,11 @@ function ItemsQrPage({ me, items }) {
         actions={(
           <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Btn sm ghost onClick={printAll} disabled={!items.length}>전체 QR 출력</Btn>
+            {catF !== "ALL" && (
+              <Btn sm ghost onClick={() => printCategory(catF)} disabled={!filtered.length}>
+                {getCategoryMeta(catF).label} QR 전체 인쇄
+              </Btn>
+            )}
             {canManageItems && (
               <Btn sm onClick={regenerateAll} disabled={bulkLoading || !items.length}>
                 {bulkLoading ? "생성 중..." : "스토리지 QR 재생성"}
@@ -4555,24 +4868,78 @@ function ItemsQrPage({ me, items }) {
         )}
       />
 
-      {items.length === 0 ? (
+      <div className="no-print" style={{ display: "flex", gap: 4, overflowX: "auto", marginBottom: 16, paddingBottom: 2 }}>
+        <button
+          type="button"
+          onClick={() => setCatF("ALL")}
+          style={{
+            padding: "10px 14px",
+            border: "none",
+            borderBottom: catF === "ALL" ? `2px solid ${DS.primary}` : "2px solid transparent",
+            background: "transparent",
+            whiteSpace: "nowrap",
+            color: catF === "ALL" ? DS.primary : DS.textSecondary,
+            fontWeight: catF === "ALL" ? 700 : 500,
+            fontSize: 12,
+            cursor: "pointer",
+            flexShrink: 0,
+            marginBottom: -1,
+            fontFamily: "inherit",
+          }}
+        >
+          전체
+        </button>
+        {CAT_KEYS.map(c => {
+          const m = CAT[c];
+          const count = items.filter(i => categoryMatchesFilter(i.category, c)).length;
+          if (!count) return null;
+          return (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCatF(c)}
+              style={{
+                padding: "10px 14px",
+                border: "none",
+                borderBottom: catF === c ? `2px solid ${DS.primary}` : "2px solid transparent",
+                background: "transparent",
+                whiteSpace: "nowrap",
+                color: catF === c ? DS.primary : DS.textSecondary,
+                fontWeight: catF === c ? 700 : 500,
+                fontSize: 12,
+                cursor: "pointer",
+                flexShrink: 0,
+                marginBottom: -1,
+                fontFamily: "inherit",
+              }}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {filtered.length === 0 ? (
         <div className="no-print">
           <PanelSection title="QR 목록">
-            <Empty text="등록된 교구가 없습니다"/>
+            <Empty text={catF === "ALL" ? "등록된 교구가 없습니다" : "해당 카테고리 교구가 없습니다"}/>
           </PanelSection>
         </div>
       ) : (
         <>
+          <div className="no-print" style={{ fontSize: 13, color: DS.textSecondary, marginBottom: 12, fontWeight: 600 }}>
+            {filtered.length}개 교구
+          </div>
           <div className="no-print gts-qr-screen-grid">
-            {sorted.map(it => (
-              <QrPrintCard key={it.id} item={it} qrSize={128}/>
+            {filtered.map(it => (
+              <QrScreenCard key={it.id} item={it} qrSize={128}/>
             ))}
           </div>
 
           <div id="gts-qr-print-area" className="gts-qr-print-only">
-            <div className="gts-qr-print-header">GTS 교구 QR 코드</div>
+            <div className="gts-qr-print-header">{printHeaderLabel}</div>
             <div className="gts-qr-print-grid">
-              {sorted.map(it => <QrPrintCard key={it.id} item={it}/>)}
+              {printItems.map(it => <QrPrintCard key={it.id} item={it} showCategory/>)}
             </div>
           </div>
         </>
@@ -5051,14 +5418,14 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
 // ═══════════════════════════════════════════════════════════════════════
 // 대여 신청 관리
 // ═══════════════════════════════════════════════════════════════════════
-function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,embedded=false}) {
+function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCancelRequest,onEditRequest,embedded=false}) {
   const admin=isAdmin(me);
   const[tab,setTab]=useState("active");
   const[rejectId,setRejectId]=useState(null);
   const[reason,setReason]=useState("");
   const mine=admin?reqs:reqs.filter(r=>r.teacher_id===me.id);
   const active=mine.filter(r=>["pending","approved","partial"].includes(r.status));
-  const done=mine.filter(r=>["rejected","completed"].includes(r.status));
+  const done=mine.filter(r=>["rejected","completed","cancelled"].includes(r.status));
   const list=tab==="active"?active:done;
   const pendingCount=active.filter(r=>r.status==="pending").length;
 
@@ -5129,7 +5496,10 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,embedde
             {reqRIs.map(ri=>{const dd=ddayTag(ri.due_date);const relRets=rets.filter(r=>r.rental_item_id===ri.id);return(
               <div key={ri.id} style={{padding:"7px 0",borderTop:"1px solid #f8fafc"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{fontSize:13,fontWeight:600,color:DS.textPrimary}}>{iname(ri.item_id,items)} ×{ri.quantity}</span>
+                  <span style={{fontSize:13,fontWeight:600,color:DS.textPrimary}}>
+                    {iname(ri.item_id,items)} ×{ri.quantity}개
+                    {ri.due_date && <span style={{ fontSize: 11, color: DS.textMuted, marginLeft: 6 }}>반납예정 {fmt(ri.due_date)}</span>}
+                  </span>
                   <div style={{display:"flex",gap:5,alignItems:"center"}}>
                     {dd&&<span style={{fontSize:11,color:dd.color,fontWeight:dd.urgent?800:500}}>{dd.text}</span>}
                     <Badge s={ri.status}/>
@@ -5142,6 +5512,12 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,embedde
                 ))}
               </div>
             );})}
+            {!admin && req.status === "pending" && (
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <Btn sm onClick={() => onEditRequest?.(req)}>신청 수정</Btn>
+                <Btn sm ghost danger onClick={() => onCancelRequest?.(req.id)}>신청 취소</Btn>
+              </div>
+            )}
             {admin&&req.status==="pending"&&(
               <div style={{display:"flex",gap:8,marginTop:10}}>
                 <Btn sm color={DS.primary} onClick={()=>onApprove(req.id)}>승인</Btn>
@@ -5174,6 +5550,46 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,embedde
 // ═══════════════════════════════════════════════════════════════════════
 // 장바구니 모달 — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
+const RENTAL_MAX_DAYS = 28;
+const RENTAL_ERR_DUE_BEFORE_START = "반납 예정일은 대여 시작일 이후여야 합니다";
+const RENTAL_ERR_END_BEFORE_START = "대여 종료일은 대여 시작일 이후여야 합니다";
+const RENTAL_ERR_MAX_PERIOD = "대여 기간은 최대 4주(28일)까지 가능합니다";
+
+function parseYmdDate(ymd) {
+  if (!ymd) return null;
+  const [y, m, d] = String(ymd).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function dayDiffFromRentalStart(startYmd, targetYmd) {
+  const start = parseYmdDate(startYmd);
+  const target = parseYmdDate(targetYmd);
+  if (!start || !target) return null;
+  return Math.round((target - start) / 86400000);
+}
+
+function validateCartRentalDates(dispatchStart, dispatchEnd, detailItems) {
+  if (!dispatchStart) return null;
+
+  if (dispatchEnd) {
+    const endDiff = dayDiffFromRentalStart(dispatchStart, dispatchEnd);
+    if (endDiff !== null && endDiff < 0) return RENTAL_ERR_END_BEFORE_START;
+    if (endDiff !== null && endDiff > RENTAL_MAX_DAYS) return RENTAL_ERR_MAX_PERIOD;
+  }
+
+  for (const c of detailItems) {
+    const due = c.due_date || dispatchEnd;
+    if (!due) continue;
+    const diff = dayDiffFromRentalStart(dispatchStart, due);
+    if (diff !== null && diff < 0) return RENTAL_ERR_DUE_BEFORE_START;
+    if (diff !== null && diff > RENTAL_MAX_DAYS) return RENTAL_ERR_MAX_PERIOD;
+  }
+
+  return null;
+}
+
 function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
   const[f,setF]=useState({dispatch_location:"",dispatch_start:"",dispatch_end:"",memo:""});
   const[details,setDetails]=useState(()=>cart.map(c=>({
@@ -5198,6 +5614,8 @@ function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
     if(!f.dispatch_location.trim())return alert("사용 장소를 입력하세요");
     if(!f.dispatch_start||!f.dispatch_end)return alert("대여 기간을 입력하세요");
     if(!details.length)return alert("교구를 담아주세요");
+    const dateErr = validateCartRentalDates(f.dispatch_start, f.dispatch_end, details);
+    if (dateErr) return alert(dateErr);
     for(const c of details){const item=items.find(i=>i.id===c.item_id);const av=item?availQty(item,ris,rets):0;if(c.quantity<1||c.quantity>av)return alert(`${item?.name} 수량 오류 (가능: ${av}개)`);}
     onSubmit({...f,items:details.map(({ due_date_custom, ...c }) => c)});onClose();
   };
@@ -5245,6 +5663,104 @@ function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
         );})}
       </div>
       <Btn full onClick={submit}>대여 신청하기</Btn>
+    </Modal>
+  );
+}
+
+function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClose }) {
+  const endDefault = toDateInputValue(req.dispatch_end);
+  const [f, setF] = useState({
+    dispatch_location: req.dispatch_location || "",
+    dispatch_start: toDateInputValue(req.dispatch_start),
+    dispatch_end: endDefault,
+    memo: req.memo || "",
+  });
+  const [details, setDetails] = useState(() => reqRIs.map(ri => {
+    const due = toDateInputValue(ri.due_date);
+    return {
+      rental_item_id: ri.id,
+      item_id: ri.item_id,
+      quantity: ri.quantity,
+      due_date: due || endDefault,
+      due_date_custom: !!(due && endDefault && due !== endDefault),
+      originalQty: ri.quantity,
+    };
+  }));
+  const [saving, setSaving] = useState(false);
+
+  const setD = (rentalItemId, k, v) => {
+    if (k === "due_date") {
+      setDetails(p => p.map(c => c.rental_item_id === rentalItemId ? { ...c, due_date: v, due_date_custom: true } : c));
+      return;
+    }
+    setDetails(p => p.map(c => c.rental_item_id === rentalItemId ? { ...c, [k]: v } : c));
+  };
+  const handleEndDateChange = (value) => {
+    setF(p => ({ ...p, dispatch_end: value }));
+    setDetails(p => p.map(c => c.due_date_custom ? c : { ...c, due_date: value }));
+  };
+
+  const submit = async () => {
+    if (!f.dispatch_location.trim()) return alert("사용 장소를 입력하세요");
+    if (!f.dispatch_start || !f.dispatch_end) return alert("대여 기간을 입력하세요");
+    const dateErr = validateCartRentalDates(f.dispatch_start, f.dispatch_end, details);
+    if (dateErr) return alert(dateErr);
+    for (const c of details) {
+      const item = items.find(i => i.id === c.item_id);
+      const av = item ? availQtyForRentalEdit(item, ris, rets, c.originalQty) : 0;
+      if (c.quantity < 1 || c.quantity > av) return alert(`${item?.name || "교구"} 수량 오류 (가능: ${av}개)`);
+    }
+    setSaving(true);
+    try {
+      const ok = await onSubmit({
+        dispatch_location: f.dispatch_location.trim(),
+        dispatch_start: f.dispatch_start,
+        dispatch_end: f.dispatch_end,
+        memo: f.memo,
+        items: details.map(({ rental_item_id, item_id, quantity, due_date }) => ({
+          rental_item_id,
+          item_id,
+          quantity,
+          due_date: due_date || f.dispatch_end,
+        })),
+      });
+      if (!ok) return;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="대여 신청 수정" onClose={onClose}>
+      <Inp2 label="사용 장소 *" value={f.dispatch_location} onChange={e => setF(p => ({ ...p, dispatch_location: e.target.value }))}/>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+        <Inp2 label="대여 시작일 *" type="date" value={f.dispatch_start} onChange={e => setF(p => ({ ...p, dispatch_start: e.target.value }))}/>
+        <Inp2 label="대여 종료일 *" type="date" value={f.dispatch_end} onChange={e => handleEndDateChange(e.target.value)}/>
+      </div>
+      <Txa2 label="메모" value={f.memo} onChange={e => setF(p => ({ ...p, memo: e.target.value }))}/>
+      <div style={{ borderTop: `1px solid ${DS.inputBorder}`, paddingTop: 14, marginBottom: 14 }}>
+        <div style={{ fontWeight: 800, fontSize: 13, color: DS.textPrimary, marginBottom: 10 }}>신청 교구 ({details.length}종)</div>
+        {details.map(c => {
+          const item = items.find(i => i.id === c.item_id);
+          const av = item ? availQtyForRentalEdit(item, ris, rets, c.originalQty) : 0;
+          return (
+            <div key={c.rental_item_id} style={{ ...card, padding: "13px", marginBottom: 9 }}>
+              <div style={{ fontWeight: 800, fontSize: 13, color: DS.textPrimary, marginBottom: 9 }}>{item?.name || "-"}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 9px" }}>
+                <div>
+                  <label style={lbl}>수량 (최대 {av})</label>
+                  <input type="number" min={1} max={av} value={c.quantity} onChange={e => setD(c.rental_item_id, "quantity", parseInt(e.target.value, 10) || 1)} style={{ ...inp, padding: "9px 11px", fontSize: 14 }}/>
+                </div>
+                <div>
+                  <label style={lbl}>반납 예정일</label>
+                  <input type="date" value={c.due_date} onChange={e => setD(c.rental_item_id, "due_date", e.target.value)} style={{ ...inp, padding: "9px 11px", fontSize: 14 }}/>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Btn full onClick={submit} disabled={saving}>{saving ? "저장 중..." : "수정 저장"}</Btn>
     </Modal>
   );
 }
@@ -5777,6 +6293,72 @@ function EquipmentApp({ onBack, me, session }) {
     alert("대여 신청이 거절되었습니다.");
   };
 
+  const cancelRentalRequest = async (reqId) => {
+    const req = reqs.find(r => r.id === reqId);
+    if (!req || req.teacher_id !== me.id || req.status !== "pending") {
+      alert("취소할 수 없는 신청입니다.");
+      return false;
+    }
+    if (!confirm("대여 신청을 취소하시겠습니까?")) return false;
+
+    const { error: reqErr } = await supabase.from("rental_requests").update({ status: "cancelled" }).eq("id", reqId);
+    if (reqErr) {
+      alert("신청 취소 오류: " + reqErr.message);
+      return false;
+    }
+    const { error: riErr } = await supabase.from("rental_items").update({ status: "cancelled" }).eq("request_id", reqId).eq("status", "pending");
+    if (riErr) {
+      alert("교구 항목 취소 오류: " + riErr.message);
+      return false;
+    }
+
+    setReqs(p => p.map(r => (r.id === reqId ? { ...r, status: "cancelled" } : r)));
+    setRIs(p => p.map(ri => (ri.request_id === reqId && ri.status === "pending" ? { ...ri, status: "cancelled" } : ri)));
+    alert("대여 신청이 취소되었습니다.");
+    return true;
+  };
+
+  const updateRentalRequest = async (reqId, { dispatch_location, dispatch_start, dispatch_end, memo, items: ci }) => {
+    const req = reqs.find(r => r.id === reqId);
+    if (!req || req.teacher_id !== me.id || req.status !== "pending") {
+      alert("수정할 수 없는 신청입니다.");
+      return false;
+    }
+
+    const { error: reqErr } = await supabase.from("rental_requests").update({
+      dispatch_location,
+      dispatch_start,
+      dispatch_end,
+      memo: memo || "",
+    }).eq("id", reqId);
+    if (reqErr) {
+      alert("신청 수정 오류: " + reqErr.message);
+      return false;
+    }
+
+    for (const line of ci) {
+      const { error: riErr } = await supabase.from("rental_items").update({
+        quantity: line.quantity,
+        due_date: line.due_date || dispatch_end,
+      }).eq("id", line.rental_item_id).eq("request_id", reqId).eq("status", "pending");
+      if (riErr) {
+        alert("교구 항목 수정 오류: " + riErr.message);
+        return false;
+      }
+    }
+
+    setReqs(p => p.map(r => (
+      r.id === reqId ? { ...r, dispatch_location, dispatch_start, dispatch_end, memo: memo || "" } : r
+    )));
+    setRIs(p => p.map(ri => {
+      const line = ci.find(c => c.rental_item_id === ri.id);
+      if (!line || ri.request_id !== reqId) return ri;
+      return { ...ri, quantity: line.quantity, due_date: line.due_date || dispatch_end };
+    }));
+    alert("대여 신청이 수정되었습니다.");
+    return true;
+  };
+
   const submitReturnByItem = async ({ quantity, condition, memo, lines }) => {
     let remaining = quantity;
     const sorted = [...lines].sort(
@@ -6002,7 +6584,7 @@ function EquipmentApp({ onBack, me, session }) {
         </PageShell>
       );
     }
-    if (admin && !superA && ["accounts","items-register","items-qr","settings"].includes(page)) {
+    if (admin && !superA && ["accounts","items-register","settings"].includes(page)) {
       return (
         <PageShell>
           <div style={{textAlign:"center",padding:"70px 20px"}}>
@@ -6019,7 +6601,14 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} initialFilter="overdue" onForceReturn={forceReturnRentalItem}/>}
         {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem}/>}
         {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>{setDetailItem(item);setPage("item-detail");}} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
-        {page==="items-qr"&&<ItemsQrPage me={me} items={items}/>}
+        {page==="items-qr"&&isAdmin(me)&&<ItemsQrPage me={me} items={items}/>}
+        {page==="qr-scan"&&(
+          <QrScanPage
+            me={me}
+            items={items}
+            onFound={(item) => { setDetailItem(item); setPage("item-detail"); }}
+          />
+        )}
         {page==="item-detail"&&detailItem&&<ItemDetailPage item={detailItem} ris={ris} rets={rets} reqs={reqs} teachers={teachers} cart={cart} setCart={setCart} onBack={goItemsFromDetail} me={me} onForceReturn={forceReturnRentalItem}/>}
         {page==="qr-rent"&&scanRentItem&&(
           <QrRentPage
@@ -6046,6 +6635,8 @@ function EquipmentApp({ onBack, me, session }) {
             rets={rets}
             teachers={teachers}
             onReturnItem={setItemReturnGroup}
+            onCancelRequest={cancelRentalRequest}
+            onUpdateRequest={updateRentalRequest}
             initialTab={page==="my-rental-status"||page==="return-request"?"return":"rent"}
           />
         )}
