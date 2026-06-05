@@ -273,24 +273,6 @@ function rentedQty(iid, ris, rets = []) {
     .filter(r => r.item_id === iid && ["rented", "partial_returned"].includes(r.status))
     .reduce((s, r) => s + heldQtyForRi(r, rets), 0);
 }
-function buildItemRenterSummary(itemId, ris, rets, reqs, teachers) {
-  const byTeacher = new Map();
-  (ris || [])
-    .filter(ri => ri.item_id === itemId && ["rented", "partial_returned"].includes(ri.status))
-    .forEach(ri => {
-      const held = heldQtyForRi(ri, rets);
-      if (held <= 0) return;
-      const req = (reqs || []).find(r => r.id === ri.request_id);
-      const tid = req?.teacher_id;
-      if (!tid) return;
-      byTeacher.set(tid, (byTeacher.get(tid) || 0) + held);
-    });
-  return [...byTeacher.entries()]
-    .map(([tid, qty]) => ({ teacherId: tid, name: tname(tid, teachers), qty }))
-    .sort((a, b) => a.name.localeCompare(b.name, "ko"))
-    .map(r => `${r.name} ${r.qty}개`)
-    .join(" · ");
-}
 function pendingQty(iid, ris) {
   return ris.filter(r => r.item_id === iid && r.status === "pending").reduce((s, r) => s + r.quantity, 0);
 }
@@ -307,6 +289,67 @@ function reservationDisplayStatus(res) {
   if (res.status === "cancelled" && res.rejection_reason) return "rejected";
   return "cancelled";
 }
+
+function fmtShort(d) {
+  if (!d) return "-";
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return "-";
+  return `${dt.getMonth() + 1}/${dt.getDate()}`;
+}
+
+function buildItemScheduleLines(itemId, { ris, rets, reqs, reservations, teachers }) {
+  const lines = [];
+
+  (ris || []).forEach(ri => {
+    if (ri.item_id !== itemId) return;
+    if (!["rented", "partial_returned"].includes(ri.status)) return;
+    const held = heldQtyForRi(ri, rets);
+    if (held <= 0) return;
+    const req = (reqs || []).find(r => r.id === ri.request_id);
+    const name = req ? tname(req.teacher_id, teachers) : "-";
+    const start = req?.dispatch_start || ri.approved_at;
+    const end = req?.dispatch_end || ri.due_date;
+    lines.push({
+      type: "rental",
+      key: `rent-${ri.id}`,
+      text: `${name} 선생님 대여중 (${fmtShort(start)} ~ ${fmtShort(end)})`,
+    });
+  });
+
+  (reservations || []).forEach(res => {
+    if (res.item_id !== itemId) return;
+    if (!["pending", "confirmed"].includes(res.status)) return;
+    const name = tname(res.teacher_id, teachers);
+    lines.push({
+      type: "reservation",
+      key: `res-${res.id}`,
+      text: `${name} 선생님 예약 (${fmtShort(res.start_date)} ~ ${fmtShort(res.end_date)})`,
+    });
+  });
+
+  return lines.sort((a, b) => a.text.localeCompare(b.text, "ko"));
+}
+
+function ItemScheduleLines({ lines }) {
+  if (!lines?.length) return null;
+  return (
+    <div style={{ marginBottom: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+      {lines.map(line => (
+        <div
+          key={line.key}
+          style={{
+            fontSize: 12,
+            color: line.type === "rental" ? "#ea580c" : "#2563eb",
+            lineHeight: 1.45,
+          }}
+        >
+          {line.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function availQty(item, ris, rets = []) {
   return Math.max(0, item.total_quantity - rentedQty(item.id, ris, rets) - pendingQty(item.id, ris));
 }
@@ -3323,10 +3366,11 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 목록 — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
-function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,onDetail,onSaveItem,onDeleteItem,openAddOnMount=false}) {
+function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reservations,onDetail,onSaveItem,onDeleteItem,onSubmitReservation,onCancelReservation,openAddOnMount=false}) {
   const [q,setQ]=useState("");const[catF,setCatF]=useState("ALL");const[brF,setBrF]=useState("ALL");
   const[avOnly,setAvOnly]=useState(false);const[sortBy,setSortBy]=useState("code");
   const[editItem,setEditItem]=useState(null);const[addOpen,setAddOpen]=useState(false);
+  const[reserveItem,setReserveItem]=useState(null);
 
   useEffect(() => {
     if (openAddOnMount && canManage(me)) setAddOpen(true);
@@ -3353,14 +3397,16 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,onDeta
     if (ok && editItem?.id === item.id) setEditItem(null);
   };
 
-  const renterSummaryByItem = useMemo(() => {
+  const scheduleByItem = useMemo(() => {
     const map = new Map();
     items.forEach(item => {
-      const summary = buildItemRenterSummary(item.id, ris, rets, reqs, teachers);
-      if (summary) map.set(item.id, summary);
+      const lines = buildItemScheduleLines(item.id, { ris, rets, reqs, reservations, teachers });
+      if (lines.length) map.set(item.id, lines);
     });
     return map;
-  }, [items, ris, rets, reqs, teachers]);
+  }, [items, ris, rets, reqs, reservations, teachers]);
+
+  const pendingRes = itemId => getTeacherPendingReservation(reservations, me.id, itemId);
 
   return(
     <PageShell>
@@ -3433,6 +3479,8 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,onDeta
 
       <InfList all={list} renderItem={item=>{
         const rented=rentedQty(item.id,ris,rets),pending=pendingQty(item.id,ris),avail=availQty(item,ris,rets),added=inCart(item.id);
+        const myRes=pendingRes(item.id);
+        const scheduleLines=scheduleByItem.get(item.id);
         return(
           <div key={item.id} style={{
             ...card,
@@ -3515,20 +3563,9 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,onDeta
               ))}
             </div>
 
-            {rented >= 1 && renterSummaryByItem.get(item.id) && (
-              <div style={{
-                fontSize: 12,
-                color: DS.textSecondary,
-                marginBottom: 10,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}>
-                {renterSummaryByItem.get(item.id)}
-              </div>
-            )}
+            <ItemScheduleLines lines={scheduleLines}/>
 
-            <div style={{display:"flex",gap:7}}>
+            <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
               <Btn sm ghost color={DS.textSecondary} onClick={()=>onDetail(item)}>상세보기</Btn>
               <Btn sm
                 color={added?"#dc2626":avail>0?DS.primary:"#cbd5e1"}
@@ -3536,6 +3573,23 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,onDeta
                 onClick={()=>toggle(item)}>
                 {added?"빼기":avail>0?"담기":"불가"}
               </Btn>
+              {!canManage(me) && (
+                myRes ? (
+                  <Btn
+                    sm
+                    ghost
+                    color="#dc2626"
+                    onClick={() => {
+                      if (!confirm("예약을 취소하시겠습니까?")) return;
+                      onCancelReservation?.(myRes.id);
+                    }}
+                  >
+                    예약취소
+                  </Btn>
+                ) : (
+                  <Btn sm ghost color="#0d9488" onClick={() => setReserveItem(item)}>예약하기</Btn>
+                )
+              )}
             </div>
           </div>
         );
@@ -3549,11 +3603,22 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,onDeta
           onClose={()=>{ setAddOpen(false); setEditItem(null); }}
         />
       )}
+
+      {reserveItem && (
+        <ReservationModal
+          item={reserveItem}
+          onClose={() => setReserveItem(null)}
+          onSubmit={(payload) => {
+            onSubmitReservation?.({ ...payload, item_id: reserveItem.id });
+            setReserveItem(null);
+          }}
+        />
+      )}
     </PageShell>
   );
 }
 
-function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, reservations, onDetail, onOpenCart, onSubmitReservation, onCancelReservation }) {
+function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservations, teachers, onDetail, onOpenCart, onSubmitReservation, onCancelReservation }) {
   const [catF, setCatF] = useState("ALL");
   const [availF, setAvailF] = useState("ALL");
   const [lightbox, setLightbox] = useState(null);
@@ -3569,6 +3634,15 @@ function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, reservations, on
 
   const inCart = id => cart.some(c => c.item_id === id);
   const pendingRes = itemId => getTeacherPendingReservation(reservations, me.id, itemId);
+
+  const scheduleByItem = useMemo(() => {
+    const map = new Map();
+    items.forEach(item => {
+      const lines = buildItemScheduleLines(item.id, { ris, rets, reqs, reservations, teachers });
+      if (lines.length) map.set(item.id, lines);
+    });
+    return map;
+  }, [items, ris, rets, reqs, reservations, teachers]);
 
   const handleRent = (item) => {
     if (availQty(item, ris, rets) === 0) return;
@@ -3689,6 +3763,7 @@ function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, reservations, on
             const avail = availQty(item, ris, rets);
             const added = inCart(item.id);
             const myRes = pendingRes(item.id);
+            const scheduleLines = scheduleByItem.get(item.id);
             const hasPhoto = Boolean(item.photo_url);
             return (
               <div
@@ -3772,6 +3847,7 @@ function ItemsBrowsePage({ me, items, ris, rets, cart, setCart, reservations, on
                   }}>
                     대여 가능 {avail}개
                   </div>
+                  <ItemScheduleLines lines={scheduleLines}/>
                   <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                     <Btn
                       full
@@ -7273,14 +7349,16 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} reservations={reservations} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss} onApproveReservation={approveReservation} onRejectReservation={rejectReservation}/>}
         {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} onForceReturn={forceReturnRentalItem}/>}
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} initialFilter="overdue" onForceReturn={forceReturnRentalItem}/>}
-        {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>openItemDetail(item,"items")} onSaveItem={saveItem} onDeleteItem={deleteItem}/>}
-        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} onDetail={item=>openItemDetail(item,"items-register")} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
+        {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items")} onSaveItem={saveItem} onDeleteItem={deleteItem} onSubmitReservation={submitReservation} onCancelReservation={cancelReservation}/>}
+        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items-register")} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
         {page==="items-browse"&&(
           <ItemsBrowsePage
             me={me}
             items={items}
             ris={ris}
             rets={rets}
+            reqs={reqs}
+            teachers={teachers}
             cart={cart}
             setCart={setCart}
             reservations={reservations}
