@@ -312,6 +312,10 @@ function todayLocalDay() {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
+function todayYmd() {
+  return toDateInputValue(todayLocalDay());
+}
+
 function getScheduleTiming(start, end) {
   const today = todayLocalDay();
   const s = parseLocalDay(start);
@@ -322,8 +326,15 @@ function getScheduleTiming(start, end) {
   return "current";
 }
 
-function scheduleDedupeKey(teacherId, start, end) {
-  return `${teacherId}|${toDateInputValue(start)}|${toDateInputValue(end)}`;
+function scheduleSortRank(entry) {
+  const { timing, kind } = entry;
+  if (timing === "current" && kind === "rental") return 0;
+  if (timing === "future" && kind === "confirmed") return 1;
+  if (timing === "future" && kind === "pending") return 2;
+  if (timing === "current" && kind === "confirmed") return 3;
+  if (timing === "current" && kind === "pending") return 4;
+  if (timing === "future" && kind === "rental") return 5;
+  return 99;
 }
 
 function scheduleLineColor(line) {
@@ -346,6 +357,8 @@ function buildItemScheduleLines(itemId, { ris, rets, reqs, reservations, teacher
       confirmedReqIds.add(res.rental_request_id);
     }
     const name = tname(res.teacher_id, teachers);
+    const qty = res.quantity || 1;
+    const kind = res.status === "confirmed" ? "confirmed" : "pending";
     let statusLabel;
     if (res.status === "confirmed") {
       statusLabel = timing === "future" ? "예정" : "예약확정";
@@ -358,9 +371,11 @@ function buildItemScheduleLines(itemId, { ris, rets, reqs, reservations, teacher
       end: res.end_date,
       timing,
       priority: res.status === "confirmed" ? 3 : 2,
+      kind,
+      sortAt: res.created_at || res.start_date,
       key: `res-${res.id}`,
       type: res.status === "confirmed" ? "confirmed" : "reservation",
-      text: `${name} 선생님 ${statusLabel} (${fmtShort(res.start_date)} ~ ${fmtShort(res.end_date)})`,
+      text: `${name} 선생님 ${statusLabel} ${qty}개 (${fmtShort(res.start_date)} ~ ${fmtShort(res.end_date)})`,
     });
   });
 
@@ -387,23 +402,40 @@ function buildItemScheduleLines(itemId, { ris, rets, reqs, reservations, teacher
       end,
       timing,
       priority: 1,
+      kind: "rental",
+      sortAt: ri.approved_at || ri.created_at || start,
       key: `rent-${ri.id}`,
       type: "rental",
-      text: `${name} 선생님 ${statusLabel} (${fmtShort(start)} ~ ${fmtShort(end)})`,
+      text: `${name} 선생님 ${statusLabel} ${held}개 (${fmtShort(start)} ~ ${fmtShort(end)})`,
     });
   });
 
-  const byKey = new Map();
+  const byTeacher = new Map();
   entries.forEach(entry => {
-    const dk = scheduleDedupeKey(entry.teacherId, entry.start, entry.end);
-    const existing = byKey.get(dk);
-    if (!existing || entry.priority > existing.priority) {
-      byKey.set(dk, entry);
+    const existing = byTeacher.get(entry.teacherId);
+    if (!existing) {
+      byTeacher.set(entry.teacherId, entry);
+      return;
+    }
+    if (entry.priority > existing.priority) {
+      byTeacher.set(entry.teacherId, entry);
+      return;
+    }
+    if (entry.priority === existing.priority) {
+      const entryTime = new Date(entry.sortAt || 0).getTime();
+      const existingTime = new Date(existing.sortAt || 0).getTime();
+      if (entryTime > existingTime) {
+        byTeacher.set(entry.teacherId, entry);
+      }
     }
   });
 
-  return [...byKey.values()]
-    .sort((a, b) => a.text.localeCompare(b.text, "ko"))
+  return [...byTeacher.values()]
+    .sort((a, b) => {
+      const rankDiff = scheduleSortRank(a) - scheduleSortRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      return a.text.localeCompare(b.text, "ko");
+    })
     .map(({ key, text, type, timing }) => ({ key, text, type, timing }));
 }
 
@@ -6187,6 +6219,7 @@ const RENTAL_MAX_DAYS = 28;
 const RENTAL_ERR_DUE_BEFORE_START = "반납 예정일은 대여 시작일 이후여야 합니다";
 const RENTAL_ERR_END_BEFORE_START = "대여 종료일은 대여 시작일 이후여야 합니다";
 const RENTAL_ERR_MAX_PERIOD = "대여 기간은 최대 4주(28일)까지 가능합니다";
+const RESERVATION_ERR_START_BEFORE_TODAY = "예약 시작일은 오늘 이후여야 합니다";
 
 function parseYmdDate(ymd) {
   if (!ymd) return null;
@@ -6225,6 +6258,9 @@ function validateCartRentalDates(dispatchStart, dispatchEnd, detailItems) {
 
 function validateReservationDates(startYmd, endYmd) {
   if (!startYmd || !endYmd) return "예약 기간을 입력하세요";
+  const start = parseLocalDay(startYmd);
+  const today = todayLocalDay();
+  if (start && start < today) return RESERVATION_ERR_START_BEFORE_TODAY;
   const endDiff = dayDiffFromRentalStart(startYmd, endYmd);
   if (endDiff !== null && endDiff < 0) return RENTAL_ERR_END_BEFORE_START;
   if (endDiff !== null && endDiff > RENTAL_MAX_DAYS) return RENTAL_ERR_MAX_PERIOD;
@@ -6233,6 +6269,7 @@ function validateReservationDates(startYmd, endYmd) {
 
 function ReservationModal({ item, onClose, onSubmit }) {
   const [f, setF] = useState({ location: "", start_date: "", end_date: "", quantity: 1 });
+  const todayMin = todayYmd();
 
   const submit = () => {
     if (!f.location.trim()) return alert("사용 장소를 입력하세요");
@@ -6252,8 +6289,8 @@ function ReservationModal({ item, onClose, onSubmit }) {
     <Modal title={`교구 예약 · ${item?.name || ""}`} onClose={onClose}>
       <Inp2 label="사용 장소 *" value={f.location} onChange={e => setF(p => ({ ...p, location: e.target.value }))} placeholder="예: 은빛유치원 (성동구)"/>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-        <Inp2 label="예약 시작일 *" type="date" value={f.start_date} onChange={e => setF(p => ({ ...p, start_date: e.target.value }))}/>
-        <Inp2 label="예약 종료일 *" type="date" value={f.end_date} onChange={e => setF(p => ({ ...p, end_date: e.target.value }))}/>
+        <Inp2 label="예약 시작일 *" type="date" min={todayMin} value={f.start_date} onChange={e => setF(p => ({ ...p, start_date: e.target.value }))}/>
+        <Inp2 label="예약 종료일 *" type="date" min={f.start_date || todayMin} value={f.end_date} onChange={e => setF(p => ({ ...p, end_date: e.target.value }))}/>
       </div>
       <Inp2
         label={`수량 * (최대 ${item?.total_quantity || 1}개)`}
