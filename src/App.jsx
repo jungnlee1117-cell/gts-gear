@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import { QRCodeCanvas } from "qrcode.react";
 import GrowthApp from "./GrowthApp.jsx";
+import PeResourcesApp from "./PeResourcesApp.jsx";
 
 const GEAR_SCAN_KEY = "gts_gear_scan";
 
@@ -6782,6 +6783,7 @@ export default function App() {
     </div>
   );
   if (activeApp === "edu") return <EquipmentApp onBack={()=>setActiveApp(null)} me={me} session={session}/>;
+  if (activeApp === "pe") return <PeResourcesApp me={me} onBack={()=>setActiveApp(null)}/>;
   if (activeApp === "growth") return <GrowthApp onBack={()=>setActiveApp(null)} supabaseUser={me}/>;
   return <HubPage me={me} onSelect={setActiveApp} onLogout={logout}/>;
 }
@@ -6840,6 +6842,7 @@ const HUB_MODULES = [
     Icon: HubIconCube,
     wide: false,
     ready: true,
+    appRoute: "edu",
   },
   {
     id: "pe",
@@ -6852,7 +6855,8 @@ const HUB_MODULES = [
     btn: "체육 프로그램 입장 →",
     Icon: HubIconUser,
     wide: false,
-    ready: false,
+    ready: true,
+    appRoute: "pe",
   },
   {
     id: "schedule",
@@ -6869,24 +6873,30 @@ const HUB_MODULES = [
   },
   {
     id: "resources",
-    title: "수업 자료실",
-    desc: "수업 준비에 필요한 다양한 자료를 확인하세요.",
+    title: "체육자료실",
+    desc: "수업 준비에 필요한 프로그램·자료를 검색하고 다운로드하세요.",
     color: "#f97316",
     bg: "linear-gradient(145deg, #1f1408 0%, #2a1a0c 100%)",
     border: "rgba(249, 115, 22, 0.35)",
-    features: ["교구 사용 설명서", "수업 대본", "영어 표현", "노래·동작 자료", "신입 교사 연수 자료"],
-    btn: "수업 자료실 입장 →",
+    features: ["연령별 프로그램", "스포츠 종목 자료", "영어체육 자료", "수업 계획안", "영상 자료"],
+    btn: "체육자료실 입장 →",
     Icon: HubIconBook,
     wide: true,
-    ready: false,
+    ready: true,
+    appRoute: "pe",
   },
 ];
 
 function HubModuleCard({ mod, onEnter }) {
   const { Icon } = mod;
+  const enter = () => onEnter(mod);
   return (
     <div
       className={`hub-card${mod.wide ? " hub-card-wide" : ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={enter}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); enter(); } }}
       style={{
         background: mod.bg,
         border: `1px solid ${mod.border}`,
@@ -6895,6 +6905,7 @@ function HubModuleCard({ mod, onEnter }) {
         boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
         display: "flex",
         flexDirection: "column",
+        cursor: "pointer",
       }}
     >
       <div style={{ padding: mod.wide ? "28px 32px 20px" : "26px 26px 18px", flex: 1 }}>
@@ -6930,7 +6941,7 @@ function HubModuleCard({ mod, onEnter }) {
       <div style={{ padding: mod.wide ? "0 32px 28px" : "0 26px 26px" }}>
         <button
           type="button"
-          onClick={() => onEnter(mod)}
+          onClick={(e) => { e.stopPropagation(); enter(); }}
           style={{
             width: "100%",
             padding: "12px 16px",
@@ -6961,8 +6972,8 @@ function HubPage({ me, onSelect, onLogout }) {
   }, []);
 
   const handleEnter = (mod) => {
-    if (mod.ready && mod.id === "edu") {
-      onSelect("edu");
+    if (mod.ready && mod.appRoute) {
+      onSelect(mod.appRoute);
       return;
     }
     alert("준비 중입니다. 곧 이용하실 수 있습니다.");
