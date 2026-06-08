@@ -53,7 +53,7 @@ function getCategoryMeta(cat) {
   return { label: cat || "-", color: "#94a3b8", icon: "?" };
 }
 
-const BRANCHES = ["사무실","엘리트코어","삼성점","한남점"];
+const BRANCHES = ["사무실","엘리트코어","삼성점","한남점","나비에로"];
 
 const DEFAULT_PHOTO_POSITION = "50% 50%";
 
@@ -3763,7 +3763,14 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
     let r = [...items];
     if (catF !== "ALL") r = r.filter(i => categoryMatchesFilter(i.category, catF));
     if (availF === "available") r = r.filter(i => availQty(i, ris, rets) > 0);
-    if (availF === "unavailable") r = r.filter(i => availQty(i, ris, rets) === 0);
+    else if (availF === "unavailable") r = r.filter(i => availQty(i, ris, rets) === 0);
+    if (availF === "newest") {
+      return r.sort((a, b) => {
+        const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return tb - ta;
+      });
+    }
     return r.sort((a, b) => a.name.localeCompare(b.name, "ko"));
   }, [items, catF, availF, ris, rets]);
 
@@ -3870,6 +3877,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
         {availFilterBtn("ALL", "전체")}
         {availFilterBtn("available", "대여가능")}
         {availFilterBtn("unavailable", "대여불가")}
+        {availFilterBtn("newest", "최신 등록순")}
       </div>
 
       <div style={{ fontSize: 13, color: DS.textSecondary, marginBottom: 14, fontWeight: 600 }}>
@@ -3898,6 +3906,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
             const myRes = pendingRes(item.id);
             const scheduleLines = scheduleByItem.get(item.id);
             const hasPhoto = Boolean(item.photo_url);
+            const isNewItem = isWithinLastWeek(item.created_at);
             return (
               <div
                 key={item.id}
@@ -3910,6 +3919,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                   flexDirection: "column",
                 }}
               >
+                <div style={{ position: "relative" }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -3950,6 +3960,24 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                     <CategoryIconFallback category={item.category} size={120}/>
                   )}
                 </button>
+                {isNewItem && (
+                  <span style={{
+                    position: "absolute",
+                    top: 10,
+                    left: 10,
+                    background: DS.primary,
+                    color: "#fff",
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    letterSpacing: "0.04em",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                  }}>
+                    NEW
+                  </span>
+                )}
+                </div>
 
                 <div style={{ padding: "14px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
                   <button
@@ -3966,8 +3994,8 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                     }}
                   >
                     <div style={{ fontWeight: 800, fontSize: 15, color: DS.textPrimary, lineHeight: 1.35 }}>
-                      {item.name}
-                    </div>
+                        {item.name}
+                      </div>
                   </button>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
                     <CatTag cat={item.category}/>
