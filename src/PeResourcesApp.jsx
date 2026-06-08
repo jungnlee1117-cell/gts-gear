@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
+import {
+  Users, Trophy, Languages, ClipboardList, PartyPopper,
+  Baby, GraduationCap, Video, ChevronLeft, Search, X, Upload, Download,
+} from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://YOUR.supabase.co";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "YOUR_ANON_KEY";
@@ -119,17 +123,20 @@ async function fetchResources() {
   return data || [];
 }
 
+const CATEGORY_ICONS = {
+  users: Users,
+  ball: Trophy,
+  abc: Languages,
+  clipboard: ClipboardList,
+  party: PartyPopper,
+  smile: Baby,
+  grad: GraduationCap,
+  video: Video,
+};
+
 function CategoryIcon({ type, color }) {
-  const s = { width: 22, height: 22, stroke: color, fill: "none", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
-  if (type === "users") return <svg {...s} viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
-  if (type === "ball") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>;
-  if (type === "abc") return <svg {...s} viewBox="0 0 24 24"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>;
-  if (type === "clipboard") return <svg {...s} viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>;
-  if (type === "party") return <svg {...s} viewBox="0 0 24 24"><path d="M5.8 11.3 2 22l10.7-3.8"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.3 2.3a3 3 0 0 0 0 4.2l1.8 1.8a3 3 0 0 0 4.2 0L22 8"/><path d="M4 10a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>;
-  if (type === "smile") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>;
-  if (type === "grad") return <svg {...s} viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>;
-  if (type === "video") return <svg {...s} viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>;
-  return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>;
+  const Icon = CATEGORY_ICONS[type] || ClipboardList;
+  return <Icon size={22} strokeWidth={1.75} color={color} aria-hidden />;
 }
 
 function GtsPlatformLogo() {
@@ -197,7 +204,9 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
       <div className="pe-res-modal" onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#111827" }}>자료 업로드</h2>
-          <button type="button" onClick={onClose} style={peIconBtn}>✕</button>
+          <button type="button" onClick={onClose} className="pe-res-modal-close" aria-label="닫기">
+            <X size={18}/>
+          </button>
         </div>
         <label style={peLbl}>자료명 *</label>
         <input value={title} onChange={e => setTitle(e.target.value)} style={peInp} placeholder="자료 제목"/>
@@ -212,7 +221,7 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
         <label style={peLbl}>파일 * (PDF, 영상, 이미지)</label>
         <input ref={fileRef} type="file" accept=".pdf,image/*,video/*" onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...peInp, padding: 10 }}/>
         {file && <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>{file.name} ({Math.round(file.size / 1024)} KB)</div>}
-        <button type="button" onClick={submit} disabled={saving} style={pePrimaryBtn}>
+        <button type="button" onClick={submit} disabled={saving} style={{ ...pePrimaryBtn, width: "100%" }}>
           {saving ? "업로드 중..." : "업로드"}
         </button>
       </div>
@@ -226,12 +235,9 @@ const peInp = {
   fontSize: 14, marginBottom: 14, fontFamily: "inherit", boxSizing: "border-box",
 };
 const pePrimaryBtn = {
-  width: "100%", padding: "13px", borderRadius: 10, border: "none", background: "#22c55e",
+  padding: "13px 20px", borderRadius: 10, border: "none", background: "#22c55e",
   color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit",
-};
-const peIconBtn = {
-  border: "none", background: "#f1f5f9", borderRadius: 8, width: 36, height: 36,
-  cursor: "pointer", fontSize: 16, fontFamily: "inherit",
+  flexShrink: 0,
 };
 
 function ResourceListPage({ category, search, subFilter, me, resources, loading, onBack, onRefresh }) {
@@ -258,29 +264,27 @@ function ResourceListPage({ category, search, subFilter, me, resources, loading,
   const accent = category?.color || "#22c55e";
 
   return (
-    <div>
-      <button type="button" onClick={onBack} style={{
-        background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10,
-        padding: "8px 14px", fontSize: 13, fontWeight: 600, color: "#334155",
-        cursor: "pointer", marginBottom: 24, fontFamily: "inherit",
-      }}>
-        ← 체육자료실
+    <div className="pe-res-list-page">
+      <button type="button" onClick={onBack} className="pe-res-back-btn">
+        <ChevronLeft size={18} strokeWidth={2.5}/>
+        체육자료실
       </button>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
-        <div>
-          <h1 style={{ margin: "0 0 6px", fontSize: 26, fontWeight: 900, color: "#111827" }}>{pageTitle}</h1>
-          {search && <p style={{ margin: 0, fontSize: 13, color: "#64748b" }}>검색: &quot;{search}&quot;</p>}
+      <div className="pe-res-list-header">
+        <div className="pe-res-list-title-wrap">
+          <h1 className="pe-res-list-title">{pageTitle}</h1>
+          {search && <p className="pe-res-list-search-note">검색: &quot;{search}&quot;</p>}
         </div>
         {admin && category && (
-          <button type="button" onClick={() => setShowUpload(true)} style={{ ...pePrimaryBtn, width: "auto", padding: "11px 20px" }}>
-            + 자료 업로드
+          <button type="button" onClick={() => setShowUpload(true)} className="pe-res-upload-btn">
+            <Upload size={16} strokeWidth={2.5}/>
+            자료 업로드
           </button>
         )}
       </div>
 
       {category?.subs?.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+        <div className="pe-res-sub-filters">
           <button type="button" onClick={() => setLocalSub("ALL")} style={peTagBtn(localSub === "ALL", accent)}>전체</button>
           {category.subs.map(s => (
             <button key={s} type="button" onClick={() => setLocalSub(s)} style={peTagBtn(localSub === s, accent)}>{s}</button>
@@ -289,41 +293,31 @@ function ResourceListPage({ category, search, subFilter, me, resources, loading,
       )}
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>불러오는 중...</div>
+        <div className="pe-res-empty">불러오는 중...</div>
       ) : filtered.length === 0 ? (
-        <div style={{
-          textAlign: "center", padding: "60px 20px", background: "#fff", borderRadius: 16,
-          border: "1px solid #e8ecee", color: "#94a3b8", fontSize: 14,
-        }}>
+        <div className="pe-res-empty pe-res-empty-box">
           등록된 자료가 없습니다
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="pe-res-resource-list">
           {filtered.map(res => (
-            <div key={res.id} style={{
-              background: "#fff", borderRadius: 14, border: "1px solid #e8ecee",
-              padding: "18px 20px", display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap",
-            }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: 10, background: `${accent}18`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 11, fontWeight: 800, color: accent, flexShrink: 0,
-              }}>
+            <div key={res.id} className="pe-res-resource-item">
+              <div className="pe-res-resource-type" style={{ background: `${accent}18`, color: accent }}>
                 {fileTypeLabel(res.file_type)}
               </div>
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontWeight: 800, fontSize: 15, color: "#111827", marginBottom: 4 }}>{res.title}</div>
+              <div className="pe-res-resource-body">
+                <div className="pe-res-resource-title">{res.title}</div>
                 {res.description && (
-                  <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.6, marginBottom: 8 }}>{res.description}</div>
+                  <div className="pe-res-resource-desc">{res.description}</div>
                 )}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                <div className="pe-res-resource-meta">
                   {res.subcategory && (
-                    <span style={{ fontSize: 11, background: "#f1f5f9", padding: "2px 8px", borderRadius: 99, color: "#64748b" }}>{res.subcategory}</span>
+                    <span className="pe-res-meta-tag">{res.subcategory}</span>
                   )}
                   {(res.tags || []).map(t => (
-                    <span key={t} style={{ fontSize: 11, background: `${accent}14`, padding: "2px 8px", borderRadius: 99, color: accent }}>{t}</span>
+                    <span key={t} className="pe-res-meta-tag pe-res-meta-tag-accent" style={{ background: `${accent}14`, color: accent }}>{t}</span>
                   ))}
-                  <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                  <span className="pe-res-meta-date">
                     {res.author_name || ""} · {res.created_at ? new Date(res.created_at).toLocaleDateString("ko-KR") : ""}
                   </span>
                 </div>
@@ -334,11 +328,10 @@ function ResourceListPage({ category, search, subFilter, me, resources, loading,
                   target="_blank"
                   rel="noopener noreferrer"
                   download={res.file_name || undefined}
-                  style={{
-                    padding: "10px 18px", borderRadius: 10, background: accent, color: "#fff",
-                    fontSize: 13, fontWeight: 700, textDecoration: "none", flexShrink: 0,
-                  }}
+                  className="pe-res-download-btn"
+                  style={{ background: accent }}
                 >
+                  <Download size={15} strokeWidth={2.5}/>
                   다운로드
                 </a>
               )}
@@ -370,38 +363,32 @@ function peTagBtn(active, color) {
 }
 
 function CategoryCard({ cat, onGo }) {
-  const half = Math.ceil(cat.items.length / 2);
-  const col1 = cat.items.slice(0, half);
-  const col2 = cat.items.slice(half);
-
   return (
-    <div className="pe-res-card" onClick={() => onGo(cat)} role="button" tabIndex={0} onKeyDown={e => e.key === "Enter" && onGo(cat)}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <div style={{
-          width: 40, height: 40, borderRadius: 10, background: cat.bg,
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
+    <div
+      className="pe-res-card"
+      style={{ "--card-accent": cat.color, "--card-bg": cat.bg }}
+      onClick={() => onGo(cat)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => (e.key === "Enter" || e.key === " ") && onGo(cat)}
+    >
+      <div className="pe-res-card-head">
+        <div className="pe-res-card-icon">
           <CategoryIcon type={cat.icon} color={cat.color}/>
         </div>
-        <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>
-          <span style={{ color: cat.color, marginRight: 6 }}>{cat.num}.</span>
+        <div className="pe-res-card-title">
+          <span className="pe-res-card-num" style={{ color: cat.color }}>{cat.num}.</span>
           {cat.title}
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 18, flex: 1 }}>
-        <div>{col1.map(it => <div key={it} style={{ fontSize: 12, color: "#64748b", marginBottom: 5 }}>· {it}</div>)}</div>
-        <div>{col2.map(it => <div key={it} style={{ fontSize: 12, color: "#64748b", marginBottom: 5 }}>· {it}</div>)}</div>
-      </div>
-      <button
-        type="button"
-        onClick={e => { e.stopPropagation(); onGo(cat); }}
-        style={{
-          background: "none", border: "none", padding: 0, fontSize: 13, fontWeight: 700,
-          color: cat.color, cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-        }}
-      >
+      <ul className="pe-res-card-items">
+        {cat.items.map(it => (
+          <li key={it} className="pe-res-card-item">{it}</li>
+        ))}
+      </ul>
+      <span className="pe-res-card-link" style={{ color: cat.color }}>
         바로가기 →
-      </button>
+      </span>
     </div>
   );
 }
@@ -420,7 +407,7 @@ function HubView({ search, setSearch, onSearch, onTag, onGoCategory }) {
         </div>
         <div className="pe-res-search-wrap">
           <div className="pe-res-search">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <Search size={18} strokeWidth={2} color="#94a3b8"/>
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -479,16 +466,12 @@ export default function PeResourcesApp({ me, onBack }) {
   return (
     <div className="pe-resources-app">
       <header className="pe-res-header">
-        <GtsPlatformLogo/>
-        <nav className="pe-res-nav">
-          <button type="button" className="pe-res-nav-item" onClick={onBack}>교구 관리</button>
-          <button type="button" className="pe-res-nav-item pe-res-nav-active">체육 프로그램</button>
-          <button type="button" className="pe-res-nav-item pe-res-nav-disabled">수업 운영</button>
-          <button type="button" className="pe-res-nav-item pe-res-nav-disabled">자료실</button>
-        </nav>
+        <button type="button" className="pe-res-logo-btn" onClick={onBack}>
+          <GtsPlatformLogo/>
+        </button>
         <div className="pe-res-user">
           <span style={{ fontSize: 13, color: "#64748b" }}>안녕하세요, <strong style={{ color: "#111827" }}>{me?.name}님</strong>!</span>
-          <button type="button" className="pe-res-profile-btn">{roleLabel} ▾</button>
+          <span className="pe-res-profile-btn">{roleLabel}</span>
         </div>
       </header>
 
