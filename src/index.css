@@ -546,14 +546,15 @@ code {
   border-radius: 16px;
   border: 1px solid #e8ecee;
   border-top: 3px solid var(--card-accent);
-  padding: 20px;
+  padding: 16px 18px;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
   cursor: pointer;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   width: 100%;
   min-width: 0;
-  min-height: 280px;
+  min-height: 230px;
   box-sizing: border-box;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
@@ -576,14 +577,14 @@ code {
 .pe-res-card-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 10px;
   padding-right: 72px;
 }
 
 .pe-res-card-icon {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: 12px;
   background: var(--card-bg);
   display: flex;
@@ -616,17 +617,17 @@ code {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  flex: 1;
+  align-items: flex-start;
+  gap: 4px;
   width: 100%;
-  text-align: left;
 }
 
 .pe-res-card-item {
-  font-size: 13.5px;
+  font-size: 13px;
   color: #64748b;
-  line-height: 1.45;
+  line-height: 1.4;
   text-align: left;
+  width: 100%;
 }
 
 .pe-res-card:hover {

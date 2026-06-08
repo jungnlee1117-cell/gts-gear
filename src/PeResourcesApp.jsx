@@ -104,11 +104,46 @@ const PE_CATEGORIES = [
   },
 ];
 
+const ALLOWED_FILE_ACCEPT = [
+  ".pdf",
+  ".doc,.docx",
+  ".xls,.xlsx",
+  ".hwp,.hwpx",
+  ".mp3,.wav,.m4a",
+  "image/*",
+  "video/*",
+].join(",");
+
+const ALLOWED_FILE_HINT =
+  "PDF · Word(.doc, .docx) · 엑셀(.xlsx, .xls) · 한글(.hwp, .hwpx) · 이미지 · 영상 · 음원(.mp3, .wav, .m4a)";
+
+function getFileExtension(name) {
+  const i = String(name || "").lastIndexOf(".");
+  return i >= 0 ? name.slice(i).toLowerCase() : "";
+}
+
+function isAllowedFile(file) {
+  if (!file) return false;
+  const ext = getFileExtension(file.name);
+  const allowed = [".pdf", ".doc", ".docx", ".xlsx", ".xls", ".hwp", ".hwpx", ".mp3", ".wav", ".m4a"];
+  if (allowed.includes(ext)) return true;
+  if (file.type.startsWith("image/")) return true;
+  if (file.type.startsWith("video/")) return true;
+  if (file.type.startsWith("audio/")) return true;
+  return false;
+}
+
 function detectFileType(file) {
   if (!file) return "other";
-  if (file.type.startsWith("image/")) return "image";
-  if (file.type.startsWith("video/")) return "video";
-  if (file.type === "application/pdf") return "pdf";
+  const ext = getFileExtension(file.name);
+  const type = file.type || "";
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/") || [".mp3", ".wav", ".m4a"].includes(ext)) return "audio";
+  if (type === "application/pdf" || ext === ".pdf") return "pdf";
+  if ([".doc", ".docx"].includes(ext) || type.includes("wordprocessingml") || type === "application/msword") return "word";
+  if ([".xls", ".xlsx"].includes(ext) || type.includes("spreadsheetml") || type === "application/vnd.ms-excel") return "excel";
+  if ([".hwp", ".hwpx"].includes(ext) || type.includes("hwp")) return "hwp";
   return "other";
 }
 
@@ -116,6 +151,10 @@ function fileTypeLabel(t) {
   if (t === "pdf") return "PDF";
   if (t === "video") return "영상";
   if (t === "image") return "이미지";
+  if (t === "word") return "Word";
+  if (t === "excel") return "엑셀";
+  if (t === "hwp") return "한글";
+  if (t === "audio") return "음원";
   return "파일";
 }
 
@@ -168,6 +207,7 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
   const submit = async () => {
     if (!title.trim()) return alert("자료명을 입력하세요");
     if (!file) return alert("파일을 선택하세요");
+    if (!isAllowedFile(file)) return alert("허용되지 않는 파일 형식입니다.\n\n" + ALLOWED_FILE_HINT);
     setSaving(true);
     try {
       const ext = file.name.split(".").pop() || "bin";
@@ -220,8 +260,11 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
         </select>
         <label style={peLbl}>태그 (쉼표로 구분)</label>
         <input value={tags} onChange={e => setTags(e.target.value)} style={peInp} placeholder="예: 4세 균형, 축구"/>
-        <label style={peLbl}>파일 * (PDF, 영상, 이미지)</label>
-        <input ref={fileRef} type="file" accept=".pdf,image/*,video/*" onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...peInp, padding: 10 }}/>
+        <label style={peLbl}>파일 *</label>
+        <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.55, marginBottom: 8 }}>
+          허용 형식: {ALLOWED_FILE_HINT}
+        </div>
+        <input ref={fileRef} type="file" accept={ALLOWED_FILE_ACCEPT} onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...peInp, padding: 10 }}/>
         {file && <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>{file.name} ({Math.round(file.size / 1024)} KB)</div>}
         <button type="button" onClick={submit} disabled={saving} style={{ ...pePrimaryBtn, width: "100%" }}>
           {saving ? "업로드 중..." : "업로드"}
