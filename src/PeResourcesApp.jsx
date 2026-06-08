@@ -23,6 +23,7 @@ const PE_CATEGORIES = [
     items: ["3, 4세 프로그램", "5, 6세 프로그램", "7세 프로그램"],
     subs: ["3-4세", "5-6세", "7세"],
     icon: "users",
+    resourceCount: 42,
   },
   {
     id: "sports",
@@ -33,6 +34,7 @@ const PE_CATEGORIES = [
     items: ["축구", "농구", "테니스", "배드민턴", "티볼", "체조"],
     subs: ["축구", "농구", "테니스", "배드민턴", "티볼", "체조"],
     icon: "ball",
+    resourceCount: 84,
   },
   {
     id: "english-pe",
@@ -43,6 +45,7 @@ const PE_CATEGORIES = [
     items: ["TPR 표현", "주제별 표현", "영어 게임", "영어 노래", "영어 대본", "영어 체육 활동"],
     subs: ["TPR", "주제별", "게임", "노래", "대본", "활동"],
     icon: "abc",
+    resourceCount: 72,
   },
   {
     id: "lesson-plan",
@@ -53,6 +56,7 @@ const PE_CATEGORIES = [
     items: ["연간 수업 계획안", "어린이집 수업 계획안", "영어유치원 수업 계획안"],
     subs: ["연간", "어린이집", "영어유치원"],
     icon: "clipboard",
+    resourceCount: 24,
   },
   {
     id: "events",
@@ -63,6 +67,7 @@ const PE_CATEGORIES = [
     items: ["운동회", "물놀이", "할로윈", "크리스마스", "가족참여수업", "아빠참여수업"],
     subs: ["운동회", "물놀이", "할로윈", "크리스마스", "가족참여", "아빠참여"],
     icon: "party",
+    resourceCount: 56,
   },
   {
     id: "child-dev",
@@ -73,6 +78,7 @@ const PE_CATEGORIES = [
     items: ["연령별 발달", "사회성 발달", "신체 발달", "운동 발달"],
     subs: ["연령별", "사회성", "신체", "운동"],
     icon: "smile",
+    resourceCount: 32,
   },
   {
     id: "teacher-ed",
@@ -83,6 +89,7 @@ const PE_CATEGORIES = [
     items: ["신입교사 교육", "안전 교육", "수업 운영", "교구 교육", "기관 안내"],
     subs: ["신입교사", "안전", "수업운영", "교구", "기관"],
     icon: "grad",
+    resourceCount: 48,
   },
   {
     id: "videos",
@@ -93,6 +100,7 @@ const PE_CATEGORIES = [
     items: ["수업 영상", "교구 활용 영상", "행사 영상", "영어체육 영상", "교육 콘텐츠"],
     subs: ["수업", "교구", "행사", "영어체육", "교육"],
     icon: "video",
+    resourceCount: 96,
   },
 ];
 
@@ -361,6 +369,10 @@ function CategoryCard({ cat, onGo }) {
       tabIndex={0}
       onKeyDown={e => (e.key === "Enter" || e.key === " ") && onGo(cat)}
     >
+      <div className="pe-res-card-stats">
+        <span>{cat.subs.length}개 카테고리</span>
+        <span>총 {cat.resourceCount}개 자료</span>
+      </div>
       <div className="pe-res-card-head">
         <div className="pe-res-card-icon">
           <CategoryIcon type={cat.icon} color={cat.color}/>
@@ -375,9 +387,6 @@ function CategoryCard({ cat, onGo }) {
           <li key={it} className="pe-res-card-item">{it}</li>
         ))}
       </ul>
-      <span className="pe-res-card-link" style={{ color: cat.color }}>
-        바로가기 →
-      </span>
     </div>
   );
 }
