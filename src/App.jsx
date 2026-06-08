@@ -931,6 +931,7 @@ function buildSidebarNav(me) {
   if (superA) {
     return [
       { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
+      { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
       {
         type: "group", id: "gear", label: "교구관리", glyph: "items",
         children: [
@@ -960,6 +961,7 @@ function buildSidebarNav(me) {
   if (admin) {
     return [
       { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
+      { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
       { type: "item", id: "items", label: "교구관리", glyph: "items" },
       {
         type: "group", id: "rental", label: "대여관리", glyph: "rental-manage",
@@ -3755,6 +3757,7 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
 
 function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservations, teachers, onDetail, onOpenCart, onSubmitReservation, onCancelReservation }) {
   const [catF, setCatF] = useState("ALL");
+  const [brF, setBrF] = useState("ALL");
   const [availF, setAvailF] = useState("ALL");
   const [lightbox, setLightbox] = useState(null);
   const [reserveItem, setReserveItem] = useState(null);
@@ -3762,6 +3765,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
   const list = useMemo(() => {
     let r = [...items];
     if (catF !== "ALL") r = r.filter(i => categoryMatchesFilter(i.category, catF));
+    if (brF !== "ALL") r = r.filter(i => i.branch === brF);
     if (availF === "available") r = r.filter(i => availQty(i, ris, rets) > 0);
     else if (availF === "unavailable") r = r.filter(i => availQty(i, ris, rets) === 0);
     if (availF === "newest") {
@@ -3772,7 +3776,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
       });
     }
     return r.sort((a, b) => a.name.localeCompare(b.name, "ko"));
-  }, [items, catF, availF, ris, rets]);
+  }, [items, catF, brF, availF, ris, rets]);
 
   const inCart = id => cart.some(c => c.item_id === id);
   const pendingRes = itemId => getTeacherPendingReservation(reservations, me.id, itemId);
@@ -3873,6 +3877,19 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
         })}
       </div>
 
+      <div style={{ marginBottom: 12 }}>
+        <select
+          value={brF}
+          onChange={e => setBrF(e.target.value)}
+          style={{ ...inp, width: "100%", maxWidth: 280, fontSize: 13, padding: "10px 12px" }}
+        >
+          <option value="ALL">전체 지점</option>
+          {BRANCHES.map(b => (
+            <option key={b} value={b}>{b}</option>
+          ))}
+        </select>
+      </div>
+
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
         {availFilterBtn("ALL", "전체")}
         {availFilterBtn("available", "대여가능")}
@@ -3887,15 +3904,9 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
       {list.length === 0 ? (
         <PanelSection title="교구 목록">
           <Empty text={
-            catF !== "ALL" && availF !== "ALL"
+            catF !== "ALL" || brF !== "ALL" || (availF !== "ALL" && availF !== "newest")
               ? "해당 조건의 교구가 없습니다"
-              : catF !== "ALL"
-                ? "해당 카테고리 교구가 없습니다"
-                : availF === "available"
-                  ? "대여 가능한 교구가 없습니다"
-                  : availF === "unavailable"
-                    ? "대여 불가 교구가 없습니다"
-                    : "등록된 교구가 없습니다"
+              : "등록된 교구가 없습니다"
           }/>
         </PanelSection>
       ) : (
