@@ -141,16 +141,10 @@ function CategoryIcon({ type, color }) {
 
 function GtsPlatformLogo() {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <svg width="32" height="32" viewBox="0 0 40 40" aria-hidden>
-        <polygon points="20,2 38,11 38,29 20,38 2,29 2,11" fill="#22c55e"/>
-        <text x="20" y="25" textAnchor="middle" fill="#fff" fontSize="14" fontWeight="800" fontFamily="sans-serif">G</text>
-      </svg>
-      <span style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.02em" }}>
-        <span style={{ color: "#22c55e" }}>GTS</span>
-        <span style={{ color: "#111827" }}> 통합 플랫폼</span>
-      </span>
-    </div>
+    <span className="pe-res-platform-title">
+      <span className="pe-res-platform-gts">GTS</span>
+      <span className="pe-res-platform-label"> 통합 플랫폼</span>
+    </span>
   );
 }
 
@@ -240,7 +234,7 @@ const pePrimaryBtn = {
   flexShrink: 0,
 };
 
-function ResourceListPage({ category, search, subFilter, me, resources, loading, onBack, onRefresh }) {
+function ResourceListPage({ category, search, subFilter, me, resources, loading, onRefresh }) {
   const [showUpload, setShowUpload] = useState(false);
   const [localSub, setLocalSub] = useState(subFilter || "ALL");
   const admin = PE_ADMIN(me);
@@ -265,11 +259,6 @@ function ResourceListPage({ category, search, subFilter, me, resources, loading,
 
   return (
     <div className="pe-res-list-page">
-      <button type="button" onClick={onBack} className="pe-res-back-btn">
-        <ChevronLeft size={18} strokeWidth={2.5}/>
-        체육자료실
-      </button>
-
       <div className="pe-res-list-header">
         <div className="pe-res-list-title-wrap">
           <h1 className="pe-res-list-title">{pageTitle}</h1>
@@ -397,15 +386,13 @@ function HubView({ search, setSearch, onSearch, onTag, onGoCategory }) {
   return (
     <>
       <div className="pe-res-hero">
-        <div>
-          <h1 style={{ margin: "0 0 8px", fontSize: 28, fontWeight: 900, color: "#111827", letterSpacing: "-0.03em" }}>
-            체육자료실
-          </h1>
-          <p style={{ margin: 0, fontSize: 14, color: "#64748b", lineHeight: 1.6 }}>
+        <div className="pe-res-hero-intro">
+          <h1 className="pe-res-page-title">체육자료실</h1>
+          <p className="pe-res-page-desc">
             수업 준비에 필요한 모든 자료를 빠르게 검색하고 활용하세요.
           </p>
         </div>
-        <div className="pe-res-search-wrap">
+        <div className="pe-res-search-section">
           <div className="pe-res-search">
             <Search size={18} strokeWidth={2} color="#94a3b8"/>
             <input
@@ -415,7 +402,7 @@ function HubView({ search, setSearch, onSearch, onTag, onGoCategory }) {
               placeholder="검색어를 입력하세요. (예. 4세 균형, 축구, 영어체육, 점프활동)"
             />
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          <div className="pe-res-quick-tags">
             {QUICK_TAGS.map(tag => (
               <button key={tag} type="button" onClick={() => onTag(tag)} className="pe-res-quick-tag">{tag}</button>
             ))}
@@ -463,12 +450,26 @@ export default function PeResourcesApp({ me, onBack }) {
 
   const roleLabel = me?.role === "superadmin" ? "슈퍼관리자" : me?.role === "admin" ? "관리자" : "선생님";
 
+  const goHub = () => {
+    setView("hub");
+    setCategory(null);
+  };
+
   return (
     <div className="pe-resources-app">
       <header className="pe-res-header">
-        <button type="button" className="pe-res-logo-btn" onClick={onBack}>
-          <GtsPlatformLogo/>
-        </button>
+        <div className="pe-res-header-left">
+          {view === "list" ? (
+            <button type="button" className="pe-res-back-btn pe-res-back-btn-header" onClick={goHub}>
+              <ChevronLeft size={18} strokeWidth={2.5}/>
+              체육자료실
+            </button>
+          ) : (
+            <button type="button" className="pe-res-logo-btn" onClick={onBack}>
+              <GtsPlatformLogo/>
+            </button>
+          )}
+        </div>
         <div className="pe-res-user">
           <span style={{ fontSize: 13, color: "#64748b" }}>안녕하세요, <strong style={{ color: "#111827" }}>{me?.name}님</strong>!</span>
           <span className="pe-res-profile-btn">{roleLabel}</span>
@@ -491,7 +492,6 @@ export default function PeResourcesApp({ me, onBack }) {
             me={me}
             resources={resources}
             loading={loading}
-            onBack={() => { setView("hub"); setCategory(null); }}
             onRefresh={loadResources}
           />
         )}
