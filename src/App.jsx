@@ -2705,6 +2705,42 @@ function ItemActivityGallery({ photos, title = "활동 사진", compact = false,
   );
 }
 
+function ActivityPhotosModal({ itemName, photos, onClose, onPhotoClick }) {
+  const list = parseActivityPhotos({ activity_photos: photos });
+  if (!list.length) return null;
+  return (
+    <Modal title={`${itemName} · 활동 사진`} onClose={onClose}>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+        gap: 10,
+      }}>
+        {list.map((url, i) => (
+          <button
+            key={`${url}-${i}`}
+            type="button"
+            onClick={() => onPhotoClick?.({ src: url, alt: `${itemName} 활동 사진 ${i + 1}` })}
+            style={{
+              padding: 0, border: "1px solid #e2e8f0", borderRadius: 12,
+              overflow: "hidden", background: "#f8fafc", cursor: "zoom-in",
+              aspectRatio: "1", width: "100%",
+            }}
+          >
+            <img
+              src={url}
+              alt={`${itemName} 활동 사진 ${i + 1}`}
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
+          </button>
+        ))}
+      </div>
+      <div style={{ marginTop: 14, fontSize: 11, color: DS.textMuted, textAlign: "center" }}>
+        사진을 누르면 크게 볼 수 있습니다
+      </div>
+    </Modal>
+  );
+}
+
 function ActivityPhotosUploader({ itemCode, photos, onChange }) {
   const [loading, setLoading] = useState(false);
   const fileRef = useRef(null);
@@ -3914,6 +3950,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
   const [availF, setAvailF] = useState("ALL");
   const [lightbox, setLightbox] = useState(null);
   const [reserveItem, setReserveItem] = useState(null);
+  const [activityModalItem, setActivityModalItem] = useState(null);
 
   const list = useMemo(() => {
     let r = [...items];
@@ -4071,6 +4108,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
             const scheduleLines = scheduleByItem.get(item.id);
             const hasPhoto = Boolean(item.photo_url);
             const isNewItem = isWithinLastWeek(item.created_at);
+            const activityPhotos = parseActivityPhotos(item);
             return (
               <div
                 key={item.id}
@@ -4173,12 +4211,27 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                     대여 가능 {avail}개
                   </div>
                   <ItemScheduleLines lines={scheduleLines}/>
-                  <ItemActivityGallery
-                    photos={item.activity_photos}
-                    compact
-                    onPhotoClick={setLightbox}
-                  />
                   <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {activityPhotos.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setActivityModalItem(item)}
+                        style={{
+                          width: "100%",
+                          padding: "7px 12px",
+                          borderRadius: 8,
+                          border: "1px solid #e2e8f0",
+                          background: "#fff",
+                          color: DS.textSecondary,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        활동 사진 보기 ({activityPhotos.length})
+                      </button>
+                    )}
                     <Btn
                       full
                       color={avail > 0 ? DS.primary : "#cbd5e1"}
@@ -4215,6 +4268,15 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
             );
           })}
         </div>
+      )}
+
+      {activityModalItem && (
+        <ActivityPhotosModal
+          itemName={activityModalItem.name}
+          photos={activityModalItem.activity_photos}
+          onClose={() => setActivityModalItem(null)}
+          onPhotoClick={setLightbox}
+        />
       )}
 
       {lightbox && (
