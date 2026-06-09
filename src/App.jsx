@@ -181,6 +181,7 @@ const ROLE_CFG = {
 const isSuperAdmin = (u) => u?.role === "superadmin" || u?.id === SUPER_ADMIN_ID;
 const isAdmin      = (u) => isSuperAdmin(u) || u?.role === "admin";
 const canManage    = (u) => isAdmin(u) && u?.active !== false;
+const canEditItems = (u) => isAdmin(u);
 
 // ═══════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -2662,6 +2663,132 @@ function PhotoUploader({ itemCode, currentUrl, position, onUploaded, onPositionC
   );
 }
 
+function parseActivityPhotos(source) {
+  const v = source?.activity_photos ?? source;
+  if (!v) return [];
+  if (Array.isArray(v)) return v.filter(Boolean);
+  if (typeof v === "string") {
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    } catch { return []; }
+  }
+  return [];
+}
+
+function ItemActivityGallery({ photos, title = "활동 사진", compact = false, onPhotoClick }) {
+  const list = Array.isArray(photos) ? photos.filter(Boolean) : parseActivityPhotos({ activity_photos: photos });
+  if (!list.length) return null;
+  const thumb = compact ? 56 : 88;
+  return (
+    <div style={{ marginTop: compact ? 8 : 0, marginBottom: compact ? 0 : 14 }}>
+      {!compact && (
+        <div style={{ fontSize: 12, fontWeight: 700, color: DS.textSecondary, marginBottom: 8 }}>{title}</div>
+      )}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {list.map((url, i) => (
+          <button
+            key={`${url}-${i}`}
+            type="button"
+            onClick={() => onPhotoClick?.({ src: url, alt: `${title} ${i + 1}` })}
+            style={{
+              width: thumb, height: thumb, padding: 0, borderRadius: 10,
+              border: "1px solid #e2e8f0", overflow: "hidden", background: "#f8fafc",
+              cursor: onPhotoClick ? "zoom-in" : "default", flexShrink: 0,
+            }}
+          >
+            <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ActivityPhotosUploader({ itemCode, photos, onChange }) {
+  const [loading, setLoading] = useState(false);
+  const fileRef = useRef(null);
+  const list = parseActivityPhotos({ activity_photos: photos });
+
+  const uploadFiles = async (fileList) => {
+    const files = Array.from(fileList || []).filter(f => f.type.startsWith("image/"));
+    if (!files.length) return;
+    const code = (itemCode || "new").trim() || "new";
+    setLoading(true);
+    const next = [...list];
+    for (const file of files) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert(`${file.name}: 5MB 이하만 업로드 가능합니다`);
+        continue;
+      }
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `items/${code}/activity/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await supabase.storage.from("item-photos").upload(path, file, { upsert: false });
+      if (error) {
+        alert(`업로드 실패: ${error.message}`);
+        continue;
+      }
+      const { data } = supabase.storage.from("item-photos").getPublicUrl(path);
+      if (data?.publicUrl) next.push(data.publicUrl);
+    }
+    onChange(next);
+    setLoading(false);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const removeAt = (idx) => {
+    onChange(list.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={lbl}>활동 사진</label>
+      <div
+        onClick={() => !loading && fileRef.current?.click()}
+        style={{
+          width: "100%", minHeight: 72, borderRadius: 12,
+          border: `2px dashed ${DS.inputBorder}`, background: "#fafafa",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          cursor: loading ? "wait" : "pointer", marginBottom: list.length ? 10 : 0,
+        }}
+      >
+        <span style={{ fontSize: 12, color: DS.textMuted, fontWeight: 500 }}>
+          {loading ? "업로드 중..." : "클릭하여 활동 사진 추가 (여러 장 선택 가능)"}
+        </span>
+      </div>
+      {list.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {list.map((url, i) => (
+            <div key={`${url}-${i}`} style={{ position: "relative", width: 80, height: 80, flexShrink: 0 }}>
+              <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 10, border: "1px solid #e2e8f0" }}/>
+              <button
+                type="button"
+                onClick={() => removeAt(i)}
+                aria-label="사진 삭제"
+                style={{
+                  position: "absolute", top: -6, right: -6, width: 22, height: 22,
+                  borderRadius: "50%", border: "none", background: "#dc2626", color: "#fff",
+                  fontSize: 12, cursor: "pointer", lineHeight: 1, fontWeight: 700,
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={e => uploadFiles(e.target.files)}
+        style={{ display: "none" }}
+      />
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 추가/편집 폼
 // ═══════════════════════════════════════════════════════════════════════
@@ -2682,6 +2809,7 @@ function itemToFormState(item) {
     status: item?.status || "available",
     photo_url: item?.photo_url || "",
     photo_position: item?.photo_position || DEFAULT_PHOTO_POSITION,
+    activity_photos: parseActivityPhotos(item),
     qr_url: item?.qr_url || "",
   };
 }
@@ -2728,14 +2856,10 @@ function ItemForm({item, items, onSave, onClose}) {
       ...f,
       code: f.code.trim(),
       name: f.name.trim(),
+      alias: (f.alias || "").trim(),
       total_quantity: parseInt(f.total_quantity, 10) || 0,
-      ...(isEdit ? {
-        alias: item.alias ?? f.alias ?? "",
-        usage_description: item.usage_description ?? f.usage_description ?? "",
-        safety_notes: item.safety_notes ?? f.safety_notes ?? "",
-        youtube_url: item.youtube_url ?? f.youtube_url ?? "",
-        qr_url: item.qr_url ?? f.qr_url ?? "",
-      } : {}),
+      activity_photos: parseActivityPhotos({ activity_photos: f.activity_photos }),
+      ...(isNew ? { status: "available" } : {}),
     };
     const row = await onSave(payload, item?.id);
     setSaving(false);
@@ -2820,15 +2944,32 @@ function ItemForm({item, items, onSave, onClose}) {
         </Sel2>
         <Inp2 label="전체 수량" type="number" min={0} value={f.total_quantity} onChange={e=>set("total_quantity",e.target.value)}/>
       </div>
-      <Sel2 label="상태" value={f.status} onChange={e=>set("status",e.target.value)}>
-        <option value="available">사용가능</option>
-        <option value="maintenance">점검중</option>
-        <option value="retired">퇴역</option>
-      </Sel2>
+      {isEdit && (
+        <Inp2 label="별명 (검색 별칭)" value={f.alias} onChange={e=>set("alias",e.target.value)} placeholder="별명, 영문명 등"/>
+      )}
+      {isEdit && (
+        <Sel2 label="상태" value={f.status} onChange={e=>set("status",e.target.value)}>
+          <option value="available">사용가능 (정상)</option>
+          <option value="maintenance">점검중</option>
+          <option value="retired">퇴역</option>
+        </Sel2>
+      )}
       <Txa2 label="설명" value={f.description} onChange={e=>set("description",e.target.value)} placeholder="교구 설명"/>
+      <ActivityPhotosUploader
+        itemCode={f.code || "new"}
+        photos={f.activity_photos}
+        onChange={urls => set("activity_photos", urls)}
+      />
       {!isEdit && (
         <>
           <Inp2 label="검색 별칭" value={f.alias} onChange={e=>set("alias",e.target.value)} placeholder="별명, 영문명 등"/>
+          <Txa2 label="사용법" value={f.usage_description} onChange={e=>set("usage_description",e.target.value)}/>
+          <Txa2 label="안전 주의사항" value={f.safety_notes} onChange={e=>set("safety_notes",e.target.value)}/>
+          <Inp2 label="유튜브 URL" value={f.youtube_url} onChange={e=>set("youtube_url",e.target.value)} placeholder="https://youtube.com/watch?v=..."/>
+        </>
+      )}
+      {isEdit && (
+        <>
           <Txa2 label="사용법" value={f.usage_description} onChange={e=>set("usage_description",e.target.value)}/>
           <Txa2 label="안전 주의사항" value={f.safety_notes} onChange={e=>set("safety_notes",e.target.value)}/>
           <Inp2 label="유튜브 URL" value={f.youtube_url} onChange={e=>set("youtube_url",e.target.value)} placeholder="https://youtube.com/watch?v=..."/>
@@ -3509,6 +3650,7 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
   const[avOnly,setAvOnly]=useState(false);const[sortBy,setSortBy]=useState("code");
   const[editItem,setEditItem]=useState(null);const[addOpen,setAddOpen]=useState(false);
   const[reserveItem,setReserveItem]=useState(null);
+  const [activityLightbox, setActivityLightbox] = useState(null);
 
   useEffect(() => {
     if (openAddOnMount && canManage(me)) setAddOpen(true);
@@ -3530,7 +3672,7 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
   const availCount=useMemo(()=>items.reduce((s,i)=>s+availQty(i,ris,rets),0),[items,ris,rets]);
 
   const handleDelete = async (item) => {
-    if (!isSuperAdmin(me) || !onDeleteItem) return;
+    if (!canEditItems(me) || !onDeleteItem) return;
     const ok = await onDeleteItem(item);
     if (ok && editItem?.id === item.id) setEditItem(null);
   };
@@ -3640,9 +3782,8 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
                       <span style={{fontSize:10,color:DS.textSecondary,background:"#f8fafc",padding:"1px 7px",borderRadius:99,border:"1px solid #e2e8f0"}}>{item.branch}</span>
                     </div>
                   </div>
-                  {(canManage(me) || isSuperAdmin(me)) && (
+                  {canEditItems(me) && (
                     <div style={{ display: "flex", gap: 6, marginLeft: 8, flexShrink: 0, flexWrap: "wrap" }}>
-                      {canManage(me) && (
                         <button
                           type="button"
                           onClick={e=>{ e.stopPropagation(); setEditItem({ ...item }); }}
@@ -3661,8 +3802,6 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
                         >
                           편집
                         </button>
-                      )}
-                      {isSuperAdmin(me) && (
                         <button
                           type="button"
                           onClick={e=>{
@@ -3684,7 +3823,6 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
                         >
                           삭제
                         </button>
-                      )}
                     </div>
                   )}
                 </div>
@@ -3702,6 +3840,12 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
             </div>
 
             <ItemScheduleLines lines={scheduleLines}/>
+
+            <ItemActivityGallery
+              photos={item.activity_photos}
+              compact
+              onPhotoClick={setActivityLightbox}
+            />
 
             <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
               <Btn sm ghost color={DS.textSecondary} onClick={()=>onDetail(item)}>상세보기</Btn>
@@ -3750,6 +3894,14 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
             onSubmitReservation?.({ ...payload, item_id: reserveItem.id });
             setReserveItem(null);
           }}
+        />
+      )}
+
+      {activityLightbox && (
+        <ImageLightbox
+          src={activityLightbox.src}
+          alt={activityLightbox.alt}
+          onClose={() => setActivityLightbox(null)}
         />
       )}
     </PageShell>
@@ -4021,6 +4173,11 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                     대여 가능 {avail}개
                   </div>
                   <ItemScheduleLines lines={scheduleLines}/>
+                  <ItemActivityGallery
+                    photos={item.activity_photos}
+                    compact
+                    onPhotoClick={setLightbox}
+                  />
                   <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                     <Btn
                       full
@@ -4153,6 +4310,8 @@ function ImageLightbox({ src, alt, onClose }) {
 
 function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLabel="보유 자산으로",me,onForceReturn}) {
   const [photoLightbox, setPhotoLightbox] = useState(false);
+  const [activityLightbox, setActivityLightbox] = useState(null);
+  const activityPhotos = useMemo(() => parseActivityPhotos(item), [item]);
   const admin = canManage(me);
   const avail=availQty(item,ris,rets),added=cart.some(c=>c.item_id===item.id);
   const currR=ris.filter(ri=>["rented","partial_returned"].includes(ri.status)&&ri.item_id===item.id);
@@ -4264,6 +4423,21 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLab
           <div style={{fontSize:12,fontWeight:700,color:DS.textSecondary,marginBottom:7}}>설명</div>
           <div style={{fontSize:13,lineHeight:1.8,color:DS.textPrimary}}>{item.description}</div>
         </div>
+      )}
+      {activityPhotos.length > 0 && (
+        <div style={card}>
+          <ItemActivityGallery
+            photos={activityPhotos}
+            onPhotoClick={setActivityLightbox}
+          />
+        </div>
+      )}
+      {activityLightbox && (
+        <ImageLightbox
+          src={activityLightbox.src}
+          alt={activityLightbox.alt}
+          onClose={() => setActivityLightbox(null)}
+        />
       )}
       {item.usage_description&&(
         <div style={card}>
@@ -7591,6 +7765,11 @@ function EquipmentApp({ onBack, me, session }) {
       payload = rest;
       ({ data: row, error } = await trySave(payload));
     }
+    if (error?.message?.includes("activity_photos")) {
+      const { activity_photos, ...rest } = payload;
+      payload = rest;
+      ({ data: row, error } = await trySave(payload));
+    }
     if (error) {
       alert("저장 오류: " + error.message);
       return null;
@@ -7602,8 +7781,8 @@ function EquipmentApp({ onBack, me, session }) {
 
   const deleteItem = async (item) => {
     if (!item?.id) return false;
-    if (!isSuperAdmin(me)) {
-      alert("슈퍼관리자만 교구를 삭제할 수 있습니다.");
+    if (!canEditItems(me)) {
+      alert("관리자만 교구를 삭제할 수 있습니다.");
       return false;
     }
     const confirmed = window.confirm(
