@@ -6,7 +6,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import { QRCodeCanvas } from "qrcode.react";
-import { ImageIcon } from "lucide-react";
+import { PersonStanding, ChevronLeft, ChevronRight } from "lucide-react";
 import GrowthApp from "./GrowthApp.jsx";
 import PeResourcesApp from "./PeResourcesApp.jsx";
 
@@ -2706,42 +2706,6 @@ function ItemActivityGallery({ photos, title = "활동 사진", compact = false,
   );
 }
 
-function ActivityPhotosModal({ itemName, photos, onClose, onPhotoClick }) {
-  const list = parseActivityPhotos({ activity_photos: photos });
-  if (!list.length) return null;
-  return (
-    <Modal title={`${itemName} · 활동 사진`} onClose={onClose}>
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-        gap: 10,
-      }}>
-        {list.map((url, i) => (
-          <button
-            key={`${url}-${i}`}
-            type="button"
-            onClick={() => onPhotoClick?.({ src: url, alt: `${itemName} 활동 사진 ${i + 1}` })}
-            style={{
-              padding: 0, border: "1px solid #e2e8f0", borderRadius: 12,
-              overflow: "hidden", background: "#f8fafc", cursor: "zoom-in",
-              aspectRatio: "1", width: "100%",
-            }}
-          >
-            <img
-              src={url}
-              alt={`${itemName} 활동 사진 ${i + 1}`}
-              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-            />
-          </button>
-        ))}
-      </div>
-      <div style={{ marginTop: 14, fontSize: 11, color: DS.textMuted, textAlign: "center" }}>
-        사진을 누르면 크게 볼 수 있습니다
-      </div>
-    </Modal>
-  );
-}
-
 function ActivityPhotosUploader({ itemCode, photos, onChange }) {
   const [loading, setLoading] = useState(false);
   const fileRef = useRef(null);
@@ -3951,7 +3915,6 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
   const [availF, setAvailF] = useState("ALL");
   const [lightbox, setLightbox] = useState(null);
   const [reserveItem, setReserveItem] = useState(null);
-  const [activityModalItem, setActivityModalItem] = useState(null);
 
   const list = useMemo(() => {
     let r = [...items];
@@ -4205,7 +4168,11 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                     {activityPhotos.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => setActivityModalItem(item)}
+                        onClick={() => setLightbox({
+                          images: activityPhotos,
+                          alt: `${item.name} 활동 사진`,
+                          index: 0,
+                        })}
                         title={`활동 사진 ${activityPhotos.length}장`}
                         aria-label={`활동 사진 ${activityPhotos.length}장 보기`}
                         style={{
@@ -4223,7 +4190,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                           fontFamily: "inherit",
                         }}
                       >
-                        <ImageIcon size={14} strokeWidth={2} />
+                        <PersonStanding size={14} strokeWidth={2} />
                       </button>
                     )}
                   </div>
@@ -4275,18 +4242,11 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
         </div>
       )}
 
-      {activityModalItem && (
-        <ActivityPhotosModal
-          itemName={activityModalItem.name}
-          photos={activityModalItem.activity_photos}
-          onClose={() => setActivityModalItem(null)}
-          onPhotoClick={setLightbox}
-        />
-      )}
-
       {lightbox && (
         <ImageLightbox
           src={lightbox.src}
+          images={lightbox.images}
+          index={lightbox.index}
           alt={lightbox.alt}
           onClose={() => setLightbox(null)}
         />
@@ -4306,9 +4266,36 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
   );
 }
 
-function ImageLightbox({ src, alt, onClose }) {
+function ImageLightbox({ src, alt, images, index: initialIndex = 0, onClose }) {
+  const list = useMemo(() => {
+    if (images?.length) return images.filter(Boolean);
+    if (src) return [src];
+    return [];
+  }, [images, src]);
+
+  const [index, setIndex] = useState(() => (
+    list.length ? Math.min(Math.max(initialIndex, 0), list.length - 1) : 0
+  ));
+
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    if (!list.length) return;
+    setIndex(Math.min(Math.max(initialIndex, 0), list.length - 1));
+  }, [initialIndex, list]);
+
+  const goPrev = useCallback(() => {
+    setIndex(i => (i - 1 + list.length) % list.length);
+  }, [list.length]);
+
+  const goNext = useCallback(() => {
+    setIndex(i => (i + 1) % list.length);
+  }, [list.length]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+      if (list.length > 1 && e.key === "ArrowLeft") goPrev();
+      if (list.length > 1 && e.key === "ArrowRight") goNext();
+    };
     window.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -4316,7 +4303,30 @@ function ImageLightbox({ src, alt, onClose }) {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [onClose]);
+  }, [onClose, list.length, goPrev, goNext]);
+
+  if (!list.length) return null;
+
+  const currentSrc = list[index];
+  const currentAlt = alt ? (list.length > 1 ? `${alt} ${index + 1}` : alt) : "";
+  const hasMultiple = list.length > 1;
+  const navBtnStyle = {
+    position: "fixed",
+    top: "50%",
+    transform: "translateY(-50%)",
+    zIndex: 502,
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.25)",
+    background: "rgba(255,255,255,0.12)",
+    color: "#fff",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  };
 
   return (
     <div
@@ -4357,9 +4367,43 @@ function ImageLightbox({ src, alt, onClose }) {
       >
         ✕
       </button>
+      {hasMultiple && (
+        <>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); goPrev(); }}
+            aria-label="이전 사진"
+            style={{ ...navBtnStyle, left: 16 }}
+          >
+            <ChevronLeft size={24} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); goNext(); }}
+            aria-label="다음 사진"
+            style={{ ...navBtnStyle, right: 16 }}
+          >
+            <ChevronRight size={24} />
+          </button>
+          <div style={{
+            position: "fixed",
+            bottom: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 502,
+            color: "rgba(255,255,255,0.85)",
+            fontSize: 13,
+            fontWeight: 600,
+            letterSpacing: "0.04em",
+          }}>
+            {index + 1} / {list.length}
+          </div>
+        </>
+      )}
       <img
-        src={src}
-        alt={alt}
+        key={currentSrc}
+        src={currentSrc}
+        alt={currentAlt}
         onClick={e => e.stopPropagation()}
         style={{
           maxWidth: "min(100%, 1200px)",
