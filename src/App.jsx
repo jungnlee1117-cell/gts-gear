@@ -6,6 +6,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import { QRCodeCanvas } from "qrcode.react";
+import { ImageIcon } from "lucide-react";
 import GrowthApp from "./GrowthApp.jsx";
 import PeResourcesApp from "./PeResourcesApp.jsx";
 
@@ -4201,6 +4202,30 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                   </button>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
                     <CatTag cat={item.category}/>
+                    {activityPhotos.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setActivityModalItem(item)}
+                        title={`활동 사진 ${activityPhotos.length}장`}
+                        aria-label={`활동 사진 ${activityPhotos.length}장 보기`}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 26,
+                          height: 26,
+                          padding: 0,
+                          borderRadius: 6,
+                          border: "1px solid #e2e8f0",
+                          background: "#fff",
+                          color: DS.textSecondary,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        <ImageIcon size={14} strokeWidth={2} />
+                      </button>
+                    )}
                   </div>
                   <div style={{
                     marginTop: 10,
@@ -4212,26 +4237,6 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                   </div>
                   <ItemScheduleLines lines={scheduleLines}/>
                   <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-                    {activityPhotos.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setActivityModalItem(item)}
-                        style={{
-                          width: "100%",
-                          padding: "7px 12px",
-                          borderRadius: 8,
-                          border: "1px solid #e2e8f0",
-                          background: "#fff",
-                          color: DS.textSecondary,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                        }}
-                      >
-                        활동 사진 보기 ({activityPhotos.length})
-                      </button>
-                    )}
                     <Btn
                       full
                       color={avail > 0 ? DS.primary : "#cbd5e1"}
