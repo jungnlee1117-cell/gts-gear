@@ -3910,6 +3910,7 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
 }
 
 function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservations, teachers, onDetail, onOpenCart, onSubmitReservation, onCancelReservation }) {
+  const [q, setQ] = useState("");
   const [catF, setCatF] = useState("ALL");
   const [brF, setBrF] = useState("ALL");
   const [availF, setAvailF] = useState("ALL");
@@ -3922,6 +3923,18 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
     if (brF !== "ALL") r = r.filter(i => i.branch === brF);
     if (availF === "available") r = r.filter(i => availQty(i, ris, rets) > 0);
     else if (availF === "unavailable") r = r.filter(i => availQty(i, ris, rets) === 0);
+    if (q.trim()) {
+      const lq = q.trim().toLowerCase();
+      r = r.filter(i => {
+        const catMeta = getCategoryMeta(i.category);
+        return (
+          i.name.toLowerCase().includes(lq) ||
+          (i.alias || "").toLowerCase().includes(lq) ||
+          catMeta.label.toLowerCase().includes(lq) ||
+          normalizeCategoryKey(i.category).toLowerCase().includes(lq)
+        );
+      });
+    }
     if (availF === "newest") {
       return r.sort((a, b) => {
         const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -3930,7 +3943,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
       });
     }
     return r.sort((a, b) => a.name.localeCompare(b.name, "ko"));
-  }, [items, catF, brF, availF, ris, rets]);
+  }, [items, catF, brF, availF, q, ris, rets]);
 
   const inCart = id => cart.some(c => c.item_id === id);
   const pendingRes = itemId => getTeacherPendingReservation(reservations, me.id, itemId);
@@ -3978,9 +3991,35 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
     );
   };
 
+  const emptyText = (() => {
+    if (!items.length) return "등록된 교구가 없습니다";
+    if (q.trim()) return `"${q.trim()}" 검색 결과가 없습니다`;
+    if (catF !== "ALL" || brF !== "ALL" || (availF !== "ALL" && availF !== "newest")) {
+      return "해당 조건의 교구가 없습니다";
+    }
+    return "등록된 교구가 없습니다";
+  })();
+
   return (
     <PageShell>
       <PageHeader me={me} subtitle={PAGE_META["items-browse"].sub}/>
+
+      <div style={{ marginBottom: 12 }}>
+        <input
+          type="search"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="교구명·별명·카테고리 검색..."
+          style={{
+            ...inp,
+            width: "100%",
+            fontSize: 13,
+            padding: "12px 14px",
+            borderRadius: 12,
+            background: "#f8fafc",
+          }}
+        />
+      </div>
 
       <div style={{ display: "flex", gap: 4, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
         <button
@@ -4057,11 +4096,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
 
       {list.length === 0 ? (
         <PanelSection title="교구 목록">
-          <Empty text={
-            catF !== "ALL" || brF !== "ALL" || (availF !== "ALL" && availF !== "newest")
-              ? "해당 조건의 교구가 없습니다"
-              : "등록된 교구가 없습니다"
-          }/>
+          <Empty text={emptyText}/>
         </PanelSection>
       ) : (
         <div className="gts-items-browse-grid">
