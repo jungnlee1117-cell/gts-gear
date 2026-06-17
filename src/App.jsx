@@ -9,6 +9,10 @@ import { QRCodeCanvas } from "qrcode.react";
 import { PersonStanding, ChevronLeft, ChevronRight } from "lucide-react";
 import GrowthApp from "./GrowthApp.jsx";
 import PeResourcesApp from "./PeResourcesApp.jsx";
+import EnglishScriptApp from "./EnglishScriptApp.jsx";
+import SituationManualApp from "./SituationManualApp.jsx";
+import ChildTypeApp from "./ChildTypeApp.jsx";
+import ClassFlowTipsApp from "./ClassFlowTipsApp.jsx";
 
 const GEAR_SCAN_KEY = "gts_gear_scan";
 
@@ -7044,6 +7048,20 @@ export default function App() {
   const [me,         setMe]         = useState(null);
   const [meLoading,  setMeLoading]  = useState(false);
   const [activeApp,  setActiveApp]  = useState(null);
+  const [pathname,   setPathname]   = useState(() => (
+    typeof window !== "undefined" ? window.location.pathname : "/"
+  ));
+
+  const navigateTo = useCallback((path) => {
+    window.history.pushState({}, "", path);
+    setPathname(path);
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   useEffect(() => {
     const scan = parseGearScanFromLocation();
@@ -7102,8 +7120,67 @@ export default function App() {
       <Spinner text="로그인 확인 중..."/>
     </div>
   );
+  if (pathname === "/english-script") {
+    return (
+      <EnglishScriptApp
+        onBack={() => {
+          if (window.history.length > 1) {
+            window.history.back();
+          } else {
+            setActiveApp("pe");
+            navigateTo("/");
+          }
+        }}
+        onGoSituations={() => navigateTo("/situation-manual")}
+        onGoChildTypes={() => navigateTo("/child-types")}
+        onGoTips={() => navigateTo("/class-flow-tips")}
+      />
+    );
+  }
+  if (pathname === "/child-types") {
+    return (
+      <ChildTypeApp
+        onBack={() => {
+          if (window.history.length > 1) {
+            window.history.back();
+          } else {
+            setActiveApp("pe");
+            navigateTo("/english-script");
+          }
+        }}
+      />
+    );
+  }
+  if (pathname === "/situation-manual") {
+    return (
+      <SituationManualApp
+        onBack={() => {
+          if (window.history.length > 1) {
+            window.history.back();
+          } else {
+            setActiveApp("pe");
+            navigateTo("/english-script");
+          }
+        }}
+      />
+    );
+  }
+  if (pathname === "/class-flow-tips") {
+    return (
+      <ClassFlowTipsApp
+        onBack={() => {
+          if (window.history.length > 1) {
+            window.history.back();
+          } else {
+            setActiveApp("pe");
+            navigateTo("/english-script");
+          }
+        }}
+      />
+    );
+  }
   if (activeApp === "edu") return <EquipmentApp onBack={()=>setActiveApp(null)} me={me} session={session}/>;
-  if (activeApp === "pe") return <PeResourcesApp me={me} onBack={()=>setActiveApp(null)}/>;
+  if (activeApp === "pe") return <PeResourcesApp me={me} onBack={()=>setActiveApp(null)} onNavigate={navigateTo}/>;
   if (activeApp === "growth") return <GrowthApp onBack={()=>setActiveApp(null)} supabaseUser={me}/>;
   return <HubPage me={me} onSelect={setActiveApp} onLogout={logout}/>;
 }

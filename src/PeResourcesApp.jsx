@@ -693,7 +693,7 @@ function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTa
   );
 }
 
-export default function PeResourcesApp({ me, onBack }) {
+export default function PeResourcesApp({ me, onBack, onNavigate }) {
   const [view, setView] = useState("hub");
   const [category, setCategory] = useState(null);
   const [search, setSearch] = useState("");
@@ -728,6 +728,11 @@ export default function PeResourcesApp({ me, onBack }) {
   }, [resources]);
 
   const goCategory = (cat) => {
+    const isEnglishPe = cat.id === "english-pe" || (cat.title || "").includes("영어체육");
+    if (isEnglishPe) {
+      onNavigate?.("/english-script");
+      return;
+    }
     setCategory(cat);
     setListSearch("");
     setView("list");
