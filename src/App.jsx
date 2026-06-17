@@ -13,6 +13,7 @@ import EnglishScriptApp from "./EnglishScriptApp.jsx";
 import SituationManualApp from "./SituationManualApp.jsx";
 import ChildTypeApp from "./ChildTypeApp.jsx";
 import ClassFlowTipsApp from "./ClassFlowTipsApp.jsx";
+import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 
 const GEAR_SCAN_KEY = "gts_gear_scan";
 
@@ -7133,7 +7134,8 @@ export default function App() {
         }}
         onGoSituations={() => navigateTo("/situation-manual")}
         onGoChildTypes={() => navigateTo("/child-types")}
-        onGoTips={() => navigateTo("/class-flow-tips")}
+        onGoFlowTips={() => navigateTo("/class-flow-tips")}
+        onGoPronunciationTips={() => navigateTo("/pronunciation-tips")}
       />
     );
   }
@@ -7168,6 +7170,20 @@ export default function App() {
   if (pathname === "/class-flow-tips") {
     return (
       <ClassFlowTipsApp
+        onBack={() => {
+          if (window.history.length > 1) {
+            window.history.back();
+          } else {
+            setActiveApp("pe");
+            navigateTo("/english-script");
+          }
+        }}
+      />
+    );
+  }
+  if (pathname === "/pronunciation-tips") {
+    return (
+      <PronunciationTipsApp
         onBack={() => {
           if (window.history.length > 1) {
             window.history.back();
