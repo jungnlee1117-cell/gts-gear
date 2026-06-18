@@ -3,6 +3,13 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import {
+  saveLastRoute,
+  markRestoreAfterLogin,
+  consumeRestoreAfterLogin,
+  getLastRoute,
+} from "./routePersistence.js";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import { QRCodeCanvas } from "qrcode.react";
@@ -7043,26 +7050,163 @@ function ItemReturnModal({ group, onSubmit, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════
 // APP ROOT — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
+const HUB_APP_ROUTES = {
+  edu: "/gear",
+  pe: "/pe-resources",
+  growth: "/growth",
+};
+
+function goBackOr(navigate, fallback) {
+  if (window.history.length > 1) navigate(-1);
+  else navigate(fallback);
+}
+
+function RouteTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    saveLastRoute(`${location.pathname}${location.search}${location.hash}`);
+  }, [location]);
+  return null;
+}
+
+function RestoreRouteAfterLogin() {
+  const navigate = useNavigate();
+  const restored = useRef(false);
+
+  useEffect(() => {
+    if (restored.current || !consumeRestoreAfterLogin()) return;
+    const saved = getLastRoute();
+    if (!saved) return;
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (saved !== current) {
+      restored.current = true;
+      navigate(saved, { replace: true });
+    }
+  }, [navigate]);
+
+  return null;
+}
+
+function UnknownRoute() {
+  const navigate = useNavigate();
+  return (
+    <div style={{
+      minHeight: "100vh",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 16,
+      fontFamily: "'Noto Sans KR', sans-serif",
+      background: "#f0f3f7",
+      color: "#172033",
+    }}>
+      <p style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>페이지를 찾을 수 없습니다.</p>
+      <button
+        type="button"
+        onClick={() => navigate("/")}
+        style={{
+          padding: "10px 18px",
+          borderRadius: 8,
+          border: "none",
+          background: "#059669",
+          color: "#fff",
+          fontWeight: 700,
+          cursor: "pointer",
+          fontFamily: "inherit",
+        }}
+      >
+        홈으로
+      </button>
+    </div>
+  );
+}
+
+function AuthenticatedRoutes({ me, session, logout }) {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!me?.id || !session?.user?.id) return;
+    if (!peekGearScan()) return;
+    if (window.location.pathname.startsWith("/gear")) return;
+    navigate("/gear");
+  }, [me?.id, session?.user?.id, navigate]);
+
+  return (
+    <>
+      <RouteTracker/>
+      <RestoreRouteAfterLogin/>
+      <Routes>
+      <Route
+        path="/english-script"
+        element={(
+          <EnglishScriptApp
+            onBack={() => goBackOr(navigate, "/pe-resources")}
+            onGoSituations={() => navigate("/situation-manual")}
+            onGoChildTypes={() => navigate("/child-types")}
+            onGoFlowTips={() => navigate("/class-flow-tips")}
+            onGoPronunciationTips={() => navigate("/pronunciation-tips")}
+          />
+        )}
+      />
+      <Route
+        path="/child-types"
+        element={<ChildTypeApp onBack={() => goBackOr(navigate, "/english-script")}/>}
+      />
+      <Route
+        path="/situation-manual"
+        element={<SituationManualApp onBack={() => goBackOr(navigate, "/english-script")}/>}
+      />
+      <Route
+        path="/class-flow-tips"
+        element={<ClassFlowTipsApp onBack={() => goBackOr(navigate, "/english-script")}/>}
+      />
+      <Route
+        path="/pronunciation-tips"
+        element={<PronunciationTipsApp onBack={() => goBackOr(navigate, "/english-script")}/>}
+      />
+      <Route
+        path="/gear"
+        element={<EquipmentApp onBack={() => navigate("/")} me={me} session={session}/>}
+      />
+      <Route
+        path="/pe-resources"
+        element={(
+          <PeResourcesApp
+            me={me}
+            onBack={() => navigate("/")}
+            onNavigate={path => navigate(path)}
+          />
+        )}
+      />
+      <Route
+        path="/growth"
+        element={<GrowthApp onBack={() => navigate("/")} supabaseUser={me}/>}
+      />
+      <Route
+        path="/"
+        element={(
+          <HubPage
+            me={me}
+            onLogout={logout}
+            onSelect={id => {
+              const path = HUB_APP_ROUTES[id];
+              if (path) navigate(path);
+            }}
+          />
+        )}
+      />
+      <Route path="*" element={<UnknownRoute/>}/>
+      </Routes>
+    </>
+  );
+}
+
 export default function App() {
   const [session,    setSession]    = useState(null);
   const [authReady,  setAuthReady]  = useState(false);
   const [me,         setMe]         = useState(null);
   const [meLoading,  setMeLoading]  = useState(false);
-  const [activeApp,  setActiveApp]  = useState(null);
-  const [pathname,   setPathname]   = useState(() => (
-    typeof window !== "undefined" ? window.location.pathname : "/"
-  ));
-
-  const navigateTo = useCallback((path) => {
-    window.history.pushState({}, "", path);
-    setPathname(path);
-  }, []);
-
-  useEffect(() => {
-    const onPopState = () => setPathname(window.location.pathname);
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
 
   useEffect(() => {
     const scan = parseGearScanFromLocation();
@@ -7072,25 +7216,34 @@ export default function App() {
     }
   }, []);
 
-  useEffect(()=>{
-    supabase.auth.getSession().then(({data:{session}})=>{ setSession(session); setAuthReady(true); });
-    const {data:{subscription}} = supabase.auth.onAuthStateChange((_,session)=>{
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (!session) { setMe(null); setActiveApp(null); }
+      setAuthReady(true);
     });
-    return ()=>subscription.unsubscribe();
-  },[]);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setSession(session);
+      if (event === "SIGNED_OUT" || !session) {
+        setMe(null);
+        markRestoreAfterLogin();
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
-    if (!me || !session) return;
-    if (peekGearScan()) navigateTo("/gear");
-  }, [me, session, navigateTo]);
+    if (!session?.user?.id) {
+      setMe(null);
+      return;
+    }
+    const userId = session.user.id;
+    if (me?.id === userId) return;
 
-  useEffect(()=>{
-    if (!session?.user?.id) return;
     setMeLoading(true);
-    supabase.from("teachers").select("*").eq("id",session.user.id).single()
-      .then(({data:meData})=>{
+    let cancelled = false;
+    supabase.from("teachers").select("*").eq("id", userId).single()
+      .then(({ data: meData }) => {
+        if (cancelled) return;
         if (meData?.active === false) {
           supabase.auth.signOut();
           alert("비활성화된 계정입니다. 관리자에게 문의하세요.");
@@ -7101,9 +7254,13 @@ export default function App() {
           supabase.from("teachers").update({ email: session.user.email }).eq("id", meData.id);
         }
       })
-      .catch(e=>console.error(e))
-      .finally(()=>setMeLoading(false));
-  },[session?.user?.id]);
+      .catch(e => console.error(e))
+      .finally(() => {
+        if (!cancelled) setMeLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [session?.user?.id, me?.id]);
 
   const logout = async () => {
     if (!confirm("로그아웃 하시겠습니까?")) return;
@@ -7111,106 +7268,23 @@ export default function App() {
   };
 
   if (!authReady) return (
-    <div style={{minHeight:"100vh",background:"#0d1f12",display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{ minHeight: "100vh", background: "#0d1f12", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <Spinner/>
     </div>
   );
   if (!session) return <LoginPage/>;
-  if (meLoading||!me) return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0D1829 0%,#1C2951 50%,#0D1829 100%)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Noto Sans KR',sans-serif"}}>
+  if (!me && meLoading) return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg,#0D1829 0%,#1C2951 50%,#0D1829 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans KR',sans-serif" }}>
       <Spinner text="로그인 확인 중..."/>
     </div>
   );
-  if (pathname === "/english-script") {
-    return (
-      <EnglishScriptApp
-        onBack={() => {
-          if (window.history.length > 1) {
-            window.history.back();
-          } else {
-            setActiveApp("pe");
-            navigateTo("/");
-          }
-        }}
-        onGoSituations={() => navigateTo("/situation-manual")}
-        onGoChildTypes={() => navigateTo("/child-types")}
-        onGoFlowTips={() => navigateTo("/class-flow-tips")}
-        onGoPronunciationTips={() => navigateTo("/pronunciation-tips")}
-      />
-    );
-  }
-  if (pathname === "/child-types") {
-    return (
-      <ChildTypeApp
-        onBack={() => {
-          if (window.history.length > 1) {
-            window.history.back();
-          } else {
-            setActiveApp("pe");
-            navigateTo("/english-script");
-          }
-        }}
-      />
-    );
-  }
-  if (pathname === "/situation-manual") {
-    return (
-      <SituationManualApp
-        onBack={() => {
-          if (window.history.length > 1) {
-            window.history.back();
-          } else {
-            setActiveApp("pe");
-            navigateTo("/english-script");
-          }
-        }}
-      />
-    );
-  }
-  if (pathname === "/class-flow-tips") {
-    return (
-      <ClassFlowTipsApp
-        onBack={() => {
-          if (window.history.length > 1) {
-            window.history.back();
-          } else {
-            setActiveApp("pe");
-            navigateTo("/english-script");
-          }
-        }}
-      />
-    );
-  }
-  if (pathname === "/pronunciation-tips") {
-    return (
-      <PronunciationTipsApp
-        onBack={() => {
-          if (window.history.length > 1) {
-            window.history.back();
-          } else {
-            setActiveApp("pe");
-            navigateTo("/english-script");
-          }
-        }}
-      />
-    );
-  }
-  if (pathname === "/gear") {
-    return (
-      <EquipmentApp
-        onBack={() => navigateTo("/")}
-        me={me}
-        session={session}
-      />
-    );
-  }
-  if (activeApp === "edu") return <EquipmentApp onBack={()=>{ setActiveApp(null); navigateTo("/"); }} me={me} session={session}/>;
-  if (activeApp === "pe") return <PeResourcesApp me={me} onBack={()=>setActiveApp(null)} onNavigate={navigateTo}/>;
-  if (activeApp === "growth") return <GrowthApp onBack={()=>setActiveApp(null)} supabaseUser={me}/>;
-  return <HubPage me={me} onSelect={(id) => {
-    if (id === "edu") navigateTo("/gear");
-    else setActiveApp(id);
-  }} onLogout={logout}/>;
+  if (!me) return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg,#0D1829 0%,#1C2951 50%,#0D1829 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans KR',sans-serif" }}>
+      <Spinner text="로그인 확인 중..."/>
+    </div>
+  );
+
+  return <AuthenticatedRoutes me={me} session={session} logout={logout}/>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -7520,8 +7594,9 @@ function HubPage({ me, onSelect, onLogout }) {
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 대여 시스템
 // ═══════════════════════════════════════════════════════════════════════
-function parseGearAppUrl() {
-  const params = new URLSearchParams(window.location.search);
+function parseGearAppUrl(search) {
+  const raw = search ?? (typeof window !== "undefined" ? window.location.search : "");
+  const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
   return {
     page: params.get("page") || "dashboard",
     itemId: params.get("item"),
@@ -7541,6 +7616,13 @@ function buildGearAppUrl(page, { itemId, from } = {}) {
 }
 
 function EquipmentApp({ onBack, me, session }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { page, itemId, from } = useMemo(
+    () => parseGearAppUrl(location.search),
+    [location.search],
+  );
+
   const [items,      setItems]      = useState([]);
   const [teachers,   setTeachers]   = useState([]);
   const [reqs,       setReqs]       = useState([]);
@@ -7549,7 +7631,6 @@ function EquipmentApp({ onBack, me, session }) {
   const [reservations,setReservations]= useState([]);
   const [notices,    setNotices]    = useState([]);
   const [dataLoading,setDataLoading]= useState(false);
-  const [page,       setPageState]  = useState(() => parseGearAppUrl().page);
   const [cart,       setCart]       = useState([]);
   const [showCart,   setShowCart]   = useState(false);
   const [detailItem, setDetailItem] = useState(null);
@@ -7562,45 +7643,19 @@ function EquipmentApp({ onBack, me, session }) {
   const [showMobileDrawer,setShowMobileDrawer] = useState(false);
   const [isPC,setIsPC] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
 
-  const syncGearPageUrl = useCallback((nextPage, meta = {}) => {
-    const path = buildGearAppUrl(nextPage, meta);
-    const current = `${window.location.pathname}${window.location.search}`;
-    if (current !== path) window.history.replaceState({}, "", path);
-  }, []);
-
-  const setPage = useCallback((nextPage, meta) => {
-    setPageState(nextPage);
-    syncGearPageUrl(nextPage, meta);
-  }, [syncGearPageUrl]);
+  const setPage = useCallback((nextPage, meta = {}, { replace = false } = {}) => {
+    navigate(buildGearAppUrl(nextPage, meta), { replace });
+  }, [navigate]);
 
   useEffect(() => {
-    const onPop = () => {
-      const { page: urlPage, itemId, from } = parseGearAppUrl();
-      setPageState(urlPage);
-      if (urlPage === "item-detail" && itemId && items.length) {
-        const item = items.find(i => String(i.id) === String(itemId));
-        setDetailItem(item ?? null);
-        setDetailBackPage(from);
-      } else if (urlPage !== "item-detail") {
-        setDetailItem(null);
-      }
-    };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, [items]);
-
-  useEffect(() => {
-    if (!items.length) return;
-    const { page: urlPage, itemId, from } = parseGearAppUrl();
-    if (urlPage === "item-detail" && itemId) {
+    if (page === "item-detail" && itemId && items.length) {
       const item = items.find(i => String(i.id) === String(itemId));
-      if (item) {
-        setDetailItem(item);
-        setDetailBackPage(from);
-        setPageState("item-detail");
-      }
+      setDetailItem(item ?? null);
+      setDetailBackPage(from);
+    } else if (page !== "item-detail") {
+      setDetailItem(null);
     }
-  }, [items]);
+  }, [page, itemId, from, items]);
 
   useEffect(()=>{
     const handle = () => setIsPC(window.innerWidth >= 768);
@@ -8200,6 +8255,13 @@ function EquipmentApp({ onBack, me, session }) {
             items={items}
             onFound={(item) => openItemDetail(item, "qr-scan")}
           />
+        )}
+        {page==="item-detail"&&!detailItem&&(
+          <PageShell>
+            <div style={{ display: "flex", justifyContent: "center", padding: "80px 20px" }}>
+              <Spinner text="교구 정보 불러오는 중..."/>
+            </div>
+          </PageShell>
         )}
         {page==="item-detail"&&detailItem&&(
           <ItemDetailPage

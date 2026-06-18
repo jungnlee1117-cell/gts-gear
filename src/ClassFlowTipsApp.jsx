@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   ChevronLeft, Search, Star, ListOrdered, CheckCircle2,
   Lightbulb, Clock, Users, Layers, Package, ChevronDown,
@@ -43,32 +44,18 @@ function TagList({ tags }) {
 
 export default function ClassFlowTipsApp({ onBack }) {
   const counts = useMemo(() => getCategoryCounts(), []);
-  const [activeCat, setActiveCat] = useState(() => {
-    const cat = new URLSearchParams(window.location.search).get("cat");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeCat = useMemo(() => {
+    const cat = searchParams.get("cat");
     return TIP_CATEGORIES.some(c => c.id === cat) ? cat : "greeting";
+  }, [searchParams]);
+  const [selectedId, setSelectedId] = useState(() => {
+    const activity = searchParams.get("activity");
+    return activity || null;
   });
-  const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [favorites, setFavorites] = useState(loadFavorites);
-
-  useEffect(() => {
-    const cat = new URLSearchParams(window.location.search).get("cat");
-    if (cat && TIP_CATEGORIES.some(c => c.id === cat)) {
-      setActiveCat(cat);
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(FAV_KEY, JSON.stringify(favorites));
-  }, [favorites]);
-
-  const toggleFavorite = useCallback((id, e) => {
-    e?.stopPropagation();
-    setFavorites(prev => (
-      prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
-    ));
-  }, []);
 
   const filtered = useMemo(() => {
     let list = activities.filter(a => a.cat === activeCat);
@@ -96,19 +83,54 @@ export default function ClassFlowTipsApp({ onBack }) {
       setSelectedId(null);
       return;
     }
-    setSelectedId(prev => (
-      prev && filtered.some(a => a.id === prev) ? prev : filtered[0].id
+    const urlId = searchParams.get("activity");
+    let nextId = urlId && filtered.some(a => a.id === urlId) ? urlId : null;
+    if (!nextId) {
+      nextId = filtered[0].id;
+    }
+    setSelectedId(nextId);
+    if (urlId !== nextId) {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set("activity", nextId);
+        return next;
+      }, { replace: true });
+    }
+  }, [filtered, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    localStorage.setItem(FAV_KEY, JSON.stringify(favorites));
+  }, [favorites]);
+
+  const toggleFavorite = useCallback((id, e) => {
+    e?.stopPropagation();
+    setFavorites(prev => (
+      prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
     ));
-  }, [filtered]);
+  }, []);
 
   const activeLabel = TIP_CATEGORIES.find(c => c.id === activeCat)?.label ?? "";
 
   const handleCatChange = useCallback((catId) => {
-    setActiveCat(catId);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set("cat", catId);
+      next.delete("activity");
+      return next;
+    }, { replace: false });
     setSearch("");
     setTypeFilter("all");
     setSelectedId(null);
-  }, []);
+  }, [setSearchParams]);
+
+  const selectActivity = useCallback((id) => {
+    setSelectedId(id);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set("activity", id);
+      return next;
+    }, { replace: false });
+  }, [setSearchParams]);
 
   const handleSearchChange = useCallback((value) => {
     setSearch(value);
@@ -204,11 +226,11 @@ export default function ClassFlowTipsApp({ onBack }) {
                       role="button"
                       tabIndex={0}
                       className={`ft-card${isActive ? " active" : ""}`}
-                      onClick={() => setSelectedId(item.id)}
+                      onClick={() => selectActivity(item.id)}
                       onKeyDown={e => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          setSelectedId(item.id);
+                          selectActivity(item.id);
                         }
                       }}
                       aria-pressed={isActive}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronLeft, ChevronRight, Volume2, ChevronDown, Loader2,
   BookOpen, ShieldCheck, Lightbulb, User, ArrowRight,
@@ -1095,8 +1096,9 @@ function GearPickerView({
   );
 }
 
-function parseEnglishScriptUrl() {
-  const params = new URLSearchParams(window.location.search);
+function parseEnglishScriptUrl(search) {
+  const raw = search ?? (typeof window !== "undefined" ? window.location.search : "");
+  const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
   const gear = params.get("gear");
   const validGear = GEAR_CATALOG.some(g => g.id === gear) ? gear : null;
   const picker = params.get("picker") === "1";
@@ -1348,23 +1350,15 @@ function ScriptView({ gearId, onBack, onChangeGear, levelId, mode, cardIndex, on
 }
 
 export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildTypes, onGoFlowTips, onGoPronunciationTips }) {
-  const [urlState, setUrlState] = useState(() => parseEnglishScriptUrl());
+  const location = useLocation();
+  const navigate = useNavigate();
+  const urlState = useMemo(() => parseEnglishScriptUrl(location.search), [location.search]);
 
   const pushUrl = useCallback((patch, usePush = false) => {
-    setUrlState(prev => {
-      const next = { ...prev, ...patch };
-      const path = buildEnglishScriptUrl(next);
-      if (usePush) window.history.pushState({}, "", path);
-      else window.history.replaceState({}, "", path);
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    const onPop = () => setUrlState(parseEnglishScriptUrl());
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
+    const next = { ...urlState, ...patch };
+    const path = buildEnglishScriptUrl(next);
+    navigate(path, { replace: !usePush });
+  }, [urlState, navigate]);
 
   const { screen, gearId, levelId, mode, cardIndex } = urlState;
 
@@ -1374,38 +1368,25 @@ export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildType
       return;
     }
     if (nav === "situations") {
-      (onGoSituations ?? (() => {
-        window.history.pushState({}, "", "/situation-manual");
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      }))();
+      (onGoSituations ?? (() => navigate("/situation-manual")))();
       return;
     }
     if (nav === "flow-tips") {
-      (onGoFlowTips ?? (() => {
-        window.history.pushState({}, "", "/class-flow-tips");
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      }))();
+      (onGoFlowTips ?? (() => navigate("/class-flow-tips")))();
       return;
     }
     if (nav === "pronunciation") {
-      (onGoPronunciationTips ?? (() => {
-        window.history.pushState({}, "", "/pronunciation-tips");
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      }))();
+      (onGoPronunciationTips ?? (() => navigate("/pronunciation-tips")))();
       return;
     }
     if (nav === "child-types") {
-      (onGoChildTypes ?? (() => {
-        window.history.pushState({}, "", "/child-types");
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      }))();
+      (onGoChildTypes ?? (() => navigate("/child-types")))();
       return;
     }
     if (nav === "veteran") {
-      window.history.pushState({}, "", "/class-flow-tips?cat=veteran");
-      window.dispatchEvent(new PopStateEvent("popstate"));
+      navigate("/class-flow-tips?cat=veteran");
     }
-  }, [onGoSituations, onGoFlowTips, onGoPronunciationTips, onGoChildTypes, pushUrl]);
+  }, [onGoSituations, onGoFlowTips, onGoPronunciationTips, onGoChildTypes, pushUrl, navigate]);
 
   if (screen === "script") {
     return (
@@ -1441,22 +1422,10 @@ export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildType
     <LandingView
       onBack={onBack}
       onStartScript={() => pushUrl({ screen: "gear-picker" })}
-      onGoSituations={onGoSituations ?? (() => {
-        window.history.pushState({}, "", "/situation-manual");
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      })}
-      onGoChildTypes={onGoChildTypes ?? (() => {
-        window.history.pushState({}, "", "/child-types");
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      })}
-      onGoFlowTips={onGoFlowTips ?? (() => {
-        window.history.pushState({}, "", "/class-flow-tips");
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      })}
-      onGoPronunciationTips={onGoPronunciationTips ?? (() => {
-        window.history.pushState({}, "", "/pronunciation-tips");
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      })}
+      onGoSituations={onGoSituations ?? (() => navigate("/situation-manual"))}
+      onGoChildTypes={onGoChildTypes ?? (() => navigate("/child-types"))}
+      onGoFlowTips={onGoFlowTips ?? (() => navigate("/class-flow-tips"))}
+      onGoPronunciationTips={onGoPronunciationTips ?? (() => navigate("/pronunciation-tips"))}
     />
   );
 }
