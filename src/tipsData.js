@@ -1,11 +1,24 @@
 // GTS 수업 흐름 팁 — 실전 활동 라이브러리
 
+import { GREETING_TIPS_NEW } from "./greetingTipsNew.js";
+
+/** GTS 수업 기본 대형: 벽 라인에 앉기 */
+const GTS_LINE_UP = "아이들을 벽 라인에 붙여 일렬로 앉힌다.";
+const GTS_LINE_ALIGN = "엉덩이가 벽에 닿도록 정렬한다.";
+
+const DEFAULT_STEPS = [
+  GTS_LINE_UP,
+  GTS_LINE_ALIGN,
+  "활동 목적을 한 문장으로 설명한다.",
+  "선생님이 시범을 보여준다.",
+  "앉은 채 벽 라인을 유지하며 전체가 따라 한다.",
+  "마무리 멘트로 다음 단계로 자연스럽게 넘긴다.",
+];
+
 export const TIP_CATEGORIES = [
   { id: "greeting", label: "인사" },
   { id: "warmup", label: "준비운동" },
-  { id: "gear-l1", label: "교구활동 레벨1" },
-  { id: "gear-l2", label: "교구활동 레벨2" },
-  { id: "gear-l3", label: "교구활동 레벨3" },
+  { id: "gear", label: "교구활동" },
   { id: "game", label: "게임" },
   { id: "wrapup", label: "마무리" },
   { id: "veteran", label: "베테랑 노하우" },
@@ -30,16 +43,47 @@ function act(
   };
 }
 
+/** 인사 신규 데이터(title) → 기존 id·icon 매핑 */
+const GREETING_META_BY_TITLE = {
+  "롤링 인사": { id: "rolling", icon: "rotate" },
+  "이름 외치기 인사": { id: "name-shout", icon: "mic" },
+  "눈 맞춤 인사": { id: "eye-contact", icon: "eye" },
+  "거울 인사": { id: "mirror", icon: "users" },
+  "오늘 날씨 인사": { id: "weather", icon: "sun" },
+  "박수 리듬 인사": { id: "clap-rhythm", icon: "music" },
+  "스트레칭 인사": { id: "stretch-hello", icon: "stretch" },
+  "파트너 웨이브": { id: "partner-wave", icon: "hand" },
+  "표정 인사": { id: "emoji-face", icon: "sparkles" },
+  "줄앉기 인사": { id: "line-pass", icon: "arrow" },
+  "영어 체인 인사": { id: "english-chain", icon: "message" },
+  "점프 인사": { id: "jump-hello", icon: "zap" },
+  "속삭임 인사": { id: "whisper-hello", icon: "wind" },
+  "라인 웨이브": { id: "circle-wave", icon: "circle" },
+  "선생님 픽 인사": { id: "teacher-choice", icon: "star" },
+  "숫자 인사": { id: "count-hello", icon: "dot" },
+  "느리게-빠르게 인사": { id: "slow-fast", icon: "timer" },
+  "감사 인사 시작": { id: "thank-you-start", icon: "heart" },
+};
+
+function greetingFromNew(item) {
+  const meta = GREETING_META_BY_TITLE[item.title];
+  if (!meta) throw new Error(`Unknown greeting title: ${item.title}`);
+  return act(
+    "greeting", meta.id, item.title, item.desc, item.tags, meta.icon,
+    item.steps, item.whyGood, item.tips,
+    {
+      duration: item.duration,
+      age: item.ageRange,
+      type: item.type,
+      materials: item.materials,
+    },
+  );
+}
+
 function quick(cat, id, title, summary, tags, icon, overrides = {}) {
   return act(
     cat, id, title, summary, tags, icon,
-    overrides.steps ?? [
-      "아이들을 원 또는 반원으로 모읍니다.",
-      "활동 목적을 한 문장으로 설명합니다.",
-      "선생님이 시범을 보여줍니다.",
-      "아이들이 따라 하며 전체가 참여합니다.",
-      "마무리 멘트로 다음 단계로 자연스럽게 넘깁니다.",
-    ],
+    overrides.steps ?? DEFAULT_STEPS,
     overrides.benefits ?? [
       "수업 흐름을 자연스럽게 이어줍니다.",
       "아이들의 참여 의욕을 높입니다.",
@@ -66,10 +110,11 @@ const GREETING = [
     "친구들과 하이파이브를 나누며 활기차게 수업을 시작하는 방법",
     ["활동적", "협동", "분위기UP"], "hand",
     [
-      "아이들이 원으로 모인다.",
+      GTS_LINE_UP,
+      GTS_LINE_ALIGN,
       "선생님이 Hello를 외친다.",
-      "아이들이 Hello를 말하며 하이파이브한다.",
-      "한 바퀴 돌며 친구들과 인사한다.",
+      "옆 친구와 하이파이브하며 인사한다.",
+      "한 명씩 차례로 인사할 수도 있다.",
       "마지막에 Let's Go! 외치며 시작한다.",
     ],
     [
@@ -88,9 +133,10 @@ const GREETING = [
     "동물 움직임을 따라 하며 인사하는 창의적 인사 활동",
     ["신체활동", "창의성", "에너지발산"], "paw",
     [
+      GTS_LINE_UP,
       "동물 카드를 보여주거나 동물 이름을 말한다.",
       "선생님이 먼저 동물 움직임을 보여준다.",
-      "아이들이 같은 동물 흉내를 내며 인사한다.",
+      "앉은 채 벽 라인을 유지하며 같은 동물 흉내를 내며 인사한다.",
       "다른 동물로 바꿔가며 3~4종 반복한다.",
       "마지막에 모두 함께 좋아하는 동물 포즈로 마무리한다.",
     ],
@@ -106,31 +152,14 @@ const GREETING = [
     ],
     { duration: "3~4분", age: "3~6세", type: "활동형 / 창의형", materials: "없음 (동물 카드 있으면 더 좋음)" },
   ),
-  quick("greeting", "rolling", "롤링 인사", "옆 사람에게 차례로 인사를 넘기는 순환 인사", ["협동", "순서감각"], "rotate"),
-  quick("greeting", "name-shout", "이름 외치기 인사", "이름을 크게 불러주며 자신감을 키우는 인사", ["자신감", "분위기UP"], "mic"),
-  quick("greeting", "eye-contact", "눈 맞춤 인사", "눈을 맞추고 고개를 끄덕이며 인사하기", ["집중", "관계형성"], "eye"),
-  quick("greeting", "mirror", "거울 인사", "선생님 동작을 거울처럼 따라 하며 인사", ["모방", "집중"], "users"),
-  quick("greeting", "weather", "오늘 날씨 인사", "날씨를 말하며 오늘 기분을 나누는 인사", ["대화", "관찰"], "sun"),
-  quick("greeting", "clap-rhythm", "박수 리듬 인사", "박수 리듬에 맞춰 Hello를 외치는 인사", ["리듬감", "에너지UP"], "music"),
-  quick("greeting", "stretch-hello", "스트레칭 인사", "팔을 뻗으며 Hello를 하는 가벼운 인사", ["신체활동", "유연성"], "stretch"),
-  quick("greeting", "partner-wave", "파트너 웨이브", "마주 보고 손을 흔들며 인사하는 1:1 인사", ["협동", "친밀감"], "hand"),
-  quick("greeting", "emoji-face", "표정 인사", "기쁨·놀람 표정을 지으며 인사하기", ["표현력", "유머"], "sparkles"),
-  quick("greeting", "line-pass", "줄서기 인사", "줄을 서서 앞뒤 친구와 인사하는 기본 인사", ["질서", "기본"], "arrow"),
-  quick("greeting", "english-chain", "영어 체인 인사", "Hello → Hi → Good morning을 이어 말하는 인사", ["영어", "순환"], "message"),
-  quick("greeting", "jump-hello", "점프 인사", "작은 점프와 함께 인사하는 에너지 인사", ["에너지발산", "활동적"], "zap"),
-  quick("greeting", "whisper-hello", "속삭임 인사", "작은 목소리로 인사했다가 점점 크게 키우기", ["집중", "대비효과"], "wind"),
-  quick("greeting", "circle-wave", "원형 웨이브", "원을 돌며 손 흔들기가 이어지는 웨이브 인사", ["협동", "리듬"], "circle"),
-  quick("greeting", "teacher-choice", "선생님 픽 인사", "아이가 오늘 인사 방법을 고르는 참여형 인사", ["자율성", "몰입"], "star"),
-  quick("greeting", "count-hello", "숫자 인사", "1~5까지 세며 친구와 인사 횟수 맞추기", ["숫자", "협동"], "dot"),
-  quick("greeting", "slow-fast", "느리게-빠르게 인사", "속도를 바꿔가며 인사하는 리듬 인사", ["리듬감", "집중"], "timer"),
-  quick("greeting", "thank-you-start", "감사 인사 시작", "오늘 와줘서 고마워 인사로 수업 시작", ["정서", "관계형성"], "heart"),
+  ...GREETING_TIPS_NEW.map(greetingFromNew),
 ];
 
 // ── 준비운동 (30) ─────────────────────────────────────
 const WARMUP = [
   act("warmup", "head-shoulder", "머리·어깨·무릎·발",
     "전신을 부드럽게 풀어주는 기본 준비운동", ["기본", "전신", "안전"], "stretch",
-    ["머리, 어깨, 무릎, 발 노래에 맞춰 순서대로 움직인다.", "각 부위를 천천히 2회 반복한다.", "마지막에 전신 스트레칭으로 마무리한다."],
+    ["머리, 어깨, 무릎, 발 노래에 맞춰 벽 라인에 앉은 채 순서대로 움직인다.", "각 부위를 천천히 2회 반복한다.", "마지막에 전신 스트레칭으로 마무리한다."],
     ["전신 관절을 부드럽게 풀어준다.", "노래와 함께해 집중도가 높다.", "모든 연령에 안전하게 적용 가능하다."],
     ["수업 시작 전 필수 루틴", "영어 버전(Simon Says)으로 변형 가능", "속도는 아이들 컨디션에 맞게 조절"],
     { duration: "3~4분", age: "3~7세", type: "전신 / 기본형", materials: "없음" },
@@ -166,70 +195,62 @@ const WARMUP = [
   quick("warmup", "slow-to-fast", "느리게→빠르게", "동작 속도를 점점 올리며 몸 깨우기", ["리듬", "에너지조절"], "timer"),
 ];
 
-// ── 교구활동 레벨1 (12) ─────────────────────────────────
-const GEAR_L1 = [
-  act("gear-l1", "ball-roll", "공 굴리기 기본",
+// ── 교구활동 (36) ───────────────────────────────────────
+const GEAR = [
+  act("gear", "ball-roll", "공 굴리기 기본",
     "공을 앞으로 굴려 목표 지점까지 보내는 기초 교구 활동", ["기본", "협응", "레벨1"], "circle",
-    ["아이들에게 공을 한 개씩 나눠준다.", "무릎 높이에서 공을 앞으로 굴린다.", "목표 콘까지 도달하면 박수.", "2~3회 반복 후 거리를 조금 늘린다."],
+    ["아이들에게 공을 한 개씩 나눠준다.", GTS_LINE_UP, "무릎 높이에서 공을 앞으로 굴린다.", "목표 콘까지 도달하면 박수.", "2~3회 반복 후 거리를 조금 늘린다."],
     ["기본적인 손·눈 협응을 기른다.", "교구에 대한 긍정적 경험을 만든다.", "규칙 이해를 자연스럽게 익힌다."],
     ["처음 교구 수업에 최적", "공 크기는 아이 손에 맞게", "바닥 마찰 고려해 거리 조절"],
     { duration: "5~7분", age: "3~5세", type: "기초 / 개인형", materials: "소프트볼" },
   ),
-  quick("gear-l1", "hoop-step", "후프 밟기", "후프 안에 한 발씩 넣었다 빼기", ["균형", "기초"], "circle", { info: { duration: "5분", materials: "후프" } }),
-  quick("gear-l1", "cone-touch", "콘 터치", "콘을 돌며 손으로 터치하기", ["이동", "기초"], "triangle", { info: { duration: "5분", materials: "콘" } }),
-  quick("gear-l1", "beanbag-hold", "콩주머니 들기", "콩주머니를 머리·어깨·무릎에 올려보기", ["균형", "기초"], "square", { info: { duration: "5분", materials: "콩주머니" } }),
-  quick("gear-l1", "rope-walk", "로프 위 걷기", "바닥에 놓인 로프 위를 한 발씩 걷기", ["균형", "집중"], "arrow", { info: { duration: "5분", materials: "로프" } }),
-  quick("gear-l1", "ball-catch", "공 받기 기초", "가까운 거리에서 공을 두 손으로 받기", ["협응", "기초"], "circle", { info: { duration: "5~7분", materials: "소프트볼" } }),
-  quick("gear-l1", "hoop-pass", "후프 전달", "옆 사람에게 후프를 전달하는 협동 활동", ["협동", "기초"], "users", { info: { duration: "5분", materials: "후프" } }),
-  quick("gear-l1", "cone-weave", "콘 지그재그", "콘 사이를 지그재그로 걷기", ["이동", "기초"], "shuffle", { info: { duration: "5~7분", materials: "콘 4~6개" } }),
-  quick("gear-l1", "mat-sit-balance", "매트 위 균형", "매트 위에서 한 발 서기", ["균형", "안전"], "stretch", { info: { duration: "5분", materials: "매트" } }),
-  quick("gear-l1", "ball-kick-soft", "공 살살 차기", "공을 살살 발로 차서 앞으로 보내기", ["하체", "기초"], "footprints", { info: { duration: "5분", materials: "소프트볼" } }),
-  quick("gear-l1", "pin-touch", "핀 터치 런", "핀에 닿지 않고 주변을 돌기", ["이동", "기초"], "target", { info: { duration: "5분", materials: "핀" } }),
-  quick("gear-l1", "tunnel-crawl", "터널 기어가기", "간이 터널을 기어 통과하기", ["전신", "재미"], "arrow", { info: { duration: "5분", materials: "터널(또는 의자)" } }),
-];
-
-// ── 교구활동 레벨2 (12) ─────────────────────────────────
-const GEAR_L2 = [
-  act("gear-l2", "ball-throw-catch", "공 던지고 받기",
+  quick("gear", "hoop-step", "후프 밟기", "후프 안에 한 발씩 넣었다 빼기", ["균형", "기초", "레벨1"], "circle", { info: { duration: "5분", materials: "후프" } }),
+  quick("gear", "cone-touch", "콘 터치", "콘을 돌며 손으로 터치하기", ["이동", "기초", "레벨1"], "triangle", { info: { duration: "5분", materials: "콘" } }),
+  quick("gear", "beanbag-hold", "콩주머니 들기", "콩주머니를 머리·어깨·무릎에 올려보기", ["균형", "기초", "레벨1"], "square", { info: { duration: "5분", materials: "콩주머니" } }),
+  quick("gear", "rope-walk", "로프 위 걷기", "바닥에 놓인 로프 위를 한 발씩 걷기", ["균형", "집중", "레벨1"], "arrow", { info: { duration: "5분", materials: "로프" } }),
+  quick("gear", "ball-catch", "공 받기 기초", "가까운 거리에서 공을 두 손으로 받기", ["협응", "기초", "레벨1"], "circle", { info: { duration: "5~7분", materials: "소프트볼" } }),
+  quick("gear", "hoop-pass", "후프 전달", "옆 사람에게 후프를 전달하는 협동 활동", ["협동", "기초", "레벨1"], "users", { info: { duration: "5분", materials: "후프" } }),
+  quick("gear", "cone-weave", "콘 지그재그", "콘 사이를 지그재그로 걷기", ["이동", "기초", "레벨1"], "shuffle", { info: { duration: "5~7분", materials: "콘 4~6개" } }),
+  quick("gear", "mat-sit-balance", "매트 위 균형", "매트 위에서 한 발 서기", ["균형", "안전", "레벨1"], "stretch", { info: { duration: "5분", materials: "매트" } }),
+  quick("gear", "ball-kick-soft", "공 살살 차기", "공을 살살 발로 차서 앞으로 보내기", ["하체", "기초", "레벨1"], "footprints", { info: { duration: "5분", materials: "소프트볼" } }),
+  quick("gear", "pin-touch", "핀 터치 런", "핀에 닿지 않고 주변을 돌기", ["이동", "기초", "레벨1"], "target", { info: { duration: "5분", materials: "핀" } }),
+  quick("gear", "tunnel-crawl", "터널 기어가기", "간이 터널을 기어 통과하기", ["전신", "재미", "레벨1"], "arrow", { info: { duration: "5분", materials: "터널(또는 의자)" } }),
+  act("gear", "ball-throw-catch", "공 던지고 받기",
     "짝과 일정 거리에서 공을 주고받는 협응 활동", ["협응", "협동", "레벨2"], "circle",
     ["짝을 정해 마주 선다.", "가슴 높이에서 공을 던진다.", "두 손으로 받고 다시 던진다.", "5회 성공하면 거리를 한 걸음 늘린다."],
     ["손·눈 협응이 발달한다.", "파트너와의 협력을 배운다.", "성공 경험이 자신감을 높인다."],
     ["거리는 처음에 짧게", "못 받아도 비난하지 않기", "영어: Throw, Catch 연결"],
     { duration: "7~10분", age: "4~6세", type: "협동형", materials: "소프트볼" },
   ),
-  quick("gear-l2", "hoop-toss", "후프 던지기", "후프를 목표 막대에 걸기", ["목표", "협응"], "target", { info: { duration: "7분", materials: "후프, 막대" } }),
-  quick("gear-l2", "cone-dribble", "콘 사이 드리블", "공을 콘 사이로 굴리며 이동", ["협응", "이동"], "shuffle", { info: { duration: "7~10분", materials: "공, 콘" } }),
-  quick("gear-l2", "relay-baton", "바통 릴레이", "바통을 전달하며 달리는 릴레이", ["팀", "속도"], "arrow", { info: { duration: "10분", materials: "바통(또는 콘)" } }),
-  quick("gear-l2", "beanbag-toss", "콩주머니 던지기", "원 안에 콩주머니 넣기", ["목표", "협응"], "target", { info: { duration: "7분", materials: "콩주머니, 후프" } }),
-  quick("gear-l2", "rope-jump-basic", "줄넘기 기본", "줄을 돌리며 제자리에서 뛰기", ["유산소", "리듬"], "rotate", { info: { duration: "7~10분", materials: "줄넘기" } }),
-  quick("gear-l2", "obstacle-1", "장애물 코스 1", "콘·후프·매트를 조합한 기본 코스", ["전신", "이동"], "layers", { info: { duration: "10분", materials: "콘, 후프, 매트" } }),
-  quick("gear-l2", "ball-roll-aim", "공 굴리기 정확도", "정해진 목표에 공을 정확히 굴리기", ["정확도", "협응"], "circle", { info: { duration: "7분", materials: "공, 콘" } }),
-  quick("gear-l2", "partner-balance", "파트너 균형", "짝과 함께 콩주머니를 옮기기", ["협동", "균형"], "users", { info: { duration: "7분", materials: "콩주머니" } }),
-  quick("gear-l2", "hoop-roll", "후프 굴리기", "후프를 굴려 목표 지점까지 보내기", ["협응", "이동"], "circle", { info: { duration: "7분", materials: "후프" } }),
-  quick("gear-l2", "cone-stack", "콘 쌓기", "콘을 순서대로 쌓았다 다시 정리", ["순서", "집중"], "triangle", { info: { duration: "5~7분", materials: "콘" } }),
-  quick("gear-l2", "mat-roll", "매트 구르기", "매트 위에서 안전하게 앞구르기", ["전신", "안전"], "rotate", { info: { duration: "7분", materials: "매트" } }),
-];
-
-// ── 교구활동 레벨3 (12) ─────────────────────────────────
-const GEAR_L3 = [
-  act("gear-l3", "team-relay", "팀 릴레이 챌린지",
+  quick("gear", "hoop-toss", "후프 던지기", "후프를 목표 막대에 걸기", ["목표", "협응", "레벨2"], "target", { info: { duration: "7분", materials: "후프, 막대" } }),
+  quick("gear", "cone-dribble", "콘 사이 드리블", "공을 콘 사이로 굴리며 이동", ["협응", "이동", "레벨2"], "shuffle", { info: { duration: "7~10분", materials: "공, 콘" } }),
+  quick("gear", "relay-baton", "바통 릴레이", "바통을 전달하며 달리는 릴레이", ["팀", "속도", "레벨2"], "arrow", { info: { duration: "10분", materials: "바통(또는 콘)" } }),
+  quick("gear", "beanbag-toss", "콩주머니 던지기", "후프 안에 콩주머니 넣기", ["목표", "협응", "레벨2"], "target", { info: { duration: "7분", materials: "콩주머니, 후프" } }),
+  quick("gear", "rope-jump-basic", "줄넘기 기본", "줄을 돌리며 제자리에서 뛰기", ["유산소", "리듬", "레벨2"], "rotate", { info: { duration: "7~10분", materials: "줄넘기" } }),
+  quick("gear", "obstacle-1", "장애물 코스 1", "콘·후프·매트를 조합한 기본 코스", ["전신", "이동", "레벨2"], "layers", { info: { duration: "10분", materials: "콘, 후프, 매트" } }),
+  quick("gear", "ball-roll-aim", "공 굴리기 정확도", "정해진 목표에 공을 정확히 굴리기", ["정확도", "협응", "레벨2"], "circle", { info: { duration: "7분", materials: "공, 콘" } }),
+  quick("gear", "partner-balance", "파트너 균형", "짝과 함께 콩주머니를 옮기기", ["협동", "균형", "레벨2"], "users", { info: { duration: "7분", materials: "콩주머니" } }),
+  quick("gear", "hoop-roll", "후프 굴리기", "후프를 굴려 목표 지점까지 보내기", ["협응", "이동", "레벨2"], "circle", { info: { duration: "7분", materials: "후프" } }),
+  quick("gear", "cone-stack", "콘 쌓기", "콘을 순서대로 쌓았다 다시 정리", ["순서", "집중", "레벨2"], "triangle", { info: { duration: "5~7분", materials: "콘" } }),
+  quick("gear", "mat-roll", "매트 구르기", "매트 위에서 안전하게 앞구르기", ["전신", "안전", "레벨2"], "rotate", { info: { duration: "7분", materials: "매트" } }),
+  act("gear", "team-relay", "팀 릴레이 챌린지",
     "교구를 활용한 팀 대항 릴레이로 고난도 협동 활동", ["팀", "경쟁", "레벨3"], "trophy",
-    ["팀을 나누고 출발선에 선다.", "콘을 돌고 공을 굴려 다음 팀원에게 전달.", "모든 팀원이 완주하면 종료.", "안전 규칙을 먼저 설명한다."],
+    ["팀을 나누고 출발선에 준비한다.", "콘을 돌고 공을 굴려 다음 팀원에게 전달.", "모든 팀원이 완주하면 종료.", "안전 규칙을 먼저 설명한다."],
     ["팀워크와 전략을 배운다.", "고강도 활동에서도 질서를 유지한다.", "성취감과 경쟁 의식을 자극한다."],
     ["인원이 많으면 팀 수 조절", "안전: 뛰는 구간과 걷는 구간 구분", "패배 팀에도 칭찬 포인트 주기"],
     { duration: "10~15분", age: "5~7세", type: "팀 / 경쟁형", materials: "콘, 공, 후프" },
   ),
-  quick("gear-l3", "obstacle-full", "통합 장애물 코스", "여러 교구를 조합한 종합 코스", ["전신", "고난도"], "layers", { info: { duration: "12~15분", materials: "콘, 후프, 매트, 공" } }),
-  quick("gear-l3", "accuracy-challenge", "정확도 챌린지", "목표 지점에 연속 성공 도전", ["정확도", "집중"], "target", { info: { duration: "10분", materials: "공, 콘" } }),
-  quick("gear-l3", "speed-relay", "스피드 릴레이", "시간을 재며 빠르게 완주하는 릴레이", ["속도", "경쟁"], "timer", { info: { duration: "10~12분", materials: "콘, 바통" } }),
-  quick("gear-l3", "partner-trust", "파트너 신뢰 활동", "짝의 안내를 받으며 코스 완주", ["신뢰", "협동"], "users", { info: { duration: "10분", materials: "콘, 매트" } }),
-  quick("gear-l3", "multi-skill", "복합 스킬 스테이션", "4개 스테이션을 순환하며 활동", ["순환", "다양성"], "shuffle", { info: { duration: "15분", materials: "교구 세트" } }),
-  quick("gear-l3", "team-strategy", "팀 전략 게임", "팀이 순서와 역할을 정해 과제 수행", ["전략", "팀"], "lightbulb", { info: { duration: "12분", materials: "교구 세트" } }),
-  quick("gear-l3", "blindfold-guide", "눈가리고 안내", "짝이 말로 안내하며 코스 통과", ["신뢰", "소통"], "eye", { info: { duration: "10분", materials: "콘, 안대(선택)" } }),
-  quick("gear-l3", "timed-challenge", "타임 챌린지", "제한 시간 안에 미션 완수", ["시간", "집중"], "timer", { info: { duration: "10~12분", materials: "교구 세트" } }),
-  quick("gear-l3", "creative-course", "코스 만들기", "아이들이 직접 코스를 설계", ["창의", "자율"], "sparkles", { info: { duration: "12~15분", materials: "교구 세트" } }),
-  quick("gear-l3", "champion-round", "챔피언 라운드", "1차 통과자만 다음 라운드 진출", ["경쟁", "동기"], "star", { info: { duration: "12분", materials: "교구 세트" } }),
-  quick("gear-l3", "coach-turn", "아이 코치", "아이가 다음 친구에게 방법 알려주기", ["리더십", "협동"], "star", { info: { duration: "10분", materials: "교구 세트" } }),
+  quick("gear", "obstacle-full", "통합 장애물 코스", "여러 교구를 조합한 종합 코스", ["전신", "고난도", "레벨3"], "layers", { info: { duration: "12~15분", materials: "콘, 후프, 매트, 공" } }),
+  quick("gear", "accuracy-challenge", "정확도 챌린지", "목표 지점에 연속 성공 도전", ["정확도", "집중", "레벨3"], "target", { info: { duration: "10분", materials: "공, 콘" } }),
+  quick("gear", "speed-relay", "스피드 릴레이", "시간을 재며 빠르게 완주하는 릴레이", ["속도", "경쟁", "레벨3"], "timer", { info: { duration: "10~12분", materials: "콘, 바통" } }),
+  quick("gear", "partner-trust", "파트너 신뢰 활동", "짝의 안내를 받으며 코스 완주", ["신뢰", "협동", "레벨3"], "users", { info: { duration: "10분", materials: "콘, 매트" } }),
+  quick("gear", "multi-skill", "복합 스킬 스테이션", "4개 스테이션을 순환하며 활동", ["순환", "다양성", "레벨3"], "shuffle", { info: { duration: "15분", materials: "교구 세트" } }),
+  quick("gear", "team-strategy", "팀 전략 게임", "팀이 순서와 역할을 정해 과제 수행", ["전략", "팀", "레벨3"], "lightbulb", { info: { duration: "12분", materials: "교구 세트" } }),
+  quick("gear", "blindfold-guide", "눈가리고 안내", "짝이 말로 안내하며 코스 통과", ["신뢰", "소통", "레벨3"], "eye", { info: { duration: "10분", materials: "콘, 안대(선택)" } }),
+  quick("gear", "timed-challenge", "타임 챌린지", "제한 시간 안에 미션 완수", ["시간", "집중", "레벨3"], "timer", { info: { duration: "10~12분", materials: "교구 세트" } }),
+  quick("gear", "creative-course", "코스 만들기", "아이들이 직접 코스를 설계", ["창의", "자율", "레벨3"], "sparkles", { info: { duration: "12~15분", materials: "교구 세트" } }),
+  quick("gear", "champion-round", "챔피언 라운드", "1차 통과자만 다음 라운드 진출", ["경쟁", "동기", "레벨3"], "star", { info: { duration: "12분", materials: "교구 세트" } }),
+  quick("gear", "coach-turn", "아이 코치", "아이가 다음 친구에게 방법 알려주기", ["리더십", "협동", "레벨3"], "star", { info: { duration: "10분", materials: "교구 세트" } }),
 ];
 
 // ── 게임 (50) ───────────────────────────────────────────
@@ -237,9 +258,9 @@ const GAME_TITLES = [
   ["simon-says", "Simon Says", "선생님 지시에 따라 움직이는 집중 게임", ["집중", "영어", "기본"], "target"],
   ["red-light", "Red Light Green Light", "신호에 맞춰 멈추고 가는 달리기 게임", ["달리기", "집중", "인기"], "timer"],
   ["freeze-tag", "꼭꼭 묶어라", "움직이면 잡히는 프리즈 게임", ["달리기", "에너지", "인기"], "zap"],
-  ["duck-duck", "오리 오리", "돌며 오리·거위를 정하는 원 게임", ["원", "재미", "기본"], "circle"],
+  ["duck-duck", "오리 오리", "벽 라인에 앉은 채 한 명이 돌며 오리·거위를 정하는 게임", ["라인", "재미", "기본"], "circle"],
   ["musical-chair", "의자 뺏기", "음악이 멈추면 의자 찾기", ["음악", "반응", "인기"], "music"],
-  ["hot-potato", "뜨거운 감자", "공을 빨리 넘기는 순환 게임", ["협동", "속도", "기본"], "circle"],
+  ["hot-potato", "뜨거운 감자", "벽 라인에 앉아 공을 빠르게 넘기는 게임", ["협동", "속도", "기본"], "circle"],
   ["hula-hoop", "후프 넘기", "후프를 허리에 돌리기 챌린지", ["협응", "재미"], "rotate"],
   ["beanbag-race", "콩주머니 경주", "머리에 얹고 걷기 레이스", ["균형", "재미"], "square"],
   ["balloon-tap", "풍선 터치", "풍선이 떨어지기 전 터치하기", ["반응", "재미"], "wind"],
@@ -248,7 +269,7 @@ const GAME_TITLES = [
   ["color-hunt", "색깔 찾기", "지정 색 사물·콘 찾아오기", ["관찰", "영어"], "eye"],
   ["number-hunt", "숫자 찾기", "숫자 카드·콘을 순서대로 찾기", ["숫자", "집중"], "dot"],
   ["line-walk", "줄 위 걷기", "로프 위에서 균형 게임", ["균형", "집중"], "arrow"],
-  ["ball-pass", "공 전달 게임", "원으로 앉아 공을 빠르게 전달", ["협동", "속도"], "circle"],
+  ["ball-pass", "공 전달 게임", "벽 라인에 앉아 옆으로 공을 빠르게 전달", ["협동", "속도"], "circle"],
   ["hoop-hop", "후프 뛰어넘기", "바닥 후프를 순서대로 뛰어넘기", ["하체", "순서"], "zap"],
   ["cone-relay", "콘 릴레이", "콘을 옮기며 달리는 릴레이", ["팀", "달리기"], "triangle"],
   ["mirror-game", "거울 게임", "짝과 마주 보고 동작 맞추기", ["협동", "집중"], "users"],
@@ -270,8 +291,8 @@ const GAME_TITLES = [
   ["quiet-game", "조용한 게임", "가장 조용히 미션 수행", ["자기조절", "집중"], "wind"],
   ["giant-step", "왕 걸음", "큰 걸음으로 목표까지 이동", ["이동", "거리"], "footprints"],
   ["back-to-back", "등 맞대기", "등을 맞대고 일어나기", ["협동", "신뢰"], "users"],
-  ["circle-squeeze", "원 조이기", "원이 작아질 때 함께 조이기", ["협동", "공간"], "circle"],
-  ["name-ball", "이름 공 던지기", "이름을 부르며 공 던지기", ["이름", "집중"], "circle"],
+  ["circle-squeeze", "라인 조이기", "앉은 채 벽 라인에서 간격을 좁혔다 넓혔다 하기", ["협동", "공간"], "circle"],
+  ["name-ball", "이름 공 던지기", "벽 라인에 앉아 이름을 부르며 공 던지기", ["이름", "집중"], "circle"],
   ["emotion-guess", "표정 맞히기", "표정으로 감정 맞히기", ["정서", "관찰"], "sparkles"],
   ["copy-clap", "박수 따라하기", "박수 패턴을 따라 하기", ["리듬", "집중"], "music"],
   ["shape-run", "도형 달리기", "도형 위치로 달려가기", ["이동", "도형"], "triangle"],
@@ -292,26 +313,87 @@ const GAME = GAME_TITLES.map(([id, title, summary, tags, icon]) =>
   }),
 );
 
+const GAME_STEP_PATCHES = {
+  "game-duck-duck": [
+    GTS_LINE_UP,
+    "한 명이 벽 라인 옆을 따라 걸으며 오리·거위를 정한다.",
+    "선정된 아이는 라인 끝까지 달려간다.",
+    "게임을 2~3회 반복한다.",
+  ],
+  "game-hot-potato": [
+    GTS_LINE_UP,
+    "벽 라인에 앉아 공을 옆 친구에게 빠르게 넘긴다.",
+    "음악이 멈추면 공을 든 아이는 가볍게 제재 동작을 한다.",
+    "속도를 조절하며 반복한다.",
+  ],
+  "game-ball-pass": [
+    GTS_LINE_UP,
+    GTS_LINE_ALIGN,
+    "벽 라인에 앉아 옆으로 공을 빠르게 전달한다.",
+    "한 바퀴 돌아오면 방향을 바꿔 반복한다.",
+  ],
+  "game-circle-squeeze": [
+    GTS_LINE_UP,
+    "앉은 채 옆 친구에 가까워지도록 살짝 몸을 비비며 간격을 좁힌다.",
+    "신호에 맞춰 다시 원래 자리로 돌아간다.",
+    "간격을 좁혔다 넓혔다 반복한다.",
+  ],
+  "game-name-ball": [
+    GTS_LINE_UP,
+    "공을 든 아이가 이름을 부르며 던진다.",
+    "이름이 불린 아이가 받고 다음 사람을 부른다.",
+    "앉은 채 벽 라인을 유지하며 순환한다.",
+  ],
+};
+
+for (const activity of GAME) {
+  if (GAME_STEP_PATCHES[activity.id]) {
+    activity.steps = GAME_STEP_PATCHES[activity.id];
+  }
+}
+
 // ── 마무리 (20) ─────────────────────────────────────────
 const WRAPUP = [
   act("wrapup", "cool-stretch", "쿨다운 스트레칭",
     "수업 후 몸을 차분히 풀어주는 마무리 스트레칭", ["이완", "안전", "필수"], "stretch",
-    ["빠른 호흡을 가라앉힌다.", "팔·다리를 천천히 늘린다.", "깊게 숨 들이쉬고 내쉰다.", "Good job 멘트로 마무리한다."],
+    ["빠른 호흡을 가라앉힌다.", "벽 라인에 앉은 채 팔·다리를 천천히 늘린다.", "깊게 숨 들이쉬고 내쉰다.", "Good job 멘트로 마무리한다."],
     ["근육 긴장을 풀어준다.", "다음 활동으로 안전하게 전환한다.", "수업 종료 루틴을 만든다."],
     ["모든 수업 끝에 2~3분 권장", "뛰는 활동 후 필수", "영어: Stretch, Breathe, Well done"],
     { duration: "2~3분", age: "전연령", type: "이완형", materials: "없음" },
   ),
-  quick("wrapup", "good-job-circle", "Good Job 원", "원으로 모여 서로 칭찬하며 마무리", ["칭찬", "관계"], "heart"),
+  quick("wrapup", "good-job-circle", "Good Job 마무리", "벽 라인에 앉아 서로 칭찬하며 마무리", ["칭찬", "관계"], "heart", {
+    steps: [
+      GTS_LINE_UP,
+      "오늘 잘한 점을 한 가지씩 말한다.",
+      "옆 친구에게 Good job! 하며 하이파이브한다.",
+      "선생님이 전체를 칭찬하며 수업을 마친다.",
+    ],
+  }),
   quick("wrapup", "high-five-end", "하이파이브 마무리", "오늘 수업 하이파이브로 마무리", ["긍정", "에너지"], "hand"),
   quick("wrapup", "star-sticker", "스타 스티커", "오늘 잘한 점 스티커로 칭찬", ["동기", "칭찬"], "star"),
   quick("wrapup", "breath-balloon-end", "풍선 호흡 마무리", "호흡으로 차분히 마무리", ["호흡", "이완"], "wind"),
   quick("wrapup", "today-best", "오늘의 베스트", "오늘 가장 잘한 일 한 가지 말하기", ["성찰", "자신감"], "sparkles"),
   quick("wrapup", "thank-you", "감사 인사", "함께해줘서 고마워 인사", ["정서", "관계"], "heart"),
   quick("wrapup", "see-you", "See You Song", "노래와 함께 See you next time", ["영어", "노래"], "music"),
-  quick("wrapup", "line-up-quiet", "조용히 줄서기", "조용히 줄을 서서 다음 활동 대기", ["질서", "전환"], "arrow"),
+  quick("wrapup", "line-up-quiet", "조용히 대기", "벽 라인에 조용히 앉아 다음 활동 대기", ["질서", "전환"], "arrow", {
+    steps: [
+      GTS_LINE_UP,
+      GTS_LINE_ALIGN,
+      "손을 모으고 조용히 기다린다.",
+      "선생님 신호에 맞춰 다음 활동으로 이동한다.",
+    ],
+  }),
   quick("wrapup", "stretch-song", "스트레칭 송", "노래에 맞춰 가볍게 스트레칭", ["노래", "이완"], "music"),
   quick("wrapup", "partner-thanks", "짝에게 감사", "짝에게 고마워 인사", ["협동", "정서"], "users"),
-  quick("wrapup", "calm-sit", "앉아서 마무리", "앉아서 오늘 수업 한 가지 기억 말하기", ["성찰", "집중"], "book"),
+  quick("wrapup", "calm-sit", "앉아서 마무리", "벽 라인에 앉아 오늘 수업 한 가지 기억 말하기", ["성찰", "집중"], "book", {
+    steps: [
+      GTS_LINE_UP,
+      GTS_LINE_ALIGN,
+      "조용히 오늘 수업에서 기억나는 한 가지를 말한다.",
+      "선생님이 각 아이의 이야기를 짧게 반응한다.",
+      "함께 Well done! 으로 마무리한다.",
+    ],
+  }),
   quick("wrapup", "wave-goodbye", "손 흔들며 인사", "문 쪽을 향해 손 흔들며 Goodbye", ["인사", "전환"], "hand"),
   quick("wrapup", "energy-down", "에너지 다운", "점점 작은 동작으로 에너지 내리기", ["에너지조절", "이완"], "wind"),
   quick("wrapup", "class-cheer", "반 구호", "반 구호를 외치며 마무리", ["팀", "소속감"], "mic"),
@@ -319,7 +401,14 @@ const WRAPUP = [
   quick("wrapup", "cleanup-game", "정리 게임", "교구 정리를 게임처럼 하기", ["정리", "책임"], "blocks"),
   quick("wrapup", "meditation-kid", "짧은 명상", "눈 감고 30초 조용히 호흡", ["집중", "이완"], "eye"),
   quick("wrapup", "stamp-hand", "도장 찍기", "손에 도장 찍으며 수고했어요", ["칭찬", "동기"], "star"),
-  quick("wrapup", "closing-circle", "마무리 원", "원으로 모여 오늘 한마디씩", ["소통", "마무리"], "circle"),
+  quick("wrapup", "closing-circle", "마무리 한마디", "벽 라인에 앉아 오늘 한마디씩", ["소통", "마무리"], "circle", {
+    steps: [
+      GTS_LINE_UP,
+      "한 명씩 차례로 오늘 한마디를 말한다.",
+      "말이 끝나면 조용히 앉은 자세를 유지한다.",
+      "모두 마치면 함께 See you! 로 마무리한다.",
+    ],
+  }),
 ];
 
 // ── 베테랑 노하우 (10) ──────────────────────────────────
@@ -351,9 +440,7 @@ const VETERAN = [
 export const activities = [
   ...GREETING,
   ...WARMUP,
-  ...GEAR_L1,
-  ...GEAR_L2,
-  ...GEAR_L3,
+  ...GEAR,
   ...GAME,
   ...WRAPUP,
   ...VETERAN,

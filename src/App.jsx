@@ -7083,11 +7083,11 @@ export default function App() {
 
   useEffect(() => {
     if (!me || !session) return;
-    if (peekGearScan()) setActiveApp("edu");
-  }, [me, session]);
+    if (peekGearScan()) navigateTo("/gear");
+  }, [me, session, navigateTo]);
 
   useEffect(()=>{
-    if (!session) return;
+    if (!session?.user?.id) return;
     setMeLoading(true);
     supabase.from("teachers").select("*").eq("id",session.user.id).single()
       .then(({data:meData})=>{
@@ -7103,7 +7103,7 @@ export default function App() {
       })
       .catch(e=>console.error(e))
       .finally(()=>setMeLoading(false));
-  },[session]);
+  },[session?.user?.id]);
 
   const logout = async () => {
     if (!confirm("로그아웃 하시겠습니까?")) return;
@@ -7195,10 +7195,22 @@ export default function App() {
       />
     );
   }
-  if (activeApp === "edu") return <EquipmentApp onBack={()=>setActiveApp(null)} me={me} session={session}/>;
+  if (pathname === "/gear") {
+    return (
+      <EquipmentApp
+        onBack={() => navigateTo("/")}
+        me={me}
+        session={session}
+      />
+    );
+  }
+  if (activeApp === "edu") return <EquipmentApp onBack={()=>{ setActiveApp(null); navigateTo("/"); }} me={me} session={session}/>;
   if (activeApp === "pe") return <PeResourcesApp me={me} onBack={()=>setActiveApp(null)} onNavigate={navigateTo}/>;
   if (activeApp === "growth") return <GrowthApp onBack={()=>setActiveApp(null)} supabaseUser={me}/>;
-  return <HubPage me={me} onSelect={setActiveApp} onLogout={logout}/>;
+  return <HubPage me={me} onSelect={(id) => {
+    if (id === "edu") navigateTo("/gear");
+    else setActiveApp(id);
+  }} onLogout={logout}/>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -7508,6 +7520,26 @@ function HubPage({ me, onSelect, onLogout }) {
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 대여 시스템
 // ═══════════════════════════════════════════════════════════════════════
+function parseGearAppUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    page: params.get("page") || "dashboard",
+    itemId: params.get("item"),
+    from: params.get("from") || "items",
+  };
+}
+
+function buildGearAppUrl(page, { itemId, from } = {}) {
+  const params = new URLSearchParams();
+  if (page && page !== "dashboard") params.set("page", page);
+  if (page === "item-detail" && itemId) {
+    params.set("item", String(itemId));
+    if (from && from !== "items") params.set("from", from);
+  }
+  const qs = params.toString();
+  return qs ? `/gear?${qs}` : "/gear";
+}
+
 function EquipmentApp({ onBack, me, session }) {
   const [items,      setItems]      = useState([]);
   const [teachers,   setTeachers]   = useState([]);
@@ -7517,7 +7549,7 @@ function EquipmentApp({ onBack, me, session }) {
   const [reservations,setReservations]= useState([]);
   const [notices,    setNotices]    = useState([]);
   const [dataLoading,setDataLoading]= useState(false);
-  const [page,       setPage]       = useState("dashboard");
+  const [page,       setPageState]  = useState(() => parseGearAppUrl().page);
   const [cart,       setCart]       = useState([]);
   const [showCart,   setShowCart]   = useState(false);
   const [detailItem, setDetailItem] = useState(null);
@@ -7529,6 +7561,46 @@ function EquipmentApp({ onBack, me, session }) {
   const [showMobileMore,setShowMobileMore] = useState(false);
   const [showMobileDrawer,setShowMobileDrawer] = useState(false);
   const [isPC,setIsPC] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
+
+  const syncGearPageUrl = useCallback((nextPage, meta = {}) => {
+    const path = buildGearAppUrl(nextPage, meta);
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (current !== path) window.history.replaceState({}, "", path);
+  }, []);
+
+  const setPage = useCallback((nextPage, meta) => {
+    setPageState(nextPage);
+    syncGearPageUrl(nextPage, meta);
+  }, [syncGearPageUrl]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const { page: urlPage, itemId, from } = parseGearAppUrl();
+      setPageState(urlPage);
+      if (urlPage === "item-detail" && itemId && items.length) {
+        const item = items.find(i => String(i.id) === String(itemId));
+        setDetailItem(item ?? null);
+        setDetailBackPage(from);
+      } else if (urlPage !== "item-detail") {
+        setDetailItem(null);
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [items]);
+
+  useEffect(() => {
+    if (!items.length) return;
+    const { page: urlPage, itemId, from } = parseGearAppUrl();
+    if (urlPage === "item-detail" && itemId) {
+      const item = items.find(i => String(i.id) === String(itemId));
+      if (item) {
+        setDetailItem(item);
+        setDetailBackPage(from);
+        setPageState("item-detail");
+      }
+    }
+  }, [items]);
 
   useEffect(()=>{
     const handle = () => setIsPC(window.innerWidth >= 768);
@@ -8074,7 +8146,7 @@ function EquipmentApp({ onBack, me, session }) {
   const openItemDetail = (item, fromPage = page) => {
     setDetailItem(item);
     setDetailBackPage(fromPage);
-    setPage("item-detail");
+    setPage("item-detail", { itemId: item.id, from: fromPage });
   };
 
   const renderPage = () => {

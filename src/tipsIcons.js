@@ -49,9 +49,7 @@ export const TIP_ICONS = {
 export const CAT_ICONS = {
   greeting: Hand,
   warmup: Activity,
-  "gear-l1": Blocks,
-  "gear-l2": Layers,
-  "gear-l3": Target,
+  gear: Blocks,
   game: Gamepad2,
   wrapup: Flag,
   veteran: Star,

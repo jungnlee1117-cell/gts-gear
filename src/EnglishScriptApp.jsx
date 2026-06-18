@@ -2,40 +2,38 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ChevronLeft, ChevronRight, Volume2, ChevronDown, Loader2,
   BookOpen, ShieldCheck, Lightbulb, User, ArrowRight,
-  Bell, Info, Mic, Play, X,
+  Bell, Info, Mic, Play, X, Package, FileText, Languages, Search,
 } from "lucide-react";
 import { PRONUNCIATION_TIPS } from "./pronunciationTipsData.js";
 import {
   LEVELS, AIRBRIDGE_SCRIPTS, STAGES,
-  GEAR_LABEL as AIRBRIDGE_LABEL, scripts as airbridgeScripts,
+  scripts as airbridgeScripts,
 } from "./airbridgeScriptData.js";
-import {
-  BALANCE_BOARD_ACTIVITIES,
-  BALANCE_BOARD_INTRO,
-  BALANCE_BOARD_CLOSING,
-} from "./balanceBoardScriptData.js";
 import { situations } from "./situationData.js";
 import { activities as flowTipsActivities } from "./tipsData.js";
 import { childTypes } from "./childTypesData.js";
 import { useGoogleTts } from "./useGoogleTts.js";
 import { useLineRecording } from "./useLineRecording.js";
+import { useGearItems } from "./useGearItems.js";
+import EnglishProgramSidebar from "./EnglishProgramSidebar.jsx";
+import {
+  GEAR_CATALOG,
+  LEVEL_IDS,
+  matchGearId,
+  getCategoryMeta,
+  getExpressionCounts,
+  computeGearPickerStats,
+  buildCategoryTabs,
+  normalizeItemCategory,
+  resolveItemPhotoPosition,
+  getActivityGearScripts,
+} from "./gearScriptMeta.js";
 
-const SCRIPT_COUNT = airbridgeScripts.length + BALANCE_BOARD_ACTIVITIES.length;
-
-const GEAR_CATALOG = [
-  {
-    id: "air-bridge",
-    label: AIRBRIDGE_LABEL,
-    desc: "Level 1~3 단계별 8개 섹션 · 대화형 수업 스크립트",
-    type: "sections",
-  },
-  {
-    id: "balance-board",
-    label: "밸런스보드",
-    desc: "9가지 활동 순서대로 진행 · 난이도별 영어 표현",
-    type: "activities",
-  },
-];
+const SCRIPT_COUNT = airbridgeScripts.length
+  + GEAR_CATALOG.filter(g => g.type === "activities").reduce(
+    (sum, g) => sum + (getActivityGearScripts(g.id)?.activities.length ?? 0),
+    0,
+  );
 
 const LESSON_FLOW = [
   { num: 1, label: "교구소개" },
@@ -95,17 +93,20 @@ function activityTitleLabel(activity) {
   return activity.theme ? `${numTitle} — ${activity.theme}` : numTitle;
 }
 
-function buildBalanceBoardCards() {
+function buildActivityGearCards(gearScripts) {
+  if (!gearScripts) return [];
+  const activityCards = gearScripts.activities.map(data => ({ type: "activity", data }));
+  if (gearScripts.activitiesOnly) return activityCards;
   return [
-    { type: "intro", data: BALANCE_BOARD_INTRO },
-    ...BALANCE_BOARD_ACTIVITIES.map(data => ({ type: "activity", data })),
-    { type: "closing", data: BALANCE_BOARD_CLOSING },
+    ...(gearScripts.intro ? [{ type: "intro", data: gearScripts.intro }] : []),
+    ...activityCards,
+    ...(gearScripts.closing ? [{ type: "closing", data: gearScripts.closing }] : []),
   ];
 }
 
-function balanceBoardCardLabel(card) {
+function activityGearCardLabel(card, introTagSuffix) {
   if (!card) return "";
-  if (card.type === "intro") return `${card.data.title} — 마법의 보드`;
+  if (card.type === "intro") return `${card.data.title} — ${introTagSuffix}`;
   if (card.type === "closing") return card.data.title;
   return activityTitleLabel(card.data);
 }
@@ -130,19 +131,69 @@ function TipBox({ tip }) {
   );
 }
 
+function LinePracticeControls({ text, lineKey, tts, recording, enableMic = true, iconSize = 14 }) {
+  if (!tts || !text?.trim()) return null;
+
+  const ttsLoading = tts.isLineLoading(lineKey);
+  const ttsPlaying = tts.isLinePlaying(lineKey);
+  const showMic = enableMic && recording;
+  const isRecording = showMic && recording.isRecording(lineKey);
+  const hasRecording = showMic && recording.hasRecording(lineKey);
+  const isPlayingSelf = showMic && recording.isPlayingRecording(lineKey);
+
+  return (
+    <div className="ab-practice-controls">
+      <button
+        type="button"
+        className={`ab-bubble-tts${ttsPlaying ? " ab-bubble-tts--playing" : ""}`}
+        onClick={() => {
+          recording?.stopPlayback?.();
+          tts.toggle(text, lineKey);
+        }}
+        aria-label={ttsPlaying || ttsLoading ? "재생 정지" : "영어 발음 듣기"}
+        aria-busy={ttsLoading}
+      >
+        {ttsLoading
+          ? <Loader2 size={iconSize} className="ab-listen-spin" aria-hidden/>
+          : <Volume2 size={iconSize} strokeWidth={2} aria-hidden/>}
+      </button>
+      {showMic ? (
+        <button
+          type="button"
+          className={`ab-bubble-mic${isRecording ? " ab-bubble-mic--recording" : ""}`}
+          onClick={() => {
+            tts.stop?.();
+            recording.toggleMic(lineKey);
+          }}
+          aria-label={isRecording ? "녹음 정지" : "발음 녹음"}
+          aria-pressed={isRecording}
+        >
+          <Mic size={iconSize} strokeWidth={2} aria-hidden/>
+        </button>
+      ) : null}
+      {showMic && hasRecording ? (
+        <button
+          type="button"
+          className={`ab-bubble-playback${isPlayingSelf ? " ab-bubble-playback--playing" : ""}`}
+          onClick={() => {
+            tts.stop?.();
+            recording.playRecording(lineKey);
+          }}
+          aria-label={isPlayingSelf ? "내 녹음 정지" : "내 목소리 들어보기"}
+        >
+          <Play size={iconSize} strokeWidth={2} aria-hidden/>
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function Dialogue({ lines, compact = false, tts, recording, lineKeyPrefix = "", enablePractice = false }) {
   return (
     <div className={`ab-dialogue${compact ? " ab-dialogue--compact" : ""}`}>
       {lines.map((line, i) => {
         const lineKey = `${lineKeyPrefix}${i}`;
         const showPractice = line.who === "teacher" && line.en === true;
-        const showTts = showPractice && tts;
-        const showMic = showPractice && enablePractice && recording;
-        const ttsLoading = showTts && tts.isLineLoading(lineKey);
-        const ttsPlaying = showTts && tts.isLinePlaying(lineKey);
-        const isRecording = showMic && recording.isRecording(lineKey);
-        const hasRecording = showMic && recording.hasRecording(lineKey);
-        const isPlayingSelf = showMic && recording.isPlayingRecording(lineKey);
 
         return (
           <div key={i} className={`ab-line ab-line--${line.who}`}>
@@ -150,53 +201,15 @@ function Dialogue({ lines, compact = false, tts, recording, lineKeyPrefix = "", 
               <span className="ab-who">{whoLabel(line.who)}</span>
               <div className="ab-text-row">
                 <p className="ab-text">{line.text}</p>
-                {(showTts || showMic) && (
-                  <div className="ab-practice-controls">
-                    {showTts && (
-                      <button
-                        type="button"
-                        className={`ab-bubble-tts${ttsPlaying ? " ab-bubble-tts--playing" : ""}`}
-                        onClick={() => {
-                          recording?.stopPlayback?.();
-                          tts.toggle(line.text, lineKey);
-                        }}
-                        aria-label={ttsPlaying || ttsLoading ? "재생 정지" : "영어 발음 듣기"}
-                        aria-busy={ttsLoading}
-                      >
-                        {ttsLoading
-                          ? <Loader2 size={14} className="ab-listen-spin" aria-hidden/>
-                          : <Volume2 size={14} strokeWidth={2} aria-hidden/>}
-                      </button>
-                    )}
-                    {showMic && (
-                      <button
-                        type="button"
-                        className={`ab-bubble-mic${isRecording ? " ab-bubble-mic--recording" : ""}`}
-                        onClick={() => {
-                          tts?.stop?.();
-                          recording.toggleMic(lineKey);
-                        }}
-                        aria-label={isRecording ? "녹음 정지" : "발음 녹음"}
-                        aria-pressed={isRecording}
-                      >
-                        <Mic size={14} strokeWidth={2} aria-hidden/>
-                      </button>
-                    )}
-                    {showMic && hasRecording && (
-                      <button
-                        type="button"
-                        className={`ab-bubble-playback${isPlayingSelf ? " ab-bubble-playback--playing" : ""}`}
-                        onClick={() => {
-                          tts?.stop?.();
-                          recording.playRecording(lineKey);
-                        }}
-                        aria-label={isPlayingSelf ? "내 녹음 정지" : "내 목소리 들어보기"}
-                      >
-                        <Play size={14} strokeWidth={2} aria-hidden/>
-                      </button>
-                    )}
-                  </div>
-                )}
+                {showPractice ? (
+                  <LinePracticeControls
+                    text={line.text}
+                    lineKey={lineKey}
+                    tts={tts}
+                    recording={recording}
+                    enableMic={enablePractice}
+                  />
+                ) : null}
               </div>
               {line.action ? <p className="ab-action">{line.action}</p> : null}
             </div>
@@ -460,14 +473,15 @@ function PrepView({ sections, openSections, onToggle, tts, recording }) {
   );
 }
 
-function ActivityPrepView({ levelId, openSections, onToggle, tts, recording }) {
+function ActivityPrepView({ gearScripts, levelId, openSections, onToggle, tts, recording }) {
+  const { intro, activities, closing, introTagSuffix, activitiesOnly } = gearScripts;
   const introLines = useMemo(
-    () => resolveActivityLines(BALANCE_BOARD_INTRO.script, levelId),
-    [levelId],
+    () => (intro?.script ? resolveActivityLines(intro.script, levelId) : []),
+    [intro, levelId],
   );
   const closingLines = useMemo(
-    () => resolveActivityLines(BALANCE_BOARD_CLOSING.script, levelId),
-    [levelId],
+    () => (closing?.script ? resolveActivityLines(closing.script, levelId) : []),
+    [closing, levelId],
   );
 
   return (
@@ -481,26 +495,28 @@ function ActivityPrepView({ levelId, openSections, onToggle, tts, recording }) {
         </div>
       )}
 
-      <PrepAccordion
-        sectionKey="intro"
-        isOpen={openSections.has("intro")}
-        onToggle={onToggle}
-        head={(
-          <div className="ab-accordion-head">
-            <span className="ab-tag ab-tag--green">{BALANCE_BOARD_INTRO.title} — 마법의 보드</span>
-          </div>
-        )}
-      >
-        <Dialogue
-          lines={introLines}
-          tts={tts}
-          recording={recording}
-          enablePractice
-          lineKeyPrefix="prep-intro-"
-        />
-      </PrepAccordion>
+      {!activitiesOnly && intro ? (
+        <PrepAccordion
+          sectionKey="intro"
+          isOpen={openSections.has("intro")}
+          onToggle={onToggle}
+          head={(
+            <div className="ab-accordion-head">
+              <span className="ab-tag ab-tag--green">{intro.title} — {introTagSuffix}</span>
+            </div>
+          )}
+        >
+          <Dialogue
+            lines={introLines}
+            tts={tts}
+            recording={recording}
+            enablePractice
+            lineKeyPrefix="prep-intro-"
+          />
+        </PrepAccordion>
+      ) : null}
 
-      {BALANCE_BOARD_ACTIVITIES.map((activity, idx) => {
+      {activities.map((activity, idx) => {
         const sectionKey = `activity-${idx}`;
         const isOpen = openSections.has(sectionKey);
         const lines = resolveActivityLines(activity.script, levelId);
@@ -539,24 +555,26 @@ function ActivityPrepView({ levelId, openSections, onToggle, tts, recording }) {
         );
       })}
 
-      <PrepAccordion
-        sectionKey="closing"
-        isOpen={openSections.has("closing")}
-        onToggle={onToggle}
-        head={(
-          <div className="ab-accordion-head">
-            <span className="ab-tag ab-tag--amber">{BALANCE_BOARD_CLOSING.title}</span>
-          </div>
-        )}
-      >
-        <Dialogue
-          lines={closingLines}
-          tts={tts}
-          recording={recording}
-          enablePractice
-          lineKeyPrefix="prep-closing-"
-        />
-      </PrepAccordion>
+      {!activitiesOnly && closing ? (
+        <PrepAccordion
+          sectionKey="closing"
+          isOpen={openSections.has("closing")}
+          onToggle={onToggle}
+          head={(
+            <div className="ab-accordion-head">
+              <span className="ab-tag ab-tag--amber">{closing.title}</span>
+            </div>
+          )}
+        >
+          <Dialogue
+            lines={closingLines}
+            tts={tts}
+            recording={recording}
+            enablePractice
+            lineKeyPrefix="prep-closing-"
+          />
+        </PrepAccordion>
+      ) : null}
     </div>
   );
 }
@@ -602,6 +620,67 @@ function FieldCardView({ section, levelColor, tts, sectionIndex }) {
         lineKeyPrefix={`field-${sectionIndex}-`}
       />
       <TipBox tip={section.tip}/>
+    </div>
+  );
+}
+
+function ActivityCardLines({ lines, levelColor, tts, recording, lineKeyPrefix }) {
+  if (!lines?.length) return null;
+
+  return (
+    <ul className="ab-card-lines">
+      {lines.map((text, i) => {
+        const lineKey = `${lineKeyPrefix}${i}`;
+        return (
+          <li key={i} className="ab-card-line">
+            <span className="ab-card-line-num" style={{ background: levelColor }}>{i + 1}</span>
+            <div className="ab-card-line-body">
+              <p className="ab-card-line-text">{text}</p>
+              <LinePracticeControls
+                text={text}
+                lineKey={lineKey}
+                tts={tts}
+                recording={recording}
+                iconSize={12}
+              />
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function CardLinesActivityFieldCardView({ activity, levelId, levelColor, tts, recording, activityIndex }) {
+  const lines = useMemo(
+    () => activity.cardLines?.[levelId] ?? [],
+    [activity.cardLines, levelId],
+  );
+  const lineKeyPrefix = `field-cards-${activityIndex}-`;
+
+  return (
+    <div className="ab-field-card ab-field-card--card-lines">
+      {recording?.micError ? (
+        <div className="ab-mic-error" role="alert">
+          <span>{recording.micError}</span>
+          <button type="button" className="ab-mic-error-dismiss" onClick={recording.dismissMicError} aria-label="닫기">
+            <X size={16} aria-hidden/>
+          </button>
+        </div>
+      ) : null}
+      <div className="ab-field-card-top">
+        <ActivityMeta activity={activity} showTheme={false}/>
+      </div>
+      <ActivityCardLines
+        lines={lines}
+        levelColor={levelColor}
+        tts={tts}
+        recording={recording}
+        lineKeyPrefix={lineKeyPrefix}
+      />
+      {activity.tip ? (
+        <p className="ab-card-lines-tip">{activity.tip}</p>
+      ) : null}
     </div>
   );
 }
@@ -669,17 +748,17 @@ function ActivityFieldCardView({ activity, levelId, levelColor, tts, activityInd
   );
 }
 
-function BalanceBoardIntroClosingCard({ section, levelId, levelColor, tts, cardIndex, variant }) {
+function ActivityIntroClosingCard({ section, levelId, levelColor, tts, cardIndex, variant, introTagSuffix }) {
   const lines = useMemo(
     () => resolveActivityLines(section.script, levelId),
     [section.script, levelId],
   );
   const enLines = lines.filter(l => l.en && l.who === "teacher");
   const ttsText = enLines.map(l => l.text).join(" ");
-  const allKey = `field-bb-${variant}-${cardIndex}`;
+  const allKey = `field-actgear-${variant}-${cardIndex}`;
   const tagClass = variant === "intro" ? "ab-tag--green" : "ab-tag--amber";
   const tagLabel = variant === "intro"
-    ? `${section.title} — 마법의 보드`
+    ? `${section.title} — ${introTagSuffix}`
     : section.title;
 
   const handleListen = () => {
@@ -717,14 +796,26 @@ function BalanceBoardIntroClosingCard({ section, levelId, levelColor, tts, cardI
         lines={lines}
         compact
         tts={tts}
-        lineKeyPrefix={`field-bb-${variant}-${cardIndex}-`}
+        lineKeyPrefix={`field-actgear-${variant}-${cardIndex}-`}
       />
     </div>
   );
 }
 
-function BalanceBoardScriptCardView({ card, levelId, levelColor, tts, cardIndex }) {
+function ActivityScriptCardView({ card, levelId, levelColor, tts, recording, cardIndex, introTagSuffix }) {
   if (card.type === "activity") {
+    if (card.data.cardLines) {
+      return (
+        <CardLinesActivityFieldCardView
+          activity={card.data}
+          levelId={levelId}
+          levelColor={levelColor}
+          tts={tts}
+          recording={recording}
+          activityIndex={cardIndex}
+        />
+      );
+    }
     return (
       <ActivityFieldCardView
         activity={card.data}
@@ -737,95 +828,365 @@ function BalanceBoardScriptCardView({ card, levelId, levelColor, tts, cardIndex 
   }
 
   return (
-    <BalanceBoardIntroClosingCard
+    <ActivityIntroClosingCard
       section={card.data}
       levelId={levelId}
       levelColor={levelColor}
       tts={tts}
       cardIndex={cardIndex}
       variant={card.type}
+      introTagSuffix={introTagSuffix}
     />
   );
 }
 
-function GearPickerView({ onBack, onSelect }) {
-  return (
-    <div className="eng-script-app eng-script-gear-picker">
-      <header className="eng-script-header">
-        <button type="button" className="eng-script-back" onClick={onBack}>
-          <ChevronLeft size={18} strokeWidth={2.5}/> 뒤로가기
-        </button>
-        <div className="eng-script-header-controls">
-          <span className="ab-gear-label">교구 선택</span>
-        </div>
-      </header>
+function GearCardPhoto({ item, catMeta }) {
+  const [failed, setFailed] = useState(false);
 
-      <main className="eng-script-gear-picker-main">
-        <h2 className="eng-script-gear-picker-title">어떤 교구 대본을 볼까요?</h2>
-        <p className="eng-script-gear-picker-desc">교구를 선택하면 Foundation · Interactive · Inquiry 레벨별 대본을 확인할 수 있습니다.</p>
-        <div className="eng-script-gear-grid">
-          {GEAR_CATALOG.map(gear => (
-            <button
-              key={gear.id}
-              type="button"
-              className="eng-script-gear-card"
-              onClick={() => onSelect(gear.id)}
-            >
-              <div className="eng-script-gear-card-body">
-                <div className="eng-script-gear-card-title">{gear.label}</div>
-                <div className="eng-script-gear-card-desc">{gear.desc}</div>
-              </div>
-              <ChevronRight size={20} className="eng-script-gear-card-chevron" aria-hidden/>
-            </button>
-          ))}
-        </div>
-      </main>
+  if (!item.photo_url || failed) {
+    return (
+      <div className="eng-gear-card-photo-fallback" aria-hidden>
+        {catMeta.label.slice(0, 1)}
+      </div>
+    );
+  }
+
+  return (
+    <div className="eng-gear-card-photo-frame">
+      <img
+        src={item.photo_url}
+        alt={item.name}
+        className="eng-gear-card-photo"
+        style={{ objectPosition: resolveItemPhotoPosition(item) }}
+        onError={() => setFailed(true)}
+        loading="lazy"
+      />
     </div>
   );
 }
 
-function ScriptView({ gearId, onBack, onChangeGear }) {
+function GearPickerCard({ item, onSelect }) {
+  const gearId = matchGearId(item);
+  const hasScript = Boolean(gearId);
+  const counts = hasScript ? getExpressionCounts(gearId) : null;
+  const catMeta = getCategoryMeta(item.category);
+
+  return (
+    <article className={`eng-gear-card${hasScript ? "" : " eng-gear-card--soon"}`}>
+      <div className="eng-gear-card-media">
+        <GearCardPhoto item={item} catMeta={catMeta}/>
+        {hasScript ? (
+          <span className="eng-gear-card-badge eng-gear-card-badge--best">BEST</span>
+        ) : (
+          <span className="eng-gear-card-badge eng-gear-card-badge--soon">대본 준비중</span>
+        )}
+      </div>
+
+      <div className="eng-gear-card-body">
+        <div className="eng-gear-card-head">
+          <h3 className="eng-gear-card-title">{item.name}</h3>
+          <span className="eng-gear-card-cat" style={{ color: catMeta.color }}>
+            {catMeta.label}
+          </span>
+        </div>
+        {item.alias ? <p className="eng-gear-card-alias">{item.alias}</p> : null}
+
+        {hasScript && counts ? (
+          <ul className="eng-gear-card-levels">
+            {LEVEL_IDS.map(levelId => {
+              const level = LEVELS.find(l => l.id === levelId);
+              return (
+                <li key={levelId} className="eng-gear-card-level">
+                  <span
+                    className="eng-gear-card-level-dot"
+                    style={{ background: level?.color }}
+                    aria-hidden
+                  />
+                  <span className="eng-gear-card-level-label">{level?.label.split(" ")[0]}</span>
+                  <span className="eng-gear-card-level-count">{counts[levelId]}개 표현</span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="eng-gear-card-soon-text">영어 대본을 준비하고 있어요</p>
+        )}
+
+        {hasScript ? (
+          <button
+            type="button"
+            className="eng-gear-card-start"
+            onClick={() => onSelect(gearId)}
+          >
+            시작하기
+            <ArrowRight size={16} strokeWidth={2.5} aria-hidden/>
+          </button>
+        ) : (
+          <button type="button" className="eng-gear-card-start eng-gear-card-start--disabled" disabled>
+            대본 준비중
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function GearItemGrid({ items, onSelect }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="eng-gear-grid">
+      {items.map(item => (
+        <GearPickerCard key={item.id} item={item} onSelect={onSelect}/>
+      ))}
+    </div>
+  );
+}
+
+function GearPickerView({
+  onBack,
+  onSelect,
+  onNavigate,
+}) {
+  const { items, loading, error } = useGearItems();
+  const [catFilter, setCatFilter] = useState("ALL");
+  const [search, setSearch] = useState("");
+
+  const stats = useMemo(() => computeGearPickerStats(items), [items]);
+  const categoryTabs = useMemo(() => buildCategoryTabs(items), [items]);
+
+  const filteredItems = useMemo(() => {
+    let list = [...items];
+    if (catFilter !== "ALL") {
+      list = list.filter(item => normalizeItemCategory(item.category) === catFilter);
+    }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(item =>
+        item.name.toLowerCase().includes(q)
+        || (item.alias || "").toLowerCase().includes(q),
+      );
+    }
+    return list.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  }, [items, catFilter, search]);
+
+  const { withScript, withoutScript } = useMemo(() => {
+    const withS = [];
+    const withoutS = [];
+    for (const item of filteredItems) {
+      if (matchGearId(item)) withS.push(item);
+      else withoutS.push(item);
+    }
+    return { withScript: withS, withoutScript: withoutS };
+  }, [filteredItems]);
+
+  return (
+    <div className="eng-script-app eng-program-layout">
+      <EnglishProgramSidebar
+        activeId="gear-scripts"
+        onBack={onBack}
+        onNavigate={onNavigate}
+      />
+
+      <div className="eng-program-main eng-script-gear-picker">
+        <main className="eng-script-gear-picker-main">
+          <div className="eng-gear-picker-hero">
+            <h2 className="eng-script-gear-picker-title">어떤 교구 대본을 볼까요?</h2>
+            <p className="eng-script-gear-picker-desc">
+              Foundation · Interactive · Inquiry 레벨별 교구 수업 대본을 확인할 수 있습니다.
+            </p>
+          </div>
+
+          <div className="eng-gear-stats">
+            <div className="eng-gear-stat">
+              <div className="eng-gear-stat-icon eng-gear-stat-icon--green"><Package size={18}/></div>
+              <div>
+                <div className="eng-gear-stat-value">{stats.totalItems}<span>개</span></div>
+                <div className="eng-gear-stat-label">총 교구 수</div>
+              </div>
+            </div>
+            <div className="eng-gear-stat">
+              <div className="eng-gear-stat-icon eng-gear-stat-icon--blue"><FileText size={18}/></div>
+              <div>
+                <div className="eng-gear-stat-value">{stats.totalScripts}<span>개</span></div>
+                <div className="eng-gear-stat-label">총 대본 수</div>
+              </div>
+            </div>
+            <div className="eng-gear-stat">
+              <div className="eng-gear-stat-icon eng-gear-stat-icon--purple"><Languages size={18}/></div>
+              <div>
+                <div className="eng-gear-stat-value">{stats.totalExpressions}<span>개</span></div>
+                <div className="eng-gear-stat-label">총 영어 표현 수</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="eng-gear-cat-tabs" role="tablist" aria-label="교구 카테고리">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={catFilter === "ALL"}
+              className={`eng-gear-cat-tab${catFilter === "ALL" ? " active" : ""}`}
+              onClick={() => setCatFilter("ALL")}
+            >
+              전체
+              <span className="eng-gear-cat-tab-count">{items.length}</span>
+            </button>
+            {categoryTabs.map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={catFilter === tab.key}
+                className={`eng-gear-cat-tab${catFilter === tab.key ? " active" : ""}`}
+                onClick={() => setCatFilter(tab.key)}
+              >
+                {tab.label}
+                <span className="eng-gear-cat-tab-count">{tab.count}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="eng-gear-search-wrap">
+            <Search size={18} className="eng-gear-search-icon" aria-hidden/>
+            <input
+              type="search"
+              className="eng-gear-search"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="교구명 · 별명 검색..."
+              aria-label="교구 검색"
+            />
+          </div>
+
+          {loading ? (
+            <div className="eng-gear-loading">
+              <Loader2 size={28} className="ab-listen-spin" aria-hidden/>
+              <p>교구 목록 불러오는 중...</p>
+            </div>
+          ) : error ? (
+            <p className="eng-gear-error" role="alert">교구 목록을 불러오지 못했습니다. ({error})</p>
+          ) : filteredItems.length === 0 ? (
+            <p className="eng-gear-empty">검색 결과가 없습니다.</p>
+          ) : (
+            <>
+              {withScript.length > 0 && (
+                <section className="eng-gear-section">
+                  <h3 className="eng-gear-section-title">
+                    대본 있는 교구
+                    <span className="eng-gear-section-count">{withScript.length}</span>
+                  </h3>
+                  <GearItemGrid items={withScript} onSelect={onSelect}/>
+                </section>
+              )}
+              {withoutScript.length > 0 && (
+                <section className="eng-gear-section">
+                  <h3 className="eng-gear-section-title">
+                    대본 준비중
+                    <span className="eng-gear-section-count">{withoutScript.length}</span>
+                  </h3>
+                  <GearItemGrid items={withoutScript} onSelect={onSelect}/>
+                </section>
+              )}
+            </>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function parseEnglishScriptUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const gear = params.get("gear");
+  const validGear = GEAR_CATALOG.some(g => g.id === gear) ? gear : null;
+  const picker = params.get("picker") === "1";
+  let screen = "landing";
+  if (validGear) screen = "script";
+  else if (picker) screen = "gear-picker";
+  return {
+    screen,
+    gearId: validGear || "air-bridge",
+    levelId: LEVEL_IDS.includes(params.get("level")) ? params.get("level") : LEVELS[0].id,
+    mode: params.get("mode") === "field" ? "field" : "prep",
+    cardIndex: Math.max(0, parseInt(params.get("card"), 10) || 0),
+  };
+}
+
+function buildEnglishScriptUrl({ screen, gearId, levelId, mode, cardIndex }) {
+  const params = new URLSearchParams();
+  if (screen === "gear-picker") {
+    params.set("picker", "1");
+  } else if (screen === "script") {
+    params.set("gear", gearId);
+    if (levelId !== LEVELS[0].id) params.set("level", levelId);
+    if (mode === "field") params.set("mode", "field");
+    if (cardIndex > 0) params.set("card", String(cardIndex));
+  }
+  const qs = params.toString();
+  return `/english-script${qs ? `?${qs}` : ""}`;
+}
+
+function ScriptView({ gearId, onBack, onChangeGear, levelId, mode, cardIndex, onStateChange }) {
   const gear = GEAR_CATALOG.find(g => g.id === gearId) ?? GEAR_CATALOG[0];
   const isActivityGear = gear.type === "activities";
+  const activityGearScripts = useMemo(
+    () => (isActivityGear ? getActivityGearScripts(gearId) : null),
+    [gearId, isActivityGear],
+  );
 
-  const [levelId, setLevelId] = useState(LEVELS[0].id);
-  const [mode, setMode] = useState("prep");
-  const [cardIndex, setCardIndex] = useState(0);
   const [openSections, setOpenSections] = useState(() => new Set());
   const tts = useGoogleTts();
   const { stop: stopTts } = tts;
   const recording = useLineRecording();
   const { clearAll: clearRecording } = recording;
 
+  const patchState = useCallback((patch) => {
+    onStateChange?.(patch);
+  }, [onStateChange]);
+
+  const setLevelId = useCallback((id) => {
+    patchState({ levelId: id, cardIndex: 0 });
+  }, [patchState]);
+
+  const setMode = useCallback((nextMode) => {
+    patchState({ mode: nextMode });
+  }, [patchState]);
+
+  const setCardIndex = useCallback((next) => {
+    const resolved = typeof next === "function" ? next(cardIndex) : next;
+    patchState({ cardIndex: resolved });
+  }, [patchState, cardIndex]);
+
   const level = useMemo(() => LEVELS.find(l => l.id === levelId) ?? LEVELS[0], [levelId]);
   const sections = useMemo(
     () => (isActivityGear ? [] : AIRBRIDGE_SCRIPTS[levelId] ?? []),
     [levelId, isActivityGear],
   );
-  const balanceBoardCards = useMemo(
-    () => (isActivityGear ? buildBalanceBoardCards() : []),
-    [isActivityGear],
+  const activityCards = useMemo(
+    () => (activityGearScripts ? buildActivityGearCards(activityGearScripts) : []),
+    [activityGearScripts],
   );
-  const itemCount = isActivityGear ? balanceBoardCards.length : sections.length;
+  const itemCount = isActivityGear ? activityCards.length : sections.length;
   const currentSection = sections[cardIndex];
-  const currentBalanceCard = balanceBoardCards[cardIndex];
+  const currentActivityCard = activityCards[cardIndex];
   const currentStageIdx = stageIndex(currentSection?.stage ?? "intro");
 
   useEffect(() => {
-    setCardIndex(0);
-    if (isActivityGear) {
-      const keys = [
-        "intro",
-        ...BALANCE_BOARD_ACTIVITIES.map((_, i) => `activity-${i}`),
-        "closing",
-      ];
+    if (isActivityGear && activityGearScripts) {
+      const keys = activityGearScripts.activitiesOnly
+        ? activityGearScripts.activities.map((_, i) => `activity-${i}`)
+        : [
+          ...(activityGearScripts.intro ? ["intro"] : []),
+          ...activityGearScripts.activities.map((_, i) => `activity-${i}`),
+          ...(activityGearScripts.closing ? ["closing"] : []),
+        ];
       setOpenSections(new Set(keys));
     } else {
       setOpenSections(new Set(sections.map((_, i) => i)));
     }
     stopTts();
     clearRecording();
-  }, [levelId, gearId, isActivityGear, sections.length, stopTts, clearRecording]);
+  }, [levelId, gearId, isActivityGear, activityGearScripts, sections.length, stopTts, clearRecording]);
 
   useEffect(() => {
     stopTts();
@@ -918,8 +1279,9 @@ function ScriptView({ gearId, onBack, onChangeGear }) {
 
       <main className={`eng-script-main${mode === "prep" ? " eng-script-main--prep" : ""}`}>
         {mode === "prep" ? (
-          isActivityGear ? (
+          isActivityGear && activityGearScripts ? (
             <ActivityPrepView
+              gearScripts={activityGearScripts}
               levelId={levelId}
               openSections={openSections}
               onToggle={toggleSection}
@@ -935,13 +1297,15 @@ function ScriptView({ gearId, onBack, onChangeGear }) {
               recording={recording}
             />
           )
-        ) : isActivityGear && currentBalanceCard ? (
-          <BalanceBoardScriptCardView
-            card={currentBalanceCard}
+        ) : isActivityGear && currentActivityCard && activityGearScripts ? (
+          <ActivityScriptCardView
+            card={currentActivityCard}
             levelId={levelId}
             levelColor={level.color}
             tts={tts}
+            recording={recording}
             cardIndex={cardIndex}
+            introTagSuffix={activityGearScripts.introTagSuffix}
           />
         ) : !isActivityGear && currentSection ? (
           <FieldCardView
@@ -958,7 +1322,9 @@ function ScriptView({ gearId, onBack, onChangeGear }) {
           <div className="ab-card-counter">
             {cardIndex + 1} / {itemCount}
             <span className="ab-card-counter-label">
-              {isActivityGear ? balanceBoardCardLabel(currentBalanceCard) : currentSection?.tagLabel}
+              {isActivityGear && activityGearScripts
+                ? activityGearCardLabel(currentActivityCard, activityGearScripts.introTagSuffix)
+                : currentSection?.tagLabel}
             </span>
           </div>
           <div className="eng-script-nav">
@@ -982,15 +1348,75 @@ function ScriptView({ gearId, onBack, onChangeGear }) {
 }
 
 export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildTypes, onGoFlowTips, onGoPronunciationTips }) {
-  const [screen, setScreen] = useState("landing");
-  const [gearId, setGearId] = useState("air-bridge");
+  const [urlState, setUrlState] = useState(() => parseEnglishScriptUrl());
+
+  const pushUrl = useCallback((patch, usePush = false) => {
+    setUrlState(prev => {
+      const next = { ...prev, ...patch };
+      const path = buildEnglishScriptUrl(next);
+      if (usePush) window.history.pushState({}, "", path);
+      else window.history.replaceState({}, "", path);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const onPop = () => setUrlState(parseEnglishScriptUrl());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const { screen, gearId, levelId, mode, cardIndex } = urlState;
+
+  const handleProgramNavigate = useCallback((nav) => {
+    if (nav === "gear-scripts") {
+      pushUrl({ screen: "gear-picker" });
+      return;
+    }
+    if (nav === "situations") {
+      (onGoSituations ?? (() => {
+        window.history.pushState({}, "", "/situation-manual");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }))();
+      return;
+    }
+    if (nav === "flow-tips") {
+      (onGoFlowTips ?? (() => {
+        window.history.pushState({}, "", "/class-flow-tips");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }))();
+      return;
+    }
+    if (nav === "pronunciation") {
+      (onGoPronunciationTips ?? (() => {
+        window.history.pushState({}, "", "/pronunciation-tips");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }))();
+      return;
+    }
+    if (nav === "child-types") {
+      (onGoChildTypes ?? (() => {
+        window.history.pushState({}, "", "/child-types");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }))();
+      return;
+    }
+    if (nav === "veteran") {
+      window.history.pushState({}, "", "/class-flow-tips?cat=veteran");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+  }, [onGoSituations, onGoFlowTips, onGoPronunciationTips, onGoChildTypes, pushUrl]);
 
   if (screen === "script") {
     return (
       <ScriptView
         gearId={gearId}
-        onBack={() => setScreen("gear-picker")}
-        onChangeGear={() => setScreen("gear-picker")}
+        levelId={levelId}
+        mode={mode}
+        cardIndex={cardIndex}
+        onStateChange={patch => pushUrl(patch)}
+        onBack={() => pushUrl({ screen: "gear-picker" })}
+        onChangeGear={() => pushUrl({ screen: "gear-picker" })}
       />
     );
   }
@@ -998,11 +1424,15 @@ export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildType
   if (screen === "gear-picker") {
     return (
       <GearPickerView
-        onBack={() => setScreen("landing")}
-        onSelect={(id) => {
-          setGearId(id);
-          setScreen("script");
-        }}
+        onBack={() => pushUrl({ screen: "landing" })}
+        onSelect={(id) => pushUrl({
+          screen: "script",
+          gearId: id,
+          levelId: LEVELS[0].id,
+          mode: "prep",
+          cardIndex: 0,
+        })}
+        onNavigate={handleProgramNavigate}
       />
     );
   }
@@ -1010,7 +1440,7 @@ export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildType
   return (
     <LandingView
       onBack={onBack}
-      onStartScript={() => setScreen("gear-picker")}
+      onStartScript={() => pushUrl({ screen: "gear-picker" })}
       onGoSituations={onGoSituations ?? (() => {
         window.history.pushState({}, "", "/situation-manual");
         window.dispatchEvent(new PopStateEvent("popstate"));
