@@ -24,6 +24,8 @@ const NAV_PATHS = {
   veteran: "/class-flow-tips?cat=veteran",
 };
 
+export { NAV_PATHS };
+
 export function navigateEnglishProgram(nav) {
   const path = NAV_PATHS[nav];
   if (!path) return;

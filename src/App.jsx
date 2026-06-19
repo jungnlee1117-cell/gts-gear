@@ -919,6 +919,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "qr-scan") return <svg {...s} viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>;
   if (id === "my-rental-status") return <svg {...s} viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
   if (id === "my-reservations") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>;
+  if (id === "english-script") return <svg {...s} viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></svg>;
   if (id === "rental-manage") return <svg {...s} viewBox="0 0 24 24"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/><path d="M21 12H3"/></svg>;
   if (id === "more") return <svg {...s} viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill={color} stroke="none"/><circle cx="12" cy="12" r="1.2" fill={color} stroke="none"/><circle cx="19" cy="12" r="1.2" fill={color} stroke="none"/></svg>;
   return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>;
@@ -969,6 +970,7 @@ function buildSidebarNav(me) {
       { type: "item", id: "stats", label: "통계", glyph: "stats" },
       { type: "item", id: "report", label: "리포트", glyph: "report" },
       { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
+      { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
       { type: "item", id: "settings", label: "설정", glyph: "settings" },
     ];
   }
@@ -992,6 +994,7 @@ function buildSidebarNav(me) {
       { type: "item", id: "report", label: "리포트", glyph: "report" },
       { type: "item", id: "items-qr", label: "QR관리", glyph: "items-qr" },
       { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
+      { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
     ];
   }
 
@@ -1003,6 +1006,7 @@ function buildSidebarNav(me) {
     { type: "item", id: "rental-return", label: "대여 반납신청", glyph: "rental-return" },
     { type: "item", id: "my-reservations", label: "내 예약 현황", glyph: "my-reservations" },
     { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
+    { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
   ];
 }
 
@@ -7053,6 +7057,7 @@ function ItemReturnModal({ group, onSubmit, onClose }) {
 const HUB_APP_ROUTES = {
   edu: "/gear",
   pe: "/pe-resources",
+  english: "/english-script",
   growth: "/growth",
 };
 
@@ -7358,6 +7363,20 @@ const HUB_MODULES = [
     appRoute: "pe",
   },
   {
+    id: "english",
+    title: "영어 대본 프로그램",
+    desc: "교구별 영어 수업 대본과 현장 활용 가이드를 바로 확인하세요.",
+    color: "#8b5cf6",
+    bg: "linear-gradient(145deg, #150d24 0%, #1f1535 100%)",
+    border: "rgba(139, 92, 246, 0.35)",
+    features: ["교구별 3단계 대본", "상황별 대처", "수업 흐름 팁", "발음 팁", "아이 유형 가이드"],
+    btn: "영어 대본 프로그램 입장 →",
+    Icon: HubIconBook,
+    wide: false,
+    ready: true,
+    appRoute: "english",
+  },
+  {
     id: "schedule",
     title: "스케줄 관리",
     desc: "선생님 일정과 수업 일정을 한눈에 관리하세요.",
@@ -7644,6 +7663,10 @@ function EquipmentApp({ onBack, me, session }) {
   const [isPC,setIsPC] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
 
   const setPage = useCallback((nextPage, meta = {}, { replace = false } = {}) => {
+    if (nextPage === "english-script") {
+      navigate("/english-script");
+      return;
+    }
     navigate(buildGearAppUrl(nextPage, meta), { replace });
   }, [navigate]);
 

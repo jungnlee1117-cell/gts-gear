@@ -170,7 +170,12 @@ async function fetchResources() {
 async function fetchCategories() {
   const { data, error } = await supabase.from("pe_categories").select("*").order("sort_order", { ascending: true });
   if (error || !data?.length) return DEFAULT_PE_CATEGORIES;
-  return data.map(rowToCategory);
+  const mapped = data.map(rowToCategory);
+  if (!mapped.some(c => c.id === "english-pe")) {
+    const fallback = DEFAULT_PE_CATEGORIES.find(c => c.id === "english-pe");
+    if (fallback) mapped.push(fallback);
+  }
+  return mapped;
 }
 
 async function deleteResourceRecord(res) {
@@ -730,7 +735,7 @@ export default function PeResourcesApp({ me, onBack, onNavigate }) {
   const goCategory = (cat) => {
     const isEnglishPe = cat.id === "english-pe" || (cat.title || "").includes("영어체육");
     if (isEnglishPe) {
-      onNavigate?.("/english-script");
+      onNavigate?.("/english-script?picker=1");
       return;
     }
     setCategory(cat);

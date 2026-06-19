@@ -12,6 +12,14 @@ import {
   AIR_CLIMBING_MAT_ACTIVITIES,
   AIR_CLIMBING_MAT_SAFETY,
 } from "./airClimbingMatScriptData.js";
+import {
+  BRICK_ACTIVITIES,
+  BRICK_SAFETY,
+} from "./brickScriptData.js";
+import {
+  BILBO_ACTIVITIES,
+  BILBO_SAFETY,
+} from "./bilboScriptData.js";
 
 export const ITEM_CATEGORIES = {
   AIR: { label: "에어교구", color: "#0891b2" },
@@ -57,6 +65,22 @@ export const GEAR_CATALOG = [
       "airclimbingmat",
     ],
   },
+  {
+    id: "brick",
+    label: "벽돌",
+    desc: "9가지 활동 순서대로 진행 · Foundation/Interactive 2단계",
+    type: "activities",
+    matchPatterns: ["벽돌", "brick"],
+    levelIds: ["foundation", "interactive"],
+  },
+  {
+    id: "bilbo",
+    label: "빌리보",
+    desc: "9가지 활동 순서대로 진행 · Foundation/Interactive 2단계",
+    type: "activities",
+    matchPatterns: ["빌리보", "bilibo"],
+    levelIds: ["foundation", "interactive"],
+  },
 ];
 
 export const ACTIVITY_GEAR_SCRIPTS = {
@@ -72,6 +96,16 @@ export const ACTIVITY_GEAR_SCRIPTS = {
     cardLinesFormat: true,
     activities: AIR_CLIMBING_MAT_ACTIVITIES,
     safety: AIR_CLIMBING_MAT_SAFETY,
+  },
+  brick: {
+    activitiesOnly: true,
+    activities: BRICK_ACTIVITIES,
+    safety: BRICK_SAFETY,
+  },
+  bilbo: {
+    activitiesOnly: true,
+    activities: BILBO_ACTIVITIES,
+    safety: BILBO_SAFETY,
   },
 };
 
@@ -128,11 +162,26 @@ function countAirClimbingMatLevel(levelId) {
   return countActivityGearLevel("air-climbing-mat", levelId);
 }
 
+function countBrickLevel(levelId) {
+  return countActivityGearLevel("brick", levelId);
+}
+
+function countBilboLevel(levelId) {
+  return countActivityGearLevel("bilbo", levelId);
+}
+
 const EXPRESSION_COUNTERS = {
   "air-bridge": countAirbridgeLevel,
   "balance-board": countBalanceBoardLevel,
   "air-climbing-mat": countAirClimbingMatLevel,
+  brick: countBrickLevel,
+  bilbo: countBilboLevel,
 };
+
+export function getGearLevelIds(gearId) {
+  const entry = GEAR_CATALOG.find(g => g.id === gearId);
+  return entry?.levelIds ?? LEVEL_IDS;
+}
 
 export function normalizeItemCategory(cat) {
   if (cat === "SPC") return "ETC";

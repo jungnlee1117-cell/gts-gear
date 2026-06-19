@@ -16,7 +16,8 @@ import { childTypes } from "./childTypesData.js";
 import { useGoogleTts } from "./useGoogleTts.js";
 import { useLineRecording } from "./useLineRecording.js";
 import { useGearItems } from "./useGearItems.js";
-import EnglishProgramSidebar from "./EnglishProgramSidebar.jsx";
+import EnglishProgramLayout from "./EnglishProgramLayout.jsx";
+import { useEnglishProgramNavigate } from "./useEnglishProgramNavigate.js";
 import {
   GEAR_CATALOG,
   LEVEL_IDS,
@@ -28,6 +29,7 @@ import {
   normalizeItemCategory,
   resolveItemPhotoPosition,
   getActivityGearScripts,
+  getGearLevelIds,
 } from "./gearScriptMeta.js";
 
 const SCRIPT_COUNT = airbridgeScripts.length
@@ -278,7 +280,7 @@ function PrepAccordion({ sectionKey, isOpen, onToggle, head, children }) {
   );
 }
 
-function LandingView({ onBack, onStartScript, onGoSituations, onGoChildTypes, onGoFlowTips, onGoPronunciationTips }) {
+function LandingView({ onBack, onNavigate, onStartScript, onGoSituations, onGoChildTypes, onGoFlowTips, onGoPronunciationTips }) {
   const landingStats = useMemo(
     () => LANDING_STAT_DEFS.map(({ label, icon, getCount }) => ({
       label,
@@ -297,6 +299,7 @@ function LandingView({ onBack, onStartScript, onGoSituations, onGoChildTypes, on
   };
 
   return (
+    <EnglishProgramLayout activeId="" onBack={onBack} onNavigate={onNavigate}>
     <div className="eng-landing">
       <header className="eng-landing-nav">
         <div className="eng-landing-nav-left">
@@ -400,6 +403,7 @@ function LandingView({ onBack, onStartScript, onGoSituations, onGoChildTypes, on
         </footer>
       </main>
     </div>
+    </EnglishProgramLayout>
   );
 }
 
@@ -870,6 +874,7 @@ function GearPickerCard({ item, onSelect }) {
   const gearId = matchGearId(item);
   const hasScript = Boolean(gearId);
   const counts = hasScript ? getExpressionCounts(gearId) : null;
+  const displayLevelIds = hasScript ? getGearLevelIds(gearId) : LEVEL_IDS;
   const catMeta = getCategoryMeta(item.category);
 
   return (
@@ -894,7 +899,7 @@ function GearPickerCard({ item, onSelect }) {
 
         {hasScript && counts ? (
           <ul className="eng-gear-card-levels">
-            {LEVEL_IDS.map(levelId => {
+            {displayLevelIds.map(levelId => {
               const level = LEVELS.find(l => l.id === levelId);
               return (
                 <li key={levelId} className="eng-gear-card-level">
@@ -981,14 +986,12 @@ function GearPickerView({
   }, [filteredItems]);
 
   return (
-    <div className="eng-script-app eng-program-layout">
-      <EnglishProgramSidebar
-        activeId="gear-scripts"
-        onBack={onBack}
-        onNavigate={onNavigate}
-      />
-
-      <div className="eng-program-main eng-script-gear-picker">
+    <EnglishProgramLayout
+      activeId="gear-scripts"
+      onBack={onBack}
+      onNavigate={onNavigate}
+      mainClassName="eng-script-gear-picker"
+    >
         <main className="eng-script-gear-picker-main">
           <div className="eng-gear-picker-hero">
             <h2 className="eng-script-gear-picker-title">어떤 교구 대본을 볼까요?</h2>
@@ -1091,8 +1094,7 @@ function GearPickerView({
             </>
           )}
         </main>
-      </div>
-    </div>
+    </EnglishProgramLayout>
   );
 }
 
@@ -1130,6 +1132,11 @@ function buildEnglishScriptUrl({ screen, gearId, levelId, mode, cardIndex }) {
 
 function ScriptView({ gearId, onBack, onChangeGear, levelId, mode, cardIndex, onStateChange }) {
   const gear = GEAR_CATALOG.find(g => g.id === gearId) ?? GEAR_CATALOG[0];
+  const gearLevelIds = useMemo(() => getGearLevelIds(gearId), [gearId]);
+  const visibleLevels = useMemo(
+    () => LEVELS.filter(lv => gearLevelIds.includes(lv.id)),
+    [gearLevelIds],
+  );
   const isActivityGear = gear.type === "activities";
   const activityGearScripts = useMemo(
     () => (isActivityGear ? getActivityGearScripts(gearId) : null),
@@ -1159,7 +1166,17 @@ function ScriptView({ gearId, onBack, onChangeGear, levelId, mode, cardIndex, on
     patchState({ cardIndex: resolved });
   }, [patchState, cardIndex]);
 
-  const level = useMemo(() => LEVELS.find(l => l.id === levelId) ?? LEVELS[0], [levelId]);
+  const level = useMemo(
+    () => visibleLevels.find(l => l.id === levelId) ?? visibleLevels[0] ?? LEVELS[0],
+    [levelId, visibleLevels],
+  );
+
+  useEffect(() => {
+    if (!gearLevelIds.includes(levelId)) {
+      patchState({ levelId: gearLevelIds[0], cardIndex: 0 });
+    }
+  }, [gearId, gearLevelIds, levelId, patchState]);
+
   const sections = useMemo(
     () => (isActivityGear ? [] : AIRBRIDGE_SCRIPTS[levelId] ?? []),
     [levelId, isActivityGear],
@@ -1231,7 +1248,7 @@ function ScriptView({ gearId, onBack, onChangeGear, levelId, mode, cardIndex, on
       </header>
 
       <div className="eng-script-tabs ab-level-tabs">
-        {LEVELS.map(lv => (
+        {visibleLevels.map(lv => (
           <button
             key={lv.id}
             type="button"
@@ -1352,6 +1369,7 @@ function ScriptView({ gearId, onBack, onChangeGear, levelId, mode, cardIndex, on
 export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildTypes, onGoFlowTips, onGoPronunciationTips }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const handleProgramNavigate = useEnglishProgramNavigate();
   const urlState = useMemo(() => parseEnglishScriptUrl(location.search), [location.search]);
 
   const pushUrl = useCallback((patch, usePush = false) => {
@@ -1361,32 +1379,6 @@ export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildType
   }, [urlState, navigate]);
 
   const { screen, gearId, levelId, mode, cardIndex } = urlState;
-
-  const handleProgramNavigate = useCallback((nav) => {
-    if (nav === "gear-scripts") {
-      pushUrl({ screen: "gear-picker" });
-      return;
-    }
-    if (nav === "situations") {
-      (onGoSituations ?? (() => navigate("/situation-manual")))();
-      return;
-    }
-    if (nav === "flow-tips") {
-      (onGoFlowTips ?? (() => navigate("/class-flow-tips")))();
-      return;
-    }
-    if (nav === "pronunciation") {
-      (onGoPronunciationTips ?? (() => navigate("/pronunciation-tips")))();
-      return;
-    }
-    if (nav === "child-types") {
-      (onGoChildTypes ?? (() => navigate("/child-types")))();
-      return;
-    }
-    if (nav === "veteran") {
-      navigate("/class-flow-tips?cat=veteran");
-    }
-  }, [onGoSituations, onGoFlowTips, onGoPronunciationTips, onGoChildTypes, pushUrl, navigate]);
 
   if (screen === "script") {
     return (
@@ -1421,6 +1413,7 @@ export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildType
   return (
     <LandingView
       onBack={onBack}
+      onNavigate={handleProgramNavigate}
       onStartScript={() => pushUrl({ screen: "gear-picker" })}
       onGoSituations={onGoSituations ?? (() => navigate("/situation-manual"))}
       onGoChildTypes={onGoChildTypes ?? (() => navigate("/child-types"))}
