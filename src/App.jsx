@@ -24,7 +24,7 @@ import ClassFlowTipsApp from "./ClassFlowTipsApp.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import MyGearRotationPage, { checkRotationRentalConflicts } from "./MyGearRotationPage.jsx";
 import GearRotationManagePage from "./GearRotationManagePage.jsx";
-import { isGearTeacher, isItemAdmin, isSuperAdmin } from "./authRoles.js";
+import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin } from "./authRoles.js";
 
 const GEAR_SCAN_KEY = "gts_gear_scan";
 
@@ -1002,14 +1002,13 @@ function buildSidebarNav(me) {
   }
 
   return [
-    { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
+    { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
     { type: "item", id: "my-gear-rotation", label: "이번 달 내 교구", glyph: "my-gear-rotation" },
     { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
     { type: "item", id: "items", label: "교구검색", glyph: "items" },
     { type: "item", id: "qr-scan", label: "QR 스캔", glyph: "qr-scan" },
     { type: "item", id: "rental-return", label: "대여 반납신청", glyph: "rental-return" },
     { type: "item", id: "my-reservations", label: "내 예약 현황", glyph: "my-reservations" },
-    { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
     { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
   ];
 }
@@ -1038,7 +1037,7 @@ function buildMobileBottomNav(me) {
     ];
   }
   return [
-    { id: "dashboard", label: "대시보드", glyph: "dashboard" },
+    { id: "notices", label: "공지", glyph: "notices" },
     { id: "items", label: "교구검색", glyph: "items" },
     { id: "my-rental-status", label: "내대여현황", glyph: "my-rental-status" },
     { id: "return-request", label: "반납요청", glyph: "returns-approval" },
@@ -5355,8 +5354,7 @@ function NoticeEditModal({ notice, onClose, onSave }) {
 }
 
 function NoticesPage({ me, notices, onAdd, onUpdate, onDelete }) {
-  const canWrite = isItemAdmin(me);
-  const canDelete = isSuperAdmin(me);
+  const canManage = isGearPlatformAdmin(me);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [importance, setImportance] = useState("normal");
@@ -5377,9 +5375,12 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete }) {
 
   return (
     <PageShell>
-      <PageHeader me={me} subtitle={PAGE_META.notices.sub}/>
+      <PageHeader
+        me={me}
+        subtitle={canManage ? PAGE_META.notices.sub : "등록된 공지를 확인하세요."}
+      />
 
-      {canWrite && (
+      {canManage && (
         <PanelSection title="공지 작성">
           <Inp2 label="제목 *" value={title} onChange={e => setTitle(e.target.value)} placeholder="공지 제목"/>
           <Txa2 label="내용" value={body} onChange={e => setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
@@ -5431,34 +5432,30 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete }) {
                     </div>
                   )}
                 </div>
-                {(canWrite || canDelete) && (
+                {canManage && (
                   <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-                    {canWrite && (
-                      <button
-                        type="button"
-                        onClick={() => setEditNotice(n)}
-                        style={{
-                          border: "none", background: DS.primaryLight, color: DS.primary,
-                          borderRadius: 8, padding: "6px 10px", fontSize: 11, fontWeight: 600,
-                          cursor: "pointer", fontFamily: "inherit",
-                        }}
-                      >
-                        수정
-                      </button>
-                    )}
-                    {canDelete && (
-                      <button
-                        type="button"
-                        onClick={() => { if (confirm("이 공지를 삭제할까요?")) onDelete(n.id); }}
-                        style={{
-                          border: "none", background: "#fee2e2", color: "#dc2626",
-                          borderRadius: 8, padding: "6px 10px", fontSize: 11, fontWeight: 600,
-                          cursor: "pointer", fontFamily: "inherit",
-                        }}
-                      >
-                        삭제
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setEditNotice(n)}
+                      style={{
+                        border: "none", background: DS.primaryLight, color: DS.primary,
+                        borderRadius: 8, padding: "6px 10px", fontSize: 11, fontWeight: 600,
+                        cursor: "pointer", fontFamily: "inherit",
+                      }}
+                    >
+                      수정
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { if (confirm("이 공지를 삭제할까요?")) onDelete(n.id); }}
+                      style={{
+                        border: "none", background: "#fee2e2", color: "#dc2626",
+                        borderRadius: 8, padding: "6px 10px", fontSize: 11, fontWeight: 600,
+                        cursor: "pointer", fontFamily: "inherit",
+                      }}
+                    >
+                      삭제
+                    </button>
                   </div>
                 )}
               </div>
@@ -7717,19 +7714,27 @@ function HubPage({ me, onSelect, onLogout }) {
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 대여 시스템
 // ═══════════════════════════════════════════════════════════════════════
-function parseGearAppUrl(search) {
+function gearHomePage(me) {
+  return isGearPlatformAdmin(me) ? "dashboard" : "notices";
+}
+
+function parseGearAppUrl(search, me) {
   const raw = search ?? (typeof window !== "undefined" ? window.location.search : "");
   const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
+  const home = gearHomePage(me);
+  let page = params.get("page") || home;
+  if (page === "dashboard" && !isGearPlatformAdmin(me)) page = "notices";
   return {
-    page: params.get("page") || "dashboard",
+    page,
     itemId: params.get("item"),
     from: params.get("from") || "items",
   };
 }
 
-function buildGearAppUrl(page, { itemId, from } = {}) {
+function buildGearAppUrl(page, { itemId, from, me } = {}) {
+  const home = gearHomePage(me);
   const params = new URLSearchParams();
-  if (page && page !== "dashboard") params.set("page", page);
+  if (page && page !== home) params.set("page", page);
   if (page === "item-detail" && itemId) {
     params.set("item", String(itemId));
     if (from && from !== "items") params.set("from", from);
@@ -7742,8 +7747,8 @@ function EquipmentApp({ onBack, me, session }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { page, itemId, from } = useMemo(
-    () => parseGearAppUrl(location.search),
-    [location.search],
+    () => parseGearAppUrl(location.search, me),
+    [location.search, me?.id, me?.role],
   );
 
   const [items,      setItems]      = useState([]);
@@ -7771,8 +7776,16 @@ function EquipmentApp({ onBack, me, session }) {
       navigate("/english-script");
       return;
     }
-    navigate(buildGearAppUrl(nextPage, meta), { replace });
-  }, [navigate]);
+    navigate(buildGearAppUrl(nextPage, { ...meta, me }), { replace });
+  }, [navigate, me]);
+
+  useEffect(() => {
+    if (!me?.id) return;
+    const params = new URLSearchParams(location.search.startsWith("?") ? location.search.slice(1) : location.search);
+    if (params.get("page") === "dashboard" && !isGearPlatformAdmin(me)) {
+      setPage("notices", {}, { replace: true });
+    }
+  }, [me?.id, me?.role, location.search, setPage]);
 
   useEffect(() => {
     if (page === "item-detail" && itemId && items.length) {
@@ -8345,6 +8358,11 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   const renderPage = () => {
+    if (!isGearPlatformAdmin(me) && page === "dashboard") {
+      return (
+        <NoticesPage me={me} notices={notices} onAdd={addNotice} onUpdate={updateNotice} onDelete={deleteNotice}/>
+      );
+    }
     if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","gear-rotation-manage","stats","report","settings","rental-manage","reservation-approval"].includes(page)) {
       return (
         <PageShell>
@@ -8629,7 +8647,7 @@ function EquipmentApp({ onBack, me, session }) {
   }
 
   // ── 모바일 레이아웃 ──────────────────────────────────────
-  const mobileTitle = (PAGE_META[page] || PAGE_META.dashboard).title;
+  const mobileTitle = (PAGE_META[page] || PAGE_META[gearHomePage(me)]).title;
   const mobileIconBtn = {
     width: 44,
     height: 44,

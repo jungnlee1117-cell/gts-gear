@@ -51,11 +51,12 @@ CREATE POLICY "notices_update_admin" ON public.notices
   );
 
 DROP POLICY IF EXISTS "notices_delete_superadmin" ON public.notices;
-CREATE POLICY "notices_delete_superadmin" ON public.notices
+DROP POLICY IF EXISTS "notices_delete_admin" ON public.notices;
+CREATE POLICY "notices_delete_admin" ON public.notices
   FOR DELETE TO authenticated
   USING (
     EXISTS (
       SELECT 1 FROM public.teachers t
-      WHERE t.id = auth.uid() AND t.role = 'superadmin'
+      WHERE t.id = auth.uid() AND t.role IN ('admin', 'superadmin')
     )
   );

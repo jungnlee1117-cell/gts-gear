@@ -21,3 +21,6 @@ export const isSuperAdmin = (u) =>
 /** 교구 앱에서 일반 강사 UI */
 export const isGearTeacher = (u) =>
   u?.role === "teacher" && !isItemAdmin(u);
+
+/** 교구 플랫폼: 대시보드 · 공지 작성/수정/삭제 */
+export const isGearPlatformAdmin = isScheduleAdmin;

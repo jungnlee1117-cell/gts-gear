@@ -1,14 +1,10 @@
--- notices 테이블 생성 후 is_item_admin() 기준 RLS로 갱신
--- supabase/notices.sql 실행 뒤 이 파일을 실행하세요.
+-- 공지 RLS: admin/superadmin만 작성·수정·삭제 (is_item_admin 강사 제외)
+-- notices.sql 또는 notices_patch_item_admin_policies.sql 적용 후 실행
 
 DO $$
 BEGIN
   IF to_regclass('public.notices') IS NULL THEN
     RAISE EXCEPTION 'public.notices 테이블이 없습니다. 먼저 supabase/notices.sql 을 실행하세요.';
-  END IF;
-
-  IF to_regprocedure('public.is_item_admin()') IS NULL THEN
-    RAISE EXCEPTION 'is_item_admin() 없음. 먼저 schedule_payroll_patch_17_item_admin.sql 을 실행하세요.';
   END IF;
 
   DROP POLICY IF EXISTS "notices_insert_admin" ON public.notices;
