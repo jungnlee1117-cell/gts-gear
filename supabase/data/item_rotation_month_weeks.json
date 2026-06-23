@@ -1,0 +1,9 @@
+{
+  "2026-06": [
+    { "week_number": 1, "week_start_date": "2026-05-30", "week_end_date": "2026-06-05" },
+    { "week_number": 2, "week_start_date": "2026-06-06", "week_end_date": "2026-06-12" },
+    { "week_number": 3, "week_start_date": "2026-06-13", "week_end_date": "2026-06-19" },
+    { "week_number": 4, "week_start_date": "2026-06-20", "week_end_date": "2026-06-25" },
+    { "week_number": 5, "week_start_date": "2026-06-26", "week_end_date": "2026-07-02" }
+  ]
+}

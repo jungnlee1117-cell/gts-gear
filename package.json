@@ -7,7 +7,18 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "seed:institutions": "node scripts/seed-institutions.mjs",
+    "seed:institutions:dry": "node scripts/seed-institutions.mjs --dry-run",
+    "seed:institutions:debug": "node scripts/seed-institutions.mjs --debug-env --dry-run",
+    "seed:teachers": "node scripts/seed-teachers.mjs",
+    "seed:teachers:dry": "node scripts/seed-teachers.mjs --dry-run",
+    "extract:schedules": "node scripts/extract-teacher-schedules.mjs",
+    "seed:schedules": "node scripts/seed-teacher-schedules.mjs",
+    "seed:schedules:dry": "node scripts/seed-teacher-schedules.mjs --dry-run",
+    "seed:may-payroll": "node scripts/seed-may-payroll.mjs",
+    "seed:may-payroll:dry": "node scripts/seed-may-payroll.mjs --dry-run",
+    "seed:may-payroll:probe": "node scripts/seed-may-payroll.mjs --probe-sheet"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
@@ -22,6 +33,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "dotenv": "^17.4.2",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",

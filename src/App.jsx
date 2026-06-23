@@ -15,12 +15,16 @@ import { createClient } from "@supabase/supabase-js";
 import { QRCodeCanvas } from "qrcode.react";
 import { PersonStanding, ChevronLeft, ChevronRight } from "lucide-react";
 import GrowthApp from "./GrowthApp.jsx";
+import ScheduleApp from "./ScheduleApp.jsx";
 import PeResourcesApp from "./PeResourcesApp.jsx";
 import EnglishScriptApp from "./EnglishScriptApp.jsx";
 import SituationManualApp from "./SituationManualApp.jsx";
 import ChildTypeApp from "./ChildTypeApp.jsx";
 import ClassFlowTipsApp from "./ClassFlowTipsApp.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
+import MyGearRotationPage, { checkRotationRentalConflicts } from "./MyGearRotationPage.jsx";
+import GearRotationManagePage from "./GearRotationManagePage.jsx";
+import { isGearTeacher, isItemAdmin, isSuperAdmin } from "./authRoles.js";
 
 const GEAR_SCAN_KEY = "gts_gear_scan";
 
@@ -188,16 +192,8 @@ const ROLE_CFG = {
   teacher:    { label:"선생님",     bg:"#ede9fe", color:"#5b21b6" },
 };
 
-// ═══════════════════════════════════════════════════════════════════════
-// 권한 헬퍼
-// ═══════════════════════════════════════════════════════════════════════
-const isSuperAdmin = (u) => u?.role === "superadmin" || u?.id === SUPER_ADMIN_ID;
-const isAdmin      = (u) => isSuperAdmin(u) || u?.role === "admin";
-const canManage    = (u) => isAdmin(u) && u?.active !== false;
-const canEditItems = (u) => isAdmin(u);
-
-// ═══════════════════════════════════════════════════════════════════════
-// HELPERS
+const canManage    = (u) => isItemAdmin(u) && u?.active !== false;
+const canEditItems = (u) => isItemAdmin(u);
 // ═══════════════════════════════════════════════════════════════════════
 const fmt   = d => d ? new Date(d).toLocaleDateString("ko-KR") : "-";
 const fmtdt = d => d ? new Date(d).toLocaleString("ko-KR") : "-";
@@ -921,6 +917,8 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "my-reservations") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>;
   if (id === "english-script") return <svg {...s} viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></svg>;
   if (id === "rental-manage") return <svg {...s} viewBox="0 0 24 24"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/><path d="M21 12H3"/></svg>;
+  if (id === "my-gear-rotation") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l3 2"/></svg>;
+  if (id === "gear-rotation-manage") return <svg {...s} viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg>;
   if (id === "more") return <svg {...s} viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill={color} stroke="none"/><circle cx="12" cy="12" r="1.2" fill={color} stroke="none"/><circle cx="19" cy="12" r="1.2" fill={color} stroke="none"/></svg>;
   return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>;
 }
@@ -929,7 +927,8 @@ function isNavPageActive(page, navId) {
   const aliases = {
     items: ["items", "item-detail"],
     "items-browse": ["items-browse"],
-    gear: ["items", "item-detail", "items-register", "items-qr"],
+    "my-gear-rotation": ["my-gear-rotation", "item-detail"],
+    gear: ["items", "item-detail", "items-register", "items-qr", "gear-rotation-manage"],
     rental: ["rental-approval", "rental-status", "returns-approval", "overdue", "reservation-approval"],
     "rental-manage": ["rental-approval", "rental-status", "returns-approval", "overdue", "rental-manage", "rentals"],
     "rental-return": ["rental-return", "rentals", "my-rental-status", "return-request"],
@@ -942,17 +941,19 @@ function isNavPageActive(page, navId) {
 
 function buildSidebarNav(me) {
   const superA = isSuperAdmin(me);
-  const admin = isAdmin(me) && !superA;
+  const admin = isItemAdmin(me) && !superA;
 
   if (superA) {
     return [
       { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
+      { type: "item", id: "my-gear-rotation", label: "이번 달 내 교구", glyph: "my-gear-rotation" },
       { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
       {
         type: "group", id: "gear", label: "교구관리", glyph: "items",
         children: [
           { id: "items", label: "전체교구" },
           { id: "items-register", label: "교구등록" },
+          { id: "gear-rotation-manage", label: "순환 교구 관리" },
           { id: "items-qr", label: "QR관리" },
         ],
       },
@@ -978,8 +979,10 @@ function buildSidebarNav(me) {
   if (admin) {
     return [
       { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
+      { type: "item", id: "my-gear-rotation", label: "이번 달 내 교구", glyph: "my-gear-rotation" },
       { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
       { type: "item", id: "items", label: "교구관리", glyph: "items" },
+      { type: "item", id: "gear-rotation-manage", label: "순환 교구 관리", glyph: "gear-rotation-manage" },
       {
         type: "group", id: "rental", label: "대여관리", glyph: "rental-manage",
         children: [
@@ -1000,6 +1003,7 @@ function buildSidebarNav(me) {
 
   return [
     { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
+    { type: "item", id: "my-gear-rotation", label: "이번 달 내 교구", glyph: "my-gear-rotation" },
     { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
     { type: "item", id: "items", label: "교구검색", glyph: "items" },
     { type: "item", id: "qr-scan", label: "QR 스캔", glyph: "qr-scan" },
@@ -1023,7 +1027,7 @@ function flattenSidebarNav(nav) {
 
 function buildMobileBottomNav(me) {
   const superA = isSuperAdmin(me);
-  const admin = isAdmin(me) && !superA;
+  const admin = isItemAdmin(me) && !superA;
   if (superA || admin) {
     return [
       { id: "dashboard", label: "대시보드", glyph: "dashboard" },
@@ -1044,7 +1048,7 @@ function buildMobileBottomNav(me) {
 
 function buildMobileMoreNav(me, bottomNav) {
   const pinned = new Set(bottomNav.filter(n => n.id !== "more").map(n => n.id));
-  const isTeacher = me?.role === "teacher" && !isAdmin(me);
+  const isTeacher = isGearTeacher(me);
   const all = flattenSidebarNav(buildSidebarNav(me));
   const extra = isTeacher
     ? [{ id: "rental-return", label: "대여 신청", glyph: "rental-return" }]
@@ -1392,7 +1396,7 @@ function MobileNavDrawer({
             marginBottom: 10,
           }}>
             <div style={{ fontWeight: 700, fontSize: 14, color: "#fff", marginBottom: 4 }}>{me.name}님</div>
-            <div style={{ marginBottom: 10 }}><RoleBadge role={me.role}/></div>
+            <div style={{ marginBottom: 10 }}><RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/></div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <button
                 type="button"
@@ -1609,6 +1613,8 @@ const panelCard = {
 
 const PAGE_META = {
   dashboard:          { title: "대시보드",     sub: "오늘도 안정적이고 효율적인 자산 관리를 시작해보세요." },
+  "my-gear-rotation":   { title: "이번 달 내 교구", sub: "이번 주 교구와 월별 순환 교구를 확인합니다." },
+  "gear-rotation-manage": { title: "순환 교구 관리", sub: "알파벳별 주차 교구 목록을 수정합니다." },
   "rental-status":    { title: "대여현황",     sub: "선생님별 대여·반납 현황을 한눈에 확인하세요." },
   items:              { title: "전체교구",     sub: "교구 재고를 조회하고 관리합니다." },
   "items-browse":     { title: "교구 둘러보기", sub: "카테고리별 교구 사진과 대여 가능 수량을 확인합니다." },
@@ -1639,6 +1645,7 @@ const DETAIL_BACK_LABELS = {
   items: "교구 검색",
   "items-register": "교구 관리",
   "items-browse": "교구 둘러보기",
+  "my-gear-rotation": "이번 달 내 교구",
   "qr-scan": "QR 스캔",
   "qr-rent": "QR 대여",
 };
@@ -1793,8 +1800,24 @@ function ReservationBadge({ res }) {
   );
 }
 
-function RoleBadge({role}) {
-  const r = ROLE_CFG[role]||ROLE_CFG.teacher;
+const ITEM_ADMIN_CFG = { label: "교구관리자", bg: "#dbeafe", color: "#1d4ed8" };
+
+function RoleBadge({ role, isItemAdmin: itemAdmin }) {
+  if (itemAdmin && role === "teacher") {
+    const r = ITEM_ADMIN_CFG;
+    return (
+      <span style={{
+        display: "inline-block",
+        padding: "3px 10px",
+        borderRadius: 99,
+        fontSize: 11,
+        fontWeight: 700,
+        background: r.bg,
+        color: r.color,
+      }}>{r.label}</span>
+    );
+  }
+  const r = ROLE_CFG[role] || ROLE_CFG.teacher;
   return (
     <span style={{
       display:"inline-block",
@@ -1885,7 +1908,8 @@ function Txa2({label,...p}) {
   return <Fld label={label}><textarea {...p} style={{...inp,minHeight:72,resize:"vertical",...(p.style||{})}}/></Fld>;
 }
 
-function Modal({title,onClose,children,noPad}) {
+function Modal({title,onClose,children,noPad,dismissible=true}) {
+  const handleBackdrop = dismissible && onClose ? onClose : undefined;
   return (
     <div style={{
       position:"fixed",inset:0,
@@ -1895,7 +1919,7 @@ function Modal({title,onClose,children,noPad}) {
       display:"flex",
       alignItems:"flex-end",
       justifyContent:"center",
-    }} onClick={onClose}>
+    }} onClick={handleBackdrop}>
       <div style={{
         background:"#fff",
         borderRadius:"16px 16px 0 0",
@@ -1909,6 +1933,7 @@ function Modal({title,onClose,children,noPad}) {
         {!noPad && (
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
             <div style={{fontSize:17,fontWeight:800,color:DS.textPrimary}}>{title}</div>
+            {dismissible && onClose ? (
             <button onClick={onClose} style={{
               background:"#f1f5f9",
               border:"none",
@@ -1919,6 +1944,7 @@ function Modal({title,onClose,children,noPad}) {
               fontWeight:700,
               color:DS.textSecondary,
             }}>닫기</button>
+            ) : null}
           </div>
         )}
         {children}
@@ -2390,7 +2416,7 @@ function LoginPage() {
 // ═══════════════════════════════════════════════════════════════════════
 // 비밀번호 변경
 // ═══════════════════════════════════════════════════════════════════════
-function ChangePwModal({ email, onClose }) {
+function ChangePwModal({ email, onClose, required = false }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [conf, setConf] = useState("");
@@ -2422,7 +2448,14 @@ function ChangePwModal({ email, onClose }) {
       return;
     }
 
-    const { error } = await supabase.auth.updateUser({ password: next });
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.auth.updateUser({
+      password: next,
+      data: {
+        ...(user?.user_metadata || {}),
+        must_change_password: false,
+      },
+    });
     setLoading(false);
     if (error) { setErr(error.message); return; }
     setCurrent("");
@@ -2431,15 +2464,32 @@ function ChangePwModal({ email, onClose }) {
     setOk(true);
   };
 
+  const finish = () => {
+    if (required) window.location.reload();
+    else onClose?.();
+  };
+
   return (
-    <Modal title="비밀번호 변경" onClose={onClose}>
+    <Modal
+      title={required ? "최초 로그인 — 비밀번호 변경" : "비밀번호 변경"}
+      onClose={required ? undefined : onClose}
+      dismissible={!required}
+    >
+      {required && !ok ? (
+        <div style={{
+          background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10,
+          padding: "10px 13px", marginBottom: 14, fontSize: 12, color: "#9a3412", fontWeight: 600, lineHeight: 1.5,
+        }}>
+          보안을 위해 초기 비밀번호를 변경해야 합니다. 변경 전까지 다른 메뉴를 사용할 수 없습니다.
+        </div>
+      ) : null}
       {ok ? (
         <div style={{ textAlign: "center", padding: "28px 0" }}>
           <div style={{ fontWeight: 700, fontSize: 16, color: DS.textPrimary, marginBottom: 8 }}>변경 완료</div>
           <div style={{ fontSize: 13, color: DS.textMuted, marginBottom: 18, lineHeight: 1.5 }}>
             비밀번호가 변경되었습니다.
           </div>
-          <Btn full onClick={onClose}>확인</Btn>
+          <Btn full onClick={finish}>확인</Btn>
         </div>
       ) : (
         <>
@@ -3031,22 +3081,40 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
     setLogOpen(true);
   };
 
-  const promoteToAdmin = async (t) => {
-    if (!confirm(`${t.name}을(를) 관리자로 임명하시겠습니까?`)) return;
-    const { error } = await supabase.from("teachers").update({role:"admin"}).eq("id",t.id);
+  const promoteToItemAdmin = async (t) => {
+    if (!confirm(`${t.name}을(를) 교구 관리자로 임명하시겠습니까?\n(스케줄·급여 관리 권한은 부여되지 않습니다)`)) return;
+    const { error } = await supabase.from("teachers").update({ is_item_admin: true }).eq("id", t.id);
     if (error) { alert(error.message); return; }
-    setTeachers(p=>p.map(x=>x.id===t.id?{...x,role:"admin"}:x));
-    await logAction("role_change","관리자 임명",t);
-    alert(`${t.name}이(가) 관리자로 임명되었습니다`);
+    setTeachers(p => p.map(x => x.id === t.id ? { ...x, is_item_admin: true } : x));
+    await logAction("role_change", "교구 관리자 임명", t);
+    alert(`${t.name}이(가) 교구 관리자로 임명되었습니다`);
+  };
+
+  const demoteFromItemAdmin = async (t) => {
+    if (!confirm(`${t.name}의 교구 관리자 권한을 해제하시겠습니까?`)) return;
+    const { error } = await supabase.from("teachers").update({ is_item_admin: false }).eq("id", t.id);
+    if (error) { alert(error.message); return; }
+    setTeachers(p => p.map(x => x.id === t.id ? { ...x, is_item_admin: false } : x));
+    await logAction("role_change", "교구 관리자 해제", t);
+    alert(`${t.name}의 교구 관리자 권한이 해제되었습니다`);
+  };
+
+  const promoteToScheduleAdmin = async (t) => {
+    if (!confirm(`${t.name}을(를) 스케줄 관리자로 임명하시겠습니까?\n(원 관리·급여·정산 — 교구 관리 권한도 함께 부여됩니다)`)) return;
+    const { error } = await supabase.from("teachers").update({ role: "admin" }).eq("id", t.id);
+    if (error) { alert(error.message); return; }
+    setTeachers(p => p.map(x => x.id === t.id ? { ...x, role: "admin" } : x));
+    await logAction("role_change", "스케줄 관리자 임명", t);
+    alert(`${t.name}이(가) 스케줄 관리자로 임명되었습니다`);
   };
 
   const demoteToTeacher = async (t) => {
-    if (!confirm(`${t.name}의 관리자 권한을 해제하시겠습니까?`)) return;
-    const { error } = await supabase.from("teachers").update({role:"teacher"}).eq("id",t.id);
+    if (!confirm(`${t.name}의 스케줄 관리자 권한을 해제하시겠습니까?`)) return;
+    const { error } = await supabase.from("teachers").update({ role: "teacher" }).eq("id", t.id);
     if (error) { alert(error.message); return; }
-    setTeachers(p=>p.map(x=>x.id===t.id?{...x,role:"teacher"}:x));
-    await logAction("role_change","관리자 해제",t);
-    alert(`${t.name}의 관리자 권한이 해제되었습니다`);
+    setTeachers(p => p.map(x => x.id === t.id ? { ...x, role: "teacher" } : x));
+    await logAction("role_change", "스케줄 관리자 해제", t);
+    alert(`${t.name}의 스케줄 관리자 권한이 해제되었습니다`);
   };
 
   const toggleActive = async (t) => {
@@ -3074,7 +3142,7 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
     setLoading(true); setErr("");
     const { data, error } = await supabase.auth.signUp({
       email: f.email.trim(), password: f.password,
-      options: { data:{ name:f.name.trim(), role:f.role, phone:f.phone.trim() } },
+      options: { data:{ name:f.name.trim(), role:f.role, phone:f.phone.trim(), must_change_password: true } },
     });
     if (error) { setErr(error.message); setLoading(false); return; }
     if (!data?.user?.id) { setErr("계정 생성 실패"); setLoading(false); return; }
@@ -3112,8 +3180,9 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
     alert(`${f.name} 계정이 생성되었습니다!\n\n이메일: ${f.email}\n비밀번호: ${f.password}\n\n선생님께 직접 전달해 주세요.`);
   };
 
-  const admins  = teachers.filter(t=>t.role==="admin");
-  const tList   = teachers.filter(t=>t.role==="teacher");
+  const admins  = teachers.filter(t => t.role === "admin");
+  const itemAdmins = teachers.filter(t => t.role === "teacher" && t.is_item_admin);
+  const tList   = teachers.filter(t => t.role === "teacher");
 
   const sectionTitle = (text) => (
     <div style={{
@@ -3130,7 +3199,7 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary }}>{t.name}</span>
-          <RoleBadge role={t.role} />
+          <RoleBadge role={t.role} isItemAdmin={t.is_item_admin} />
           {showSelfBadge && t.id === me.id && (
             <span style={{ background: "#dcfce7", color: "#16a34a", padding: "2px 8px", borderRadius: 99, fontSize: 10, fontWeight: 700 }}>나</span>
           )}
@@ -3164,8 +3233,9 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
         gap:14,marginBottom:24,
       }}>
         <DashStatCard label="전체 사용자" value={teachers.length} iconMark="전체" iconBg={DS.primaryLight} iconColor={DS.primary}/>
-        <DashStatCard label="관리자" value={admins.length} iconMark="관리" iconBg="#fee2e2" iconColor="#dc2626"/>
-        <DashStatCard label="선생님" value={tList.length} iconMark="선생" iconBg="#ede9fe" iconColor="#7c3aed"/>
+        <DashStatCard label="스케줄 관리자" value={admins.length} iconMark="관리" iconBg="#fee2e2" iconColor="#dc2626"/>
+        <DashStatCard label="교구 관리자" value={itemAdmins.length} iconMark="교구" iconBg="#dbeafe" iconColor="#1d4ed8"/>
+        <DashStatCard label="선생님" value={tList.filter(t => !t.is_item_admin).length} iconMark="선생" iconBg="#ede9fe" iconColor="#7c3aed"/>
       </div>
 
       <div style={{
@@ -3174,7 +3244,7 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
         marginBottom:16,fontSize:12,color:"#9a3412",
         fontWeight:600,
       }}>
-        슈퍼관리자 전용 메뉴입니다. 관리자 임명·해제 및 계정 관리를 할 수 있습니다.
+        슈퍼관리자 전용 메뉴입니다. 스케줄·교구 관리자 임명 및 계정 관리를 할 수 있습니다.
       </div>
 
       {sectionTitle("슈퍼관리자")}
@@ -3187,8 +3257,8 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
         </div>
       ))}
 
-      {sectionTitle(`관리자 (${admins.length}명)`)}
-      {admins.length===0 && <div style={{color:DS.textMuted,fontSize:13,padding:"8px 0"}}>임명된 관리자가 없습니다</div>}
+      {sectionTitle(`스케줄 관리자 (${admins.length}명)`)}
+      {admins.length===0 && <div style={{color:DS.textMuted,fontSize:13,padding:"8px 0"}}>임명된 스케줄 관리자가 없습니다</div>}
       {admins.map(t=>{
         const held=ris.filter(ri=>["rented","partial_returned"].includes(ri.status)&&reqs.find(r=>r.id===ri.request_id&&r.teacher_id===t.id));
         return (
@@ -3199,7 +3269,7 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
                 <div style={{fontSize:11,color:DS.textMuted,marginTop:6}}>보유 교구: {held.reduce((s,r)=>s+r.quantity,0)}개</div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                <Btn sm ghost danger onClick={()=>demoteToTeacher(t)}>관리자 해제</Btn>
+                <Btn sm ghost danger onClick={()=>demoteToTeacher(t)}>스케줄 관리자 해제</Btn>
                 <Btn sm ghost color={t.active===false?"#16a34a":"#dc2626"} onClick={()=>toggleActive(t)}>
                   {t.active===false?"활성화":"비활성화"}
                 </Btn>
@@ -3220,7 +3290,12 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
                 <div style={{fontSize:11,color:DS.textMuted,marginTop:6}}>보유: {held.reduce((s,r)=>s+r.quantity,0)}개</div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                <Btn sm color={DS.primary} onClick={()=>promoteToAdmin(t)}>관리자 임명</Btn>
+                {t.is_item_admin ? (
+                  <Btn sm ghost danger onClick={() => demoteFromItemAdmin(t)}>교구 관리자 해제</Btn>
+                ) : (
+                  <Btn sm color={DS.primary} onClick={() => promoteToItemAdmin(t)}>교구 관리자 임명</Btn>
+                )}
+                <Btn sm ghost onClick={() => promoteToScheduleAdmin(t)}>스케줄 관리자 임명</Btn>
                 <Btn sm ghost color={t.active===false?"#16a34a":"#dc2626"} onClick={()=>toggleActive(t)}>
                   {t.active===false?"활성화":"비활성화"}
                 </Btn>
@@ -3249,7 +3324,7 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
           </Fld>
           <Sel2 label="권한" value={f.role} onChange={e=>setF(p=>({...p,role:e.target.value}))}>
             <option value="teacher">선생님</option>
-            <option value="admin">관리자</option>
+            <option value="admin">스케줄 관리자</option>
           </Sel2>
           {err && <div style={{background:"#fee2e2",color:"#dc2626",borderRadius:8,padding:"10px 13px",fontSize:12,fontWeight:600,marginBottom:12}}>{err}</div>}
           <Btn full onClick={handleAdd} disabled={loading}>{loading?"생성 중...":"계정 생성"}</Btn>
@@ -3279,7 +3354,7 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
 // 대시보드 — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
 function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,onReject,onApproveRet,onDamage,onLoss,onApproveReservation,onRejectReservation}) {
-  const admin = isAdmin(me);
+  const admin = isItemAdmin(me);
   const [activePanel,setActivePanel]=useState(null);
   const [rejectId,setRejectId]=useState(null);
   const [reason,setReason]=useState("");
@@ -3609,7 +3684,7 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
                   </div>
                   <div>
                     <span style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{t.name}</span>
-                    <div style={{marginTop:1}}><RoleBadge role={t.role}/></div>
+                    <div style={{marginTop:1}}><RoleBadge role={t.role} isItemAdmin={t.is_item_admin}/></div>
                   </div>
                 </div>
                 <span style={{background:"#ede9fe",color:"#7c3aed",padding:"4px 12px",borderRadius:99,fontSize:12,fontWeight:700}}>
@@ -5280,7 +5355,7 @@ function NoticeEditModal({ notice, onClose, onSave }) {
 }
 
 function NoticesPage({ me, notices, onAdd, onUpdate, onDelete }) {
-  const canWrite = isAdmin(me);
+  const canWrite = isItemAdmin(me);
   const canDelete = isSuperAdmin(me);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -5409,7 +5484,7 @@ function SettingsPage({me,onChangePw,onLogout}) {
       <PageHeader me={me} subtitle={PAGE_META.settings.sub}/>
       <PanelSection title="계정">
         <div style={{fontSize:14,fontWeight:600,color:DS.textPrimary,marginBottom:4}}>{me.name}</div>
-        <div style={{marginBottom:16}}><RoleBadge role={me.role}/></div>
+        <div style={{marginBottom:16}}><RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/></div>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
           <Btn onClick={onChangePw}>비밀번호 변경</Btn>
           <Btn danger onClick={onLogout}>로그아웃</Btn>
@@ -5983,7 +6058,7 @@ function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDeta
 }
 
 function ItemsQrPage({ me, items }) {
-  const canManageItems = isAdmin(me);
+  const canManageItems = isItemAdmin(me);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [catF, setCatF] = useState("ALL");
   const [printFilter, setPrintFilter] = useState("ALL");
@@ -6603,7 +6678,7 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
 // 대여 신청 관리
 // ═══════════════════════════════════════════════════════════════════════
 function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCancelRequest,onEditRequest,embedded=false}) {
-  const admin=isAdmin(me);
+  const admin=isItemAdmin(me);
   const[tab,setTab]=useState("active");
   const[rejectId,setRejectId]=useState(null);
   const[reason,setReason]=useState("");
@@ -6663,7 +6738,7 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCance
               <div>
                 {admin&&(
                   <div style={{fontSize:11,fontWeight:700,color:DS.primary,marginBottom:3}}>
-                    {t?.name} <RoleBadge role={t?.role}/>
+                    {t?.name} <RoleBadge role={t?.role} isItemAdmin={t?.is_item_admin}/>
                   </div>
                 )}
                 <div style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{req.dispatch_location}</div>
@@ -7058,6 +7133,7 @@ const HUB_APP_ROUTES = {
   edu: "/gear",
   pe: "/pe-resources",
   english: "/english-script",
+  schedule: "/schedule",
   growth: "/growth",
 };
 
@@ -7185,6 +7261,15 @@ function AuthenticatedRoutes({ me, session, logout }) {
         )}
       />
       <Route
+        path="/schedule"
+        element={(
+          <ScheduleApp
+            me={me}
+            onBack={() => navigate("/")}
+          />
+        )}
+      />
+      <Route
         path="/growth"
         element={<GrowthApp onBack={() => navigate("/")} supabaseUser={me}/>}
       />
@@ -7289,6 +7374,24 @@ export default function App() {
     </div>
   );
 
+  if (session?.user?.user_metadata?.must_change_password) {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        background: "linear-gradient(160deg,#0D1829 0%,#1C2951 50%,#0D1829 100%)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        fontFamily: "'Noto Sans KR',sans-serif",
+      }}>
+        <div style={{ width: "100%", maxWidth: 560 }}>
+          <ChangePwModal email={session.user.email} required/>
+        </div>
+      </div>
+    );
+  }
+
   return <AuthenticatedRoutes me={me} session={session} logout={logout}/>;
 }
 
@@ -7383,11 +7486,12 @@ const HUB_MODULES = [
     color: "#a855f7",
     bg: "linear-gradient(145deg, #150d24 0%, #1f1535 100%)",
     border: "rgba(168, 85, 247, 0.35)",
-    features: ["선생님 월별 일정", "원 수업 일정", "개인 레슨 일정", "행사 일정"],
+    features: ["선생님 월별 일정", "원 수업 일정", "급여/정산", "원 관리"],
     btn: "스케줄 관리 입장 →",
     Icon: HubIconCalendar,
     wide: false,
-    ready: false,
+    ready: true,
+    appRoute: "schedule",
   },
   {
     id: "resources",
@@ -7564,7 +7668,7 @@ function HubPage({ me, onSelect, onLogout }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(255,255,255,0.9)" }}>{me.name}님</span>
-          <RoleBadge role={me.role}/>
+          <RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/>
           <button type="button" onClick={onLogout} style={logoutBtn}>로그아웃</button>
         </div>
       </header>
@@ -7773,6 +7877,19 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   const submitRent = async ({dispatch_location,dispatch_start,dispatch_end,memo,items:ci}) => {
+    const conflicts = await checkRotationRentalConflicts(supabase, {
+      me, cartItems: ci, items, dispatch_start, dispatch_end, teachers,
+    });
+    if (conflicts.length) {
+      const lines = conflicts.map(c =>
+        `• ${c.itemName}: ${c.teacherName} 선생님 (${c.dateRange}, ${c.targetType})`,
+      );
+      const hasSingleStock = conflicts.some(c => (c.totalQuantity ?? 1) <= 1);
+      const msg = `이 교구는 순환 배정과 겹칩니다:\n\n${lines.join("\n")}`;
+      if (hasSingleStock) {
+        if (!confirm(`${msg}\n\n재고가 1개인 교구입니다. 그래도 신청하시겠습니까?`)) return;
+      } else if (!confirm(`${msg}\n\n계속 신청하시겠습니까?`)) return;
+    }
     const {data:newReq,error}=await supabase.from("rental_requests").insert({teacher_id:me.id,dispatch_location,dispatch_start,dispatch_end,memo,status:"pending"}).select().single();
     if(error||!newReq){alert("신청 오류: "+error?.message);return;}
     const {data:newRIs}=await supabase.from("rental_items").insert(ci.map(c=>({request_id:newReq.id,item_id:c.item_id,quantity:c.quantity,due_date:c.due_date||dispatch_end,status:"pending"}))).select();
@@ -8208,7 +8325,7 @@ function EquipmentApp({ onBack, me, session }) {
     </div>
   );
 
-  const admin  = isAdmin(me);
+  const admin  = isItemAdmin(me);
   const superA = isSuperAdmin(me);
   const reqBadge = reqs.filter(r=>r.status==="pending").length;
   const retBadge = filterReturnPendingLastWeek(rets).length;
@@ -8228,7 +8345,7 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   const renderPage = () => {
-    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","stats","report","settings","rental-manage","reservation-approval"].includes(page)) {
+    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","gear-rotation-manage","stats","report","settings","rental-manage","reservation-approval"].includes(page)) {
       return (
         <PageShell>
           <div style={{textAlign:"center",padding:"70px 20px"}}>
@@ -8271,7 +8388,27 @@ function EquipmentApp({ onBack, me, session }) {
             onCancelReservation={cancelReservation}
           />
         )}
-        {page==="items-qr"&&isAdmin(me)&&<ItemsQrPage me={me} items={items}/>}
+        {page==="my-gear-rotation"&&(
+          <MyGearRotationPage
+            me={me}
+            items={items}
+            onDetail={(item, from) => openItemDetail(item, from)}
+            onGoRental={() => setPage("rental-return")}
+            PageHeader={PageHeader}
+            PageShell={PageShell}
+          />
+        )}
+        {page==="gear-rotation-manage"&&isItemAdmin(me)&&(
+          <GearRotationManagePage
+            me={me}
+            items={items}
+            onSaveItem={saveItem}
+            onReloadItems={loadAll}
+            PageHeader={PageHeader}
+            PageShell={PageShell}
+          />
+        )}
+        {page==="items-qr"&&isItemAdmin(me)&&<ItemsQrPage me={me} items={items}/>}
         {page==="qr-scan"&&(
           <QrScanPage
             me={me}
@@ -8338,7 +8475,7 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="returns-approval"&&<ReturnsApprovalPage me={me} rets={rets} ris={ris} items={items} teachers={teachers} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
         {page==="rental-manage"&&<RentalManageHubPage me={me} setPage={setPage}/>}
         {page==="stats"&&<StatsPage me={me} items={items} ris={ris} reqs={reqs} teachers={teachers}/>}
-        {page==="report"&&isAdmin(me)&&<ReportPage me={me} items={items} ris={ris} rets={rets} reqs={reqs} teachers={teachers}/>}
+        {page==="report"&&isItemAdmin(me)&&<ReportPage me={me} items={items} ris={ris} rets={rets} reqs={reqs} teachers={teachers}/>}
         {page==="notices"&&<NoticesPage me={me} notices={notices} onAdd={addNotice} onUpdate={updateNotice} onDelete={deleteNotice}/>}
         {page==="settings"&&<SettingsPage me={me} onChangePw={()=>setShowPwModal(true)} onLogout={logout}/>}
         {page==="accounts"&&superA&&<AccountsPage me={me} teachers={teachers} setTeachers={setTeachers} ris={ris} reqs={reqs} items={items}/>}
@@ -8634,7 +8771,7 @@ function EquipmentApp({ onBack, me, session }) {
           }}>
             <div style={{ padding: "14px 16px", borderBottom: "1px solid #f1f5f9" }}>
               <div style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary }}>{me.name}</div>
-              <div style={{ marginTop: 6 }}><RoleBadge role={me.role}/></div>
+              <div style={{ marginTop: 6 }}><RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/></div>
               <div style={{ fontSize: 12, color: DS.textMuted, marginTop: 6, overflow: "hidden", textOverflow: "ellipsis" }}>{session.user.email}</div>
             </div>
             <button

@@ -5341,3 +5341,1731 @@ code {
   color: #92400E;
   line-height: 1.6;
 }
+
+/* ── 스케줄 관리 ── */
+.schedule-app {
+  min-height: 100vh;
+  background: #f8fafc;
+  font-family: "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.sch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.sch-logo-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.sch-platform-gts { font-weight: 800; color: #0f172a; }
+.sch-platform-label { color: #64748b; font-weight: 600; }
+
+.sch-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 12px;
+}
+.sch-user--inline {
+  flex-direction: row;
+  align-items: center;
+}
+.sch-user--inline .sch-user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.sch-user-name { font-weight: 700; color: #0f172a; }
+.sch-user-role { color: #94a3b8; }
+
+.sch-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 16px 48px;
+}
+
+.sch-hero { margin-bottom: 24px; }
+.sch-page-title { font-size: 26px; font-weight: 800; color: #0f172a; margin: 0 0 8px; }
+.sch-page-desc { margin: 0; color: #64748b; font-size: 14px; }
+
+.sch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.sch-card {
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 18px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.sch-card:hover:not(:disabled) {
+  border-color: var(--sch-accent, #a855f7);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.sch-card--soon { opacity: 0.55; cursor: not-allowed; }
+.sch-card-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: color-mix(in srgb, var(--sch-accent, #a855f7) 12%, white);
+  color: var(--sch-accent, #a855f7);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 12px;
+}
+.sch-card-title { font-weight: 800; color: #0f172a; margin-bottom: 6px; }
+.sch-card-desc { font-size: 13px; color: #64748b; line-height: 1.5; }
+.sch-card-badge {
+  display: inline-block; margin-top: 10px; font-size: 11px; font-weight: 700;
+  color: #94a3b8; background: #f1f5f9; padding: 4px 8px; border-radius: 99px;
+}
+
+.sch-view-header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin-bottom: 16px;
+}
+.sch-view-title { font-size: 20px; font-weight: 800; margin: 0; flex: 1; }
+.sch-back-btn, .sch-link-btn {
+  background: none; border: none; color: #0f172a; font-weight: 600;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 0;
+}
+.sch-muted { color: #94a3b8; font-size: 13px; }
+
+.sch-btn {
+  border: 1px solid #e2e8f0; background: #fff; border-radius: 10px;
+  padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.sch-btn--primary { background: #4d7c59; border-color: #4d7c59; color: #fff; }
+.sch-btn--ghost { background: #f8fafc; }
+.sch-btn--block { width: 100%; justify-content: center; }
+
+.sch-input, .sch-select {
+  border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px;
+  font-size: 14px; font-family: inherit; background: #fff;
+}
+.sch-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; align-items: center; }
+
+.sch-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.sch-tab {
+  border: 1px solid #e2e8f0; background: #fff; border-radius: 99px;
+  padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.sch-tab.active { background: #334155; color: #fff; border-color: #334155; }
+
+.sch-form { display: grid; gap: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; }
+.sch-form--mobile { margin-bottom: 20px; }
+.sch-form-title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 15px; }
+.sch-field { display: grid; gap: 6px; font-size: 13px; color: #475569; }
+.sch-field span { font-weight: 600; }
+.sch-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.sch-chip {
+  border: 1px solid #e2e8f0; background: #fff; border-radius: 99px;
+  padding: 8px 12px; font-size: 13px; cursor: pointer;
+}
+.sch-chip.active { background: #f1f5f9; border-color: #94a3b8; color: #0f172a; font-weight: 700; }
+.sch-time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.sch-summary-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px; margin-bottom: 16px;
+}
+.sch-summary-card {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px;
+}
+.sch-summary-card--accent { background: #f8fafc; border-color: #e2e8f0; }
+.sch-summary-label { font-size: 12px; color: #64748b; }
+.sch-summary-value { font-size: 15px; font-weight: 800; color: #0f172a; margin-top: 4px; }
+
+.sch-entry-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sch-entry-item {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px;
+}
+.sch-entry-item.locked { opacity: 0.7; }
+.sch-entry-date { font-weight: 700; color: #0f172a; }
+.sch-entry-meta { font-size: 13px; color: #64748b; margin-top: 2px; }
+.sch-lock-badge { font-size: 11px; color: #b45309; font-weight: 700; }
+.sch-icon-btn { background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; }
+
+.sch-table-wrap { overflow-x: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; }
+.sch-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sch-table th, .sch-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: left; white-space: nowrap; }
+.sch-table th { background: #f8fafc; color: #64748b; font-weight: 700; }
+.sch-row-warn { background: #fff7ed; }
+.sch-field--highlight { padding: 10px; margin: -4px -10px 8px; background: #fef3c7; border-radius: 10px; border: 1px solid #fcd34d; }
+.sch-field--highlight .sch-select { border-color: #f59e0b; font-weight: 600; }
+.sch-institution-hint { font-size: 13px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; line-height: 1.45; }
+.sch-billing-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+.sch-billing-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.sch-billing-preview { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding: 12px 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; font-size: 14px; }
+.sch-billing-preview strong { font-size: 18px; color: #15803d; }
+.sch-billing-note { margin: 0 0 10px; font-size: 13px; }
+.sch-billing-prefill-hint {
+  margin: 0 0 12px; padding: 10px 12px; border-radius: 10px;
+  background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; font-size: 13px;
+}
+.sch-form--inline-billing {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px;
+}
+.sch-toolbar--inst-list {
+  flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 14px;
+}
+.sch-toolbar--inst-dash {
+  flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 14px;
+}
+.sch-field--grow { flex: 1 1 180px; min-width: 140px; }
+.sch-bulk-revenue-view .sch-bulk-revenue-desc {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sch-bulk-revenue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.sch-bulk-revenue-row {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.sch-bulk-revenue-row--warn {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+.sch-bulk-revenue-row--prefill {
+  border-left: 3px solid #93c5fd;
+}
+.sch-bulk-revenue-row-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+.sch-bulk-revenue-row-info {
+  display: grid;
+  gap: 2px;
+  min-width: 180px;
+  flex: 1 1 200px;
+}
+.sch-bulk-revenue-name { font-size: 14px; color: #0f172a; }
+.sch-bulk-revenue-meta { font-size: 12px; }
+.sch-bulk-revenue-hint {
+  font-size: 11px;
+  color: #2563eb;
+  margin-top: 2px;
+}
+.sch-bulk-revenue-row-input {
+  flex: 1 1 240px;
+  display: flex;
+  justify-content: flex-end;
+}
+.sch-bulk-revenue-amount-field,
+.sch-bulk-revenue-session-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.sch-bulk-revenue-amount-input {
+  width: min(160px, 100%);
+  text-align: right;
+}
+.sch-bulk-revenue-sessions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 14px;
+}
+.sch-bulk-revenue-preview {
+  font-size: 12px;
+  font-weight: 700;
+  color: #15803d;
+  white-space: nowrap;
+}
+.sch-bulk-revenue-na {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  padding: 6px 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+.sch-bulk-revenue-footer {
+  position: sticky;
+  bottom: 0;
+  margin-top: 16px;
+  padding: 14px 0 4px;
+  background: linear-gradient(to top, #faf8f5 75%, transparent);
+  display: flex;
+  justify-content: center;
+}
+.sch-btn--lg {
+  min-width: 200px;
+  padding: 12px 24px;
+  font-size: 15px;
+}
+.sch-toolbar-hint { margin: 0; flex: 1 1 100%; font-size: 12px; }
+.sch-billing-history { margin-top: 16px; font-size: 13px; color: #64748b; }
+.sch-session-count-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.sch-session-count-row { display: grid; grid-template-columns: minmax(80px, 1fr) 72px auto 1fr auto auto; gap: 8px; align-items: center; }
+.sch-session-count-label { display: grid; gap: 2px; }
+.sch-session-subtotal { font-weight: 700; color: #334155; white-space: nowrap; }
+.sch-input--narrow { max-width: 72px; }
+.sch-field--inline { display: inline-grid; }
+.sch-table-section--partner { border-top: 3px solid #f59e0b; padding-top: 8px; }
+.sch-alert-badge {
+  display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+  color: #dc2626; background: #fee2e2; padding: 2px 6px; border-radius: 99px;
+}
+
+.sch-week-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.sch-week-label { font-weight: 700; color: #334155; font-size: 14px; }
+
+.sch-month-nav {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin-bottom: 12px; flex-wrap: wrap;
+}
+.sch-month-label { font-weight: 800; color: #0f172a; font-size: 17px; min-width: 120px; text-align: center; }
+.sch-btn--today { margin-left: auto; font-size: 12px; }
+
+.sch-cal-legend {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; margin-bottom: 12px;
+  padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+}
+.sch-cal-legend-item {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #475569; font-weight: 600;
+}
+.sch-cal-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.sch-cal-dot--home-visit {
+  box-shadow: 0 0 0 1px #fff, 0 0 0 2px rgba(13, 148, 136, 0.55);
+}
+.sch-cal-ex-dot {
+  position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 50%;
+}
+.sch-cal-ex-dot--cancelled { background: #ef4444; }
+.sch-cal-ex-dot--event { background: #3b82f6; }
+.sch-cal-ex-dot--time_change { background: #f59e0b; }
+
+.sch-cal-grid {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden;
+  margin-bottom: 16px;
+}
+.sch-cal-head-row {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  background: #f8fafc; border-bottom: 1px solid #e2e8f0;
+}
+.sch-cal-head-cell {
+  padding: 8px 4px; text-align: center; font-size: 12px; font-weight: 800; color: #64748b;
+}
+.sch-cal-head-cell:first-child { color: #dc2626; }
+.sch-cal-head-cell:last-child { color: #2563eb; }
+.sch-cal-head-cell--weekend { color: #dc2626; }
+
+/* ── 급여/정산 화면 (절제된 레이아웃) ── */
+.sch-payroll-view {
+  --sch-beige: #f1efe8;
+  --sch-beige-text: #2c2c2a;
+  --sch-beige-border: #e3dfd4;
+  --sch-beige-btn: #9a8b72;
+  --sch-beige-btn-text: #f1efe8;
+  --sch-amber-bg: #fffbeb;
+  --sch-amber-border: #fde68a;
+  --sch-amber-text: #92400e;
+  display: flex; flex-direction: column; gap: 0;
+}
+.sch-payroll-view .sch-view-header { margin-bottom: 20px; }
+.sch-payroll-view .sch-view-header--center {
+  justify-content: center;
+}
+.sch-payroll-view .sch-view-header--center .sch-view-title {
+  flex: none;
+  width: 100%;
+  text-align: center;
+}
+
+.sch-payroll-view .sch-payroll-month-notices {
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  text-align: left;
+  background: var(--sch-beige);
+  border: 0.5px solid var(--sch-beige-border);
+  border-left: 3px solid var(--sch-beige-btn);
+  border-radius: 12px;
+}
+.sch-payroll-month-notices-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--sch-beige-text);
+}
+.sch-payroll-month-notices-icon {
+  flex-shrink: 0;
+  color: var(--sch-beige-btn);
+}
+.sch-payroll-month-notices-body {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+.sch-payroll-month-notices-empty {
+  margin: 0;
+  font-size: 14px;
+  color: #8a8578;
+  line-height: 1.5;
+}
+.sch-payroll-view .sch-payroll-month-notices .sch-month-notices-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+.sch-payroll-view .sch-payroll-month-notices .sch-month-notices-item {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--sch-beige-text);
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+.sch-payroll-view .sch-payroll-month-notices .sch-month-notices-inst {
+  display: inline;
+  margin-right: 6px;
+  font-weight: 700;
+  color: #9a8b72;
+}
+.sch-payroll-view .sch-payroll-month-notices .sch-month-notices-text {
+  display: inline;
+}
+.sch-payroll-view .sch-payroll-month-notices .sch-holiday-data-warn {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #8a8578;
+}
+
+.sch-payroll-view .sch-payroll-stats-strip {
+  margin-top: 24px;
+}
+
+.sch-payroll-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  background: #fff;
+  border: 0.5px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.sch-payroll-stat {
+  padding: 18px 10px;
+  text-align: center;
+  border-right: 0.5px solid #e5e7eb;
+  min-width: 0;
+}
+.sch-payroll-stat:last-child { border-right: none; }
+.sch-payroll-stat-label {
+  font-size: 13px; font-weight: 500; color: #94a3b8; margin-bottom: 8px;
+}
+.sch-payroll-stat-value {
+  font-size: 15px; font-weight: 600; color: #0f172a;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sch-payroll-stat-sub {
+  font-size: 11px; font-weight: 500; color: #94a3b8; margin-top: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sch-payroll-day-summary {
+  font-size: 13px; font-weight: 500; color: #64748b; margin: 0 0 12px;
+}
+.sch-payroll-stat--alert .sch-payroll-stat-value { color: #b45309; }
+.sch-payroll-stat--additional-active .sch-payroll-stat-value { color: #b45309; }
+
+.sch-payroll-pay-cards {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px; margin-bottom: 24px;
+}
+.sch-payroll-pay-cards--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.sch-payroll-pay-card {
+  background: var(--sch-beige); border: 0.5px solid var(--sch-beige-border); border-radius: 12px;
+  padding: 24px 26px;
+}
+.sch-payroll-pay-label {
+  font-size: 13px; font-weight: 500; color: #8a8578; margin-bottom: 12px;
+  line-height: 1.4;
+}
+.sch-payroll-pay-value {
+  font-size: 36px; font-weight: 600; color: var(--sch-beige-text); line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+.sch-payroll-pay-hint {
+  margin: 12px 0 0; font-size: 12px; line-height: 1.45; color: #8a8578; font-weight: 400;
+}
+
+.sch-payroll-view .sch-month-nav--payroll { margin-bottom: 12px; }
+.sch-payroll-view .sch-month-label { font-size: 15px; font-weight: 600; color: #334155; }
+.sch-payroll-view .sch-payroll-bulk-bar {
+  margin: 12px 0 20px; display: flex; justify-content: flex-end; gap: 8px;
+}
+.sch-payroll-view .sch-payroll-bulk-btn {
+  width: auto; white-space: nowrap;
+  font-size: 14px; font-weight: 500;
+  border: none; border-radius: 10px; padding: 12px 18px;
+  cursor: pointer; transition: opacity 0.15s;
+}
+.sch-payroll-view .sch-payroll-bulk-btn--edit {
+  color: var(--sch-beige-btn-text); background: var(--sch-beige-btn);
+}
+.sch-payroll-view .sch-payroll-bulk-btn--confirm {
+  color: #f0fdf4; background: #4d7c59;
+}
+.sch-payroll-view .sch-payroll-bulk-btn:hover:not(:disabled) { opacity: 0.92; }
+.sch-payroll-view .sch-payroll-bulk-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.sch-payroll-view .sch-payroll-edit-btn {
+  color: var(--sch-beige-btn-text); background: var(--sch-beige-btn);
+  border: none; border-radius: 8px;
+}
+.sch-payroll-view .sch-payroll-edit-btn:hover:not(:disabled) { opacity: 0.92; }
+.sch-payroll-view .sch-cal-legend { margin-bottom: 12px; }
+.sch-payroll-view .sch-cal-grid {
+  border: 0.5px solid var(--sch-beige-border); border-radius: 12px;
+}
+.sch-payroll-view .sch-cal-head-row {
+  background: var(--sch-beige); border-bottom: 0.5px solid var(--sch-beige-border);
+}
+.sch-payroll-view .sch-cal-head-cell {
+  font-size: 13px; font-weight: 600; color: #6b6560; padding: 10px 4px;
+}
+.sch-payroll-view .sch-cal-head-cell--weekend { color: #dc2626; }
+.sch-payroll-view .sch-cal-cell:hover { background: #faf9f6; }
+.sch-payroll-view .sch-cal-cell--today {
+  background: #fff; box-shadow: inset 0 0 0 1.5px var(--sch-beige-text);
+}
+.sch-payroll-view .sch-cal-cell--today .sch-cal-day-num { color: var(--sch-beige-text); font-weight: 600; }
+.sch-payroll-view .sch-cal-cell--selected {
+  background: #fff; box-shadow: inset 0 0 0 1.5px #8a8578;
+}
+.sch-payroll-view .sch-cal-cell--selected.sch-cal-cell--today {
+  background: #fff; box-shadow: inset 0 0 0 1.5px var(--sch-beige-text);
+}
+.sch-payroll-view .sch-cal-cell--confirmed,
+.sch-payroll-view .sch-cal-cell--partial,
+.sch-payroll-view .sch-cal-cell--pending,
+.sch-payroll-view .sch-cal-cell--skipped,
+.sch-payroll-view .sch-cal-cell--mixed {
+  background: #fff;
+}
+.sch-payroll-view .sch-cal-cell--holiday {
+  background: var(--sch-beige);
+}
+.sch-payroll-view .sch-cal-cell--holiday .sch-cal-day-num { color: #dc2626; font-weight: 600; }
+.sch-payroll-view .sch-cal-holiday-label { color: #b45309; font-weight: 500; font-size: 8px; }
+.sch-payroll-view .sch-cal-detail,
+.sch-payroll-view .sch-month-notices,
+.sch-payroll-view .sch-teacher-notes-month,
+.sch-payroll-view .sch-additional-pay-summary {
+  border: 0.5px solid #e5e7eb;
+}
+
+.sch-cal-body {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.sch-cal-cell {
+  position: relative; min-height: 56px; padding: 6px 4px 8px;
+  border: none; border-right: 1px solid #f1f5f9; border-bottom: 1px solid #f1f5f9;
+  background: #fff; cursor: pointer; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.sch-cal-cell:nth-child(7n) { border-right: none; }
+.sch-cal-cell:hover { background: #f9fafb; }
+.sch-cal-cell--muted { background: #fafafa; }
+.sch-cal-cell--muted .sch-cal-day-num { color: #cbd5e1; }
+.sch-cal-cell--today {
+  background: #fefce8;
+  box-shadow: inset 0 0 0 2px #fde047;
+}
+.sch-cal-cell--today .sch-cal-day-num {
+  color: #a16207; font-weight: 800;
+}
+.sch-cal-cell--selected {
+  background: #f8fafc;
+  box-shadow: inset 0 0 0 2px #334155;
+}
+.sch-cal-cell--selected.sch-cal-cell--today {
+  background: #fef9c3;
+  box-shadow: inset 0 0 0 2px #334155;
+}
+.sch-cal-day-num { font-size: 13px; font-weight: 600; color: #334155; line-height: 1; }
+.sch-cal-status-icon {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+.sch-cal-status-icon--alert {
+  color: #ef4444;
+  stroke-width: 2.5;
+}
+.sch-cal-status-icon--done {
+  color: #86efac;
+  stroke-width: 2;
+  opacity: 0.9;
+}
+.sch-cal-dots {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 100%; padding: 0 2px;
+}
+
+.sch-cal-detail {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px 16px;
+}
+.sch-cal-detail-title { margin: 0 0 10px; font-size: 15px; font-weight: 800; color: #0f172a; }
+.sch-cal-detail-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.sch-cal-detail-item {
+  width: 100%; display: grid; grid-template-columns: 4px auto 1fr; gap: 10px; align-items: center;
+  padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fafafa;
+  cursor: pointer; text-align: left;
+}
+.sch-cal-detail-item:hover { background: #f8fafc; border-color: #cbd5e1; }
+.sch-cal-detail-bar { align-self: stretch; border-radius: 4px; min-height: 36px; }
+.sch-cal-detail-time { font-size: 13px; font-weight: 800; color: #0f172a; white-space: nowrap; }
+.sch-cal-detail-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.sch-cal-detail-inst { font-size: 14px; font-weight: 700; color: #0f172a; }
+.sch-cal-detail-type { font-size: 12px; color: #64748b; font-weight: 600; }
+
+.sch-cal-cell--confirmed { background: #f0fdf4; }
+.sch-cal-cell--partial { background: #fffbeb; }
+.sch-cal-cell--pending { background: #fef2f2; }
+.sch-cal-cell--skipped { background: #f8fafc; }
+.sch-cal-cell--mixed { background: #fff7ed; }
+.sch-cal-cell--holiday {
+  background: #fef2f2;
+}
+.sch-cal-cell--holiday .sch-cal-day-num {
+  color: #dc2626; font-weight: 800;
+}
+.sch-cal-cell--holiday.sch-cal-cell--selected {
+  background: #fee2e2; box-shadow: inset 0 0 0 2px #f87171;
+}
+.sch-cal-holiday-label {
+  display: block; margin-top: 2px; font-size: 9px; line-height: 1.1;
+  font-weight: 700; color: #dc2626; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 100%;
+}
+.sch-holiday-banner {
+  margin: 0 0 12px; padding: 10px 12px; border-radius: 10px;
+  background: #fef2f2; border: 1px solid #fecaca;
+  font-size: 13px; font-weight: 700; color: #b91c1c;
+}
+.sch-holiday-banner-hint {
+  display: block; margin-top: 4px; font-size: 11px; font-weight: 500; color: #991b1b;
+}
+.sch-holiday-data-warn {
+  margin: 0 0 8px; padding: 8px 12px; border-radius: 8px;
+  background: #fff7ed; border: 1px solid #fed7aa; font-size: 12px;
+}
+
+.sch-summary-cards--payroll {
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+}
+.sch-summary-cards--hours {
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  margin-bottom: 10px;
+}
+.sch-summary-cards--pay {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+.sch-summary-card--hours {
+  min-width: 0;
+}
+.sch-summary-value--time {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sch-summary-card--warn {
+  background: #fff7ed; border-color: #fed7aa;
+}
+.sch-summary-card--warn .sch-summary-value { color: #c2410c; }
+.sch-summary-card--net {
+  background: #f0fdf4; border-color: #bbf7d0;
+}
+.sch-summary-card--net .sch-summary-value { color: #15803d; }
+.sch-summary-hint {
+  margin: 6px 0 0; font-size: 10px; line-height: 1.35; color: #64748b; font-weight: 500;
+}
+
+.sch-pay-net-cell { min-width: 120px; }
+.sch-pay-net-hint {
+  margin: 4px 0 0; font-size: 10px; line-height: 1.35; color: #64748b; font-weight: 500;
+}
+
+.sch-payroll-detail { margin-top: 0; }
+.sch-payroll-slot-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.sch-payroll-slot {
+  border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; background: #fafafa;
+}
+.sch-payroll-slot--locked { opacity: 0.75; }
+.sch-payroll-slot-head {
+  display: grid; grid-template-columns: 4px 1fr; gap: 10px; margin-bottom: 10px;
+}
+.sch-payroll-slot-head .sch-cal-detail-bar { min-height: 48px; }
+.sch-payroll-slot-time { font-size: 13px; font-weight: 800; color: #0f172a; }
+.sch-payroll-slot-type {
+  margin-left: 8px; font-size: 11px; font-weight: 600; color: #64748b;
+  background: #f1f5f9; padding: 2px 6px; border-radius: 4px;
+}
+.sch-payroll-slot-inst { font-size: 14px; font-weight: 700; color: #0f172a; margin-top: 4px; }
+.sch-payroll-status { font-size: 12px; margin-top: 4px; font-weight: 600; }
+.sch-payroll-status--pending { color: #dc2626; }
+.sch-payroll-status--as_scheduled { color: #15803d; }
+.sch-payroll-status--custom { color: #2563eb; }
+.sch-payroll-status--skipped { color: #64748b; }
+.sch-payroll-actions {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.sch-payroll-action-btn {
+  font-size: 12px; padding: 6px 10px; display: inline-flex; align-items: center; gap: 4px;
+}
+.sch-payroll-action-btn--skip { color: #64748b; }
+
+.sch-payroll-bulk-bar {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px;
+}
+.sch-payroll-bulk-btn {
+  width: 100%; font-size: 13px; font-weight: 700;
+  border-color: #cbd5e1; color: #0f172a; background: #f8fafc;
+}
+
+.sch-month-notices {
+  margin: 16px 0; padding: 14px 16px;
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px;
+}
+.sch-month-notices-title {
+  margin: 0 0 10px; font-size: 14px; font-weight: 800; color: #92400e;
+}
+.sch-month-notices-list {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 8px;
+}
+.sch-month-notices-list--inline { margin-bottom: 12px; }
+.sch-month-notices-item {
+  font-size: 13px; line-height: 1.45; color: #78350f;
+}
+.sch-month-notices-inst {
+  display: inline-block; margin-right: 6px; font-weight: 700; color: #b45309;
+}
+
+.sch-exception-form { margin-top: 12px; max-width: 480px; }
+
+.sch-teacher-notes-month {
+  margin: 16px 0; padding: 14px 16px;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+}
+.sch-teacher-notes-title {
+  margin: 0 0 10px; font-size: 14px; font-weight: 800; color: #334155;
+}
+.sch-teacher-notes-list {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 8px;
+}
+.sch-teacher-notes-item {
+  display: flex; flex-wrap: wrap; gap: 6px 10px; width: 100%; text-align: left;
+  padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px;
+  background: #fff; cursor: pointer; font: inherit;
+}
+.sch-teacher-notes-item--active {
+  border-color: #818cf8; background: #eef2ff;
+}
+.sch-teacher-notes-item--static { cursor: default; }
+.sch-teacher-notes-date {
+  font-size: 12px; font-weight: 800; color: #475569; white-space: nowrap;
+}
+.sch-teacher-notes-content {
+  flex: 1; min-width: 0; font-size: 13px; line-height: 1.45; color: #0f172a;
+}
+.sch-teacher-note-editor {
+  margin-top: 16px; padding-top: 16px; border-top: 1px solid #e2e8f0;
+}
+.sch-teacher-note-editor--readonly { border-top-style: dashed; }
+.sch-teacher-note-label {
+  margin: 0 0 8px; font-size: 13px; font-weight: 800; color: #475569;
+}
+.sch-teacher-note-textarea {
+  width: 100%; min-height: 72px; resize: vertical;
+}
+.sch-teacher-note-readonly {
+  margin: 0; font-size: 13px; line-height: 1.5; color: #0f172a;
+  white-space: pre-wrap;
+}
+.sch-additional-pay-form {
+  display: grid; gap: 10px; max-width: 520px; margin-bottom: 16px;
+}
+@media (min-width: 640px) {
+  .sch-additional-pay-form {
+    grid-template-columns: 1fr 1.2fr 120px auto; align-items: end;
+  }
+}
+.sch-additional-pay-list {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 8px;
+}
+.sch-additional-pay-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+}
+.sch-additional-pay-teacher-name {
+  display: inline-block; margin-right: 8px; font-weight: 800; color: #334155; font-size: 13px;
+}
+.sch-additional-pay-line { font-size: 13px; color: #0f172a; }
+
+.sch-additional-pay-summary {
+  margin: 0 0 16px; padding: 14px 16px;
+  background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px;
+}
+.sch-additional-pay-month {
+  margin: 0 0 14px; padding: 14px 16px;
+  background: #ecfdf5; border: 1px solid #86efac; border-radius: 12px;
+}
+.sch-additional-pay-month-title {
+  margin: 0 0 10px; font-size: 14px; font-weight: 800; color: #166534;
+}
+.sch-additional-pay-month-list {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 8px;
+}
+.sch-additional-pay-month-item {
+  padding: 10px 12px; background: #fff; border: 1px solid #bbf7d0;
+  border-radius: 8px; font-size: 14px; font-weight: 600; color: #14532d;
+}
+.sch-additional-pay-month-total {
+  margin: 10px 0 0; font-size: 13px; font-weight: 800; color: #15803d; text-align: right;
+}
+.sch-additional-pay-teacher-title {
+  margin: 0 0 8px; font-size: 14px; font-weight: 800; color: #166534;
+}
+.sch-additional-pay-teacher-list {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 6px;
+  font-size: 13px; color: #14532d;
+}
+
+.sch-admin-notes-groups {
+  display: grid; gap: 16px;
+}
+.sch-admin-notes-group {
+  padding: 14px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+}
+.sch-admin-notes-teacher {
+  margin: 0 0 10px; font-size: 14px; font-weight: 800; color: #334155;
+}
+.sch-teacher-notes-list--admin .sch-teacher-notes-item { cursor: default; }
+
+.sch-payroll-slot-list--compact { gap: 0; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+.sch-payroll-slot-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  background: #fff; border-bottom: 1px solid #f1f5f9;
+}
+.sch-payroll-slot-row:last-child { border-bottom: none; }
+.sch-payroll-slot-row--locked { opacity: 0.75; background: #fafafa; }
+.sch-payroll-slot-row .sch-cal-detail-bar {
+  width: 4px; align-self: stretch; min-height: 44px; border-radius: 2px; flex-shrink: 0;
+}
+.sch-payroll-slot-row-body { flex: 1; min-width: 0; }
+.sch-payroll-slot-row-actions {
+  display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
+}
+.sch-payroll-edit-btn {
+  font-size: 11px; padding: 4px 8px; display: inline-flex; align-items: center; gap: 3px;
+  white-space: nowrap;
+}
+.sch-payroll-edit-btn--muted { color: #94a3b8; font-size: 10px; }
+
+.sch-payroll-day-actions {
+  display: flex; flex-direction: column; gap: 10px; margin-top: 16px;
+}
+.sch-payroll-day-btn {
+  width: 100%; padding: 14px 16px; font-size: 15px; font-weight: 800;
+}
+.sch-payroll-day-btn--skip { color: #64748b; border-color: #cbd5e1; }
+.sch-payroll-day-done { margin-top: 12px; text-align: center; }
+
+.sch-form-actions--stack {
+  flex-direction: column; align-items: stretch;
+}
+.sch-form-actions--stack .sch-btn { width: 100%; }
+
+.sch-payroll-extra {
+  margin: 16px 0 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px 16px;
+}
+.sch-payroll-extra summary { cursor: pointer; font-weight: 700; font-size: 13px; color: #475569; }
+.sch-payroll-extra-day-title {
+  margin: 14px 0 8px; font-size: 12px; font-weight: 800; color: #64748b;
+}
+.sch-payroll-slot-row--manual .sch-cal-detail-bar { opacity: 0.85; }
+.sch-payroll-slot-note { font-size: 11px; margin-top: 4px; }
+
+.sch-skipped-badge {
+  display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+  color: #475569; background: #e2e8f0; padding: 2px 6px; border-radius: 99px;
+}
+
+.sch-week-grid {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px;
+}
+.sch-day-col { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; min-height: 120px; }
+.sch-day-head { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.sch-day-name { font-weight: 800; color: #0f172a; }
+.sch-day-date { font-size: 12px; color: #94a3b8; }
+.sch-slot-card {
+  width: 100%; text-align: left; border: 1px solid #e2e8f0; background: #f8fafc;
+  border-radius: 10px; padding: 8px; margin-bottom: 6px; cursor: pointer;
+}
+.sch-slot-time { font-size: 12px; font-weight: 700; color: #0f172a; }
+.sch-slot-inst { font-size: 12px; color: #0f172a; margin-top: 2px; }
+.sch-slot-type { font-size: 11px; color: #64748b; }
+
+.sch-ex-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 6px; margin-bottom: 6px; }
+.sch-ex-badge--cancelled { background: #fee2e2; color: #b91c1c; }
+.sch-ex-badge--event { background: #dbeafe; color: #1d4ed8; }
+.sch-ex-badge--time_change { background: #fef3c7; color: #b45309; }
+
+.sch-schedule-table { display: grid; gap: 8px; }
+.sch-schedule-row { display: grid; grid-template-columns: 48px 1fr; gap: 10px; align-items: start; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; }
+.sch-schedule-day { font-weight: 800; color: #0f172a; }
+.sch-schedule-slots { display: flex; flex-wrap: wrap; gap: 8px; }
+.sch-schedule-chip { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+
+.sch-modal-overlay {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
+  display: flex; align-items: flex-start; justify-content: center; z-index: 50;
+  padding: 16px;
+  overflow-y: auto;
+}
+.sch-modal {
+  background: #fff; border-radius: 16px; padding: 20px; width: min(420px, 100%);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  margin: auto 0;
+  -webkit-overflow-scrolling: touch;
+}
+.sch-modal--wide { width: min(560px, 100%); }
+
+.sch-slot-edit-list { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
+.sch-slot-edit-item { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; }
+.sch-subtitle { margin: 16px 0 8px; font-size: 14px; }
+.sch-totals-bar {
+  display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding: 14px;
+  background: #fef9c3; border: 1px solid #fde68a; border-radius: 12px; font-weight: 700;
+}
+.sch-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.sch-header-actions { margin-left: auto; }
+
+@media (max-width: 900px) {
+  .sch-week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sch-cal-cell { min-height: 48px; }
+  .sch-cal-detail-item { grid-template-columns: 4px 1fr; }
+  .sch-cal-detail-time { grid-column: 2; }
+  .sch-cal-detail-main { grid-column: 2; }
+}
+@media (max-width: 560px) {
+  .sch-week-grid { grid-template-columns: 1fr; }
+  .sch-summary-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sch-payroll-stats-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sch-payroll-stat:nth-child(3n) { border-right: none; }
+  .sch-payroll-stat:nth-child(3) { border-right: none; }
+  .sch-payroll-stat:nth-child(4),
+  .sch-payroll-stat:nth-child(5),
+  .sch-payroll-stat:nth-child(6),
+  .sch-payroll-stat:nth-child(7) { border-top: 0.5px solid #e5e7eb; }
+  .sch-payroll-stat-value { font-size: 13px; }
+  .sch-payroll-pay-cards { grid-template-columns: 1fr; }
+  .sch-payroll-pay-value { font-size: 28px; }
+  .sch-cal-cell { min-height: 44px; padding: 4px 2px 6px; }
+  .sch-cal-day-num { font-size: 12px; }
+  .sch-cal-dot { width: 6px; height: 6px; }
+  .sch-btn--today { margin-left: 0; width: 100%; }
+  .sch-month-nav { justify-content: space-between; }
+}
+
+.sch-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.sch-modal-head h3 { margin: 0; }
+.sch-search-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: #fff;
+}
+.sch-search-inline input {
+  border: none;
+  outline: none;
+  flex: 1;
+  font-size: 14px;
+  font-family: inherit;
+}
+.sch-btn--sm { padding: 4px 10px; font-size: 12px; }
+.sch-table-section { margin-bottom: 24px; }
+.sch-table-section h3 { margin: 0 0 10px; font-size: 16px; }
+
+.sch-rate-list { display: grid; gap: 10px; }
+.sch-rate-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.sch-rate-card-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.sch-rate-card-body { padding: 0 16px 16px; border-top: 1px solid #f1f5f9; }
+.sch-rate-edit-panel {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 12px;
+}
+.sch-rate-edit-panel h4 { margin: 0 0 6px; font-size: 14px; }
+.sch-rate-form-title { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: #0f172a; }
+.sch-rate-form { display: grid; gap: 10px; }
+.sch-rate-uniform-toggle {
+  display: flex; align-items: center; gap: 8px;
+  margin: 12px 0 14px; font-size: 13px; font-weight: 600; color: #334155; cursor: pointer;
+}
+.sch-rate-uniform-toggle input { width: 16px; height: 16px; cursor: pointer; }
+.sch-rate-edit-panel--uniform {
+  margin-bottom: 14px;
+}
+.sch-rate-history { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e2e8f0; }
+.sch-rate-history-group { margin-bottom: 10px; }
+.sch-rate-history-group h5 { margin: 0 0 6px; font-size: 13px; color: #64748b; }
+.sch-rate-history-group ul { margin: 0; padding-left: 18px; font-size: 13px; color: #334155; }
+
+/* ── 관리자 급여/정산 대시보드 (베이지 톤) ── */
+.sch-payroll-admin-view {
+  --sch-beige: #f1efe8;
+  --sch-beige-text: #2c2c2a;
+  --sch-beige-border: #e3dfd4;
+  --sch-beige-btn: #9a8b72;
+  --sch-beige-btn-text: #f1efe8;
+}
+.sch-admin-dash-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 4px;
+  background: var(--sch-beige);
+  border: 0.5px solid var(--sch-beige-border);
+  border-radius: 12px;
+}
+.sch-admin-dash-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  color: #6b6560;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.sch-admin-dash-tab--active {
+  background: #fff;
+  color: var(--sch-beige-text);
+  box-shadow: 0 1px 3px rgba(44, 44, 42, 0.08);
+}
+.sch-admin-dash-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 700;
+}
+.sch-admin-dash-panel { display: grid; gap: 20px; }
+.sch-admin-dash-section {
+  background: #fff;
+  border: 0.5px solid var(--sch-beige-border);
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+.sch-admin-dash-section-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--sch-beige-text);
+}
+.sch-admin-dash-section-desc {
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+.sch-payroll-admin-view .sch-admin-table .sch-th-num,
+.sch-payroll-admin-view .sch-admin-table .sch-td-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sch-payroll-admin-view .sch-admin-table .sch-th-action,
+.sch-payroll-admin-view .sch-admin-table .sch-td-action {
+  text-align: center;
+  white-space: nowrap;
+}
+.sch-payroll-admin-view .sch-admin-table .sch-td-name {
+  text-align: left;
+  min-width: 120px;
+}
+.sch-admin-teacher-link {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--sch-beige-accent, #8b6914);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.sch-admin-teacher-link:hover {
+  color: var(--sch-beige-text, #3d3428);
+}
+.sch-admin-teacher-link strong {
+  font-weight: 600;
+}
+.sch-payroll-view--admin-inspect {
+  padding-top: 0;
+}
+.sch-view-header--admin-inspect {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  text-align: center;
+}
+.sch-payroll-admin-inspect-back {
+  align-self: flex-start;
+}
+.sch-payroll-admin-view .sch-admin-table th,
+.sch-payroll-admin-view .sch-admin-table td {
+  padding: 11px 12px;
+  vertical-align: middle;
+  border-bottom: 0.5px solid var(--sch-beige-border);
+}
+.sch-payroll-admin-view .sch-admin-table tbody tr {
+  background: #fff;
+}
+.sch-payroll-admin-view .sch-admin-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.sch-admin-cell-num {
+  font-weight: 500;
+  color: var(--sch-beige-text);
+}
+.sch-admin-cell-hint {
+  margin: 3px 0 0;
+  font-size: 10px;
+  color: #8a8578;
+  text-align: right;
+  line-height: 1.25;
+  white-space: normal;
+}
+.sch-pay-net-cell {
+  min-width: 108px;
+}
+.sch-admin-table-foot td {
+  background: var(--sch-beige);
+  border-top: 1px solid var(--sch-beige-border);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--sch-beige-text);
+}
+.sch-admin-table-foot td strong {
+  font-weight: 700;
+}
+.sch-admin-foot-meta {
+  font-weight: 400;
+  color: #8a8578;
+  font-size: 12px;
+}
+.sch-admin-table-wrap {
+  border: 0.5px solid var(--sch-beige-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.sch-payroll-admin-view .sch-admin-table th {
+  background: var(--sch-beige);
+  color: #6b6560;
+  font-weight: 600;
+}
+.sch-payroll-admin-view .sch-admin-table td {
+  font-size: 13px;
+}
+.sch-admin-row--alert {
+  background: #fffbeb !important;
+}
+.sch-admin-row--alert td {
+  border-bottom-color: #fde68a;
+}
+.sch-admin-row--alert td:first-child strong {
+  color: #92400e;
+}
+.sch-admin-row-alert-label {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: #fde68a;
+  color: #92400e;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.sch-admin-status-ok {
+  color: #15803d;
+  font-weight: 600;
+  font-size: 12px;
+}
+.sch-admin-status-warn {
+  color: #b45309;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+/* ── 방문수업 · 행사 일정 (베이지 톤) ── */
+.sch-home-visit-view,
+.sch-events-view {
+  --sch-beige: #f1efe8;
+  --sch-beige-text: #2c2c2a;
+  --sch-beige-border: #e3dfd4;
+}
+.sch-home-visit-view .sch-cal-grid,
+.sch-events-view .sch-cal-grid {
+  border: 0.5px solid var(--sch-beige-border);
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+.sch-home-visit-view .sch-cal-head-row,
+.sch-events-view .sch-cal-head-row {
+  background: var(--sch-beige);
+  border-bottom: 0.5px solid var(--sch-beige-border);
+}
+.sch-home-visit-cell--has,
+.sch-events-cal-cell--has {
+  background: #fffbeb;
+}
+.sch-home-visit-count {
+  font-size: 9px;
+  font-weight: 700;
+  color: #b45309;
+}
+.sch-home-visit-list-section,
+.sch-events-list-section,
+.sch-events-day-section,
+.sch-events-form-section {
+  background: #fff;
+  border: 0.5px solid var(--sch-beige-border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+.sch-home-visit-row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.sch-home-visit-form {
+  width: min(480px, 100%);
+}
+.sch-home-visit-form-hint {
+  margin: -4px 0 12px;
+  font-size: 12px;
+}
+.sch-home-visit-patterns-table td,
+.sch-home-visit-patterns-table th {
+  font-size: 12px;
+}
+.sch-home-visit-status {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.sch-home-visit-status--active {
+  background: #dcfce7;
+  color: #166534;
+}
+.sch-home-visit-status--ended {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.sch-home-visit-row--ended {
+  opacity: 0.72;
+}
+.sch-events-inst-dot {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.sch-events-day-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.sch-events-form .sch-btn--primary {
+  justify-self: start;
+}
+
+/* ── 수업 변동 알림 (관리자) ── */
+.sch-change-alerts-view {
+  --sch-beige: #f1efe8;
+  --sch-beige-border: #e3dfd4;
+  max-width: 720px;
+}
+.sch-change-alerts-desc {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+.sch-change-alerts-month-nav {
+  margin-bottom: 14px;
+}
+.sch-change-alerts-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.sch-change-alerts-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 0.5px solid #e5e7eb;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  font-family: inherit;
+}
+.sch-change-alerts-filter--active {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #fff;
+}
+.sch-change-alerts-filter-count {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+}
+.sch-change-alerts-filter--active .sch-change-alerts-filter-count {
+  background: rgba(255, 255, 255, 0.2);
+}
+.sch-change-alerts-summary {
+  margin: 0 0 14px;
+  font-size: 12px;
+}
+.sch-change-alerts-pay-type {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+.sch-change-alerts-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 48px 20px;
+  color: #9ca3af;
+  background: #fff;
+  border: 0.5px solid var(--sch-beige-border);
+  border-radius: 12px;
+}
+.sch-change-alerts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sch-change-alerts-item {
+  border-radius: 12px;
+  overflow: hidden;
+}
+.sch-change-alerts-item--unread {
+  box-shadow: 0 0 0 2px #fca5a5, 0 2px 8px rgba(239, 68, 68, 0.12);
+}
+.sch-change-alerts-item-btn {
+  width: 100%;
+  text-align: left;
+  padding: 16px 18px;
+  border: 0.5px solid var(--sch-beige-border);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.sch-change-alerts-item--unread .sch-change-alerts-item-btn {
+  background: #fff7f7;
+  border-color: #fecaca;
+}
+.sch-change-alerts-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.sch-change-alerts-teacher {
+  font-weight: 800;
+  font-size: 15px;
+}
+.sch-change-alerts-type {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.sch-change-alerts-type--skipped {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.sch-change-alerts-type--custom {
+  background: #fef3c7;
+  color: #b45309;
+}
+.sch-change-alerts-type--extra_added {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+.sch-change-alerts-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  margin-left: auto;
+}
+.sch-change-alerts-meta {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 10px;
+}
+.sch-change-alerts-sep {
+  margin: 0 4px;
+}
+.sch-change-alerts-created {
+  color: #9ca3af;
+}
+.sch-change-alerts-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.sch-change-alerts-row {
+  display: flex;
+  gap: 8px;
+}
+.sch-change-alerts-row--actual {
+  font-weight: 700;
+  color: #b45309;
+}
+.sch-change-alerts-label {
+  flex-shrink: 0;
+  width: 36px;
+  color: #9ca3af;
+  font-weight: 600;
+}
+.sch-change-alerts-hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #ef4444;
+  font-weight: 600;
+}
+.sch-change-alerts-mark-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.sch-card-badge--alert {
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+/* ── Payroll debug ── */
+.sch-payroll-debug {
+  margin: 16px 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.sch-payroll-debug-summary {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
+  list-style: none;
+}
+.sch-payroll-debug-summary::-webkit-details-marker { display: none; }
+.sch-payroll-debug-body {
+  padding: 0 16px 16px;
+  display: grid;
+  gap: 16px;
+}
+.sch-payroll-debug--embedded .sch-payroll-debug-body {
+  padding: 0;
+}
+.sch-payroll-debug-rule { margin: 0; font-size: 13px; }
+.sch-payroll-debug-totals--quad {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.sch-payroll-debug-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+}
+.sch-payroll-debug-tab {
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+}
+.sch-payroll-debug-tab--active {
+  background: #0f172a;
+  color: #fff;
+  border-color: #0f172a;
+}
+.sch-payroll-debug-ref-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.sch-payroll-debug-ref-name {
+  font-size: 12px;
+  color: #64748b;
+}
+.sch-payroll-debug-alert-box {
+  padding: 12px 14px;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  background: #fffbeb;
+}
+.sch-payroll-debug-issue {
+  white-space: normal;
+  max-width: 280px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.sch-payroll-debug-id {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: #64748b;
+}
+.sch-payroll-debug-total-card {
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.sch-payroll-debug-total-card--grand {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.sch-payroll-debug-total-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+.sch-payroll-debug-total-value {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  margin-top: 4px;
+}
+.sch-payroll-debug-total-sub {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.sch-payroll-debug-diff { color: #b45309; font-weight: 600; }
+.sch-payroll-debug-section-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+}
+.sch-payroll-debug-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.sch-payroll-debug-steps li {
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fafafa;
+  font-size: 13px;
+}
+.sch-payroll-debug-steps-grand {
+  background: #eff6ff !important;
+  border-color: #bfdbfe !important;
+}
+.sch-payroll-debug-formula {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #475569;
+  word-break: break-all;
+  line-height: 1.5;
+}
+.sch-payroll-debug-excluded-summary {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #475569;
+  display: grid;
+  gap: 4px;
+}
+.sch-payroll-debug-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+.sch-payroll-debug-type-select {
+  width: auto;
+  min-width: 140px;
+  font-size: 13px;
+}
+.sch-payroll-debug-table-wrap {
+  max-height: 420px;
+  overflow: auto;
+}
+.sch-payroll-debug-table { font-size: 12px; }
+.sch-payroll-debug-table--compact { font-size: 12px; }
+.sch-payroll-debug-table th,
+.sch-payroll-debug-table td {
+  white-space: nowrap;
+  padding: 8px 10px;
+}
+.sch-payroll-debug-row--excluded { background: #fef2f2; }
+.sch-payroll-debug-row--unconfirmed { background: #fffbeb; }
+.sch-payroll-debug-row--manual { background: #f0fdf4; }
+.sch-payroll-debug-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.sch-payroll-debug-badge--yes {
+  background: #dcfce7;
+  color: #166534;
+}
+.sch-payroll-debug-badge--no {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.sch-payroll-debug-footnote { margin: 0; font-size: 12px; }
+.sch-payroll-debug-modal {
+  width: min(960px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.sch-payroll-debug-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.sch-payroll-debug-modal-header h3 {
+  margin: 0;
+  font-size: 17px;
+}
+.sch-btn--sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}

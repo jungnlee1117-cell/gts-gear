@@ -1,0 +1,2 @@
+-- 김하원 더차일드 스케줄 교체 (label: 학생명 / 방과후 고정50000)
+-- scripts/apply-kimhawon-schedule.mjs 로 DB 반영
