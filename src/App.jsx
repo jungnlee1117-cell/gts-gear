@@ -25,6 +25,11 @@ import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import MyGearRotationPage, { checkRotationRentalConflicts } from "./MyGearRotationPage.jsx";
 import GearRotationManagePage from "./GearRotationManagePage.jsx";
 import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin } from "./authRoles.js";
+import {
+  DUPLICATE_ITEM_NAME_MESSAGE,
+  findItemNameConflict,
+  isDuplicateItemNameError,
+} from "./itemNames.js";
 
 const GEAR_SCAN_KEY = "gts_gear_scan";
 
@@ -2917,6 +2922,10 @@ function ItemForm({item, items, onSave, onClose}) {
       alert("교구명과 교구 코드는 필수입니다");
       return;
     }
+    if (findItemNameConflict(items, f.name, item?.id)) {
+      alert(DUPLICATE_ITEM_NAME_MESSAGE);
+      return;
+    }
     setSaving(true);
     const payload = {
       ...f,
@@ -3003,6 +3012,12 @@ function ItemForm({item, items, onSave, onClose}) {
       )}
 
       <Inp2 label="교구명 *" value={f.name} onChange={e=>set("name",e.target.value)} placeholder="교구명 입력"/>
+      <Inp2
+        label="영어 교구명 (검색 별칭)"
+        value={f.alias}
+        onChange={e=>set("alias",e.target.value)}
+        placeholder="예: Balance Board"
+      />
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
         <Sel2 label="보관 지점" value={f.branch} onChange={e=>set("branch",e.target.value)}>
@@ -3010,9 +3025,6 @@ function ItemForm({item, items, onSave, onClose}) {
         </Sel2>
         <Inp2 label="전체 수량" type="number" min={0} value={f.total_quantity} onChange={e=>set("total_quantity",e.target.value)}/>
       </div>
-      {isEdit && (
-        <Inp2 label="별명 (검색 별칭)" value={f.alias} onChange={e=>set("alias",e.target.value)} placeholder="별명, 영문명 등"/>
-      )}
       {isEdit && (
         <Sel2 label="상태" value={f.status} onChange={e=>set("status",e.target.value)}>
           <option value="available">사용가능 (정상)</option>
@@ -3026,21 +3038,9 @@ function ItemForm({item, items, onSave, onClose}) {
         photos={f.activity_photos}
         onChange={urls => set("activity_photos", urls)}
       />
-      {!isEdit && (
-        <>
-          <Inp2 label="검색 별칭" value={f.alias} onChange={e=>set("alias",e.target.value)} placeholder="별명, 영문명 등"/>
-          <Txa2 label="사용법" value={f.usage_description} onChange={e=>set("usage_description",e.target.value)}/>
-          <Txa2 label="안전 주의사항" value={f.safety_notes} onChange={e=>set("safety_notes",e.target.value)}/>
-          <Inp2 label="유튜브 URL" value={f.youtube_url} onChange={e=>set("youtube_url",e.target.value)} placeholder="https://youtube.com/watch?v=..."/>
-        </>
-      )}
-      {isEdit && (
-        <>
-          <Txa2 label="사용법" value={f.usage_description} onChange={e=>set("usage_description",e.target.value)}/>
-          <Txa2 label="안전 주의사항" value={f.safety_notes} onChange={e=>set("safety_notes",e.target.value)}/>
-          <Inp2 label="유튜브 URL" value={f.youtube_url} onChange={e=>set("youtube_url",e.target.value)} placeholder="https://youtube.com/watch?v=..."/>
-        </>
-      )}
+      <Txa2 label="사용법" value={f.usage_description} onChange={e=>set("usage_description",e.target.value)}/>
+      <Txa2 label="안전 주의사항" value={f.safety_notes} onChange={e=>set("safety_notes",e.target.value)}/>
+      <Inp2 label="유튜브 URL" value={f.youtube_url} onChange={e=>set("youtube_url",e.target.value)} placeholder="https://youtube.com/watch?v=..."/>
       <div style={{display:"flex",gap:8,marginTop:4}}>
         <Btn full onClick={handleSave} disabled={saving}>{saving?"저장 중...":"저장"}</Btn>
         <Btn full color="#94a3b8" onClick={onClose}>취소</Btn>
@@ -3999,13 +3999,14 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
   );
 }
 
-function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservations, teachers, onDetail, onOpenCart, onSubmitReservation, onCancelReservation }) {
+function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservations, teachers, onDetail, onOpenCart, onSubmitReservation, onCancelReservation, onSaveItem }) {
   const [q, setQ] = useState("");
   const [catF, setCatF] = useState("ALL");
   const [brF, setBrF] = useState("ALL");
   const [availF, setAvailF] = useState("ALL");
   const [lightbox, setLightbox] = useState(null);
   const [reserveItem, setReserveItem] = useState(null);
+  const [editItem, setEditItem] = useState(null);
 
   const list = useMemo(() => {
     let r = [...items];
@@ -4287,9 +4288,34 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                     <div style={{ fontWeight: 800, fontSize: 15, color: DS.textPrimary, lineHeight: 1.35 }}>
                         {item.name}
                       </div>
+                    {item.alias ? (
+                      <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 3, lineHeight: 1.3 }}>
+                        {item.alias}
+                      </div>
+                    ) : null}
                   </button>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
                     <CatTag cat={item.category}/>
+                    {canEditItems(me) ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditItem({ ...item })}
+                        style={{
+                          marginLeft: "auto",
+                          background: DS.primaryLight,
+                          border: `1px solid ${DS.primary}`,
+                          borderRadius: 8,
+                          padding: "5px 10px",
+                          cursor: "pointer",
+                          fontSize: 11,
+                          color: DS.primary,
+                          fontWeight: 700,
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        편집
+                      </button>
+                    ) : null}
                     {activityPhotos.length > 0 && (
                       <button
                         type="button"
@@ -4385,6 +4411,16 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
             onSubmitReservation?.({ ...payload, item_id: reserveItem.id });
             setReserveItem(null);
           }}
+        />
+      )}
+
+      {editItem && onSaveItem && (
+        <ItemForm
+          key={editItem.id}
+          item={editItem}
+          items={items}
+          onSave={onSaveItem}
+          onClose={() => setEditItem(null)}
         />
       )}
     </PageShell>
@@ -8268,6 +8304,10 @@ function EquipmentApp({ onBack, me, session }) {
       alert("권한이 없습니다");
       return null;
     }
+    if (findItemNameConflict(items, data.name, editId)) {
+      alert(DUPLICATE_ITEM_NAME_MESSAGE);
+      return null;
+    }
     const trySave = async (payload) => {
       if (editId) return supabase.from("items").update(payload).eq("id", editId).select().single();
       return supabase.from("items").insert(payload).select().single();
@@ -8290,6 +8330,10 @@ function EquipmentApp({ onBack, me, session }) {
       ({ data: row, error } = await trySave(payload));
     }
     if (error) {
+      if (isDuplicateItemNameError(error)) {
+        alert(DUPLICATE_ITEM_NAME_MESSAGE);
+        return null;
+      }
       alert("저장 오류: " + error.message);
       return null;
     }
@@ -8404,6 +8448,7 @@ function EquipmentApp({ onBack, me, session }) {
             onOpenCart={()=>setShowCart(true)}
             onSubmitReservation={submitReservation}
             onCancelReservation={cancelReservation}
+            onSaveItem={saveItem}
           />
         )}
         {page==="my-gear-rotation"&&(
