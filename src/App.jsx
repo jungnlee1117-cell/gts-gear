@@ -16,6 +16,7 @@ import { QRCodeCanvas } from "qrcode.react";
 import { PersonStanding, ChevronLeft, ChevronRight } from "lucide-react";
 import GrowthApp from "./GrowthApp.jsx";
 import ScheduleApp from "./ScheduleApp.jsx";
+import PlatformMainButton from "./PlatformMainButton.jsx";
 import PeResourcesApp from "./PeResourcesApp.jsx";
 import EnglishScriptApp from "./EnglishScriptApp.jsx";
 import SituationManualApp from "./SituationManualApp.jsx";
@@ -585,11 +586,12 @@ function buildTeacherHoldingsByItem(me, reqs, ris, items, rets) {
 function tname(id,ts)        { return ts.find(t=>t.id===id)?.name || "-"; }
 function iname(id,items)     { return items.find(i=>i.id===id)?.name || "-"; }
 
-function nextItemCode(category, items) {
+function nextItemCode(category, items, { excludeId } = {}) {
   const prefix = category;
   const re = new RegExp(`^${prefix}-(\\d+)$`, "i");
   let max = 0;
   (items || []).forEach(i => {
+    if (excludeId && i.id === excludeId) return;
     const m = i.code?.match(re);
     if (m) max = Math.max(max, parseInt(m[1], 10));
   });
@@ -1342,7 +1344,11 @@ function MobileNavDrawer({
         boxShadow: "4px 0 32px rgba(0,0,0,0.35)",
       }}>
         <div style={{ padding: "16px 14px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <PlatformMainButton
+            onClick={() => { onBack(); onClose(); }}
+            className="equipment-sidebar-main-btn"
+          />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <GtsHexLogo size={32}/>
               <div>
@@ -1367,20 +1373,6 @@ function MobileNavDrawer({
               ✕
             </button>
           </div>
-          <button
-            type="button"
-            onClick={() => { onBack(); onClose(); }}
-            style={{
-              ...touchBtn,
-              width: "100%",
-              background: "rgba(255,255,255,0.08)",
-              color: "rgba(255,255,255,0.85)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              textAlign: "left",
-            }}
-          >
-            ← 통합 플랫폼 홈
-          </button>
         </div>
 
         {cartCount > 0 && (
@@ -2971,13 +2963,24 @@ function ItemForm({item, items, onSave, onClose}) {
   const isNew = !item?.id;
   const isEdit = Boolean(item?.id);
   const [f, setF] = useState(() => itemToFormState(item));
+  const initialRef = useRef({
+    id: item?.id,
+    category: itemToFormState(item).category,
+    code: (item?.code || "").trim(),
+  });
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const [saving,setSaving] = useState(false);
   const [autoCode,setAutoCode] = useState(isNew && !item?.code);
 
   useEffect(() => {
-    setF(itemToFormState(item));
+    const next = itemToFormState(item);
+    setF(next);
     setAutoCode(!item?.id && !item?.code);
+    initialRef.current = {
+      id: item?.id,
+      category: next.category,
+      code: (item?.code || "").trim(),
+    };
   }, [item?.id]);
 
   const qrItem = useMemo(
@@ -2986,17 +2989,38 @@ function ItemForm({item, items, onSave, onClose}) {
   );
 
   const applyAutoCode = useCallback((cat) => {
-    setF(p => ({ ...p, code: nextItemCode(cat || p.category, items) }));
-  }, [items]);
+    setF(p => ({
+      ...p,
+      code: nextItemCode(cat || p.category, items, { excludeId: item?.id }),
+    }));
+  }, [items, item?.id]);
 
   useEffect(() => {
     if (!isNew || !autoCode) return;
     applyAutoCode(f.category);
   }, [f.category, isNew, autoCode, applyAutoCode]);
 
+  const { category: initialCategory, code: initialCode } = initialRef.current;
+  const categoryChanged = isEdit && f.category !== initialCategory;
+
   const onCategoryChange = (cat) => {
-    set("category", cat);
-    if (autoCode) applyAutoCode(cat);
+    const normalized = normalizeCategoryKey(cat);
+    if (isEdit) {
+      if (normalized === initialCategory) {
+        setF(p => ({ ...p, category: normalized, code: initialCode }));
+        setAutoCode(false);
+        return;
+      }
+      setF(p => ({
+        ...p,
+        category: normalized,
+        code: nextItemCode(normalized, items, { excludeId: item.id }),
+      }));
+      setAutoCode(true);
+      return;
+    }
+    set("category", normalized);
+    if (autoCode) applyAutoCode(normalized);
   };
 
   const handleSave = async () => {
@@ -3064,8 +3088,13 @@ function ItemForm({item, items, onSave, onClose}) {
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8,flexWrap:"wrap",gap:8}}>
           <span style={{fontSize:11,color:DS.textMuted}}>
             {catLabel} 기준 · <span style={{fontFamily:"monospace",fontWeight:600}}>{f.category}-###</span> 형식
+            {categoryChanged && (
+              <span style={{ marginLeft: 6, color: DS.primary, fontWeight: 700 }}>
+                · 카테고리 변경으로 코드가 자동 재생성됩니다
+              </span>
+            )}
           </span>
-          {isNew && (
+          {(isNew || categoryChanged) && (
             <button
               type="button"
               onClick={()=>{ setAutoCode(true); applyAutoCode(f.category); }}
@@ -7404,7 +7433,9 @@ function AuthenticatedRoutes({ me, session, logout }) {
         path="/english-script"
         element={(
           <EnglishScriptApp
+            me={me}
             onBack={() => goBackOr(navigate, "/pe-resources")}
+            onGoMain={() => navigate("/")}
             onGoSituations={() => navigate("/situation-manual")}
             onGoChildTypes={() => navigate("/child-types")}
             onGoFlowTips={() => navigate("/class-flow-tips")}
@@ -7414,19 +7445,19 @@ function AuthenticatedRoutes({ me, session, logout }) {
       />
       <Route
         path="/child-types"
-        element={<ChildTypeApp onBack={() => goBackOr(navigate, "/english-script")}/>}
+        element={<ChildTypeApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
       />
       <Route
         path="/situation-manual"
-        element={<SituationManualApp onBack={() => goBackOr(navigate, "/english-script")}/>}
+        element={<SituationManualApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
       />
       <Route
         path="/class-flow-tips"
-        element={<ClassFlowTipsApp onBack={() => goBackOr(navigate, "/english-script")}/>}
+        element={<ClassFlowTipsApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
       />
       <Route
         path="/pronunciation-tips"
-        element={<PronunciationTipsApp onBack={() => goBackOr(navigate, "/english-script")}/>}
+        element={<PronunciationTipsApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
       />
       <Route
         path="/gear"
@@ -8752,15 +8783,7 @@ function EquipmentApp({ onBack, me, session }) {
           zIndex:100,
         }}>
           <div style={{padding:"20px 18px 16px"}}>
-            <button onClick={onBack} style={{
-              background:"rgba(255,255,255,0.08)",
-              border:"1px solid rgba(255,255,255,0.1)",
-              borderRadius:8,padding:"6px 12px",
-              color:"rgba(255,255,255,0.7)",
-              fontSize:11,fontWeight:600,
-              cursor:"pointer",fontFamily:"inherit",
-              marginBottom:18,
-            }}>← 홈</button>
+            <PlatformMainButton onClick={onBack} className="equipment-sidebar-main-btn"/>
 
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:22}}>
               <GtsLogo height={36}/>

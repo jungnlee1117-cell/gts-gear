@@ -44,7 +44,7 @@ function TagList({ tags }) {
   );
 }
 
-export default function ClassFlowTipsApp({ onBack }) {
+export default function ClassFlowTipsApp({ onBack, onGoMain }) {
   const onNavigate = useEnglishProgramNavigate();
   const counts = useMemo(() => getCategoryCounts(), []);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -146,7 +146,7 @@ export default function ClassFlowTipsApp({ onBack }) {
   const sidebarActiveId = activeCat === "veteran" ? "veteran" : "flow-tips";
 
   return (
-    <EnglishProgramLayout activeId={sidebarActiveId} onBack={onBack} onNavigate={onNavigate}>
+    <EnglishProgramLayout activeId={sidebarActiveId} onBack={onBack} onGoMain={onGoMain} onNavigate={onNavigate}>
     <div className="flow-tips-page eng-program-page">
       <header className="ft-topbar ft-topbar--page">
         <div className="ft-topbar-brand">

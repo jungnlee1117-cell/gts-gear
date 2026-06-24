@@ -15,7 +15,7 @@ function itemKey(item) {
   return `${item.cat}-${item.title}`;
 }
 
-export default function SituationManualApp({ onBack }) {
+export default function SituationManualApp({ onBack, onGoMain }) {
   const onNavigate = useEnglishProgramNavigate();
   const [activeCat, setActiveCat] = useState("all");
   const [openKey, setOpenKey] = useState(null);
@@ -41,7 +41,7 @@ export default function SituationManualApp({ onBack }) {
   };
 
   return (
-    <EnglishProgramLayout activeId="situations" onBack={onBack} onNavigate={onNavigate}>
+    <EnglishProgramLayout activeId="situations" onBack={onBack} onGoMain={onGoMain} onNavigate={onNavigate}>
       <div className="sit-manual eng-program-page">
         <header className="sit-manual-header sit-manual-header--page">
           <div className="sit-manual-header-text">

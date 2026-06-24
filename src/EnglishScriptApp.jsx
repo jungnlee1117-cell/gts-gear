@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronLeft, ChevronRight, Volume2, ChevronDown, Loader2,
   BookOpen, ShieldCheck, Lightbulb, User, ArrowRight,
-  Bell, Info, Mic, Play, X, Package, FileText, Languages, Search,
+  Bell, Info, Mic, Play, X,
 } from "lucide-react";
 import { PRONUNCIATION_TIPS } from "./pronunciationTipsData.js";
 import {
@@ -17,17 +17,13 @@ import { useGoogleTts } from "./useGoogleTts.js";
 import { useLineRecording } from "./useLineRecording.js";
 import { useGearItems } from "./useGearItems.js";
 import EnglishProgramLayout from "./EnglishProgramLayout.jsx";
+import GearScriptLibraryView from "./GearScriptLibraryView.jsx";
 import { useEnglishProgramNavigate } from "./useEnglishProgramNavigate.js";
 import {
   GEAR_CATALOG,
   LEVEL_IDS,
   matchGearId,
   getCategoryMeta,
-  getExpressionCounts,
-  computeGearPickerStats,
-  buildCategoryTabs,
-  normalizeItemCategory,
-  resolveItemPhotoPosition,
   getActivityGearScripts,
   getGearLevelIds,
 } from "./gearScriptMeta.js";
@@ -279,7 +275,7 @@ function PrepAccordion({ sectionKey, isOpen, onToggle, head, children }) {
   );
 }
 
-function LandingView({ onBack, onNavigate, onStartScript, onGoSituations, onGoChildTypes, onGoFlowTips, onGoPronunciationTips }) {
+function LandingView({ onBack, onGoMain, onNavigate, onStartScript, onGoSituations, onGoChildTypes, onGoFlowTips, onGoPronunciationTips }) {
   const landingStats = useMemo(
     () => LANDING_STAT_DEFS.map(({ label, icon, getCount }) => ({
       label,
@@ -298,7 +294,7 @@ function LandingView({ onBack, onNavigate, onStartScript, onGoSituations, onGoCh
   };
 
   return (
-    <EnglishProgramLayout activeId="" onBack={onBack} onNavigate={onNavigate}>
+    <EnglishProgramLayout activeId="" onBack={onBack} onGoMain={onGoMain} onNavigate={onNavigate}>
     <div className="eng-landing">
       <header className="eng-landing-nav">
         <div className="eng-landing-nav-left">
@@ -844,268 +840,15 @@ function ActivityScriptCardView({ card, levelId, levelColor, tts, recording, car
   );
 }
 
-function GearCardPhoto({ item, catMeta }) {
-  const [failed, setFailed] = useState(false);
-
-  if (!item.photo_url || failed) {
-    return (
-      <div className="eng-gear-card-photo-fallback" aria-hidden>
-        {catMeta.label.slice(0, 1)}
-      </div>
-    );
-  }
-
-  return (
-    <div className="eng-gear-card-photo-frame">
-      <img
-        src={item.photo_url}
-        alt={item.name}
-        className="eng-gear-card-photo"
-        style={{ objectPosition: resolveItemPhotoPosition(item) }}
-        onError={() => setFailed(true)}
-        loading="lazy"
-      />
-    </div>
-  );
-}
-
-function GearPickerCard({ item, onSelect }) {
-  const gearId = matchGearId(item);
-  const hasScript = Boolean(gearId);
-  const counts = hasScript ? getExpressionCounts(gearId) : null;
-  const displayLevelIds = hasScript ? getGearLevelIds(gearId) : LEVEL_IDS;
-  const catMeta = getCategoryMeta(item.category);
-
-  return (
-    <article className={`eng-gear-card${hasScript ? "" : " eng-gear-card--soon"}`}>
-      <div className="eng-gear-card-media">
-        <GearCardPhoto item={item} catMeta={catMeta}/>
-        {hasScript ? (
-          <span className="eng-gear-card-badge eng-gear-card-badge--best">BEST</span>
-        ) : (
-          <span className="eng-gear-card-badge eng-gear-card-badge--soon">대본 준비중</span>
-        )}
-      </div>
-
-      <div className="eng-gear-card-body">
-        <div className="eng-gear-card-head">
-          <h3 className="eng-gear-card-title">{item.name}</h3>
-          <span className="eng-gear-card-cat" style={{ color: catMeta.color }}>
-            {catMeta.label}
-          </span>
-        </div>
-        {item.alias ? <p className="eng-gear-card-alias">{item.alias}</p> : null}
-
-        {hasScript && counts ? (
-          <ul className="eng-gear-card-levels">
-            {displayLevelIds.map(levelId => {
-              const level = LEVELS.find(l => l.id === levelId);
-              return (
-                <li key={levelId} className="eng-gear-card-level">
-                  <span
-                    className="eng-gear-card-level-dot"
-                    style={{ background: level?.color }}
-                    aria-hidden
-                  />
-                  <span className="eng-gear-card-level-label">{level?.label.split(" ")[0]}</span>
-                  <span className="eng-gear-card-level-count">{counts[levelId]}개 표현</span>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="eng-gear-card-soon-text">영어 대본을 준비하고 있어요</p>
-        )}
-
-        {hasScript ? (
-          <button
-            type="button"
-            className="eng-gear-card-start"
-            onClick={() => onSelect(gearId)}
-          >
-            시작하기
-            <ArrowRight size={16} strokeWidth={2.5} aria-hidden/>
-          </button>
-        ) : (
-          <button type="button" className="eng-gear-card-start eng-gear-card-start--disabled" disabled>
-            대본 준비중
-          </button>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function GearItemGrid({ items, onSelect }) {
-  if (items.length === 0) return null;
-  return (
-    <div className="eng-gear-grid">
-      {items.map(item => (
-        <GearPickerCard key={item.id} item={item} onSelect={onSelect}/>
-      ))}
-    </div>
-  );
-}
-
-function GearPickerView({
-  onBack,
-  onSelect,
-  onNavigate,
-}) {
-  const { items, loading, error } = useGearItems();
-  const [catFilter, setCatFilter] = useState("ALL");
-  const [search, setSearch] = useState("");
-
-  const stats = useMemo(() => computeGearPickerStats(items), [items]);
-  const categoryTabs = useMemo(() => buildCategoryTabs(items), [items]);
-
-  const filteredItems = useMemo(() => {
-    let list = [...items];
-    if (catFilter !== "ALL") {
-      list = list.filter(item => normalizeItemCategory(item.category) === catFilter);
-    }
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(item =>
-        item.name.toLowerCase().includes(q)
-        || (item.alias || "").toLowerCase().includes(q),
-      );
-    }
-    return list.sort((a, b) => a.name.localeCompare(b.name, "ko"));
-  }, [items, catFilter, search]);
-
-  const { withScript, withoutScript } = useMemo(() => {
-    const withS = [];
-    const withoutS = [];
-    for (const item of filteredItems) {
-      if (matchGearId(item)) withS.push(item);
-      else withoutS.push(item);
-    }
-    return { withScript: withS, withoutScript: withoutS };
-  }, [filteredItems]);
-
-  return (
-    <EnglishProgramLayout
-      activeId="gear-scripts"
-      onBack={onBack}
-      onNavigate={onNavigate}
-      mainClassName="eng-script-gear-picker"
-    >
-        <main className="eng-script-gear-picker-main">
-          <div className="eng-gear-picker-hero">
-            <h2 className="eng-script-gear-picker-title">어떤 교구 대본을 볼까요?</h2>
-            <p className="eng-script-gear-picker-desc">
-              Foundation · Interactive 2단계 레벨별 교구 수업 대본을 확인할 수 있습니다.
-            </p>
-          </div>
-
-          <div className="eng-gear-stats">
-            <div className="eng-gear-stat">
-              <div className="eng-gear-stat-icon eng-gear-stat-icon--green"><Package size={18}/></div>
-              <div>
-                <div className="eng-gear-stat-value">{stats.totalItems}<span>개</span></div>
-                <div className="eng-gear-stat-label">총 교구 수</div>
-              </div>
-            </div>
-            <div className="eng-gear-stat">
-              <div className="eng-gear-stat-icon eng-gear-stat-icon--blue"><FileText size={18}/></div>
-              <div>
-                <div className="eng-gear-stat-value">{stats.totalScripts}<span>개</span></div>
-                <div className="eng-gear-stat-label">총 대본 수</div>
-              </div>
-            </div>
-            <div className="eng-gear-stat">
-              <div className="eng-gear-stat-icon eng-gear-stat-icon--purple"><Languages size={18}/></div>
-              <div>
-                <div className="eng-gear-stat-value">{stats.totalExpressions}<span>개</span></div>
-                <div className="eng-gear-stat-label">총 영어 표현 수</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="eng-gear-cat-tabs" role="tablist" aria-label="교구 카테고리">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={catFilter === "ALL"}
-              className={`eng-gear-cat-tab${catFilter === "ALL" ? " active" : ""}`}
-              onClick={() => setCatFilter("ALL")}
-            >
-              전체
-              <span className="eng-gear-cat-tab-count">{items.length}</span>
-            </button>
-            {categoryTabs.map(tab => (
-              <button
-                key={tab.key}
-                type="button"
-                role="tab"
-                aria-selected={catFilter === tab.key}
-                className={`eng-gear-cat-tab${catFilter === tab.key ? " active" : ""}`}
-                onClick={() => setCatFilter(tab.key)}
-              >
-                {tab.label}
-                <span className="eng-gear-cat-tab-count">{tab.count}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="eng-gear-search-wrap">
-            <Search size={18} className="eng-gear-search-icon" aria-hidden/>
-            <input
-              type="search"
-              className="eng-gear-search"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="교구명 · 별명 검색..."
-              aria-label="교구 검색"
-            />
-          </div>
-
-          {loading ? (
-            <div className="eng-gear-loading">
-              <Loader2 size={28} className="ab-listen-spin" aria-hidden/>
-              <p>교구 목록 불러오는 중...</p>
-            </div>
-          ) : error ? (
-            <p className="eng-gear-error" role="alert">교구 목록을 불러오지 못했습니다. ({error})</p>
-          ) : filteredItems.length === 0 ? (
-            <p className="eng-gear-empty">검색 결과가 없습니다.</p>
-          ) : (
-            <>
-              {withScript.length > 0 && (
-                <section className="eng-gear-section">
-                  <h3 className="eng-gear-section-title">
-                    대본 있는 교구
-                    <span className="eng-gear-section-count">{withScript.length}</span>
-                  </h3>
-                  <GearItemGrid items={withScript} onSelect={onSelect}/>
-                </section>
-              )}
-              {withoutScript.length > 0 && (
-                <section className="eng-gear-section">
-                  <h3 className="eng-gear-section-title">
-                    대본 준비중
-                    <span className="eng-gear-section-count">{withoutScript.length}</span>
-                  </h3>
-                  <GearItemGrid items={withoutScript} onSelect={onSelect}/>
-                </section>
-              )}
-            </>
-          )}
-        </main>
-    </EnglishProgramLayout>
-  );
-}
-
 function parseEnglishScriptUrl(search) {
   const raw = search ?? (typeof window !== "undefined" ? window.location.search : "");
   const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
   const gear = params.get("gear");
   const validGear = GEAR_CATALOG.some(g => g.id === gear) ? gear : null;
   const picker = params.get("picker") === "1";
-  let screen = "landing";
+  let screen = "gear-picker";
   if (validGear) screen = "script";
-  else if (picker) screen = "gear-picker";
+  else if (params.get("landing") === "1") screen = "landing";
   return {
     screen,
     gearId: validGear || "air-bridge",
@@ -1117,8 +860,8 @@ function parseEnglishScriptUrl(search) {
 
 function buildEnglishScriptUrl({ screen, gearId, levelId, mode, cardIndex }) {
   const params = new URLSearchParams();
-  if (screen === "gear-picker") {
-    params.set("picker", "1");
+  if (screen === "landing") {
+    params.set("landing", "1");
   } else if (screen === "script") {
     params.set("gear", gearId);
     if (levelId !== LEVELS[0].id) params.set("level", levelId);
@@ -1365,7 +1108,7 @@ function ScriptView({ gearId, onBack, onChangeGear, levelId, mode, cardIndex, on
   );
 }
 
-export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildTypes, onGoFlowTips, onGoPronunciationTips }) {
+export default function EnglishScriptApp({ onBack, onGoMain, onGoSituations, onGoChildTypes, onGoFlowTips, onGoPronunciationTips, me }) {
   const location = useLocation();
   const navigate = useNavigate();
   const handleProgramNavigate = useEnglishProgramNavigate();
@@ -1395,8 +1138,10 @@ export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildType
 
   if (screen === "gear-picker") {
     return (
-      <GearPickerView
-        onBack={() => pushUrl({ screen: "landing" })}
+      <GearScriptLibraryView
+        me={me}
+        onBack={onBack}
+        onGoMain={onGoMain}
         onSelect={(id) => pushUrl({
           screen: "script",
           gearId: id,
@@ -1409,15 +1154,34 @@ export default function EnglishScriptApp({ onBack, onGoSituations, onGoChildType
     );
   }
 
+  if (screen === "landing") {
+    return (
+      <LandingView
+        onBack={onBack}
+        onGoMain={onGoMain}
+        onNavigate={handleProgramNavigate}
+        onStartScript={() => pushUrl({ screen: "gear-picker" })}
+        onGoSituations={onGoSituations ?? (() => navigate("/situation-manual"))}
+        onGoChildTypes={onGoChildTypes ?? (() => navigate("/child-types"))}
+        onGoFlowTips={onGoFlowTips ?? (() => navigate("/class-flow-tips"))}
+        onGoPronunciationTips={onGoPronunciationTips ?? (() => navigate("/pronunciation-tips"))}
+      />
+    );
+  }
+
   return (
-    <LandingView
+    <GearScriptLibraryView
+      me={me}
       onBack={onBack}
+      onGoMain={onGoMain}
+      onSelect={(id) => pushUrl({
+        screen: "script",
+        gearId: id,
+        levelId: LEVELS[0].id,
+        mode: "prep",
+        cardIndex: 0,
+      })}
       onNavigate={handleProgramNavigate}
-      onStartScript={() => pushUrl({ screen: "gear-picker" })}
-      onGoSituations={onGoSituations ?? (() => navigate("/situation-manual"))}
-      onGoChildTypes={onGoChildTypes ?? (() => navigate("/child-types"))}
-      onGoFlowTips={onGoFlowTips ?? (() => navigate("/class-flow-tips"))}
-      onGoPronunciationTips={onGoPronunciationTips ?? (() => navigate("/pronunciation-tips"))}
     />
   );
 }

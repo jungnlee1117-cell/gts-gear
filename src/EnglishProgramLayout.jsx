@@ -1,11 +1,14 @@
 import { useState, useCallback } from "react";
 import { Menu, X } from "lucide-react";
 import EnglishProgramSidebar, { PROGRAM_SIDEBAR_MENU } from "./EnglishProgramSidebar.jsx";
+import PlatformMainButton from "./PlatformMainButton.jsx";
 
 export default function EnglishProgramLayout({
   activeId,
   onBack,
+  onGoMain,
   onNavigate,
+  me,
   children,
   className = "",
   mainClassName = "",
@@ -46,7 +49,9 @@ export default function EnglishProgramLayout({
       <EnglishProgramSidebar
         activeId={activeId}
         onBack={onBack}
+        onGoMain={onGoMain}
         onNavigate={handleNavigate}
+        me={me}
       />
 
       <div className={`eng-program-main ${mainClassName}`.trim()}>

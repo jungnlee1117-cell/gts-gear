@@ -11,7 +11,7 @@ function tipKey(tip, index) {
   return `${tip.cat}-${tip.written}-${index}`;
 }
 
-export default function PronunciationTipsApp({ onBack }) {
+export default function PronunciationTipsApp({ onBack, onGoMain }) {
   const onNavigate = useEnglishProgramNavigate();
   const [activeCat, setActiveCat] = useState(PRONUNCIATION_CATEGORIES[0].id);
 
@@ -31,7 +31,7 @@ export default function PronunciationTipsApp({ onBack }) {
   const activeCategory = PRONUNCIATION_CATEGORIES.find(c => c.id === activeCat);
 
   return (
-    <EnglishProgramLayout activeId="pronunciation" onBack={onBack} onNavigate={onNavigate}>
+    <EnglishProgramLayout activeId="pronunciation" onBack={onBack} onGoMain={onGoMain} onNavigate={onNavigate}>
       <div className="pron-tips eng-program-page">
         <header className="pron-tips-header pron-tips-header--page">
           <div className="pron-tips-header-text">

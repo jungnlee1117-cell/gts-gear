@@ -177,7 +177,7 @@ function TypeDetailView({ type, onBack }) {
   );
 }
 
-export default function ChildTypeApp({ onBack }) {
+export default function ChildTypeApp({ onBack, onGoMain }) {
   const onNavigate = useEnglishProgramNavigate();
   const [selectedId, setSelectedId] = useState(null);
 
@@ -187,7 +187,7 @@ export default function ChildTypeApp({ onBack }) {
   );
 
   return (
-    <EnglishProgramLayout activeId="child-types" onBack={onBack} onNavigate={onNavigate}>
+    <EnglishProgramLayout activeId="child-types" onBack={onBack} onGoMain={onGoMain} onNavigate={onNavigate}>
       {selectedType ? (
         <TypeDetailView
           type={selectedType}
