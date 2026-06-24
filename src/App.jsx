@@ -7649,16 +7649,43 @@ function HubIconBook({ color }) {
   );
 }
 
+const HUB_THEMES = {
+  green: {
+    color: "#16a34a",
+    colorDark: "#15803d",
+    iconBg: "#ecfdf5",
+    iconBorder: "#bbf7d0",
+    cardBg: "#f6fcf8",
+    cardBorder: "rgba(22, 163, 74, 0.1)",
+    btnVariant: "solid",
+  },
+  blue: {
+    color: "#2563eb",
+    colorDark: "#1d4ed8",
+    iconBg: "#eff6ff",
+    iconBorder: "#bfdbfe",
+    cardBg: "#f7f9fe",
+    cardBorder: "rgba(37, 99, 235, 0.1)",
+    btnVariant: "solid",
+  },
+  teal: {
+    color: "#0d9488",
+    colorDark: "#0f766e",
+    iconBg: "#f0fdfa",
+    iconBorder: "#99f6e4",
+    cardBg: "#f5fbfa",
+    cardBorder: "rgba(13, 148, 136, 0.1)",
+    btnVariant: "outline",
+  },
+};
+
 const HUB_MODULES = [
   {
     id: "edu",
     title: "교구 시스템",
     desc: "교구 대여부터 반납, 재고 관리까지 체계적으로 관리하세요.",
-    color: "#22c55e",
-    bg: "linear-gradient(145deg, #0a1f14 0%, #12261a 100%)",
-    border: "rgba(34, 197, 94, 0.35)",
+    theme: "green",
     features: ["교구 대여 신청", "반납 관리", "재고 현황", "파손·수리 관리", "교구 사용 설명서"],
-    btn: "교구 시스템 입장 →",
     Icon: HubIconCube,
     wide: false,
     ready: true,
@@ -7668,25 +7695,20 @@ const HUB_MODULES = [
     id: "pe",
     title: "체육 프로그램",
     desc: "연령별 체육 프로그램을 확인하고 수업을 준비하세요.",
-    color: "#3b82f6",
-    bg: "linear-gradient(145deg, #0c1629 0%, #132240 100%)",
-    border: "rgba(59, 130, 246, 0.35)",
+    theme: "blue",
     features: ["3-4세 프로그램", "5-6세 프로그램", "7세 프로그램", "영어체육 프로그램"],
-    btn: "체육 프로그램 입장 →",
     Icon: HubIconUser,
     wide: false,
     ready: true,
     appRoute: "pe",
+    adminOnly: true,
   },
   {
     id: "english",
     title: "영어 대본 프로그램",
     desc: "교구별 영어 수업 대본과 현장 활용 가이드를 바로 확인하세요.",
-    color: "#8b5cf6",
-    bg: "linear-gradient(145deg, #150d24 0%, #1f1535 100%)",
-    border: "rgba(139, 92, 246, 0.35)",
+    theme: "blue",
     features: ["교구별 3단계 대본", "상황별 대처", "수업 흐름 팁", "발음 팁", "아이 유형 가이드"],
-    btn: "영어 대본 프로그램 입장 →",
     Icon: HubIconBook,
     wide: false,
     ready: true,
@@ -7696,11 +7718,8 @@ const HUB_MODULES = [
     id: "schedule",
     title: "스케줄 관리",
     desc: "선생님 일정과 수업 일정을 한눈에 관리하세요.",
-    color: "#a855f7",
-    bg: "linear-gradient(145deg, #150d24 0%, #1f1535 100%)",
-    border: "rgba(168, 85, 247, 0.35)",
+    theme: "teal",
     features: ["선생님 월별 일정", "원 수업 일정", "급여/정산", "원 관리"],
-    btn: "스케줄 관리 입장 →",
     Icon: HubIconCalendar,
     wide: false,
     ready: true,
@@ -7710,88 +7729,74 @@ const HUB_MODULES = [
     id: "resources",
     title: "체육자료실",
     desc: "수업 준비에 필요한 프로그램·자료를 검색하고 다운로드하세요.",
-    color: "#f97316",
-    bg: "linear-gradient(145deg, #1f1408 0%, #2a1a0c 100%)",
-    border: "rgba(249, 115, 22, 0.35)",
+    theme: "teal",
+    btnVariant: "solid",
     features: ["연령별 프로그램", "스포츠 종목 자료", "영어체육 자료", "수업 계획안", "영상 자료"],
-    btn: "체육자료실 입장 →",
     Icon: HubIconBook,
     wide: true,
     ready: true,
     appRoute: "pe",
+    adminOnly: true,
   },
 ];
 
+function isHubFullAccess(me) {
+  const role = me?.role;
+  return role === "admin" || role === "superadmin";
+}
+
+function getVisibleHubModules(me) {
+  if (isHubFullAccess(me)) return HUB_MODULES;
+  return HUB_MODULES.filter(mod => !mod.adminOnly);
+}
+
 function HubModuleCard({ mod, onEnter }) {
   const { Icon } = mod;
+  const theme = HUB_THEMES[mod.theme] || HUB_THEMES.blue;
+  const btnVariant = mod.btnVariant || theme.btnVariant;
   const enter = () => onEnter(mod);
   return (
     <div
-      className={`hub-card${mod.wide ? " hub-card-wide" : ""}`}
+      className={`hub-card${mod.wide ? " hub-card--wide" : ""}${btnVariant === "outline" ? " hub-card--outline-btn" : ""}`}
       role="button"
       tabIndex={0}
       onClick={enter}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); enter(); } }}
       style={{
-        background: mod.bg,
-        border: `1px solid ${mod.border}`,
-        borderRadius: 16,
-        overflow: "hidden",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
-        display: "flex",
-        flexDirection: "column",
-        cursor: "pointer",
+        "--hub-accent": theme.color,
+        "--hub-accent-dark": theme.colorDark,
+        "--hub-icon-bg": theme.iconBg,
+        "--hub-icon-border": theme.iconBorder,
+        "--hub-card-bg": theme.cardBg,
+        "--hub-card-border": theme.cardBorder,
       }}
     >
-      <div style={{ padding: mod.wide ? "28px 32px 20px" : "26px 26px 18px", flex: 1 }}>
-        <div style={{
-          width: 48, height: 48, borderRadius: 12,
-          background: "rgba(255,255,255,0.04)",
-          border: `1px solid ${mod.border}`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          marginBottom: 18,
-        }}>
-          <Icon color={mod.color}/>
+      <div className="hub-card__watermark" aria-hidden>
+        <Icon color={theme.color}/>
+      </div>
+      <div className="hub-card__body">
+        <div className="hub-card__icon-wrap">
+          <Icon color={theme.color}/>
         </div>
-        <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 8 }}>{mod.title}</div>
-        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.55, marginBottom: mod.wide ? 20 : 18 }}>
-          {mod.desc}
-        </div>
-        <div style={mod.wide ? {
-          display: "grid",
-          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-          gap: "6px 24px",
-        } : undefined}>
+        <div className="hub-card__title">{mod.title}</div>
+        <div className="hub-card__desc">{mod.desc}</div>
+        <div className="hub-card__divider" aria-hidden/>
+        <div className={`hub-card__features${mod.wide ? " hub-card__features--grid" : ""}`}>
           {mod.features.map(t => (
-            <div key={t} style={{
-              display: "flex", alignItems: "center", gap: 8,
-              marginBottom: 7, fontSize: 12, color: "rgba(255,255,255,0.68)",
-            }}>
-              <div style={{ width: 5, height: 5, borderRadius: "50%", background: mod.color, flexShrink: 0 }}/>
+            <div key={t} className="hub-card__feature">
+              <span className="hub-card__feature-dot" aria-hidden/>
               {t}
             </div>
           ))}
         </div>
       </div>
-      <div style={{ padding: mod.wide ? "0 32px 28px" : "0 26px 26px" }}>
+      <div className="hub-card__footer">
         <button
           type="button"
+          className="hub-card__btn"
           onClick={(e) => { e.stopPropagation(); enter(); }}
-          style={{
-            width: "100%",
-            padding: "12px 16px",
-            borderRadius: 10,
-            background: "rgba(255,255,255,0.04)",
-            color: mod.color,
-            fontSize: 14,
-            fontWeight: 800,
-            cursor: "pointer",
-            fontFamily: "inherit",
-            border: `1px solid ${mod.border}`,
-            transition: "background 0.15s",
-          }}
         >
-          {mod.btn}
+          시스템 바로가기 →
         </button>
       </div>
     </div>
@@ -7799,12 +7804,8 @@ function HubModuleCard({ mod, onEnter }) {
 }
 
 function HubPage({ me, onSelect, onLogout }) {
-  const [isPC, setIsPC] = useState(typeof window !== "undefined" && window.innerWidth >= 900);
-  useEffect(() => {
-    const handle = () => setIsPC(window.innerWidth >= 900);
-    window.addEventListener("resize", handle);
-    return () => window.removeEventListener("resize", handle);
-  }, []);
+  const visibleModules = useMemo(() => getVisibleHubModules(me), [me?.role]);
+  const isTeacherHub = me?.role === "teacher";
 
   const handleEnter = (mod) => {
     if (mod.ready && mod.appRoute) {
@@ -7814,113 +7815,46 @@ function HubPage({ me, onSelect, onLogout }) {
     alert("준비 중입니다. 곧 이용하실 수 있습니다.");
   };
 
-  const logoutBtn = {
-    background: "transparent",
-    border: "1px solid rgba(255,255,255,0.35)",
-    borderRadius: 8,
-    padding: "7px 14px",
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: "inherit",
-  };
-
   return (
-    <div
-      className="hub-page"
-      style={{
-        minHeight: "100vh",
-        background: "linear-gradient(165deg, #060d18 0%, #0d1829 42%, #121f38 100%)",
-        fontFamily: "'Noto Sans KR', 'Inter', 'Apple SD Gothic Neo', sans-serif",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;900&display=swap');
-        .hub-page * { box-sizing: border-box; }
-        .hub-card { transition: transform 0.2s, box-shadow 0.2s; }
-        .hub-card:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 14px 44px rgba(0, 0, 0, 0.45) !important;
-        }
-        .hub-modules {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 20px;
-          width: 100%;
-          max-width: 1120px;
-        }
-        .hub-card-wide { grid-column: span 2; }
-        @media (max-width: 900px) {
-          .hub-modules {
-            grid-template-columns: 1fr;
-          }
-          .hub-card-wide { grid-column: span 1; }
-        }
-      `}</style>
+    <div className="hub-page">
+      <div className="hub-page__decor" aria-hidden/>
 
-      <header style={{
-        padding: isPC ? "18px 40px" : "14px 20px",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        borderBottom: "1px solid rgba(255,255,255,0.08)",
-        flexWrap: "wrap",
-        gap: 12,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <GtsHexLogo size={36}/>
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 900, color: "#fff", letterSpacing: "-0.02em" }}>GTS 통합 플랫폼</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 3 }}>
-              교구 관리 · 체육 프로그램 · 스케줄 관리 · 자료실
-            </div>
-          </div>
+      <header className="hub-topbar">
+        <div className="hub-topbar__brand">
+          <GtsHexLogo size={32}/>
+          <span className="hub-topbar__brand-text">GTS</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(255,255,255,0.9)" }}>{me.name}님</span>
+        <div className="hub-topbar__actions">
           <RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/>
-          <button type="button" onClick={onLogout} style={logoutBtn}>로그아웃</button>
+          <button type="button" className="hub-topbar__logout" onClick={onLogout}>로그아웃</button>
         </div>
       </header>
 
-      <main style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        padding: isPC ? "48px 40px 32px" : "32px 20px 24px",
-      }}>
-        <div style={{ textAlign: "center", marginBottom: isPC ? 40 : 28, maxWidth: 640 }}>
-          <h1 style={{
-            fontSize: isPC ? 28 : 22,
-            fontWeight: 900,
-            color: "#fff",
-            margin: "0 0 10px",
-            letterSpacing: "-0.03em",
-          }}>
-            어떤 시스템을 사용하시겠어요?
-          </h1>
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.42)", margin: 0, lineHeight: 1.6 }}>
-            하나의 계정으로 모든 GTS 서비스를 이용할 수 있습니다
+      <main className="hub-main">
+        <div className="hub-hero">
+          <h1 className="hub-hero__title">안녕하세요, {me.name}님! 👋</h1>
+          <p className="hub-hero__desc">
+            {isTeacherHub
+              ? "권한에 따라 이용 가능한 시스템만 표시됩니다. 하나의 계정으로 모든 GTS 서비스를 이용할 수 있습니다."
+              : "하나의 계정으로 모든 GTS 서비스를 이용할 수 있습니다."}
           </p>
         </div>
 
-        <div className="hub-modules">
-          {HUB_MODULES.map(mod => (
+        <div className={`hub-modules${isTeacherHub ? " hub-modules--teacher" : " hub-modules--admin"}`}>
+          {visibleModules.map(mod => (
             <HubModuleCard key={mod.id} mod={mod} onEnter={handleEnter}/>
           ))}
         </div>
       </main>
 
-      <footer style={{ textAlign: "center", padding: "24px 20px 28px" }}>
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginBottom: 6 }}>
-          GTS 통합 플랫폼 · 교구 관리 · 체육 프로그램 · 스케줄 관리 · 자료실
-        </div>
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.22)" }}>
-          © 2025 GTS. All rights reserved.
+      <footer className="hub-footer">
+        <div className="hub-footer__line">GTS 통합 플랫폼 · © 2025 GTS. All rights reserved.</div>
+        <div className="hub-footer__links">
+          <span>이용약관</span>
+          <span aria-hidden>·</span>
+          <span>개인정보처리방침</span>
+          <span aria-hidden>·</span>
+          <span>고객센터</span>
         </div>
       </footer>
     </div>
