@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import {
   findNextWeekSlot,
@@ -15,51 +16,102 @@ import {
   monthLabel,
   schoolYearStartYear,
 } from "./lessonPlan.js";
+import { itemPhotoStyle } from "./gearPhoto.js";
+import { buildCurrentRentals } from "./teacherGearStatus.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
-const DS = {
-  primary: "#059669",
-  primaryLight: "#ecfdf5",
-  textPrimary: "#111827",
-  textSecondary: "#6b7280",
-  textMuted: "#9ca3af",
-};
-
-const card = {
-  background: "#fff",
-  borderRadius: 16,
-  border: "1px solid #e8ecee",
-  boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-};
-
 const MONTH_SHORT = ["", "1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
+const LIST_PREVIEW = 4;
 
-function Spinner({ text }) {
-  return (
-    <div style={{ textAlign: "center", padding: 40, color: DS.textSecondary }}>
-      <div style={{ marginBottom: 8 }}>⏳</div>
-      {text || "불러오는 중..."}
-    </div>
-  );
+const FILTERS = [
+  { id: "all", label: "전체" },
+  { id: "rental", label: "대여" },
+  { id: "air", label: "에어" },
+  { id: "prop", label: "소도구" },
+];
+
+function parseDay(value) {
+  if (!value) return null;
+  const d = new Date(`${value}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function AirBadge() {
+function gearTypeBadge(gear) {
+  if (gear?.is_air_product) return { label: "에어", tone: "air" };
+  return { label: "대여", tone: "rental" };
+}
+
+function resolveGearItemEntries(gear, items) {
+  if (!gear) return [];
+  if (gear.merged) {
+    const item = resolveItemRecord(items, gear.item_name);
+    return [{ label: null, name: gear.displayName, item }];
+  }
+  if (gear.parts?.length) {
+    return gear.parts.map(p => ({
+      label: p.label,
+      name: p.name,
+      item: resolveItemRecord(items, p.name),
+    }));
+  }
+  const item = resolveItemRecord(items, gear.item_name);
+  return [{ label: null, name: gear.displayName, item }];
+}
+
+function resolveGearPhotoEntries(gear, items) {
+  return resolveGearItemEntries(gear, items).filter(e => e.item?.photo_url);
+}
+
+function matchesFilter(filterId, gear, items) {
+  if (filterId === "all") return true;
+  const entries = resolveGearItemEntries(gear, items);
+  return entries.some(({ item }) => {
+    if (filterId === "air") return Boolean(gear?.is_air_product);
+    if (filterId === "prop") {
+      const cat = item?.category;
+      return ["TOOL", "STACK", "TARGET", "ETC", "SPC"].includes(cat);
+    }
+    if (filterId === "rental") return !gear?.is_air_product;
+    return true;
+  });
+}
+
+function weekRentalStatusForGear(weekSlot, gear, items, heldIds) {
+  const ids = resolveGearItemEntries(gear, items).map(e => e.item?.id).filter(Boolean);
+  if (!ids.length) return { label: "대여 예정", tone: "scheduled" };
+  if (ids.some(id => heldIds.has(id))) {
+    return { label: "대여 중", tone: "rented" };
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = parseDay(weekSlot?.week_end_date);
+  const start = parseDay(weekSlot?.week_start_date);
+  if (end && end < today) return { label: "반납 완료", tone: "done" };
+  if (start && start > today) return { label: "대여 예정", tone: "scheduled" };
+  return { label: "대여 예정", tone: "scheduled" };
+}
+
+function GearPhoto({ item, className, alt }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [item?.id, item?.photo_url]);
+
+  if (!item?.photo_url || failed) return null;
+
   return (
-    <span style={{
-      fontSize: 10, fontWeight: 700, color: "#0891b2",
-      background: "#ecfeff", border: "1px solid #a5f3fc",
-      borderRadius: 6, padding: "2px 6px", marginLeft: 8,
-    }}>
-      에어
-    </span>
+    <img
+      src={item.photo_url}
+      alt={alt || item.name}
+      className={className}
+      onError={() => setFailed(true)}
+      style={itemPhotoStyle(item, { width: "100%", height: "100%" })}
+    />
   );
 }
 
 function SchoolYearTimeline({ months, viewMonth, todayMonth, onSelect }) {
-  const scrollRef = useRef(null);
   const activeRef = useRef(null);
 
   useEffect(() => {
@@ -67,17 +119,9 @@ function SchoolYearTimeline({ months, viewMonth, todayMonth, onSelect }) {
   }, [viewMonth]);
 
   return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: DS.textSecondary, marginBottom: 10 }}>
-        학년도 월별 보기
-      </div>
-      <div
-        ref={scrollRef}
-        style={{
-          display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6,
-          WebkitOverflowScrolling: "touch",
-        }}
-      >
+    <section className="gear-rotation-months">
+      <h2 className="gear-rotation-months__title">학년도 월별 보기</h2>
+      <div className="gear-rotation-months__scroll">
         {months.map((m) => {
           const isView = m === viewMonth;
           const isToday = m === todayMonth;
@@ -87,135 +131,156 @@ function SchoolYearTimeline({ months, viewMonth, todayMonth, onSelect }) {
               key={m}
               ref={isView ? activeRef : undefined}
               type="button"
+              className={`gear-rotation-month-btn${isView ? " gear-rotation-month-btn--active" : ""}`}
               onClick={() => onSelect(m)}
-              style={{
-                flexShrink: 0, minWidth: 64, padding: "10px 12px", borderRadius: 12,
-                border: isView ? `2px solid ${DS.primary}` : "1px solid #e5e7eb",
-                background: isView ? DS.primaryLight : "#fff",
-                cursor: "pointer", fontFamily: "inherit", position: "relative",
-              }}
             >
-              <div style={{
-                fontSize: 14, fontWeight: 800,
-                color: isView ? DS.primary : DS.textPrimary,
-              }}>
-                {MONTH_SHORT[mo]}
-              </div>
-              {isToday && (
-                <div style={{
-                  fontSize: 10, fontWeight: 700, color: DS.primary, marginTop: 2,
-                }}>
-                  이번 달
-                </div>
-              )}
+              <span className="gear-rotation-month-btn__label">{MONTH_SHORT[mo] || `${mo}월`}</span>
+              {isToday && <span className="gear-rotation-month-btn__now">이번 달</span>}
             </button>
           );
         })}
       </div>
-    </div>
+    </section>
   );
 }
 
-function WeekHighlightCard({ label, dateRange, gear, compact, onRent }) {
-  if (!gear) {
+function GearPhotoGroup({ entries, variant = "highlight" }) {
+  if (!entries.length) return null;
+
+  if (variant === "row") {
     return (
-      <div style={{
-        ...card, padding: compact ? "12px 14px" : "20px 18px",
-        color: DS.textMuted, fontSize: 13, textAlign: "center",
-      }}>
-        {label} 교구 정보 없음
+      <div className="gear-rotation-row__thumbs">
+        {entries.map(({ item, label, name }) => (
+          <div key={`${label}-${name}`} className="gear-rotation-row__thumb">
+            {label && <span className="gear-rotation-photo-label">{label}</span>}
+            <GearPhoto item={item} alt={name} />
+          </div>
+        ))}
       </div>
     );
   }
 
   return (
-    <div style={{
-      ...card,
-      padding: compact ? "14px 16px" : "22px 20px",
-      background: compact ? "#f8fafc" : `linear-gradient(135deg, ${DS.primaryLight} 0%, #fff 100%)`,
-    }}>
-      <div style={{
-        fontSize: compact ? 11 : 12, fontWeight: 700, color: DS.textMuted, marginBottom: 6,
-      }}>
-        {label}
-        {dateRange && <span style={{ marginLeft: 8 }}>{dateRange}</span>}
-      </div>
-      <div style={{
-        fontSize: compact ? 17 : 26, fontWeight: 900, color: DS.textPrimary, lineHeight: 1.3,
-        display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4,
-      }}>
-        {gear.merged ? gear.displayName : gear.displayName}
-        {gear.is_air_product && <AirBadge />}
-      </div>
-      {!gear.merged && gear.parts?.map(p => (
-        <div key={p.label} style={{ fontSize: compact ? 12 : 13, color: DS.textSecondary, marginTop: 4 }}>
-          <span style={{ fontWeight: 700 }}>{p.label}</span> {p.name}
+    <div className={`gear-rotation-highlight__photos gear-rotation-highlight__photos--${entries.length}`}>
+      {entries.map(({ item, label, name }) => (
+        <div key={`${label}-${name}`} className="gear-rotation-highlight__photo">
+          {label && <span className="gear-rotation-photo-label">{label}</span>}
+          <GearPhoto item={item} alt={name} />
         </div>
       ))}
-      {gear.simple_activity && (
-        <p style={{ margin: "10px 0 0", fontSize: 13, color: DS.textSecondary, lineHeight: 1.5 }}>
-          {gear.simple_activity}
-        </p>
-      )}
-      {!compact && gear.item_name && (
-        <button
-          type="button"
-          onClick={() => onRent(gear.item_name)}
-          style={{
-            marginTop: 16, width: "100%", padding: "12px 0", borderRadius: 12, border: "none",
-            background: DS.primary, color: "#fff", fontWeight: 800, fontSize: 15,
-            cursor: "pointer", fontFamily: "inherit",
-          }}
-        >
-          이 교구 대여 신청
-        </button>
-      )}
     </div>
   );
 }
 
-function MonthWeekRow({ weekNumber, dateRange, gear, onOpenItem }) {
-  if (!gear) return null;
+function WeekHighlightCard({ variant, label, dateRange, gear, items, onRent }) {
+  const typeBadge = gearTypeBadge(gear);
+  const photoEntries = useMemo(
+    () => resolveGearPhotoEntries(gear, items),
+    [gear, items],
+  );
 
-  const activityLine = gear.simple_activity
-    || (gear.simpleActivities?.length ? gear.simpleActivities.join(" / ") : null);
+  if (!gear) {
+    return (
+      <article className={`gear-rotation-highlight gear-rotation-highlight--${variant} gear-rotation-highlight--empty`}>
+        <p>{label} 교구 정보 없음</p>
+      </article>
+    );
+  }
 
   return (
-    <button
-      type="button"
-      onClick={() => onOpenItem(gear.item_name)}
-      style={{
-        ...card, padding: "14px 16px", textAlign: "left", cursor: "pointer",
-        fontFamily: "inherit", width: "100%",
-      }}
-    >
-      <div style={{ fontSize: 12, fontWeight: 700, color: DS.textMuted, marginBottom: 6 }}>
-        {dateRange || `${weekNumber}주차`}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontSize: 16, fontWeight: 800, color: DS.textPrimary }}>
-          {gear.merged ? gear.displayName : gear.displayName}
-        </span>
-        {gear.is_air_product && <AirBadge />}
-      </div>
-      {!gear.merged && gear.parts?.map(p => (
-        <div key={p.label} style={{ fontSize: 12, color: DS.textSecondary, marginTop: 4 }}>
-          {p.label}: {p.name}
-        </div>
-      ))}
-      {activityLine && (
-        <p style={{ margin: "8px 0 0", fontSize: 13, color: DS.textSecondary, lineHeight: 1.45 }}>
-          {activityLine}
+    <article className={`gear-rotation-highlight gear-rotation-highlight--${variant}${photoEntries.length ? " gear-rotation-highlight--has-photo" : ""}`}>
+      <div className="gear-rotation-highlight__body">
+        <p className="gear-rotation-highlight__period">
+          {label}
+          {dateRange ? <span>{dateRange}</span> : null}
         </p>
-      )}
-      <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 8 }}>
-        탭하여 교구 상세 · 대여
+        <div className="gear-rotation-highlight__name-row">
+          <h3 className="gear-rotation-highlight__name">{gear.displayName}</h3>
+          <span className={`gear-rotation-type-badge gear-rotation-type-badge--${typeBadge.tone}`}>
+            {typeBadge.label}
+          </span>
+        </div>
+        {!gear.merged && gear.parts?.map(p => (
+          <p key={p.label} className="gear-rotation-highlight__sub">{p.label}: {p.name}</p>
+        ))}
+        {gear.simple_activity && (
+          <p className="gear-rotation-highlight__activity">{gear.simple_activity}</p>
+        )}
+        {variant === "current" && (
+          <button type="button" className="gear-rotation-highlight__cta" onClick={() => onRent(gear.item_name)}>
+            이 교구 대여 신청 →
+          </button>
+        )}
       </div>
-    </button>
+      <GearPhotoGroup entries={photoEntries} variant="highlight" />
+    </article>
   );
 }
 
-export default function MyGearRotationPage({ me, items, onDetail, onGoRental, PageHeader, PageShell }) {
+function MonthGearRow({ row, items, status, onOpenItem }) {
+  const typeBadge = gearTypeBadge(row.gear);
+  const activityLine = row.gear.simple_activity
+    || (row.gear.simpleActivities?.length ? row.gear.simpleActivities.join(" / ") : null);
+  const institutionLine = row.gear.parts?.length
+    ? row.gear.parts.map(p => p.label).join(" · ")
+    : null;
+  const photoEntries = useMemo(
+    () => resolveGearPhotoEntries(row.gear, items),
+    [row.gear, items],
+  );
+
+  return (
+    <article className="gear-rotation-row">
+      <div className="gear-rotation-row__dates">{row.dateRange || `${row.weekNumber}주차`}</div>
+      <div className="gear-rotation-row__main">
+        <GearPhotoGroup entries={photoEntries} variant="row" />
+        <div className="gear-rotation-row__info">
+          <div className="gear-rotation-row__title-row">
+            <h4 className="gear-rotation-row__title">{row.gear.displayName}</h4>
+            <span className={`gear-rotation-type-badge gear-rotation-type-badge--${typeBadge.tone}`}>
+              {typeBadge.label}
+            </span>
+          </div>
+          {activityLine && (
+            <p className="gear-rotation-row__meta">활동영역: {activityLine}</p>
+          )}
+          {institutionLine && (
+            <p className="gear-rotation-row__meta">대상: {institutionLine}</p>
+          )}
+        </div>
+      </div>
+      <div className="gear-rotation-row__side">
+        <span className={`gear-rotation-status gear-rotation-status--${status.tone}`}>
+          {status.label}
+        </span>
+        <button type="button" className="gear-rotation-row__link" onClick={() => onOpenItem(row.gear.item_name)}>
+          상세 보기
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function Spinner({ text }) {
+  return (
+    <div className="gear-rotation-loading">
+      <div>⏳</div>
+      <p>{text || "불러오는 중..."}</p>
+    </div>
+  );
+}
+
+export default function MyGearRotationPage({
+  me,
+  items,
+  reqs,
+  ris,
+  rets,
+  onDetail,
+  onGoRental,
+  PageHeader,
+  PageShell,
+}) {
   const startYear = schoolYearStartYear();
   const todayMonth = yearMonthKey();
   const schoolMonths = useMemo(() => schoolYearMonths(startYear), [startYear]);
@@ -226,6 +291,8 @@ export default function MyGearRotationPage({ me, items, onDetail, onGoRental, Pa
   const [schedules, setSchedules] = useState([]);
   const [weeklyLists, setWeeklyLists] = useState([]);
   const [allMonthWeeks, setAllMonthWeeks] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -267,6 +334,11 @@ export default function MyGearRotationPage({ me, items, onDetail, onGoRental, Pa
     })();
     return () => { cancelled = true; };
   }, [me.id, schoolMonths]);
+
+  const heldIds = useMemo(() => {
+    const rentals = buildCurrentRentals(me, reqs || [], ris || [], items || [], rets || []);
+    return new Set(rentals.map(r => r.itemId).filter(Boolean));
+  }, [me, reqs, ris, items, rets]);
 
   const scheduleForMonth = (monthKey) =>
     schedules.find(s => s.year_month?.startsWith(String(monthKey).slice(0, 7))) || null;
@@ -316,10 +388,25 @@ export default function MyGearRotationPage({ me, items, onDetail, onGoRental, Pa
       return {
         weekNumber: wn,
         dateRange: mw ? formatWeekRange(mw.week_start_date, mw.week_end_date) : null,
+        weekSlot: mw || null,
         gear,
+        status: weekRentalStatusForGear(mw, gear, items, heldIds),
       };
     }).filter(Boolean);
-  }, [viewLetter, weeklyLists, viewMonthWeeks]);
+  }, [viewLetter, weeklyLists, viewMonthWeeks, items, heldIds]);
+
+  const filteredRows = useMemo(
+    () => monthWeekRows.filter(row => matchesFilter(filter, row.gear, items)),
+    [monthWeekRows, filter, items],
+  );
+
+  const visibleRows = expanded ? filteredRows : filteredRows.slice(0, LIST_PREVIEW);
+  const hasMore = filteredRows.length > LIST_PREVIEW;
+
+  useEffect(() => {
+    setExpanded(false);
+    setFilter("all");
+  }, [viewMonth]);
 
   const openItem = (sheetName) => {
     const rec = resolveItemRecord(items, sheetName);
@@ -356,35 +443,35 @@ export default function MyGearRotationPage({ me, items, onDetail, onGoRental, Pa
 
       {loading && <Spinner text="순환 배정 불러오는 중..." />}
       {!loading && error && (
-        <div style={{ ...card, padding: 24, color: "#dc2626", textAlign: "center" }}>{error}</div>
+        <div className="gear-rotation-error">{error}</div>
       )}
 
       {!loading && !error && (
-        <>
-          <section style={{ marginBottom: 24 }}>
+        <div className="gear-rotation-page">
+          <section className="gear-rotation-highlights-grid">
             <WeekHighlightCard
+              variant="current"
               label="이번 주"
               dateRange={thisWeekRange}
               gear={thisWeekGear}
+              items={items}
               onRent={handleRent}
             />
-            {nextWeekGear && (
-              <div style={{ marginTop: 12 }}>
-                <WeekHighlightCard
-                  label="다음 주"
-                  dateRange={nextWeekRange}
-                  gear={nextWeekGear}
-                  compact
-                  onRent={handleRent}
-                />
-              </div>
-            )}
-            {!currentWeekSlot && (
-              <p style={{ fontSize: 12, color: DS.textMuted, textAlign: "center", marginTop: 10 }}>
-                주차별 날짜가 등록되지 않아 이번 주를 자동으로 찾지 못했습니다.
-              </p>
-            )}
+            <WeekHighlightCard
+              variant="next"
+              label="다음 주"
+              dateRange={nextWeekRange}
+              gear={nextWeekGear}
+              items={items}
+              onRent={handleRent}
+            />
           </section>
+
+          {!currentWeekSlot && (
+            <p className="gear-rotation-hint">
+              주차별 날짜가 등록되지 않아 이번 주를 자동으로 찾지 못했습니다.
+            </p>
+          )}
 
           <SchoolYearTimeline
             months={schoolMonths}
@@ -393,40 +480,58 @@ export default function MyGearRotationPage({ me, items, onDetail, onGoRental, Pa
             onSelect={setViewMonth}
           />
 
-          <section>
-            <h2 style={{
-              fontSize: 16, fontWeight: 800, color: DS.textPrimary, margin: "0 0 12px",
-            }}>
-              {monthLabel(viewMonth)} 전체 교구
-            </h2>
-
-            {!viewLetter && (
-              <div style={{ ...card, padding: 28, textAlign: "center", color: DS.textSecondary }}>
-                {monthLabel(viewMonth)} 순환 배정이 없습니다.
-              </div>
-            )}
-
-            {viewLetter && monthWeekRows.length === 0 && (
-              <div style={{ ...card, padding: 28, textAlign: "center", color: DS.textSecondary }}>
-                등록된 주차별 교구가 없습니다.
-              </div>
-            )}
-
-            {viewLetter && monthWeekRows.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {monthWeekRows.map(row => (
-                  <MonthWeekRow
-                    key={row.weekNumber}
-                    weekNumber={row.weekNumber}
-                    dateRange={row.dateRange}
-                    gear={row.gear}
-                    onOpenItem={openItem}
-                  />
+          <section className="gear-rotation-list-section">
+            <div className="gear-rotation-list-head">
+              <h2 className="gear-rotation-list-title">{monthLabel(viewMonth)} 전체 교구</h2>
+              <div className="gear-rotation-filters">
+                {FILTERS.map(f => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className={`gear-rotation-filter${filter === f.id ? " gear-rotation-filter--active" : ""}`}
+                    onClick={() => setFilter(f.id)}
+                  >
+                    {f.label}
+                  </button>
                 ))}
               </div>
+            </div>
+
+            {!viewLetter && (
+              <div className="gear-rotation-empty">{monthLabel(viewMonth)} 순환 배정이 없습니다.</div>
+            )}
+
+            {viewLetter && filteredRows.length === 0 && (
+              <div className="gear-rotation-empty">해당 필터에 맞는 교구가 없습니다.</div>
+            )}
+
+            {viewLetter && filteredRows.length > 0 && (
+              <>
+                <div className="gear-rotation-list">
+                  {visibleRows.map(row => (
+                    <MonthGearRow
+                      key={row.weekNumber}
+                      row={row}
+                      items={items}
+                      status={row.status}
+                      onOpenItem={openItem}
+                    />
+                  ))}
+                </div>
+                {hasMore && (
+                  <button
+                    type="button"
+                    className="gear-rotation-expand"
+                    onClick={() => setExpanded(v => !v)}
+                  >
+                    {expanded ? "접기" : "더 많은 교구 보기"}
+                    <ChevronDown size={16} className={expanded ? "gear-rotation-expand__icon--up" : ""} />
+                  </button>
+                )}
+              </>
             )}
           </section>
-        </>
+        </div>
       )}
     </PageShell>
   );

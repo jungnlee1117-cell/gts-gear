@@ -96,8 +96,8 @@ export const PRONUNCIATION_CATEGORIES = [
       written: "What do you think?",
       natural: "Whaddaya think?",
       pron: "와더야 띵크",
-      note: "Inquiry 레벨에서 자주 쓰는 질문 패턴. 천천히 말해도 되지만 자연스러운 버전도 알아두면 좋아요.",
-      usedIn: "Inquiry 레벨 — 토론 유도할 때",
+      note: "Interactive 레벨에서 자주 쓰는 질문 패턴. 천천히 말해도 되지만 자연스러운 버전도 알아두면 좋아요.",
+      usedIn: "Interactive 레벨 — 토론 유도할 때",
     },
   
     // ─────────────────────────────────

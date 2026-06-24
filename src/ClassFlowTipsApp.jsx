@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import { activities, TIP_CATEGORIES, getCategoryCounts } from "./tipsData.js";
 import { CAT_ICONS, GTS_ICON_STROKE, TIP_ICONS } from "./tipsIcons.js";
+import EnglishProgramLayout from "./EnglishProgramLayout.jsx";
+import { useEnglishProgramNavigate } from "./useEnglishProgramNavigate.js";
 
 const FAV_KEY = "gts-flow-tips-favorites";
 const TYPE_TAGS = ["활동적", "협동", "신체활동", "영어", "집중", "게임형", "이완", "노하우"];
@@ -43,6 +45,7 @@ function TagList({ tags }) {
 }
 
 export default function ClassFlowTipsApp({ onBack }) {
+  const onNavigate = useEnglishProgramNavigate();
   const counts = useMemo(() => getCategoryCounts(), []);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeCat = useMemo(() => {
@@ -140,13 +143,12 @@ export default function ClassFlowTipsApp({ onBack }) {
     setTypeFilter(value);
   }, []);
 
+  const sidebarActiveId = activeCat === "veteran" ? "veteran" : "flow-tips";
+
   return (
-    <div className="flow-tips-page">
-      <header className="ft-topbar">
-        <button type="button" className="ft-topbar-back" onClick={onBack}>
-          <ChevronLeft size={16} strokeWidth={2.5}/>
-          뒤로가기
-        </button>
+    <EnglishProgramLayout activeId={sidebarActiveId} onBack={onBack} onNavigate={onNavigate}>
+    <div className="flow-tips-page eng-program-page">
+      <header className="ft-topbar ft-topbar--page">
         <div className="ft-topbar-brand">
           <h1 className="ft-topbar-title">수업 흐름 팁</h1>
           <p className="ft-topbar-desc">실전 활동 라이브러리 · {counts.all}개 활동</p>
@@ -376,5 +378,6 @@ export default function ClassFlowTipsApp({ onBack }) {
         </section>
       </div>
     </div>
+    </EnglishProgramLayout>
   );
 }

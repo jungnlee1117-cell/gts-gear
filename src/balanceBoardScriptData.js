@@ -11,13 +11,12 @@ export const BALANCE_BOARD_INTRO = {
         lines: {
           foundation: "짜잔~!! 이건 그냥 보드가 아니에요... 마법의 보드예요!!",
           interactive: "This isn't just a board... it's a MAGIC board!",
-          inquiry: "This board has a secret. It can turn you into anything you imagine.",
         },
       },
       {
         who: "kids",
         action: "신기해하며 모여듬",
-        lines: { foundation: "마법요?? 진짜요??", interactive: "Magic?? Really??", inquiry: "What do you mean by that?" },
+        lines: { foundation: "마법요?? 진짜요??", interactive: "Magic?? Really??" },
       },
       {
         who: "teacher",
@@ -25,7 +24,6 @@ export const BALANCE_BOARD_INTRO = {
         lines: {
           foundation: "이 위에 올라가면~ 동물이 될 수 있어요!! 오늘 우리 9가지 동물이 될 거예요!",
           interactive: "When you get on this board, you can become any animal! Today we'll become 9 different things!",
-          inquiry: "Each pose on this board transforms you into something different. Nine challenges, nine transformations.",
         },
       },
       {
@@ -34,14 +32,13 @@ export const BALANCE_BOARD_INTRO = {
         lines: {
           foundation: "준비됐어요?? Are you ready??",
           interactive: "Are you ready for this adventure??",
-          inquiry: "Ready to begin the first transformation?",
         },
       },
       {
         who: "kids",
         text: "YES I'M READY!!",
         action: "신나서 대답",
-        lines: { foundation: "YES I'M READY!!", interactive: "YES I'M READY!!", inquiry: "Yes, let's begin!" },
+        lines: { foundation: "YES I'M READY!!", interactive: "YES I'M READY!!" },
       },
     ],
   };
@@ -61,7 +58,6 @@ export const BALANCE_BOARD_INTRO = {
       transitionIn: {
         foundation: "첫 번째 변신!! 우리는... 작은 배가 될 거예요!! 통통배~!!",
         interactive: "Transformation #1! We're becoming a little boat!",
-        inquiry: "First challenge: become a boat rocking on gentle waves.",
       },
       script: [
         {
@@ -70,13 +66,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "여기 앉아봐요~ 다리 꼬고! 짠~ 우리는 이제 배예요!!",
             interactive: "Sit down like this! Cross your legs — you're now a little boat!",
-            inquiry: "Sit on the board with your legs crossed. You are now a boat floating on water.",
           },
         },
         {
           who: "kids",
           action: "보드에 앉으며 흔들림에 반응",
-          lines: { foundation: "(웃으며) 흔들려요!! 출렁출렁!!", interactive: "Whoa, it's rocking! Splash splash!", inquiry: "Whoa, it's unstable like real water!" },
+          lines: { foundation: "(웃으며) 흔들려요!! 출렁출렁!!", interactive: "Whoa, it's rocking! Splash splash!" },
         },
         {
           who: "teacher",
@@ -84,13 +79,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "손으로 여기 잡아요~ 그리고! 파도가 친다~!! SIDE TO SIDE!! 출렁~ 출렁~!!",
             interactive: "Hold the edges! Here comes a wave! Rock — side to side! Splash!",
-            inquiry: "Hold the edges for control. Imagine ocean waves pushing you side to side.",
           },
         },
         {
           who: "kids",
           action: "좌우로 몸을 기울이며 흔들기",
-          lines: { foundation: "SIDE TO SIDE!! 출렁출렁!!", interactive: "Side to side! Splash splash!", inquiry: "I can feel my core working to stay balanced!" },
+          lines: { foundation: "SIDE TO SIDE!! 출렁출렁!!", interactive: "Side to side! Splash splash!" },
         },
         {
           who: "teacher",
@@ -98,7 +92,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "이번엔 큰 파도다!! WHOOSH!! 더 크게!! 와우 와우!!",
             interactive: "Big wave coming — WHOOSH! Bigger! Can you go bigger?",
-            inquiry: "Now a bigger wave arrives. Can you maintain control while increasing the range?",
           },
         },
       ],
@@ -118,7 +111,6 @@ export const BALANCE_BOARD_INTRO = {
       transitionIn: {
         foundation: "어이쿠!! 갑자기 폭풍이 몰려와요!! 이번엔 앞뒤로 흔들려요!!",
         interactive: "Uh oh! A storm is coming! Now the boat rocks front to back!",
-        inquiry: "A storm changes the wave direction. Now you'll rock front to back.",
       },
       script: [
         {
@@ -127,13 +119,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "폭풍이다!! 앞으로 휩쓸려요~ FRONT!! 그리고 뒤로~ BACK!!",
             interactive: "Storm waves! Lean forward — FRONT! Now lean back — BACK!",
-            inquiry: "Lean forward, then back. Notice how different muscles engage this time.",
           },
         },
         {
           who: "kids",
           action: "방향을 바꿔 시도하며 반응",
-          lines: { foundation: "(시도하며) 어 다르다!! 무서워요!!", interactive: "It feels different! A little scary!", inquiry: "This uses different muscles than side to side!" },
+          lines: { foundation: "(시도하며) 어 다르다!! 무서워요!!", interactive: "It feels different! A little scary!" },
         },
         {
           who: "teacher",
@@ -141,7 +132,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "FRONT!! BACK!! FRONT!! BACK!! 폭풍이 더 세진다!!",
             interactive: "Front! Back! Front! Back! The storm is getting stronger!",
-            inquiry: "Keep that rhythm going. How does your balance change as the speed increases?",
           },
         },
         {
@@ -150,7 +140,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "휴~ 폭풍이 지나갔어요!! 우리 배가 살았다!!",
             interactive: "Phew! The storm has passed! Our boat survived!",
-            inquiry: "The storm has passed. Great job navigating through it!",
           },
         },
       ],
@@ -170,7 +159,6 @@ export const BALANCE_BOARD_INTRO = {
       transitionIn: {
         foundation: "이제 배가 서핑보드로 변신!! 일어서볼까요?",
         interactive: "Our boat just became a surfboard! Time to stand up!",
-        inquiry: "The boat transforms into a surfboard. Standing changes your center of gravity completely.",
       },
       script: [
         {
@@ -179,13 +167,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "서퍼처럼!! 팔 벌려요~ 비행기처럼~! Arms out!",
             interactive: "Like a surfer! Arms out like an airplane! This helps you balance.",
-            inquiry: "Like a surfer balancing on a wave. Spread your arms wide for a wider base of support.",
           },
         },
         {
           who: "kids",
           action: "조심스럽게 일어서기",
-          lines: { foundation: "(조심조심) 무서워요... 떨어질 것 같아요!", interactive: "I'm a little scared! It's wobbly!", inquiry: "I need to focus to stay up here." },
+          lines: { foundation: "(조심조심) 무서워요... 떨어질 것 같아요!", interactive: "I'm a little scared! It's wobbly!" },
         },
         {
           who: "teacher",
@@ -193,7 +180,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "선생님이 잡아줄게요! 천천히~ 서퍼들도 처음엔 다 그래요!",
             interactive: "I've got you. Take it slow! Even real surfers wobble at first!",
-            inquiry: "I'm right here for support. Trust your balance — make small adjustments.",
           },
         },
         {
@@ -202,13 +188,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "와!! 서있다!! 진짜 서퍼다!! BALANCE!! BALANCE!!",
             interactive: "You're standing! You're a real surfer! Now rock — side to side!",
-            inquiry: "You're up! Shift your weight slowly side to side, like riding a wave.",
           },
         },
         {
           who: "kids",
           action: "균형 잡으며 환호",
-          lines: { foundation: "나 서핑한다!!", interactive: "I'm surfing!!", inquiry: "I'm actually staying balanced!" },
+          lines: { foundation: "나 서핑한다!!", interactive: "I'm surfing!!" },
         },
       ],
       tip: "서서 하는 첫 활동이라 안전이 최우선. 선생님이 항상 가까이서 손 내밀 준비하고 있기. '서퍼' 컨셉이 아이들에게 자신감을 줌",
@@ -227,7 +212,6 @@ export const BALANCE_BOARD_INTRO = {
       transitionIn: {
         foundation: "서핑보드는 끝!! 이번엔... 하늘을 날아볼까요?? 슈퍼히어로처럼!!",
         interactive: "Surfboard time is over! Now let's FLY — like a superhero!",
-        inquiry: "Time to transform again. This time, you'll fly like a superhero.",
       },
       script: [
         {
@@ -236,13 +220,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "이번엔 슈퍼맨처럼!! 엎드려요~ 하늘을 날아갈 준비!!",
             interactive: "Like Superman! Lie down on your tummy — ready for take off!",
-            inquiry: "Lie face down — like you're flying through the sky.",
           },
         },
         {
           who: "kids",
           action: "배를 대고 엎드리며 슈퍼히어로 흉내",
-          lines: { foundation: "슈퍼맨!! WHOOSH!!", interactive: "I'm Superman! WHOOSH!", inquiry: "This feels totally different from standing!" },
+          lines: { foundation: "슈퍼맨!! WHOOSH!!", interactive: "I'm Superman! WHOOSH!" },
         },
         {
           who: "teacher",
@@ -250,7 +233,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "팔다리 살짝 들고~ 하늘을 날아가요~! WHOOSH!! ROCK ROCK!!",
             interactive: "Lift your arms and legs a little. You're flying! Rock front to back!",
-            inquiry: "Lift your limbs slightly and rock front to back. Feel your back muscles working as you 'fly'.",
           },
         },
         {
@@ -259,7 +241,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "구름 위를 날아간다!! 더 높이!! WHOOSH WHOOSH!!",
             interactive: "You're flying above the clouds! Higher! Keep that balance!",
-            inquiry: "Great control. This builds back and core strength — just like real flight muscles!",
           },
         },
       ],
@@ -279,7 +260,6 @@ export const BALANCE_BOARD_INTRO = {
       transitionIn: {
         foundation: "착지!! 슈퍼히어로가 땅에 내려와서... 고양이로 변신!!",
         interactive: "Landing! Our superhero transforms into a wild cat!",
-        inquiry: "You've landed. Now transform into a cat — a completely different kind of balance challenge.",
       },
       script: [
         {
@@ -288,13 +268,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "이제 고양이가 돼볼까요? 야옹~!",
             interactive: "Let's be a cat! Get on your hands and knees!",
-            inquiry: "Try a cat pose — hands and knees on the board.",
           },
         },
         {
           who: "kids",
           action: "네발기기 자세 시도하며 고양이 소리",
-          lines: { foundation: "야옹~ 야옹~!!", interactive: "Meow meow!", inquiry: "This is so much harder than it looks!" },
+          lines: { foundation: "야옹~ 야옹~!!", interactive: "Meow meow!" },
         },
         {
           who: "teacher",
@@ -302,7 +281,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "화난 고양이!! 등을 동그랗게~! 그리고 졸린 고양이~! 평평하게~!",
             interactive: "Angry cat — round your back! Now sleepy cat — flat like sleeping!",
-            inquiry: "Round your spine like an angry cat, then flatten it like a relaxed cat. Notice the muscle difference.",
           },
         },
         {
@@ -311,7 +289,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "MEOW!! 화난 고양이~! 졸린 고양이~! 놀란 고양이~!! 하악!!",
             interactive: "Angry cat — MEOW! Sleepy cat — yawwwn! Surprised cat — HISS!",
-            inquiry: "Angry, sleepy, surprised — three cat poses. Great spinal mobility work.",
           },
         },
       ],
@@ -331,7 +308,6 @@ export const BALANCE_BOARD_INTRO = {
       transitionIn: {
         foundation: "고양이 친구가 나타났어요!! 이제 같이 놀아볼까요?",
         interactive: "Another cat friend appeared! Time to play together!",
-        inquiry: "A friend joins you. Now you'll balance and interact at the same time — a bigger challenge.",
       },
       script: [
         {
@@ -340,7 +316,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "친구랑 짝! 둘 다 보드 위에 서요~ 이제 고양이 둘이서 놀아요!",
             interactive: "Find a partner! Both of you stand on your boards — two cats ready to play!",
-            inquiry: "Pair up. Both partners stand on their boards facing each other.",
           },
         },
         {
@@ -349,13 +324,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "공을 던져요~ 그리고 받아요!! CATCH!!",
             interactive: "Throw the ball! Now catch — CATCH!",
-            inquiry: "Throw and catch while maintaining your balance on the board.",
           },
         },
         {
           who: "kids",
           action: "공을 주고받으며 균형 유지 시도",
-          lines: { foundation: "(흔들리며) 어어!! 떨어진다!!", interactive: "Whoa, I almost fell!", inquiry: "Catching while balancing is really tricky!" },
+          lines: { foundation: "(흔들리며) 어어!! 떨어진다!!", interactive: "Whoa, I almost fell!" },
         },
         {
           who: "teacher",
@@ -363,7 +337,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "잘했어요!! 고양이 친구들 최고!! 한 번 더!!",
             interactive: "Great catch! Best cat friends ever! One more time!",
-            inquiry: "Nice multitasking — balance and coordination together!",
           },
         },
       ],
@@ -383,7 +356,6 @@ export const BALANCE_BOARD_INTRO = {
       transitionIn: {
         foundation: "고양이 놀이는 끝!! 이제 우리 보드가 비밀 동굴로 변신해요!!",
         interactive: "Playtime is over! Now the board becomes a secret cave!",
-        inquiry: "Time for a calmer challenge. The board transforms into a tunnel to explore.",
       },
       script: [
         {
@@ -392,13 +364,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "와!! 동굴이다!! 탐험가처럼 통과해볼까요?",
             interactive: "Whoa, a cave! Can you explore through it like a real explorer?",
-            inquiry: "We've turned the board into a tunnel. Time to crawl through like an explorer.",
           },
         },
         {
           who: "kids",
           action: "기어가며 터널 통과 시도",
-          lines: { foundation: "(기어가며) 어두워요~! 탐험가다!!", interactive: "It's dark in here! I'm an explorer!", inquiry: "I have to crouch low to fit through!" },
+          lines: { foundation: "(기어가며) 어두워요~! 탐험가다!!", interactive: "It's dark in here! I'm an explorer!" },
         },
         {
           who: "teacher",
@@ -406,7 +377,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "거의 다 왔어요!! 빛이 보인다!! 통과!! 짠~!!",
             interactive: "Almost there! I can see the light! You made it through!",
-            inquiry: "Nice spatial awareness — you adjusted your body to fit through!",
           },
         },
       ],
@@ -426,7 +396,6 @@ export const BALANCE_BOARD_INTRO = {
       transitionIn: {
         foundation: "동굴 탐험을 마치고... 이제 잠깐 쉬어갈까요? 보드가 침대로 변신!",
         interactive: "After exploring, let's take a rest. The board becomes a bed!",
-        inquiry: "After the exploration, time to rest. The board becomes a resting place.",
       },
       script: [
         {
@@ -435,13 +404,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "이번엔 누워서~ 등을 대고 쭉~! 편안한 휴식 시간이에요!",
             interactive: "Now lie down on your back. Stretch out and relax!",
-            inquiry: "Lie back on the inverted board and let your spine extend.",
           },
         },
         {
           who: "kids",
           action: "등을 대고 누워 스트레칭",
-          lines: { foundation: "기분 좋아요~ 편안해요~", interactive: "This feels so relaxing!", inquiry: "I can feel my whole spine stretching." },
+          lines: { foundation: "기분 좋아요~ 편안해요~", interactive: "This feels so relaxing!" },
         },
         {
           who: "teacher",
@@ -449,7 +417,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "팔다리 쭉쭉~! STRETCH!! 숨도 깊게~ 후~",
             interactive: "Stretch your arms and legs out — STRETCH! Take a deep breath too.",
-            inquiry: "Extend your arms and legs fully. Hold for a few seconds and breathe deeply.",
           },
         },
       ],
@@ -469,7 +436,6 @@ export const BALANCE_BOARD_INTRO = {
       transitionIn: {
         foundation: "충전 완료!! 마지막 챌린지예요!! 이번엔 명사수가 되어볼까요?",
         interactive: "Recharged! This is the final challenge — become a sharpshooter!",
-        inquiry: "Final transformation: become a precision marksman, combining everything you've learned.",
       },
       script: [
         {
@@ -478,7 +444,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "보드 위에 서서~ 저 콘을 맞춰봐요!! 명사수처럼!!",
             interactive: "Stand on the board and aim for the cone — like a sharpshooter!",
-            inquiry: "Stand on the board and aim for the target. This combines balance and precision.",
           },
         },
         {
@@ -487,13 +452,12 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "균형 잡고~ 조준~! 던져요!! THROW!!",
             interactive: "Find your balance, aim... and — THROW!",
-            inquiry: "Stabilize first, aim carefully, then throw with control.",
           },
         },
         {
           who: "kids",
           action: "균형 잡으며 표적에 공 던지기",
-          lines: { foundation: "(던지며) 맞았다!! 명사수다!!", interactive: "I hit it! I'm a sharpshooter!", inquiry: "Got it on the third try!" },
+          lines: { foundation: "(던지며) 맞았다!! 명사수다!!", interactive: "I hit it! I'm a sharpshooter!" },
         },
         {
           who: "teacher",
@@ -501,7 +465,6 @@ export const BALANCE_BOARD_INTRO = {
           lines: {
             foundation: "잘했어요!! 9가지 변신 완료!! 우리 모두 챔피언이에요!!",
             interactive: "Great try! You completed all 9 transformations — you're all champions!",
-            inquiry: "Nice precision. You've completed all nine challenges — well done.",
           },
         },
       ],
@@ -518,13 +481,12 @@ export const BALANCE_BOARD_INTRO = {
         lines: {
           foundation: "오늘 우리 뭐였지? 배! 서퍼! 슈퍼히어로! 고양이! 탐험가! 명사수!! 다 기억나요??",
           interactive: "What were we today? A boat! A surfer! A superhero! A cat! An explorer! A sharpshooter! Remember them all?",
-          inquiry: "Let's recap: boat, surfer, superhero, cat, explorer, sharpshooter. Six transformations, nine challenges.",
         },
       },
       {
         who: "kids",
         action: "신나서 하나씩 외치기",
-        lines: { foundation: "배!! 슈퍼맨!! 고양이!!", interactive: "Boat! Superhero! Cat!", inquiry: "I remember all of them!" },
+        lines: { foundation: "배!! 슈퍼맨!! 고양이!!", interactive: "Boat! Superhero! Cat!" },
       },
       {
         who: "teacher",
@@ -532,7 +494,6 @@ export const BALANCE_BOARD_INTRO = {
         lines: {
           foundation: "오늘 다들 최고였어요!! 정리하고 다음에 또 만나요~!",
           interactive: "You were all amazing today! Let's clean up and see you next time!",
-          inquiry: "You all did amazing work today. Let's clean up — see you next time!",
         },
       },
     ],

@@ -24,12 +24,16 @@ import ClassFlowTipsApp from "./ClassFlowTipsApp.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import MyGearRotationPage, { checkRotationRentalConflicts } from "./MyGearRotationPage.jsx";
 import GearRotationManagePage from "./GearRotationManagePage.jsx";
+import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
+import GearInstitutionEventsSection from "./GearInstitutionEventsSection.jsx";
+import NoticesFeedCard from "./NoticesFeedCard.jsx";
 import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin } from "./authRoles.js";
 import {
   DUPLICATE_ITEM_NAME_MESSAGE,
   findItemNameConflict,
   isDuplicateItemNameError,
 } from "./itemNames.js";
+import { buildCurrentRentals, buildDueReturns } from "./teacherGearStatus.js";
 
 const GEAR_SCAN_KEY = "gts_gear_scan";
 
@@ -217,7 +221,7 @@ const NOTICES_STORAGE_KEY = "gts_notices";
 
 const NOTICE_IMPORTANCE = {
   normal: { label: "일반", bg: "#f1f5f9", color: "#64748b" },
-  important: { label: "중요", bg: "#fee2e2", color: "#dc2626" },
+  important: { label: "공고", bg: "#fee2e2", color: "#dc2626" },
 };
 
 function normalizeNoticeImportance(value) {
@@ -356,6 +360,32 @@ function todayLocalDay() {
 
 function todayYmd() {
   return toDateInputValue(todayLocalDay());
+}
+
+function addDaysYmd(ymd, days) {
+  const [y, m, d] = String(ymd || "").split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return toDateInputValue(dt);
+}
+
+function defaultRentalDates() {
+  const dispatch_start = todayYmd();
+  return { dispatch_start, dispatch_end: addDaysYmd(dispatch_start, 7) };
+}
+
+function selectInputOnFocus(e) {
+  e.target.select();
+}
+
+function parseQuantityValue(raw, { min = 1, max } = {}) {
+  const cleaned = String(raw).replace(/\D/g, "");
+  if (!cleaned) return min;
+  let n = parseInt(cleaned, 10);
+  if (Number.isNaN(n)) return min;
+  if (max != null) n = Math.min(max, n);
+  return Math.max(min, n);
 }
 
 function getScheduleTiming(start, end) {
@@ -1656,6 +1686,58 @@ const DETAIL_BACK_LABELS = {
 
 function PageShell({children,style}) {
   return <div style={{maxWidth:1280,...style}}>{children}</div>;
+}
+
+function CartHeaderButton({ count, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={count > 0 ? `장바구니 ${count}개` : "장바구니"}
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 44,
+        height: 44,
+        padding: 0,
+        borderRadius: 12,
+        border: `1px solid ${count > 0 ? DS.primary : "#e8ecee"}`,
+        background: count > 0 ? DS.primaryLight : "#fff",
+        color: count > 0 ? DS.primary : DS.textSecondary,
+        cursor: "pointer",
+        fontFamily: "inherit",
+        flexShrink: 0,
+      }}
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+        <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+      </svg>
+      {count > 0 ? (
+        <span style={{
+          position: "absolute",
+          top: -4,
+          right: -4,
+          minWidth: 18,
+          height: 18,
+          padding: "0 5px",
+          borderRadius: 99,
+          background: DS.primary,
+          color: "#fff",
+          fontSize: 10,
+          fontWeight: 800,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          border: "2px solid #fff",
+        }}>
+          {count}
+        </span>
+      ) : null}
+    </button>
+  );
 }
 
 function PageHeader({me,subtitle,alertCount=0,actions}) {
@@ -4050,10 +4132,11 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
 
   const handleRent = (item) => {
     if (availQty(item, ris, rets) === 0) return;
-    if (!inCart(item.id)) {
-      setCart(p => [...p, { item_id: item.id, quantity: 1, due_date: "" }]);
+    if (inCart(item.id)) {
+      setCart(p => p.filter(c => c.item_id !== item.id));
+      return;
     }
-    onOpenCart?.();
+    setCart(p => [...p, { item_id: item.id, quantity: 1, due_date: "" }]);
   };
 
   const availFilterBtn = (key, label) => {
@@ -4093,7 +4176,11 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
 
   return (
     <PageShell>
-      <PageHeader me={me} subtitle={PAGE_META["items-browse"].sub}/>
+      <PageHeader
+        me={me}
+        subtitle={PAGE_META["items-browse"].sub}
+        actions={<CartHeaderButton count={cart.length} onClick={() => onOpenCart?.()}/>}
+      />
 
       <div style={{ marginBottom: 12 }}>
         <input
@@ -4357,11 +4444,11 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                   <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                     <Btn
                       full
-                      color={avail > 0 ? DS.primary : "#cbd5e1"}
+                      color={avail > 0 ? (added ? "#64748b" : DS.primary) : "#cbd5e1"}
                       disabled={avail === 0}
                       onClick={() => handleRent(item)}
                     >
-                      {avail > 0 ? (added ? "대여 신청 (장바구니)" : "대여 신청") : "대여 불가"}
+                      {avail === 0 ? "대여 불가" : added ? "담김 · 빼기" : "장바구니 담기"}
                     </Btn>
                     {myRes ? (
                       <Btn
@@ -5344,6 +5431,44 @@ function NoticeImportanceBadge({ importance }) {
   );
 }
 
+function NoticeDetailModal({ notice, onClose, canManage, onEdit, onDelete }) {
+  if (!notice) return null;
+  const isImportant = normalizeNoticeImportance(notice.importance) === "important";
+
+  return (
+    <Modal title={notice.title} onClose={onClose}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+        <NoticeImportanceBadge importance={notice.importance} />
+        <span style={{ fontSize: 12, color: DS.textMuted }}>
+          {fmt(notice.created_at)}
+          {notice.author_name ? ` · ${notice.author_name}` : ""}
+          {notice.updated_at && notice.updated_at !== notice.created_at ? ` · 수정 ${fmt(notice.updated_at)}` : ""}
+        </span>
+      </div>
+      <div style={{
+        fontSize: 14,
+        color: isImportant ? "#991b1b" : DS.textSecondary,
+        lineHeight: 1.75,
+        whiteSpace: "pre-wrap",
+        minHeight: 80,
+      }}>
+        {notice.body?.trim() ? notice.body : "내용이 없습니다."}
+      </div>
+      {canManage && (
+        <div style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap" }}>
+          <Btn onClick={() => { onClose(); onEdit(notice); }}>수정</Btn>
+          <Btn danger onClick={() => {
+            if (confirm("이 공지를 삭제할까요?")) {
+              onDelete(notice.id);
+              onClose();
+            }
+          }}>삭제</Btn>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function NoticeEditModal({ notice, onClose, onSave }) {
   const [title, setTitle] = useState(notice?.title || "");
   const [body, setBody] = useState(notice?.body || "");
@@ -5374,14 +5499,14 @@ function NoticeEditModal({ notice, onClose, onSave }) {
       <Inp2 label="제목 *" value={title} onChange={e => setTitle(e.target.value)} placeholder="공지 제목"/>
       <Txa2 label="내용" value={body} onChange={e => setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
       <div style={{ marginBottom: 14 }}>
-        <label style={lbl}>중요도 *</label>
+        <label style={lbl}>분류 *</label>
         <select
           value={importance}
           onChange={e => setImportance(e.target.value)}
           style={{ ...inp, padding: "10px 12px", fontSize: 14 }}
         >
           <option value="normal">일반</option>
-          <option value="important">중요</option>
+          <option value="important">공고</option>
         </select>
       </div>
       <Btn full onClick={submit} disabled={saving}>{saving ? "저장 중..." : "저장"}</Btn>
@@ -5389,13 +5514,14 @@ function NoticeEditModal({ notice, onClose, onSave }) {
   );
 }
 
-function NoticesPage({ me, notices, onAdd, onUpdate, onDelete }) {
+function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris, rets, setPage, onItemClick }) {
   const canManage = isGearPlatformAdmin(me);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [importance, setImportance] = useState("normal");
   const [saving, setSaving] = useState(false);
   const [editNotice, setEditNotice] = useState(null);
+  const [viewNotice, setViewNotice] = useState(null);
 
   const handleAdd = async () => {
     if (!title.trim()) return alert("제목을 입력하세요");
@@ -5408,12 +5534,14 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete }) {
   };
 
   const sorted = [...(notices || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const alertCount = canManage ? 0 : buildDueReturns(buildCurrentRentals(me, reqs || [], ris || [], items || [], rets || [])).length;
 
   return (
     <PageShell>
       <PageHeader
         me={me}
-        subtitle={canManage ? PAGE_META.notices.sub : "등록된 공지를 확인하세요."}
+        subtitle={canManage ? PAGE_META.notices.sub : "대여·반납과 예약 현황을 한눈에 확인하세요."}
+        alertCount={alertCount}
       />
 
       {canManage && (
@@ -5421,84 +5549,52 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete }) {
           <Inp2 label="제목 *" value={title} onChange={e => setTitle(e.target.value)} placeholder="공지 제목"/>
           <Txa2 label="내용" value={body} onChange={e => setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
           <div style={{ marginBottom: 14 }}>
-            <label style={lbl}>중요도 *</label>
+            <label style={lbl}>분류 *</label>
             <select
               value={importance}
               onChange={e => setImportance(e.target.value)}
               style={{ ...inp, padding: "10px 12px", fontSize: 14 }}
             >
               <option value="normal">일반</option>
-              <option value="important">중요</option>
+              <option value="important">공고</option>
             </select>
           </div>
           <Btn full onClick={handleAdd} disabled={saving}>{saving ? "등록 중..." : "공지 등록"}</Btn>
         </PanelSection>
       )}
 
-      <PanelSection title="공지 목록">
-        {sorted.length === 0 ? (
-          <Empty text="등록된 공지가 없습니다"/>
-        ) : sorted.map((n, i) => {
-          const isNew = n.created_at && Date.now() - new Date(n.created_at).getTime() <= WEEK_MS;
-          const isImportant = normalizeNoticeImportance(n.importance) === "important";
-          return (
-            <div key={n.id || i} style={{
-              padding: "14px 0",
-              borderTop: i > 0 ? "1px solid #f1f5f9" : "none",
-            }}>
-              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <div style={{
-                  width: 8, height: 8, borderRadius: "50%", marginTop: 6, flexShrink: 0,
-                  background: isNew ? DS.primary : "transparent",
-                }}/>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: isImportant ? "#dc2626" : "#111827" }}>
-                      {n.title}
-                    </div>
-                    <NoticeImportanceBadge importance={n.importance}/>
-                  </div>
-                  <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 4 }}>
-                    {fmt(n.created_at)} {n.author_name ? `· ${n.author_name}` : ""}
-                    {n.updated_at && n.updated_at !== n.created_at ? ` · 수정 ${fmt(n.updated_at)}` : ""}
-                  </div>
-                  {n.body && (
-                    <div style={{ fontSize: 13, color: DS.textSecondary, marginTop: 10, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                      {n.body}
-                    </div>
-                  )}
-                </div>
-                {canManage && (
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={() => setEditNotice(n)}
-                      style={{
-                        border: "none", background: DS.primaryLight, color: DS.primary,
-                        borderRadius: 8, padding: "6px 10px", fontSize: 11, fontWeight: 600,
-                        cursor: "pointer", fontFamily: "inherit",
-                      }}
-                    >
-                      수정
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { if (confirm("이 공지를 삭제할까요?")) onDelete(n.id); }}
-                      style={{
-                        border: "none", background: "#fee2e2", color: "#dc2626",
-                        borderRadius: 8, padding: "6px 10px", fontSize: 11, fontWeight: 600,
-                        cursor: "pointer", fontFamily: "inherit",
-                      }}
-                    >
-                      삭제
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </PanelSection>
+      <div className="notices-hub-top">
+        <GearInstitutionEventsSection />
+        <NoticesFeedCard
+          notices={sorted}
+          onSelect={setViewNotice}
+          canManage={canManage}
+          onEdit={setEditNotice}
+          onDelete={onDelete}
+        />
+      </div>
+
+      {!canManage && items && (
+        <TeacherGearStatusSection
+          me={me}
+          items={items}
+          reqs={reqs}
+          ris={ris}
+          rets={rets}
+          setPage={setPage}
+          onItemClick={onItemClick}
+        />
+      )}
+
+      {viewNotice && (
+        <NoticeDetailModal
+          notice={viewNotice}
+          onClose={() => setViewNotice(null)}
+          canManage={canManage}
+          onEdit={setEditNotice}
+          onDelete={onDelete}
+        />
+      )}
 
       {editNotice && (
         <NoticeEditModal
@@ -6895,7 +6991,13 @@ function validateReservationDates(startYmd, endYmd) {
 }
 
 function ReservationModal({ item, onClose, onSubmit }) {
-  const [f, setF] = useState({ location: "", start_date: "", end_date: "", quantity: 1 });
+  const initialDates = useMemo(() => defaultRentalDates(), []);
+  const [f, setF] = useState({
+    location: "",
+    start_date: initialDates.dispatch_start,
+    end_date: initialDates.dispatch_end,
+    quantity: 1,
+  });
   const todayMin = todayYmd();
 
   const submit = () => {
@@ -6922,10 +7024,12 @@ function ReservationModal({ item, onClose, onSubmit }) {
       <Inp2
         label={`수량 * (최대 ${item?.total_quantity || 1}개)`}
         type="number"
+        inputMode="numeric"
         min={1}
         max={item?.total_quantity || 1}
         value={f.quantity}
-        onChange={e => setF(p => ({ ...p, quantity: parseInt(e.target.value, 10) || 1 }))}
+        onFocus={selectInputOnFocus}
+        onChange={e => setF(p => ({ ...p, quantity: parseQuantityValue(e.target.value, { min: 1, max: item?.total_quantity || 1 }) }))}
       />
       <div style={{ fontSize: 12, color: DS.textMuted, marginBottom: 14, lineHeight: 1.6 }}>
         예약 기간은 최대 4주(28일)까지 가능합니다. 관리자 승인 후 해당 날짜에 대여가 확정됩니다.
@@ -6936,16 +7040,41 @@ function ReservationModal({ item, onClose, onSubmit }) {
 }
 
 function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
-  const[f,setF]=useState({dispatch_location:"",dispatch_start:"",dispatch_end:"",memo:""});
+  const initialDates = useMemo(() => defaultRentalDates(), []);
+  const[f,setF]=useState(()=>({
+    dispatch_location:"",
+    dispatch_start: initialDates.dispatch_start,
+    dispatch_end: initialDates.dispatch_end,
+    memo:"",
+  }));
   const[details,setDetails]=useState(()=>cart.map(c=>({
     ...c,
     quantity: c.quantity || 1,
-    due_date: c.due_date || "",
+    due_date: c.due_date || initialDates.dispatch_end,
     due_date_custom: false,
   })));
+
+  useEffect(() => {
+    setDetails(prev => cart.map(c => {
+      const existing = prev.find(p => p.item_id === c.item_id);
+      return {
+        ...c,
+        quantity: existing?.quantity ?? c.quantity ?? 1,
+        due_date: existing?.due_date || c.due_date || f.dispatch_end,
+        due_date_custom: existing?.due_date_custom ?? false,
+      };
+    }));
+  }, [cart, f.dispatch_end]);
+
   const setD=(id,k,v)=>{
     if (k === "due_date") {
       setDetails(p=>p.map(c=>c.item_id===id?{...c,due_date:v,due_date_custom:true}:c));
+      return;
+    }
+    if (k === "quantity") {
+      const item = items.find(i => i.id === id);
+      const av = item ? availQty(item, ris, rets) : 1;
+      setDetails(p => p.map(c => c.item_id === id ? { ...c, quantity: parseQuantityValue(v, { min: 1, max: av }) } : c));
       return;
     }
     setDetails(p=>p.map(c=>c.item_id===id?{...c,[k]:v}:c));
@@ -6997,7 +7126,16 @@ function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 9px"}}>
               <div>
                 <label style={lbl}>수량 (최대 {av})</label>
-                <input type="number" min={1} max={av} value={c.quantity} onChange={e=>setD(c.item_id,"quantity",parseInt(e.target.value)||1)} style={{...inp,padding:"9px 11px",fontSize:14}}/>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={av}
+                  value={c.quantity}
+                  onFocus={selectInputOnFocus}
+                  onChange={e => setD(c.item_id, "quantity", e.target.value)}
+                  style={{...inp,padding:"9px 11px",fontSize:14}}
+                />
               </div>
               <div>
                 <label style={lbl}>반납 예정일</label>
@@ -7094,7 +7232,16 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClo
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 9px" }}>
                 <div>
                   <label style={lbl}>수량 (최대 {av})</label>
-                  <input type="number" min={1} max={av} value={c.quantity} onChange={e => setD(c.rental_item_id, "quantity", parseInt(e.target.value, 10) || 1)} style={{ ...inp, padding: "9px 11px", fontSize: 14 }}/>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={av}
+                    value={c.quantity}
+                    onFocus={selectInputOnFocus}
+                    onChange={e => setD(c.rental_item_id, "quantity", parseQuantityValue(e.target.value, { min: 1, max: av }))}
+                    style={{ ...inp, padding: "9px 11px", fontSize: 14 }}
+                  />
                 </div>
                 <div>
                   <label style={lbl}>반납 예정일</label>
@@ -7130,10 +7277,12 @@ function ItemReturnModal({ group, onSubmit, onClose }) {
       <Inp2
         label={`반납 수량 (최대 ${max})`}
         type="number"
+        inputMode="numeric"
         min={1}
         max={max}
         value={f.quantity}
-        onChange={e => setF(p => ({ ...p, quantity: e.target.value }))}
+        onFocus={selectInputOnFocus}
+        onChange={e => setF(p => ({ ...p, quantity: parseQuantityValue(e.target.value, { min: 1, max: max }) }))}
       />
       <Sel2 label="반납 상태" value={f.condition} onChange={e => setF(p => ({ ...p, condition: e.target.value }))}>
         <option value="normal">정상</option>
@@ -8404,7 +8553,19 @@ function EquipmentApp({ onBack, me, session }) {
   const renderPage = () => {
     if (!isGearPlatformAdmin(me) && page === "dashboard") {
       return (
-        <NoticesPage me={me} notices={notices} onAdd={addNotice} onUpdate={updateNotice} onDelete={deleteNotice}/>
+        <NoticesPage
+          me={me}
+          notices={notices}
+          onAdd={addNotice}
+          onUpdate={updateNotice}
+          onDelete={deleteNotice}
+          items={items}
+          reqs={reqs}
+          ris={ris}
+          rets={rets}
+          setPage={setPage}
+          onItemClick={item => openItemDetail(item, "notices")}
+        />
       );
     }
     if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","gear-rotation-manage","stats","report","settings","rental-manage","reservation-approval"].includes(page)) {
@@ -8455,6 +8616,9 @@ function EquipmentApp({ onBack, me, session }) {
           <MyGearRotationPage
             me={me}
             items={items}
+            reqs={reqs}
+            ris={ris}
+            rets={rets}
             onDetail={(item, from) => openItemDetail(item, from)}
             onGoRental={() => setPage("rental-return")}
             PageHeader={PageHeader}
@@ -8539,7 +8703,21 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="rental-manage"&&<RentalManageHubPage me={me} setPage={setPage}/>}
         {page==="stats"&&<StatsPage me={me} items={items} ris={ris} reqs={reqs} teachers={teachers}/>}
         {page==="report"&&isItemAdmin(me)&&<ReportPage me={me} items={items} ris={ris} rets={rets} reqs={reqs} teachers={teachers}/>}
-        {page==="notices"&&<NoticesPage me={me} notices={notices} onAdd={addNotice} onUpdate={updateNotice} onDelete={deleteNotice}/>}
+        {page==="notices"&&(
+          <NoticesPage
+            me={me}
+            notices={notices}
+            onAdd={addNotice}
+            onUpdate={updateNotice}
+            onDelete={deleteNotice}
+            items={items}
+            reqs={reqs}
+            ris={ris}
+            rets={rets}
+            setPage={setPage}
+            onItemClick={item => openItemDetail(item, "notices")}
+          />
+        )}
         {page==="settings"&&<SettingsPage me={me} onChangePw={()=>setShowPwModal(true)} onLogout={logout}/>}
         {page==="accounts"&&superA&&<AccountsPage me={me} teachers={teachers} setTeachers={setTeachers} ris={ris} reqs={reqs} items={items}/>}
       </>
@@ -8593,25 +8771,30 @@ function EquipmentApp({ onBack, me, session }) {
             </div>
           </div>
 
-          {cart.length>0&&(
-            <div style={{padding:"0 16px 10px"}}>
-              <button onClick={()=>setShowCart(true)} style={{
-                width:"100%",padding:"10px 14px",
-                background:"rgba(22,163,74,0.15)",
-                border:"1px solid rgba(22,163,74,0.35)",
-                borderRadius:8,cursor:"pointer",
-                color:"#86efac",fontWeight:600,fontSize:12,
-                textAlign:"left",display:"flex",alignItems:"center",gap:8,
-                fontFamily:"inherit",
-              }}>
-                <span>장바구니</span>
+          <div style={{padding:"0 16px 10px"}}>
+            <button onClick={()=>setShowCart(true)} style={{
+              width:"100%",padding:"10px 14px",
+              background: cart.length > 0 ? "rgba(22,163,74,0.15)" : "rgba(255,255,255,0.06)",
+              border: cart.length > 0 ? "1px solid rgba(22,163,74,0.35)" : "1px solid rgba(255,255,255,0.1)",
+              borderRadius:8,cursor:"pointer",
+              color: cart.length > 0 ? "#86efac" : "rgba(255,255,255,0.7)",
+              fontWeight:600,fontSize:12,
+              textAlign:"left",display:"flex",alignItems:"center",gap:8,
+              fontFamily:"inherit",
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+              </svg>
+              <span>장바구니</span>
+              {cart.length > 0 ? (
                 <span style={{
                   marginLeft:"auto",background:DS.primary,color:"#fff",
                   borderRadius:99,padding:"1px 8px",fontSize:10,fontWeight:700,
                 }}>{cart.length}</span>
-              </button>
-            </div>
-          )}
+              ) : null}
+            </button>
+          </div>
 
           <SidebarNav
             nav={sidebarNav}
@@ -8785,27 +8968,44 @@ function EquipmentApp({ onBack, me, session }) {
         }}>{mobileTitle}</h1>
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-          {cart.length > 0 && (
-            <button
-              type="button"
-              onClick={()=>setShowCart(true)}
-              aria-label={`장바구니 ${cart.length}개`}
-              style={{
-                ...mobileIconBtn,
-                width: "auto",
-                minWidth: 44,
-                padding: "0 10px",
-                gap: 6,
-                fontSize: 12,
-                fontWeight: 700,
-                color: "#86efac",
-                background: "rgba(22,163,74,0.2)",
-                border: "1px solid rgba(22,163,74,0.35)",
-              }}
-            >
-              {cart.length}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={()=>setShowCart(true)}
+            aria-label={cart.length > 0 ? `장바구니 ${cart.length}개` : "장바구니"}
+            style={{
+              ...mobileIconBtn,
+              position: "relative",
+              color: cart.length > 0 ? "#86efac" : "rgba(255,255,255,0.75)",
+              background: cart.length > 0 ? "rgba(22,163,74,0.2)" : "rgba(255,255,255,0.08)",
+              border: cart.length > 0 ? "1px solid rgba(22,163,74,0.35)" : "1px solid rgba(255,255,255,0.12)",
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+            </svg>
+            {cart.length > 0 ? (
+              <span style={{
+                position: "absolute",
+                top: 2,
+                right: 2,
+                minWidth: 16,
+                height: 16,
+                padding: "0 4px",
+                borderRadius: 99,
+                background: DS.primary,
+                color: "#fff",
+                fontSize: 9,
+                fontWeight: 800,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "1.5px solid #0f172a",
+              }}>
+                {cart.length}
+              </span>
+            ) : null}
+          </button>
           <button
             type="button"
             aria-label="프로필 메뉴"

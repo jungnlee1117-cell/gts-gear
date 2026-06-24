@@ -39,7 +39,7 @@ export const GEAR_CATALOG = [
   {
     id: "air-bridge",
     label: AIRBRIDGE_LABEL,
-    desc: "Level 1~3 단계별 8개 섹션 · 대화형 수업 스크립트",
+    desc: "Foundation/Interactive 2단계 · 8개 섹션 · 대화형 수업 스크립트",
     type: "sections",
     matchPatterns: ["에어브릿지", "에어 브릿지", "air bridge", "airbridge"],
   },
@@ -109,7 +109,7 @@ export const ACTIVITY_GEAR_SCRIPTS = {
   },
 };
 
-const LEVEL_IDS = ["foundation", "interactive", "inquiry"];
+const LEVEL_IDS = ["foundation", "interactive"];
 
 const PHOTO_POSITION_PRESETS = {
   "center top": "50% 0%",
@@ -197,18 +197,17 @@ export function getCategoryMeta(cat) {
 export function getExpressionCounts(gearId) {
   const counter = EXPRESSION_COUNTERS[gearId];
   if (!counter) {
-    return { foundation: 0, interactive: 0, inquiry: 0 };
+    return { foundation: 0, interactive: 0 };
   }
   return {
     foundation: counter("foundation"),
     interactive: counter("interactive"),
-    inquiry: counter("inquiry"),
   };
 }
 
 export function getTotalExpressionCount(gearId) {
   const counts = getExpressionCounts(gearId);
-  return counts.foundation + counts.interactive + counts.inquiry;
+  return counts.foundation + counts.interactive;
 }
 
 export function matchGearId(item) {

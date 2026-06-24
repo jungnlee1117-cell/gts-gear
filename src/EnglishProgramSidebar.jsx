@@ -7,7 +7,7 @@ import { childTypes } from "./childTypesData.js";
 const VETERAN_TIPS_COUNT = flowTipsActivities.filter(a => a.cat === "veteran").length;
 
 export const PROGRAM_SIDEBAR_MENU = [
-  { id: "gear-scripts", icon: BookOpen, label: "교구 대본", sub: "교구별 3단계 대본", nav: "gear-scripts" },
+  { id: "gear-scripts", icon: BookOpen, label: "교구 대본", sub: "교구별 2단계 대본", nav: "gear-scripts" },
   { id: "situations", icon: ShieldCheck, label: "상황별 대처", count: situations.length, nav: "situations" },
   { id: "flow-tips", icon: Lightbulb, label: "수업 흐름 팁", count: flowTipsActivities.length, nav: "flow-tips" },
   { id: "pronunciation", icon: Mic, label: "발음 팁", count: PRONUNCIATION_TIPS.length, nav: "pronunciation" },
@@ -81,7 +81,7 @@ export default function EnglishProgramSidebar({ activeId, onBack, onNavigate }) 
 
       <div className="eng-program-sidebar-tip">
         <div className="eng-program-sidebar-tip-title">활용 팁</div>
-        <p>Foundation · Interactive · Inquiry 레벨에 맞춰 대본과 활동을 조합하세요.</p>
+        <p>Foundation · Interactive 2단계 레벨에 맞춰 대본과 활동을 조합하세요.</p>
       </div>
     </aside>
   );

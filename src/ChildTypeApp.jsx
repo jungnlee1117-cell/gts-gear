@@ -4,6 +4,8 @@ import {
 } from "lucide-react";
 import { CHILD_TYPES } from "./childTypesData.js";
 import { GTS_ICON_STROKE, TYPE_ICONS } from "./childTypeIcons.js";
+import EnglishProgramLayout from "./EnglishProgramLayout.jsx";
+import { useEnglishProgramNavigate } from "./useEnglishProgramNavigate.js";
 
 function TypeIcon({ typeId, size = 20 }) {
   const Icon = TYPE_ICONS[typeId];
@@ -40,14 +42,10 @@ function SectionHeader({ icon: Icon, title }) {
   );
 }
 
-function TypeListView({ onBack, onSelect }) {
+function TypeListView({ onSelect }) {
   return (
-    <div className="child-type">
-      <header className="ct-header">
-        <button type="button" className="ct-back" onClick={onBack}>
-          <ChevronLeft size={18} strokeWidth={GTS_ICON_STROKE}/>
-          뒤로가기
-        </button>
+    <div className="child-type eng-program-page">
+      <header className="ct-header ct-header--page">
         <div className="ct-header-text">
           <h1 className="ct-header-title">아이 유형별 가이드</h1>
           <p className="ct-header-sub">현장 선생님을 위한 {CHILD_TYPES.length}가지 유형 매뉴얼</p>
@@ -180,6 +178,7 @@ function TypeDetailView({ type, onBack }) {
 }
 
 export default function ChildTypeApp({ onBack }) {
+  const onNavigate = useEnglishProgramNavigate();
   const [selectedId, setSelectedId] = useState(null);
 
   const selectedType = useMemo(
@@ -187,19 +186,16 @@ export default function ChildTypeApp({ onBack }) {
     [selectedId],
   );
 
-  if (selectedType) {
-    return (
-      <TypeDetailView
-        type={selectedType}
-        onBack={() => setSelectedId(null)}
-      />
-    );
-  }
-
   return (
-    <TypeListView
-      onBack={onBack}
-      onSelect={setSelectedId}
-    />
+    <EnglishProgramLayout activeId="child-types" onBack={onBack} onNavigate={onNavigate}>
+      {selectedType ? (
+        <TypeDetailView
+          type={selectedType}
+          onBack={() => setSelectedId(null)}
+        />
+      ) : (
+        <TypeListView onSelect={setSelectedId}/>
+      )}
+    </EnglishProgramLayout>
   );
 }

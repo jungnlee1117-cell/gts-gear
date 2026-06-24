@@ -40,10 +40,9 @@ const SCRIPT_COUNT = airbridgeScripts.length
 
 const LESSON_FLOW = [
   { num: 1, label: "교구소개" },
-  { num: 2, label: "Level 1" },
-  { num: 3, label: "Level 2" },
-  { num: 4, label: "Level 3" },
-  { num: 5, label: "마무리" },
+  { num: 2, label: "Foundation" },
+  { num: 3, label: "Interactive" },
+  { num: 4, label: "마무리" },
 ];
 
 const LANDING_STAT_DEFS = [
@@ -320,7 +319,7 @@ function LandingView({ onBack, onNavigate, onStartScript, onGoSituations, onGoCh
             <p className="eng-landing-eyebrow">현장에서 바로 사용할 수 있는</p>
             <h1 className="eng-landing-title">GTS 영어 수업 대본 프로그램</h1>
             <p className="eng-landing-desc">
-              Foundation · Interactive · Inquiry 3단계 레벨별 교구 수업 대본
+              Foundation · Interactive 2단계 레벨별 교구 수업 대본
             </p>
             <button type="button" className="eng-landing-cta" onClick={onStartScript}>
               교구 대본 시작하기
@@ -996,7 +995,7 @@ function GearPickerView({
           <div className="eng-gear-picker-hero">
             <h2 className="eng-script-gear-picker-title">어떤 교구 대본을 볼까요?</h2>
             <p className="eng-script-gear-picker-desc">
-              Foundation · Interactive · Inquiry 레벨별 교구 수업 대본을 확인할 수 있습니다.
+              Foundation · Interactive 2단계 레벨별 교구 수업 대본을 확인할 수 있습니다.
             </p>
           </div>
 

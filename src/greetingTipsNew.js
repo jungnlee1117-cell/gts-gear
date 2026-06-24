@@ -296,7 +296,7 @@ export const GREETING_TIPS_NEW = [
       "성공적으로 문장을 완성하면 성취감을 느낀다.",
     ],
     tips: [
-      "Interactive/Inquiry 레벨 아이들에게 추천. Foundation은 단어 1~2개로 단순화한다.",
+      "Interactive 레벨 아이들에게 추천. Foundation은 단어 1~2개로 단순화한다.",
       "막히는 아이가 있으면 선생님이 살짝 힌트를 주며 도와준다.",
     ],
   },
