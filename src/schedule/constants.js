@@ -10,6 +10,7 @@ export const CONTRACT_TYPES = {
 export const BILLING_TYPES = {
   monthly_fixed: "월 고정",
   per_session: "회당 과금",
+  per_capita: "인당 과금",
   manual: "수동 입력",
 };
 export const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -21,7 +22,7 @@ export const EXCEPTION_LABELS = {
 
 export const SCHEDULE_MENU = [
   { id: "teacher-monthly", title: "선생님 월별 일정", desc: "내 배정 원 주간 시간표", icon: "calendar", color: "#a855f7", roles: "all" },
-  { id: "institution-schedule", title: "원 수업 일정", desc: "원별 고정 시간표 조회", icon: "building", color: "#8b5cf6", roles: "all" },
+  { id: "institution-schedule", title: "원 수업 일정", desc: "강사별 통합 주간 시간표", icon: "building", color: "#8b5cf6", roles: "all" },
   { id: "home-visit", title: "선생님 방문수업 일정", desc: "매주 반복 방문수업 등록·조회", icon: "user", color: "#6366f1", roles: "all" },
   { id: "events", title: "행사 일정", desc: "전체 원 행사·휴원 안내", icon: "party", color: "#ec4899", roles: "all" },
   { id: "change-alerts", title: "수업 변동 내역", desc: "강사 스케줄 변경 알림 · 확인", icon: "bell", color: "#ef4444", roles: "admin" },

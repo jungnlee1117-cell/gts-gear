@@ -1,7 +1,7 @@
 import { resolveTeacherMonthlyGross } from "./additionalPayments.js";
 import { createClient } from "@supabase/supabase-js";
 import { yearMonthFirstDay, yearMonthLastDay } from "./constants.js";
-import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
+import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, isPerCapitaBilling, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
 import {
   computeSettlement,
   estimateTeacherPayByEntry,
@@ -424,6 +424,19 @@ export async function bulkSaveMonthlyRevenue({ yearMonth, institutions, drafts }
         });
         sessionCount += 1;
       }
+      continue;
+    }
+    if (draft.mode === "per_capita") {
+      const count = Number(draft.headcount) || 0;
+      await saveMonthlySessionCount({
+        id: draft.existingId ?? undefined,
+        institution_id: inst.id,
+        year_month: yearMonthFirstDay(yearMonth),
+        session_type: "인당",
+        session_count: count,
+        note: null,
+      });
+      sessionCount += 1;
     }
   }
   return { contractCount, sessionCount };
@@ -852,15 +865,15 @@ export async function finalizeMonthSettlements(yearMonth) {
   if (error) throw error;
 }
 
-function institutionHasRevenueInput(institution, contract, sessionCounts) {
+function institutionHasRevenueInput(institution, contract, sessionCounts, sessionRates = []) {
   if (institution?.contract_type === "partner_billing") {
     return (sessionCounts || []).some(r => Number(r.session_count) > 0)
-      || Boolean(contract?.contract_amount);
+      || contract != null;
   }
-  if (institution?.billing_type === "per_session") {
-    return (sessionCounts || []).some(r => Number(r.session_count) > 0);
+  if (isPerCapitaBilling(institution, sessionRates) || institution?.billing_type === "per_session") {
+    return (sessionCounts || []).length > 0;
   }
-  return Boolean(contract?.contract_amount);
+  return contract != null;
 }
 
 async function buildInstitutionDashboardRow(
@@ -883,7 +896,7 @@ async function buildInstitutionDashboardRow(
     sessionRates,
     yearMonth,
   });
-  const hasRevenue = institutionHasRevenueInput(institution, contract, sessionCounts);
+  const hasRevenue = institutionHasRevenueInput(institution, contract, sessionCounts, sessionRates);
 
   const instEntries = entries.filter(e => e.institution_id === institution.id);
   const instructorCost = institution.contract_type === "manager_personal"
@@ -912,6 +925,7 @@ async function buildInstitutionDashboardRow(
     gts_share: calc.gts_share,
     partner_invoice_amount: calc.partner_invoice_amount,
     fixed_payout: calc.fixed_payout,
+    manager_payout_net: calc.manager_payout_net,
   };
 }
 

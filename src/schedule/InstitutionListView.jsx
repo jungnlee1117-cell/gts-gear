@@ -1,32 +1,48 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, Plus } from "lucide-react";
 import { BILLING_TYPES, CONTRACT_TYPES, formatWon, yearMonthKey } from "./constants.js";
 import {
   bulkApplyPreviousMonthContracts,
+  fetchFinalizedInstitutionIds,
   fetchInstitutions,
   fetchMonthlyContracts,
+  fetchMonthlySessionCounts,
+  fetchSessionRates,
   fetchTeachers,
   upsertInstitution,
 } from "./api.js";
 import {
-  findContractForMonth,
   isMonthlyFixedBilling,
   listBulkPrefillTargets,
   previousYearMonth,
 } from "./monthlyBilling.js";
 import {
+  buildInstitutionRevenueEditDraft,
+  canEditInstitutionRevenue,
+  formatInstitutionRevenueLabel,
+  isInstitutionRevenuePending,
+} from "./institutionRevenueDisplay.js";
+import InstitutionRevenueEditModal from "./InstitutionRevenueEditModal.jsx";
+import { isManagerFixedPayout } from "./fixedPayoutDisplay.js";
+import {
   canViewInstitutionRevenue,
   isScheduleSuperAdmin,
 } from "./managerScope.js";
+import { isScheduleAdmin } from "./roles.js";
 
 export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRevenue, me }) {
   const [rows, setRows] = useState([]);
   const [contracts, setContracts] = useState([]);
+  const [sessionCounts, setSessionCounts] = useState([]);
+  const [prevSessionCounts, setPrevSessionCounts] = useState([]);
+  const [sessionRates, setSessionRates] = useState([]);
+  const [finalizedIds, setFinalizedIds] = useState(() => new Set());
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [yearMonth, setYearMonth] = useState(yearMonthKey());
   const [showForm, setShowForm] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({
     name: "",
     address: "",
@@ -39,25 +55,37 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
     is_active: true,
   });
 
-  const load = async () => {
+  const admin = isScheduleAdmin(me);
+  const superAdmin = isScheduleSuperAdmin(me);
+  const prevYearMonth = previousYearMonth(yearMonth);
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [insts, ts, c] = await Promise.all([
+      const [insts, ts, c, counts, prevCounts, rates, finalized] = await Promise.all([
         fetchInstitutions({ activeOnly: false }),
         fetchTeachers(),
         fetchMonthlyContracts(),
+        fetchMonthlySessionCounts(null, yearMonth),
+        fetchMonthlySessionCounts(null, prevYearMonth),
+        fetchSessionRates(),
+        fetchFinalizedInstitutionIds(yearMonth),
       ]);
       setRows(insts);
       setTeachers(ts.filter(t => t.role === "admin" || t.role === "superadmin"));
       setContracts(c);
+      setSessionCounts(counts);
+      setPrevSessionCounts(prevCounts);
+      setSessionRates(rates);
+      setFinalizedIds(finalized);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  };
+  }, [yearMonth, prevYearMonth]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const bulkTargets = useMemo(
     () => listBulkPrefillTargets(rows, contracts, yearMonth),
@@ -103,19 +131,40 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
 
   const managerName = (id) => teachers.find(t => t.id === id)?.name || "—";
 
-  const revenueStatus = (inst) => {
-    if (!canViewInstitutionRevenue(me, inst) && inst.contract_type === "manager_fixed_payout") {
+  const revenueLabel = (inst) => {
+    if (!canViewInstitutionRevenue(me, inst) && isManagerFixedPayout(inst)) {
       return `고정지급 ${formatWon(inst.fixed_payout_amount)}`;
     }
-    if (!isMonthlyFixedBilling(inst)) return "—";
-    const current = findContractForMonth(contracts, yearMonth, inst.id);
-    if (current) return "입력됨";
-    const prev = findContractForMonth(contracts, previousYearMonth(yearMonth), inst.id);
-    if (prev) return "미입력 (직전달 있음)";
-    return "미입력";
+    return formatInstitutionRevenueLabel({
+      institution: inst,
+      contracts,
+      sessionCounts,
+      sessionRates,
+      yearMonth,
+    });
   };
 
-  const superAdmin = isScheduleSuperAdmin(me);
+  const openEdit = (inst) => {
+    if (finalizedIds.has(inst.id)) {
+      const ok = confirm(
+        `${yearMonth} 월 정산이 이미 확정되었습니다.\n매출을 수정하면 정산 수치와 달라질 수 있습니다.\n계속하시겠습니까?`,
+      );
+      if (!ok) return;
+    }
+    setEditTarget(inst);
+  };
+
+  const editDraft = useMemo(() => {
+    if (!editTarget) return null;
+    return buildInstitutionRevenueEditDraft({
+      institution: editTarget,
+      contracts,
+      sessionCounts,
+      prevSessionCounts,
+      sessionRates,
+      yearMonth,
+    });
+  }, [editTarget, contracts, sessionCounts, prevSessionCounts, sessionRates, yearMonth]);
 
   return (
     <div className="sch-view">
@@ -161,6 +210,18 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
             월 고정({BILLING_TYPES.monthly_fixed}) 원만 대상 · 회당과금·파트너 제외
           </p>
         </div>
+      ) : admin ? (
+        <div className="sch-toolbar sch-toolbar--inst-list">
+          <label className="sch-field sch-field--inline">
+            <span>매출 대상 월</span>
+            <input
+              type="month"
+              className="sch-input"
+              value={yearMonth}
+              onChange={e => setYearMonth(e.target.value)}
+            />
+          </label>
+        </div>
       ) : null}
 
       {loading ? <p className="sch-muted">불러오는 중...</p> : (
@@ -174,14 +235,29 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                 <th>{yearMonth} 매출</th>
                 <th>계약유형</th>
                 <th>활성</th>
+                {admin ? <th/> : null}
               </tr>
             </thead>
             <tbody>
               {rows.map(inst => {
-                const status = revenueStatus(inst);
-                const pending = status.startsWith("미입력");
+                const label = revenueLabel(inst);
+                const pending = isInstitutionRevenuePending({
+                  institution: inst,
+                  contracts,
+                  sessionCounts,
+                  sessionRates,
+                  yearMonth,
+                });
+                const showEdit = admin
+                  && canViewInstitutionRevenue(me, inst)
+                  && canEditInstitutionRevenue(inst, sessionRates);
+                const finalized = finalizedIds.has(inst.id);
+
                 return (
-                  <tr key={inst.id} className={pending && isMonthlyFixedBilling(inst) ? "sch-row-warn" : ""}>
+                  <tr
+                    key={inst.id}
+                    className={pending && isMonthlyFixedBilling(inst) ? "sch-row-warn" : ""}
+                  >
                     <td>
                       <button type="button" className="sch-link-btn" onClick={() => onOpenDetail(inst.id)}>
                         {inst.name}
@@ -189,9 +265,27 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                     </td>
                     <td>{managerName(inst.manager_id)}</td>
                     <td>{BILLING_TYPES[inst.billing_type] || inst.billing_type}</td>
-                    <td>{status}</td>
+                    <td className="sch-inst-revenue-cell">
+                      <span className={pending ? "sch-inst-revenue-pending" : ""}>{label}</span>
+                      {finalized ? <span className="sch-inst-revenue-finalized">확정</span> : null}
+                    </td>
                     <td>{CONTRACT_TYPES[inst.contract_type]}</td>
                     <td>{inst.is_active ? "활성" : "비활성"}</td>
+                    {admin ? (
+                      <td>
+                        {showEdit ? (
+                          <button
+                            type="button"
+                            className="sch-btn sch-btn--ghost sch-btn--sm"
+                            onClick={() => openEdit(inst)}
+                          >
+                            수정
+                          </button>
+                        ) : (
+                          <span className="sch-muted">—</span>
+                        )}
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}
@@ -199,6 +293,23 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
           </table>
         </div>
       )}
+
+      {editTarget && editDraft ? (
+        <InstitutionRevenueEditModal
+          institution={editTarget}
+          yearMonth={yearMonth}
+          draft={editDraft}
+          sessionRates={sessionRates}
+          teachers={teachers}
+          canEditManager={superAdmin}
+          isFinalized={finalizedIds.has(editTarget.id)}
+          onClose={() => setEditTarget(null)}
+          onSaved={async () => {
+            setEditTarget(null);
+            await load();
+          }}
+        />
+      ) : null}
 
       {showForm ? (
         <div className="sch-modal-overlay" onClick={() => setShowForm(false)}>

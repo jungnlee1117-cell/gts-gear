@@ -3,6 +3,20 @@ export const FIXED_PAYOUT_SLICE = {
   gts: "gts",
 };
 
+/** 고정지급 담당자 몫 — 원천 10% 공제 후 실수령 */
+export const MANAGER_PAYOUT_WITHHOLDING_RATE = 0.1;
+
+export function managerFixedPayoutNet(grossAmount) {
+  const gross = Number(grossAmount) || 0;
+  return Math.round(gross * (1 - MANAGER_PAYOUT_WITHHOLDING_RATE));
+}
+
+export function isPartnerManagerRow(row, me, { superAdmin = false } = {}) {
+  if (superAdmin || !me?.id) return false;
+  return row.institution?.contract_type === "partner_billing"
+    && row.institution?.manager_id === me.id;
+}
+
 export function isManagerFixedPayout(institution) {
   return institution?.contract_type === "manager_fixed_payout";
 }

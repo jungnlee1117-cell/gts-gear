@@ -20,6 +20,16 @@ export function computePerSessionRevenue(sessionCounts, sessionRates, asOfDate) 
   return Math.round(total);
 }
 
+/** 인당 과금 매출 = 인원수 × 인당단가 */
+export function computePerCapitaRevenue(sessionCounts, sessionRates, asOfDate, sessionType = "인당") {
+  const row = (sessionCounts || []).find(c => c.session_type === sessionType)
+    ?? (sessionCounts || [])[0];
+  const count = Number(row?.session_count) || 0;
+  if (count <= 0) return 0;
+  const rate = pickSessionRate(sessionRates, sessionType, asOfDate);
+  return Math.round(count * rate);
+}
+
 /** billing_type / contract_type에 따른 월 매출 */
 export function resolveInstitutionRevenue({
   institution,
@@ -29,9 +39,16 @@ export function resolveInstitutionRevenue({
   yearMonth,
 }) {
   if (institution?.contract_type === "partner_billing") return 0;
+  const asOf = `${yearMonth}-28`;
   if (institution?.billing_type === "per_session") {
-    const asOf = `${yearMonth}-28`;
     return computePerSessionRevenue(sessionCounts, sessionRates, asOf);
+  }
+  const perCapita = institution?.billing_type === "per_capita"
+    || (sessionRates || []).some(
+      r => r.institution_id === institution?.id && r.session_type === "인당",
+    );
+  if (perCapita) {
+    return computePerCapitaRevenue(sessionCounts, sessionRates, asOf);
   }
   return Number(contract?.contract_amount) || 0;
 }
@@ -82,6 +99,7 @@ export function computeSettlement({
   }
 
   if (contractType === "manager_fixed_payout") {
+    const managerPayoutNet = Math.round(fixedPayout * 0.9);
     const netProfit = revenueAfterVat - fixedPayout;
     return {
       revenue: rev,
@@ -91,10 +109,11 @@ export function computeSettlement({
       revenue_after_tax: revenueAfterVat,
       instructor_cost: cost,
       net_profit: netProfit,
-      manager_share: 0,
+      manager_share: managerPayoutNet,
       gts_share: netProfit,
       partner_invoice_amount: 0,
       fixed_payout: fixedPayout,
+      manager_payout_net: managerPayoutNet,
     };
   }
 

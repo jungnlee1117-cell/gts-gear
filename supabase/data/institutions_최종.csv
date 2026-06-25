@@ -9,15 +9,15 @@ Sie.K,양의인,gts_official,monthly_fixed,,2176000,1762560,같은 강사가 송
 관악SLP(서강),오정석,gts_official,monthly_fixed,,600000,160000,
 부천RISE,오정석,gts_official,monthly_fixed,,800000,392000,
 리틀(=리틀어학원),오정석/정형신,manager_fixed_payout,monthly_fixed,마이크 고정416000원(부가세제외) 지급,2320000,416000,같은 학원 - 회사계약, 마이크에게 고정지급 후 나머지 GTS 전액
-텐즈아이어린이집,오정석,manager_personal,monthly_fixed,,531300,0,회사가 계약관리하지만 오정석이 직접수업 - 부가세만 떼고 전액 오정석
+텐즈아이어린이집,오정석,manager_personal,per_capita,인당 25300원,,531300,0,회사가 계약관리하지만 오정석이 직접수업 - 부가세만 떼고 전액 오정석
 성동ecc,오정석(파트너),partner_billing,no_revenue_tracking,파트너 본인계약 - GTS는 매출추적 안함,해당없음,가변,마이크 개인사업. GTS강사 파견시 그 강사 강사료만 마이크가 GTS에 지급. institutions 매출 필드 미사용
 더차일드,,gts_official,monthly_fixed,,3749000,3374100,담당자몫 0으로 보임 - 회사라서 5:5 아닐수도 있음 확인필요
 힘멜아카데미,,gts_official,monthly_fixed,,1200000,1080000,담당자몫 0으로 보임 확인필요
 누비어린이집,,gts_official,monthly_fixed,,220000,198000,담당자몫 0으로 보임 확인필요
-아띠어린이집,,gts_official,monthly_fixed,,220000,198000,담당자몫 0으로 보임 확인필요
+아띠어린이집,,gts_official,per_capita,인당 22000원,,220000,198000,담당자몫 0으로 보임 확인필요
 아이뜰어린이집,,gts_official,monthly_fixed,,200000,180000,
-한신어린이집,,gts_official,monthly_fixed,,542500,488250,담당자몫 0으로 보임 확인필요
-두리어린이집,,gts_official,monthly_fixed,,437000,353970,
+한신어린이집,,gts_official,per_capita,인당 17500원,,542500,488250,담당자몫 0으로 보임 확인필요
+두리어린이집,,gts_official,per_capita,인당 19000원,,437000,353970,
 리비어어학원,,gts_official,per_session,회당 47400원 단일단가 (수요일 보통 30분x6타임),1422000,1279800,월별 진행횟수 입력시 매출 자동계산
 엘란어학원,,gts_official,per_session,정규 36000원/회 + 방과후 47000원/회,2872000(6월예시),1440000,월별 정규/방과후 횟수 각각 입력시 매출 자동계산. 어린이날 등 특수수업은 별도 단가 입력 가능하게
 지니어스,,gts_official,monthly_fixed,,,,시트: 한남 지니어스/지니어스 → 동일 원

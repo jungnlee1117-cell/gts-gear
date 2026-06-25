@@ -70,6 +70,10 @@ const SESSION_RATES_BY_NAME = {
     { session_type: "정규", rate_per_session: 36000 },
     { session_type: "방과후", rate_per_session: 47000 },
   ],
+  "텐즈아이어린이집": [{ session_type: "인당", rate_per_session: 25300 }],
+  "한신어린이집": [{ session_type: "인당", rate_per_session: 17500 }],
+  "아띠어린이집": [{ session_type: "인당", rate_per_session: 22000 }],
+  "두리어린이집": [{ session_type: "인당", rate_per_session: 19000 }],
 };
 
 const FIXED_PAYOUT_BY_NAME = {
@@ -142,6 +146,7 @@ function parseCsv(content) {
 function mapBillingType(raw, contractType) {
   if (contractType === "partner_billing" || raw === "no_revenue_tracking") return "manual";
   if (raw === "per_session") return "per_session";
+  if (raw === "per_capita") return "per_capita";
   return "monthly_fixed";
 }
 

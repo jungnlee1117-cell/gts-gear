@@ -16,22 +16,27 @@ import {
   isFixedPayoutGtsSlice,
   isFixedPayoutManagerSlice,
   isManagerFixedPayout,
+  isPartnerManagerRow,
+  managerFixedPayoutNet,
 } from "./fixedPayoutDisplay.js";
 import {
   canViewInstitutionRevenue,
   isScheduleSuperAdmin,
 } from "./managerScope.js";
 
-function SettlementRow({ s }) {
+function SettlementRow({ s, me }) {
   const contractType = s.institutions?.contract_type;
   const personal = contractType === "manager_personal";
   const fixedPayout = contractType === "manager_fixed_payout";
   const partner = contractType === "partner_billing";
   const managerSlice = isFixedPayoutManagerSlice(s);
+  const superAdmin = isScheduleSuperAdmin(me);
 
   if (partner) return null;
 
   if (managerSlice) {
+    const net = Number(s.manager_payout_net ?? s.manager_share)
+      || managerFixedPayoutNet(s.fixed_payout);
     return (
       <tr>
         <td>{s.institutions?.name}</td>
@@ -40,10 +45,10 @@ function SettlementRow({ s }) {
         <td>—</td>
         <td>—</td>
         <td>—</td>
-        <td>고정 {formatWon(s.fixed_payout)}</td>
         <td>—</td>
         <td>—</td>
-        <td>—</td>
+        <td>{formatWon(net)}</td>
+        <td>{superAdmin ? "—" : "—"}</td>
         <td>{s.is_finalized ? "확정" : "진행"}</td>
       </tr>
     );
@@ -98,12 +103,13 @@ export default function MonthlySettlementView({ me, onBack }) {
             institution_id: inst.id,
             institutions: inst,
             fixed_payout: inst.fixed_payout_amount,
+            manager_payout_net: managerFixedPayoutNet(inst.fixed_payout_amount),
+            manager_share: managerFixedPayoutNet(inst.fixed_payout_amount),
             revenue: 0,
             vat: 0,
             income_tax: 0,
             instructor_cost: 0,
             net_profit: 0,
-            manager_share: 0,
             gts_share: 0,
             is_finalized: false,
             displayKey: `${inst.id}:${FIXED_PAYOUT_SLICE.manager}`,
@@ -129,10 +135,13 @@ export default function MonthlySettlementView({ me, onBack }) {
   useEffect(() => { load(); }, [load]);
 
   const { regularGroups, partnerRows } = useMemo(() => {
-    const visible = isScheduleSuperAdmin(me)
+    const scoped = isScheduleSuperAdmin(me)
       ? settlements
-      : settlements.filter(s => !isFixedPayoutGtsSlice(s));
-    const { regular, partner } = expandFixedPayoutSettlements(visible);
+      : settlements.filter(s => {
+        if (isFixedPayoutGtsSlice(s)) return false;
+        return s.institutions?.manager_id === me?.id;
+      });
+    const { regular, partner } = expandFixedPayoutSettlements(scoped);
     for (const [mgrId, rows] of regular) {
       regular.set(mgrId, sortSettlementRows(rows));
     }
@@ -142,7 +151,10 @@ export default function MonthlySettlementView({ me, onBack }) {
   const totals = useMemo(() => {
     const visible = isScheduleSuperAdmin(me)
       ? settlements
-      : settlements.filter(s => !isFixedPayoutGtsSlice(s));
+      : settlements.filter(s => {
+        if (isFixedPayoutGtsSlice(s)) return false;
+        return s.institutions?.manager_id === me?.id;
+      });
     const t = { revenue: 0, instructor_cost: 0, net_profit: 0, manager_share: 0, gts_share: 0 };
     for (const s of visible) {
       if (s.institutions?.contract_type === "partner_billing") continue;
@@ -156,8 +168,12 @@ export default function MonthlySettlementView({ me, onBack }) {
   }, [settlements, me]);
 
   const partnerTotal = useMemo(
-    () => partnerRows.reduce((sum, s) => sum + (Number(s.partner_invoice_amount) || 0), 0),
-    [partnerRows],
+    () => partnerRows.reduce((sum, s) => {
+      const amt = Number(s.partner_invoice_amount) || 0;
+      if (isPartnerManagerRow({ institution: s.institutions }, me)) return sum - amt;
+      return sum + amt;
+    }, 0),
+    [partnerRows, me],
   );
 
   const handleFinalize = async () => {
@@ -217,7 +233,7 @@ export default function MonthlySettlementView({ me, onBack }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map(s => <SettlementRow key={s.displayKey ?? s.id} s={s} />)}
+                    {rows.map(s => <SettlementRow key={s.displayKey ?? s.id} s={s} me={me}/>)}
                   </tbody>
                 </table>
               </div>
@@ -241,14 +257,25 @@ export default function MonthlySettlementView({ me, onBack }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {partnerRows.map(s => (
+                    {partnerRows.map(s => {
+                      const amt = Number(s.partner_invoice_amount) || 0;
+                      const payable = isPartnerManagerRow({ institution: s.institutions }, me);
+                      return (
                       <tr key={s.id}>
                         <td>{s.institutions?.name}</td>
                         <td>{managerMap[s.institutions?.manager_id] || "—"}</td>
-                        <td>{formatWon(s.partner_invoice_amount)}</td>
+                        <td>
+                          {payable && amt > 0 ? (
+                            <>
+                              <span className="sch-amount--payable">-{formatWon(amt)}</span>
+                              <span className="sch-muted"> GTS 지급</span>
+                            </>
+                          ) : formatWon(amt)}
+                        </td>
                         <td>{s.is_finalized ? "확정" : "진행"}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -265,7 +292,12 @@ export default function MonthlySettlementView({ me, onBack }) {
                 <span>GTS {formatWon(totals.gts_share)}</span>
               </>
             ) : null}
-            {partnerTotal > 0 ? <span>파트너 청구 {formatWon(partnerTotal)}</span> : null}
+            {partnerTotal !== 0 ? (
+              <span>
+                {partnerTotal < 0 ? "GTS 지급 " : "파트너 청구 "}
+                {partnerTotal < 0 ? `-${formatWon(Math.abs(partnerTotal))}` : formatWon(partnerTotal)}
+              </span>
+            ) : null}
           </div>
         </>
       )}

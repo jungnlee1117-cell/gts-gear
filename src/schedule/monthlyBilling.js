@@ -1,5 +1,8 @@
 import { yearMonthFirstDay } from "./constants.js";
 
+/** institution_session_rates / institution_monthly_session_counts 공통 키 */
+export const PER_CAPITA_SESSION_TYPE = "인당";
+
 /** YYYY-MM → 직전 달 YYYY-MM */
 export function previousYearMonth(yearMonth) {
   const [y, m] = yearMonth.split("-").map(Number);
@@ -25,7 +28,7 @@ export function getMonthlyContractDraft(contracts, yearMonth, institutionId) {
   if (current) {
     return {
       contract: current,
-      amount: Number(current.contract_amount) || 0,
+      amount: Number(current.contract_amount ?? 0),
       studentCount: current.student_count ?? "",
       source: "saved",
     };
@@ -57,11 +60,11 @@ export function listBulkPrefillTargets(institutions, contracts, yearMonth) {
     .filter(inst => !findContractForMonth(contracts, yearMonth, inst.id))
     .map(inst => {
       const prev = findContractForMonth(contracts, prevYm, inst.id);
-      if (!prev || !Number(prev.contract_amount)) return null;
+      if (!prev || prev.contract_amount == null) return null;
       return {
         institution: inst,
         prevContract: prev,
-        amount: Number(prev.contract_amount),
+        amount: Number(prev.contract_amount ?? 0),
         studentCount: prev.student_count ?? null,
       };
     })
@@ -81,8 +84,17 @@ export function buildMonthlyContractPayload({ institutionId, yearMonth, amount, 
   return payload;
 }
 
-export function getInstitutionRevenueInputMode(institution) {
+export function isPerCapitaBilling(institution, sessionRates = []) {
+  if (institution?.contract_type === "partner_billing") return false;
+  if (institution?.billing_type === "per_capita") return true;
+  return (sessionRates || []).some(
+    r => r.institution_id === institution?.id && r.session_type === PER_CAPITA_SESSION_TYPE,
+  );
+}
+
+export function getInstitutionRevenueInputMode(institution, sessionRates = []) {
   if (institution?.contract_type === "partner_billing") return "partner";
+  if (isPerCapitaBilling(institution, sessionRates)) return "per_capita";
   if (institution?.billing_type === "per_session") return "per_session";
   return "contract";
 }
@@ -128,6 +140,40 @@ export function getPerSessionDrafts({
   return { sessionTypes: types, sessions, existingIds, source };
 }
 
+/** 인당 과금 — 이번 달 인원수 (없으면 직전 달) */
+export function getPerCapitaDraft({
+  institutionId,
+  sessionRates,
+  sessionCounts,
+  prevSessionCounts,
+}) {
+  const type = PER_CAPITA_SESSION_TYPE;
+  const current = (sessionCounts || []).find(
+    c => c.institution_id === institutionId && c.session_type === type,
+  );
+  const prev = (prevSessionCounts || []).find(
+    c => c.institution_id === institutionId && c.session_type === type,
+  );
+  let headcount = "0";
+  let existingId = null;
+  let source = "empty";
+
+  if (current) {
+    headcount = String(current.session_count ?? 0);
+    existingId = current.id;
+    source = "saved";
+  } else if (prev) {
+    headcount = String(prev.session_count ?? 0);
+    source = "previous_month";
+  }
+
+  const rateRow = (sessionRates || []).find(
+    r => r.institution_id === institutionId && r.session_type === type,
+  );
+
+  return { headcount, existingId, source, rate: Number(rateRow?.rate_per_session ?? 0) };
+}
+
 export function buildBulkRevenueDrafts({
   institutions,
   contracts,
@@ -138,7 +184,7 @@ export function buildBulkRevenueDrafts({
 }) {
   const drafts = {};
   for (const inst of institutions) {
-    const mode = getInstitutionRevenueInputMode(inst);
+    const mode = getInstitutionRevenueInputMode(inst, sessionRates);
     if (mode === "partner") {
       drafts[inst.id] = { mode: "partner" };
       continue;
@@ -156,11 +202,24 @@ export function buildBulkRevenueDrafts({
       };
       continue;
     }
+    if (mode === "per_capita") {
+      drafts[inst.id] = {
+        mode: "per_capita",
+        institutionId: inst.id,
+        ...getPerCapitaDraft({
+          institutionId: inst.id,
+          sessionRates,
+          sessionCounts,
+          prevSessionCounts,
+        }),
+      };
+      continue;
+    }
     const draft = getMonthlyContractDraft(contracts, yearMonth, inst.id);
     drafts[inst.id] = {
       mode: "contract",
       institutionId: inst.id,
-      amount: draft.amount ? String(draft.amount) : "",
+      amount: draft.source !== "empty" ? String(draft.amount ?? 0) : "",
       existingId: draft.contract?.id ?? null,
       source: draft.source,
       previousYearMonth: draft.previousYearMonth,

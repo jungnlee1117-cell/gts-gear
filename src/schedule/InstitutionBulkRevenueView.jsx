@@ -11,7 +11,7 @@ import {
   isMonthlyFixedBilling,
   previousYearMonth,
 } from "./monthlyBilling.js";
-import { computePerSessionRevenue, pickSessionRate } from "./settlement.js";
+import { computePerCapitaRevenue, computePerSessionRevenue, pickSessionRate } from "./settlement.js";
 import { canViewInstitutionRevenue, isScheduleSuperAdmin } from "./managerScope.js";
 
 function sourceHint(source, previousYearMonth) {
@@ -30,8 +30,8 @@ function BulkRevenueRow({
   yearMonth,
   onDraftChange,
 }) {
-  const mode = draft?.mode ?? getInstitutionRevenueInputMode(institution);
-  const hint = mode === "per_session"
+  const mode = draft?.mode ?? getInstitutionRevenueInputMode(institution, sessionRates);
+  const hint = (mode === "per_session" || mode === "per_capita")
     ? sourceHint(draft?.source, previousYearMonth(yearMonth))
     : sourceHint(draft?.source, draft?.previousYearMonth);
   const pending = isMonthlyFixedBilling(institution)
@@ -49,7 +49,13 @@ function BulkRevenueRow({
       sessionRates.filter(r => r.institution_id === institution.id),
       asOfDate,
     )
-    : 0;
+    : mode === "per_capita"
+      ? computePerCapitaRevenue(
+        [{ session_type: "인당", session_count: Number(draft?.headcount) || 0 }],
+        sessionRates.filter(r => r.institution_id === institution.id),
+        asOfDate,
+      )
+      : 0;
 
   return (
     <li
@@ -91,6 +97,29 @@ function BulkRevenueRow({
                   <span className="sch-muted">회</span>
                 </label>
               ))}
+              {previewRevenue > 0 ? (
+                <span className="sch-bulk-revenue-preview">→ {formatWon(previewRevenue)}</span>
+              ) : null}
+            </div>
+          ) : mode === "per_capita" ? (
+            <div className="sch-bulk-revenue-sessions">
+              <span className="sch-muted">
+                {Number(draft?.rate || 0).toLocaleString("ko-KR")}원/인
+              </span>
+              <label className="sch-bulk-revenue-session-field">
+                <span>인원</span>
+                <input
+                  type="number"
+                  min={0}
+                  className="sch-input sch-input--narrow"
+                  value={draft?.headcount ?? "0"}
+                  onChange={e => onDraftChange(institution.id, {
+                    ...draft,
+                    headcount: e.target.value,
+                  })}
+                />
+                <span className="sch-muted">명</span>
+              </label>
               {previewRevenue > 0 ? (
                 <span className="sch-bulk-revenue-preview">→ {formatWon(previewRevenue)}</span>
               ) : null}
@@ -156,13 +185,15 @@ export default function InstitutionBulkRevenueView({ onBack, me }) {
   const stats = useMemo(() => {
     let contractInput = 0;
     let sessionInput = 0;
+    let capitaInput = 0;
     let partner = 0;
     let pendingFixed = 0;
     for (const inst of institutions) {
       const draft = drafts[inst.id];
-      const mode = draft?.mode ?? getInstitutionRevenueInputMode(inst);
+      const mode = draft?.mode ?? getInstitutionRevenueInputMode(inst, sessionRates);
       if (mode === "partner") partner += 1;
       else if (mode === "per_session") sessionInput += 1;
+      else if (mode === "per_capita") capitaInput += 1;
       else contractInput += 1;
       if (
         isMonthlyFixedBilling(inst)
@@ -173,7 +204,7 @@ export default function InstitutionBulkRevenueView({ onBack, me }) {
         pendingFixed += 1;
       }
     }
-    return { contractInput, sessionInput, partner, pendingFixed };
+    return { contractInput, sessionInput, capitaInput, partner, pendingFixed };
   }, [institutions, drafts]);
 
   const handleDraftChange = (institutionId, nextDraft) => {

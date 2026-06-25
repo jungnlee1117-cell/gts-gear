@@ -4,6 +4,7 @@ import {
   formatWon, yearMonthFirstDay, yearMonthKey,
 } from "./constants.js";
 import {
+  computePerCapitaRevenue,
   computePerSessionRevenue,
   estimateTeacherPayByEntry,
   pickSessionRate,
@@ -24,6 +25,8 @@ import {
   buildMonthlyContractPayload,
   getMonthlyContractDraft,
   isMonthlyFixedBilling,
+  isPerCapitaBilling,
+  PER_CAPITA_SESSION_TYPE,
   previousYearMonth,
 } from "./monthlyBilling.js";
 
@@ -37,6 +40,7 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
 
   const isPartner = institution.contract_type === "partner_billing";
   const isPerSession = institution.billing_type === "per_session" && !isPartner;
+  const isPerCapita = isPerCapitaBilling(institution, sessionRates);
   const isMonthlyFixed = isMonthlyFixedBilling(institution);
 
   const load = useCallback(async () => {
@@ -78,6 +82,16 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
   const asOfDate = `${yearMonth}-28`;
   const previewRevenue = useMemo(
     () => computePerSessionRevenue(sessionCounts, sessionRates, asOfDate),
+    [sessionCounts, sessionRates, asOfDate],
+  );
+
+  const capitaRate = useMemo(
+    () => pickSessionRate(sessionRates, PER_CAPITA_SESSION_TYPE, asOfDate),
+    [sessionRates, asOfDate],
+  );
+  const capitaRow = sessionCounts.find(c => c.session_type === PER_CAPITA_SESSION_TYPE);
+  const previewCapitaRevenue = useMemo(
+    () => computePerCapitaRevenue(sessionCounts, sessionRates, asOfDate),
     [sessionCounts, sessionRates, asOfDate],
   );
 
@@ -182,6 +196,47 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
           </div>
           <p className="sch-muted">급여 입력에서 이 원을 선택한 수업시간이 합산됩니다.</p>
         </section>
+      ) : isPerCapita ? (
+        <>
+          <section className="sch-billing-panel">
+            <h4 className="sch-subtitle">인당 단가</h4>
+            <ul className="sch-entry-list">
+              {capitaRate > 0 ? (
+                <li className="sch-entry-item">
+                  <span>{Number(capitaRate).toLocaleString()}원/인</span>
+                </li>
+              ) : (
+                <li className="sch-muted">등록된 인당 단가가 없습니다.</li>
+              )}
+            </ul>
+          </section>
+
+          <section className="sch-billing-panel">
+            <h4 className="sch-subtitle">{yearMonth} 인원수</h4>
+            {capitaRate <= 0 ? (
+              <p className="sch-muted">인당 단가를 먼저 등록해주세요.</p>
+            ) : (
+              <ul className="sch-session-count-list">
+                <SessionCountRow
+                  sessionType="인원"
+                  row={capitaRow}
+                  rate={capitaRate}
+                  subtotal={previewCapitaRevenue}
+                  unitLabel="명"
+                  onSave={(count, note) => saveCount(PER_CAPITA_SESSION_TYPE, count, note, capitaRow?.id)}
+                  onDelete={capitaRow?.id ? async () => {
+                    await deleteMonthlySessionCount(capitaRow.id);
+                    await load();
+                  } : null}
+                />
+              </ul>
+            )}
+            <div className="sch-billing-preview">
+              <span>자동 계산 매출</span>
+              <strong>{formatWon(previewCapitaRevenue)}</strong>
+            </div>
+          </section>
+        </>
       ) : isPerSession ? (
         <>
           <section className="sch-billing-panel">
@@ -271,7 +326,7 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
         </section>
       )}
 
-      {!isPartner && contracts.length > 0 && !isPerSession ? (
+      {!isPartner && contracts.length > 0 && !isPerSession && !isPerCapita ? (
         <details className="sch-billing-history">
           <summary>과거 계약 이력</summary>
           <ul className="sch-entry-list">
@@ -297,7 +352,7 @@ function MonthlyFixedContractPanel({ yearMonth, contracts, institutionId, onSave
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setAmount(draft.amount ? String(draft.amount) : "");
+    setAmount(draft.source !== "empty" ? String(draft.amount ?? 0) : "");
     setStudentCount(draft.studentCount === "" || draft.studentCount == null ? "" : String(draft.studentCount));
   }, [draft]);
 
@@ -361,7 +416,7 @@ function MonthlyFixedContractPanel({ yearMonth, contracts, institutionId, onSave
           {saving ? "저장 중…" : "저장"}
         </button>
       </form>
-      {amount ? (
+      {amount !== "" ? (
         <div className="sch-billing-preview">
           <span>{yearMonth} 매출</span>
           <strong>{formatWon(Number(amount))}</strong>
@@ -371,7 +426,7 @@ function MonthlyFixedContractPanel({ yearMonth, contracts, institutionId, onSave
   );
 }
 
-function SessionCountRow({ sessionType, row, rate, subtotal, onSave, onDelete }) {
+function SessionCountRow({ sessionType, row, rate, subtotal, onSave, onDelete, unitLabel = "회" }) {
   const [count, setCount] = useState(String(row?.session_count ?? 0));
   const [note, setNote] = useState(row?.note || "");
 
@@ -384,7 +439,7 @@ function SessionCountRow({ sessionType, row, rate, subtotal, onSave, onDelete })
     <li className="sch-session-count-row">
       <div className="sch-session-count-label">
         <strong>{sessionType}</strong>
-        <span className="sch-muted">{Number(rate).toLocaleString()}원/회</span>
+        <span className="sch-muted">{Number(rate).toLocaleString()}원/{unitLabel === "명" ? "인" : "회"}</span>
       </div>
       <input
         type="number"
@@ -394,7 +449,7 @@ function SessionCountRow({ sessionType, row, rate, subtotal, onSave, onDelete })
         onChange={e => setCount(e.target.value)}
         onBlur={() => onSave(count, note)}
       />
-      <span className="sch-muted">회</span>
+      <span className="sch-muted">{unitLabel}</span>
       <input
         className="sch-input"
         placeholder="메모 (특수수업 등)"
