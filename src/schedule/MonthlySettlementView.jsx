@@ -12,6 +12,8 @@ import {
 import { sortSettlementRows } from "./institutionSort.js";
 import {
   expandFixedPayoutSettlements,
+  fixedPayoutManagerSliceGross,
+  fixedPayoutManagerSliceVat,
   FIXED_PAYOUT_SLICE,
   isFixedPayoutGtsSlice,
   isFixedPayoutManagerSlice,
@@ -35,15 +37,17 @@ function SettlementRow({ s, me }) {
   if (partner) return null;
 
   if (managerSlice) {
+    const gross = fixedPayoutManagerSliceGross(s);
+    const vat = fixedPayoutManagerSliceVat(s);
     const net = Number(s.manager_payout_net ?? s.manager_share)
       || managerFixedPayoutNet(s.fixed_payout);
     return (
       <tr>
         <td>{s.institutions?.name}</td>
         <td>{CONTRACT_TYPES[contractType]}</td>
-        <td>—</td>
-        <td>—</td>
-        <td>—</td>
+        <td>{formatWon(gross)}</td>
+        <td>{formatWon(vat)}</td>
+        <td>{formatWon(gross - vat)}</td>
         <td>—</td>
         <td>—</td>
         <td>—</td>
@@ -158,6 +162,12 @@ export default function MonthlySettlementView({ me, onBack }) {
     const t = { revenue: 0, instructor_cost: 0, net_profit: 0, manager_share: 0, gts_share: 0 };
     for (const s of visible) {
       if (s.institutions?.contract_type === "partner_billing") continue;
+      if (isFixedPayoutManagerSlice(s)) {
+        t.revenue += fixedPayoutManagerSliceGross(s);
+        t.manager_share += Number(s.manager_payout_net ?? s.manager_share)
+          || managerFixedPayoutNet(s.fixed_payout);
+        continue;
+      }
       t.revenue += Number(s.revenue) || 0;
       t.instructor_cost += Number(s.instructor_cost) || 0;
       t.net_profit += Number(s.net_profit) || 0;

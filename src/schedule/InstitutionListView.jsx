@@ -19,6 +19,7 @@ import {
 import {
   buildInstitutionRevenueEditDraft,
   canEditInstitutionRevenue,
+  formatInstitutionBillingLabel,
   formatInstitutionRevenueLabel,
   isInstitutionRevenuePending,
 } from "./institutionRevenueDisplay.js";
@@ -26,6 +27,7 @@ import InstitutionRevenueEditModal from "./InstitutionRevenueEditModal.jsx";
 import { isManagerFixedPayout } from "./fixedPayoutDisplay.js";
 import {
   canViewInstitutionRevenue,
+  filterInstitutionsForManagerScope,
   isScheduleSuperAdmin,
 } from "./managerScope.js";
 import { isScheduleAdmin } from "./roles.js";
@@ -71,7 +73,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
         fetchSessionRates(),
         fetchFinalizedInstitutionIds(yearMonth),
       ]);
-      setRows(insts);
+      setRows(filterInstitutionsForManagerScope(insts, me));
       setTeachers(ts.filter(t => t.role === "admin" || t.role === "superadmin"));
       setContracts(c);
       setSessionCounts(counts);
@@ -83,7 +85,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
     } finally {
       setLoading(false);
     }
-  }, [yearMonth, prevYearMonth]);
+  }, [yearMonth, prevYearMonth, me]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -250,7 +252,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                 });
                 const showEdit = admin
                   && canViewInstitutionRevenue(me, inst)
-                  && canEditInstitutionRevenue(inst, sessionRates);
+                  && canEditInstitutionRevenue(inst, sessionRates, sessionCounts);
                 const finalized = finalizedIds.has(inst.id);
 
                 return (
@@ -264,7 +266,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                       </button>
                     </td>
                     <td>{managerName(inst.manager_id)}</td>
-                    <td>{BILLING_TYPES[inst.billing_type] || inst.billing_type}</td>
+                    <td>{formatInstitutionBillingLabel(inst, sessionRates, sessionCounts)}</td>
                     <td className="sch-inst-revenue-cell">
                       <span className={pending ? "sch-inst-revenue-pending" : ""}>{label}</span>
                       {finalized ? <span className="sch-inst-revenue-finalized">확정</span> : null}

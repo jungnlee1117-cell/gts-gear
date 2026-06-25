@@ -46,6 +46,9 @@ export function resolveInstitutionRevenue({
   const perCapita = institution?.billing_type === "per_capita"
     || (sessionRates || []).some(
       r => r.institution_id === institution?.id && r.session_type === "인당",
+    )
+    || (sessionCounts || []).some(
+      c => c.institution_id === institution?.id && c.session_type === "인당",
     );
   if (perCapita) {
     return computePerCapitaRevenue(sessionCounts, sessionRates, asOf);

@@ -9425,6 +9425,80 @@ code {
 .gear-rotation-highlight__cta:hover {
   background: #047857;
 }
+.gear-rotation-highlight__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+.gear-rotation-highlight__link {
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: #fff;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+.gear-rotation-highlight__link:hover {
+  background: #f9fafb;
+}
+.gear-rotation-highlight__rented-tag,
+.gear-rotation-highlight__rented-summary {
+  color: #7c3aed;
+  font-weight: 700;
+  font-size: 12px;
+}
+.gear-rotation-row__rented-hint {
+  display: block;
+  font-size: 11px;
+  color: #7c3aed;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.gear-rotation-gear-modal {
+  max-width: 420px;
+}
+.gear-rotation-gear-modal-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gear-rotation-gear-modal-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+.gear-rotation-gear-modal-tag {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #6b7280;
+}
+.gear-rotation-gear-modal-rented {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #7c3aed;
+}
+.gear-rotation-gear-modal-miss {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #dc2626;
+}
 
 .gear-rotation-type-badge {
   flex-shrink: 0;
@@ -9560,6 +9634,12 @@ code {
   font-weight: 800;
   color: #059669;
   white-space: nowrap;
+}
+.gear-rotation-row__dates-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-top: 2px;
 }
 .gear-rotation-row__main {
   display: flex;

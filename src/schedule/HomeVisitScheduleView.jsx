@@ -94,13 +94,21 @@ export default function HomeVisitScheduleView({ me, onBack }) {
 
   const gridCells = useMemo(() => getMonthGrid(y, m - 1), [y, m]);
 
-  const openNew = () => {
+  const openNew = (dateStr) => {
+    const startDate = dateStr || fmtLocalDate(new Date());
+    const [cy, cm, cd] = startDate.split("-").map(Number);
+    const dayOfWeek = String(new Date(cy, cm - 1, cd).getDay());
     setForm({
       ...EMPTY_FORM,
       teacher_id: teacherFilter || me.id,
-      pattern_start_date: fmtLocalDate(new Date()),
+      pattern_start_date: startDate,
+      day_of_week: dayOfWeek,
     });
     setShowForm(true);
+  };
+
+  const openRegisterForDate = (dateStr) => {
+    openNew(dateStr);
   };
 
   const openEdit = (pattern) => {
@@ -200,9 +208,10 @@ export default function HomeVisitScheduleView({ me, onBack }) {
           <option value="active">진행 중</option>
           <option value="ended">종료됨</option>
         </select>
-        <button type="button" className="sch-btn sch-btn--primary" onClick={openNew}>
+        <button type="button" className="sch-btn sch-btn--primary" onClick={() => openNew()}>
           반복 일정 등록
         </button>
+        <p className="sch-muted sch-toolbar-hint">달력 날짜를 더블클릭하면 해당 날짜로 반복 일정을 등록할 수 있습니다.</p>
       </div>
 
       {loading ? <p className="sch-muted">불러오는 중...</p> : (
@@ -227,21 +236,24 @@ export default function HomeVisitScheduleView({ me, onBack }) {
                 const dateStr = fmtLocalDate(date);
                 const dayVisits = inMonth ? (visitsByDate[dateStr] || []) : [];
                 return (
-                  <div
+                  <button
                     key={dateStr}
+                    type="button"
                     role="gridcell"
+                    disabled={!inMonth}
                     className={[
                       "sch-cal-cell",
                       "sch-home-visit-cell",
                       !inMonth && "sch-cal-cell--muted",
                       dayVisits.length > 0 && "sch-home-visit-cell--has",
                     ].filter(Boolean).join(" ")}
+                    onDoubleClick={() => inMonth && openRegisterForDate(dateStr)}
                   >
                     <span className="sch-cal-day-num">{date.getDate()}</span>
                     {dayVisits.length > 0 ? (
                       <span className="sch-home-visit-count">{dayVisits.length}건</span>
                     ) : null}
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -356,9 +368,13 @@ export default function HomeVisitScheduleView({ me, onBack }) {
       )}
 
       {showForm ? (
-        <div className="sch-modal-overlay" onClick={() => setShowForm(false)}>
+        <div className="sch-modal-overlay" onClick={() => !saving && setShowForm(false)}>
           <form className="sch-modal sch-form sch-home-visit-form" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>{form.id ? "반복 일정 수정" : "반복 일정 등록"}</h3>
+            <div className="sch-modal-head">
+              <h3>
+                {form.id ? "반복 일정 수정" : `반복 일정 등록 · ${form.pattern_start_date}`}
+              </h3>
+            </div>
             <p className="sch-muted sch-home-visit-form-hint">
               매주 같은 요일·시간에 반복되는 방문수업을 등록합니다.
             </p>
@@ -434,7 +450,7 @@ export default function HomeVisitScheduleView({ me, onBack }) {
                 onChange={e => setForm(f => ({ ...f, note: e.target.value }))}/>
             </label>
             <div className="sch-form-actions">
-              <button type="button" className="sch-btn sch-btn--ghost" onClick={() => setShowForm(false)}>취소</button>
+              <button type="button" className="sch-btn sch-btn--ghost" disabled={saving} onClick={() => setShowForm(false)}>취소</button>
               <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
                 {saving ? "저장 중..." : "저장"}
               </button>

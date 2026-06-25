@@ -29,6 +29,7 @@ import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
 import GearInstitutionEventsSection from "./GearInstitutionEventsSection.jsx";
 import NoticesFeedCard from "./NoticesFeedCard.jsx";
 import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin } from "./authRoles.js";
+import { shouldForcePasswordChange } from "./authPolicy.js";
 import {
   DUPLICATE_ITEM_NAME_MESSAGE,
   findItemNameConflict,
@@ -7587,7 +7588,7 @@ export default function App() {
     </div>
   );
 
-  if (session?.user?.user_metadata?.must_change_password) {
+  if (shouldForcePasswordChange(session)) {
     return (
       <div style={{
         minHeight: "100vh",

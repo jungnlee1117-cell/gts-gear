@@ -7,8 +7,19 @@ export const isScheduleSuperAdmin = (me) => me?.role === "superadmin";
 export const isScheduleRegionalManager = (me) =>
   me?.role === "admin" && !isScheduleSuperAdmin(me);
 
+/** 관리자 — 급여/정산 대시보드 (슈퍼: 전체, 지역: 담당 원만) */
+export function canAccessPayrollAdmin(me) {
+  return isScheduleAdmin(me);
+}
+
 export function canSeeAllInstitutions(me) {
   return isScheduleSuperAdmin(me);
+}
+
+/** 원 목록 — 지역 관리자는 manager_id 담당 원만 */
+export function filterInstitutionsForManagerScope(institutions, me) {
+  if (isScheduleSuperAdmin(me)) return institutions || [];
+  return (institutions || []).filter(i => institutionInManagerScope(i, me));
 }
 
 /** manager_fixed_payout 원의 전체 매출·GTS 몫 — 슈퍼관리자만 */

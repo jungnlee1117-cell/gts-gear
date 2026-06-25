@@ -40,7 +40,7 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
 
   const isPartner = institution.contract_type === "partner_billing";
   const isPerSession = institution.billing_type === "per_session" && !isPartner;
-  const isPerCapita = isPerCapitaBilling(institution, sessionRates);
+  const isPerCapita = isPerCapitaBilling(institution, sessionRates, sessionCounts);
   const isMonthlyFixed = isMonthlyFixedBilling(institution);
 
   const load = useCallback(async () => {

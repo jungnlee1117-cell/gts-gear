@@ -2,9 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import {
-  findNextWeekSlot,
-  findWeekSlotForDate,
+  findNextCalendarWeekRotationSlot,
+  findRotationWeekForCalendarWeek,
+  calendarWeekMetaForRotationSlot,
+  formatCalendarWeekLabel,
+  formatCalendarWeekRange,
   formatWeekRange,
+  getCalendarWeekRange,
   getWeekItemsForLetter,
   resolveItemRecord,
   schoolYearMonths,
@@ -24,7 +28,7 @@ const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
 const MONTH_SHORT = ["", "1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
-const LIST_PREVIEW = 4;
+const LIST_PREVIEW = 5;
 
 const FILTERS = [
   { id: "all", label: "전체" },
@@ -172,12 +176,17 @@ function GearPhotoGroup({ entries, variant = "highlight" }) {
   );
 }
 
-function WeekHighlightCard({ variant, label, dateRange, gear, items, onRent }) {
+function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, onRent, onOpenGear }) {
   const typeBadge = gearTypeBadge(gear);
   const photoEntries = useMemo(
     () => resolveGearPhotoEntries(gear, items),
     [gear, items],
   );
+  const entries = useMemo(
+    () => (gear ? resolveGearItemEntries(gear, items) : []),
+    [gear, items],
+  );
+  const rentedCount = entries.filter(e => e.item?.id && heldIds?.has(e.item.id)).length;
 
   if (!gear) {
     return (
@@ -200,24 +209,39 @@ function WeekHighlightCard({ variant, label, dateRange, gear, items, onRent }) {
             {typeBadge.label}
           </span>
         </div>
-        {!gear.merged && gear.parts?.map(p => (
-          <p key={p.label} className="gear-rotation-highlight__sub">{p.label}: {p.name}</p>
-        ))}
+        {!gear.merged && gear.parts?.map(p => {
+          const item = resolveItemRecord(items, p.name);
+          const rented = item?.id && heldIds?.has(item.id);
+          return (
+            <p key={p.label} className="gear-rotation-highlight__sub">
+              {p.label}: {p.name}
+              {rented ? <span className="gear-rotation-highlight__rented-tag"> · 대여 중</span> : null}
+            </p>
+          );
+        })}
+        {rentedCount > 0 ? (
+          <p className="gear-rotation-highlight__rented-summary">대여 중 {rentedCount}종</p>
+        ) : null}
         {gear.simple_activity && (
           <p className="gear-rotation-highlight__activity">{gear.simple_activity}</p>
         )}
-        {variant === "current" && (
-          <button type="button" className="gear-rotation-highlight__cta" onClick={() => onRent(gear.item_name)}>
-            이 교구 대여 신청 →
+        <div className="gear-rotation-highlight__actions">
+          {variant === "current" ? (
+            <button type="button" className="gear-rotation-highlight__cta" onClick={() => onRent(gear)}>
+              이 교구 대여 신청 →
+            </button>
+          ) : null}
+          <button type="button" className="gear-rotation-highlight__link" onClick={() => onOpenGear(gear)}>
+            상세 보기{entries.length > 1 ? ` (${entries.length})` : ""}
           </button>
-        )}
+        </div>
       </div>
       <GearPhotoGroup entries={photoEntries} variant="highlight" />
     </article>
   );
 }
 
-function MonthGearRow({ row, items, status, onOpenItem }) {
+function MonthGearRow({ row, items, status, heldIds, onOpenGear }) {
   const typeBadge = gearTypeBadge(row.gear);
   const activityLine = row.gear.simple_activity
     || (row.gear.simpleActivities?.length ? row.gear.simpleActivities.join(" / ") : null);
@@ -229,9 +253,22 @@ function MonthGearRow({ row, items, status, onOpenItem }) {
     [row.gear, items],
   );
 
+  const entries = useMemo(
+    () => resolveGearItemEntries(row.gear, items),
+    [row.gear, items],
+  );
+  const rentedEntries = entries.filter(e => e.item?.id && heldIds.has(e.item.id));
+
   return (
     <article className="gear-rotation-row">
-      <div className="gear-rotation-row__dates">{row.dateRange || `${row.weekNumber}주차`}</div>
+      <div className="gear-rotation-row__dates">
+        {row.weekLabel ? (
+          <>
+            <div>{row.weekLabel}</div>
+            {row.dateRange ? <div className="gear-rotation-row__dates-sub">{row.dateRange}</div> : null}
+          </>
+        ) : (row.dateRange || `${row.weekNumber}주차`)}
+      </div>
       <div className="gear-rotation-row__main">
         <GearPhotoGroup entries={photoEntries} variant="row" />
         <div className="gear-rotation-row__info">
@@ -253,11 +290,53 @@ function MonthGearRow({ row, items, status, onOpenItem }) {
         <span className={`gear-rotation-status gear-rotation-status--${status.tone}`}>
           {status.label}
         </span>
-        <button type="button" className="gear-rotation-row__link" onClick={() => onOpenItem(row.gear.item_name)}>
-          상세 보기
+        {rentedEntries.length > 0 ? (
+          <span className="gear-rotation-row__rented-hint">
+            대여 {rentedEntries.length}종
+          </span>
+        ) : null}
+        <button type="button" className="gear-rotation-row__link" onClick={() => onOpenGear(row.gear)}>
+          상세 보기{entries.length > 1 ? ` (${entries.length})` : ""}
         </button>
       </div>
     </article>
+  );
+}
+
+function GearItemsDetailModal({ gear, items, heldIds, onClose, onOpenItem }) {
+  const entries = resolveGearItemEntries(gear, items);
+
+  return (
+    <div className="sch-modal-overlay" onClick={onClose}>
+      <div className="sch-modal gear-rotation-gear-modal" onClick={e => e.stopPropagation()}>
+        <h3>{gear?.displayName || "교구 상세"}</h3>
+        <ul className="gear-rotation-gear-modal-list">
+          {entries.map(({ label, name, item }) => {
+            const rented = item?.id && heldIds.has(item.id);
+            return (
+              <li key={`${label}-${name}`} className="gear-rotation-gear-modal-item">
+                <div>
+                  {label ? <span className="gear-rotation-gear-modal-tag">{label}</span> : null}
+                  <strong>{name}</strong>
+                  {rented ? <span className="gear-rotation-gear-modal-rented">대여 중</span> : null}
+                  {!item ? (
+                    <p className="gear-rotation-gear-modal-miss">재고 목록에서 찾을 수 없음</p>
+                  ) : null}
+                </div>
+                {item ? (
+                  <button type="button" className="sch-btn sch-btn--ghost sch-btn--sm" onClick={() => onOpenItem(item)}>
+                    상세 보기
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+        <div className="sch-form-actions">
+          <button type="button" className="sch-btn sch-btn--ghost" onClick={onClose}>닫기</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -293,6 +372,7 @@ export default function MyGearRotationPage({
   const [allMonthWeeks, setAllMonthWeeks] = useState([]);
   const [filter, setFilter] = useState("all");
   const [expanded, setExpanded] = useState(false);
+  const [gearDetail, setGearDetail] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -347,9 +427,12 @@ export default function MyGearRotationPage({
     allMonthWeeks.filter(w => w.year_month?.startsWith(String(monthKey).slice(0, 7)));
 
   const currentWeekSlot = useMemo(
-    () => findWeekSlotForDate(allMonthWeeks),
+    () => findRotationWeekForCalendarWeek(allMonthWeeks),
     [allMonthWeeks],
   );
+
+  const thisWeekLabel = formatCalendarWeekLabel();
+  const thisWeekRange = formatCalendarWeekRange();
 
   const currentMonthKey = currentWeekSlot
     ? String(currentWeekSlot.year_month).slice(0, 7)
@@ -363,9 +446,23 @@ export default function MyGearRotationPage({
   }, [currentLetter, currentWeekSlot, weeklyLists]);
 
   const nextWeekSlot = useMemo(
-    () => findNextWeekSlot(allMonthWeeks, currentWeekSlot),
-    [allMonthWeeks, currentWeekSlot],
+    () => findNextCalendarWeekRotationSlot(allMonthWeeks),
+    [allMonthWeeks],
   );
+
+  const nextWeekLabel = useMemo(() => {
+    const { monday } = getCalendarWeekRange(new Date());
+    const nextMonday = new Date(monday);
+    nextMonday.setDate(monday.getDate() + 7);
+    return formatCalendarWeekLabel(nextMonday);
+  }, []);
+
+  const nextWeekRange = useMemo(() => {
+    const { monday } = getCalendarWeekRange(new Date());
+    const nextMonday = new Date(monday);
+    nextMonday.setDate(monday.getDate() + 7);
+    return formatCalendarWeekRange(nextMonday);
+  }, []);
 
   const nextWeekMonthKey = nextWeekSlot ? String(nextWeekSlot.year_month).slice(0, 7) : null;
   const nextLetter = nextWeekMonthKey ? scheduleForMonth(nextWeekMonthKey)?.assigned_letter : null;
@@ -385,9 +482,11 @@ export default function MyGearRotationPage({
       const gear = getWeekItemsForLetter(weeklyLists, viewLetter, wn);
       if (!gear) return null;
       const mw = weeksMap.get(wn);
+      const weekMeta = mw ? calendarWeekMetaForRotationSlot(mw) : null;
       return {
         weekNumber: wn,
-        dateRange: mw ? formatWeekRange(mw.week_start_date, mw.week_end_date) : null,
+        dateRange: weekMeta?.range || (mw ? formatWeekRange(mw.week_start_date, mw.week_end_date) : null),
+        weekLabel: weekMeta?.label || null,
         weekSlot: mw || null,
         gear,
         status: weekRentalStatusForGear(mw, gear, items, heldIds),
@@ -408,31 +507,31 @@ export default function MyGearRotationPage({
     setFilter("all");
   }, [viewMonth]);
 
-  const openItem = (sheetName) => {
-    const rec = resolveItemRecord(items, sheetName);
-    if (rec) {
-      onDetail(rec, "my-gear-rotation");
-      return;
+  const openItemRecord = (item) => {
+    if (item) {
+      onDetail(item, "my-gear-rotation");
+      setGearDetail(null);
     }
-    alert(`「${sheetName}」 교구를 재고 목록에서 찾지 못했습니다.\n관리자에게 이름 매칭을 요청하세요.`);
   };
 
-  const handleRent = (sheetName) => {
-    const rec = resolveItemRecord(items, sheetName);
-    if (rec) {
-      onDetail(rec, "my-gear-rotation");
+  const openGear = (gear) => {
+    if (!gear) return;
+    const entries = resolveGearItemEntries(gear, items);
+    const resolved = entries.filter(e => e.item);
+    if (resolved.length === 0) {
+      alert(`「${gear.displayName}」 교구를 재고 목록에서 찾지 못했습니다.\n관리자에게 이름 매칭을 요청하세요.`);
       return;
     }
-    if (onGoRental) onGoRental();
-    else alert("대여 메뉴에서 신청해 주세요.");
+    if (resolved.length === 1) {
+      openItemRecord(resolved[0].item);
+      return;
+    }
+    setGearDetail(gear);
   };
 
-  const thisWeekRange = currentWeekSlot
-    ? formatWeekRange(currentWeekSlot.week_start_date, currentWeekSlot.week_end_date)
-    : null;
-  const nextWeekRange = nextWeekSlot
-    ? formatWeekRange(nextWeekSlot.week_start_date, nextWeekSlot.week_end_date)
-    : null;
+  const handleRent = (gear) => {
+    openGear(gear);
+  };
 
   return (
     <PageShell>
@@ -451,25 +550,29 @@ export default function MyGearRotationPage({
           <section className="gear-rotation-highlights-grid">
             <WeekHighlightCard
               variant="current"
-              label="이번 주"
+              label={thisWeekLabel}
               dateRange={thisWeekRange}
               gear={thisWeekGear}
               items={items}
+              heldIds={heldIds}
               onRent={handleRent}
+              onOpenGear={openGear}
             />
             <WeekHighlightCard
               variant="next"
-              label="다음 주"
+              label={nextWeekLabel}
               dateRange={nextWeekRange}
               gear={nextWeekGear}
               items={items}
+              heldIds={heldIds}
               onRent={handleRent}
+              onOpenGear={openGear}
             />
           </section>
 
           {!currentWeekSlot && (
             <p className="gear-rotation-hint">
-              주차별 날짜가 등록되지 않아 이번 주를 자동으로 찾지 못했습니다.
+              이번 주({thisWeekRange})에 해당하는 순환 주차 데이터가 없습니다.
             </p>
           )}
 
@@ -514,7 +617,8 @@ export default function MyGearRotationPage({
                       row={row}
                       items={items}
                       status={row.status}
-                      onOpenItem={openItem}
+                      heldIds={heldIds}
+                      onOpenGear={openGear}
                     />
                   ))}
                 </div>
@@ -533,6 +637,16 @@ export default function MyGearRotationPage({
           </section>
         </div>
       )}
+
+      {gearDetail ? (
+        <GearItemsDetailModal
+          gear={gearDetail}
+          items={items}
+          heldIds={heldIds}
+          onClose={() => setGearDetail(null)}
+          onOpenItem={openItemRecord}
+        />
+      ) : null}
     </PageShell>
   );
 }

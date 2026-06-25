@@ -84,17 +84,29 @@ export function buildMonthlyContractPayload({ institutionId, yearMonth, amount, 
   return payload;
 }
 
-export function isPerCapitaBilling(institution, sessionRates = []) {
+export function isPerCapitaBilling(institution, sessionRates = [], sessionCounts = []) {
   if (institution?.contract_type === "partner_billing") return false;
   if (institution?.billing_type === "per_capita") return true;
-  return (sessionRates || []).some(
+  if ((sessionRates || []).some(
     r => r.institution_id === institution?.id && r.session_type === PER_CAPITA_SESSION_TYPE,
+  )) return true;
+  return (sessionCounts || []).some(
+    c => c.institution_id === institution?.id && c.session_type === PER_CAPITA_SESSION_TYPE,
   );
 }
 
-export function getInstitutionRevenueInputMode(institution, sessionRates = []) {
+/** 화면 표시용 과금 유형 (DB billing_type + 인당 단가/인원 데이터 반영) */
+export function resolveInstitutionBillingType(institution, sessionRates = [], sessionCounts = []) {
+  if (institution?.contract_type === "partner_billing") return "manual";
+  if (isPerCapitaBilling(institution, sessionRates, sessionCounts)) return "per_capita";
+  if (institution?.billing_type === "per_session") return "per_session";
+  if (institution?.billing_type === "manual") return "manual";
+  return institution?.billing_type || "monthly_fixed";
+}
+
+export function getInstitutionRevenueInputMode(institution, sessionRates = [], sessionCounts = []) {
   if (institution?.contract_type === "partner_billing") return "partner";
-  if (isPerCapitaBilling(institution, sessionRates)) return "per_capita";
+  if (isPerCapitaBilling(institution, sessionRates, sessionCounts)) return "per_capita";
   if (institution?.billing_type === "per_session") return "per_session";
   return "contract";
 }
@@ -184,7 +196,7 @@ export function buildBulkRevenueDrafts({
 }) {
   const drafts = {};
   for (const inst of institutions) {
-    const mode = getInstitutionRevenueInputMode(inst, sessionRates);
+    const mode = getInstitutionRevenueInputMode(inst, sessionRates, sessionCounts);
     if (mode === "partner") {
       drafts[inst.id] = { mode: "partner" };
       continue;

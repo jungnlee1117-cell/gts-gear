@@ -16,6 +16,8 @@ import { sortInstitutionDashboardRows } from "./institutionSort.js";
 import {
   expandFixedPayoutDashboardRows,
   filterInstitutionRowsForManager,
+  fixedPayoutManagerSliceGross,
+  fixedPayoutManagerSliceVat,
   isFixedPayoutGtsSlice,
   isFixedPayoutManagerSlice,
   isManagerFixedPayout,
@@ -68,6 +70,8 @@ function sumInstitutionRows(rows, me) {
     const managerSlice = isFixedPayoutManagerSlice(row);
 
     if (managerSlice) {
+      t.revenue += fixedPayoutManagerSliceGross(row);
+      t.vat += fixedPayoutManagerSliceVat(row);
       t.manager_share += Number(row.manager_payout_net ?? row.manager_share)
         || managerFixedPayoutNet(row.fixed_payout);
       continue;
@@ -181,7 +185,13 @@ function InstitutionShareCell({ row, me }) {
 }
 
 function InstitutionRevenueInputCell({ row }) {
-  if (isFixedPayoutManagerSlice(row)) return "—";
+  if (isFixedPayoutManagerSlice(row)) {
+    const gross = fixedPayoutManagerSliceGross(row);
+    if (gross > 0) {
+      return <span className="sch-admin-status-ok">{formatWon(gross)}</span>;
+    }
+    return <span className="sch-admin-status-warn">미입력</span>;
+  }
   if (row.institution.contract_type === "partner_billing") return "—";
   if (row.hasRevenue) {
     return <span className="sch-admin-status-ok">{formatWon(row.revenue)}</span>;
@@ -190,18 +200,19 @@ function InstitutionRevenueInputCell({ row }) {
 }
 
 export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpenSettlement, onOpenPayRates }) {
+  const superAdmin = isScheduleSuperAdmin(me);
+  const showTeacherTab = superAdmin;
+
   const [yearMonth, setYearMonth] = useState(yearMonthKey());
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("teachers");
+  const [activeTab, setActiveTab] = useState(() => (showTeacherTab ? "teachers" : "institutions"));
   const [debugTeacher, setDebugTeacher] = useState(null);
   const [debugData, setDebugData] = useState(null);
   const [debugLoading, setDebugLoading] = useState(false);
   const [managerFilter, setManagerFilter] = useState("all");
   const [institutionSearch, setInstitutionSearch] = useState("");
   const [viewingTeacher, setViewingTeacher] = useState(null);
-
-  const superAdmin = isScheduleSuperAdmin(me);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -260,11 +271,6 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     [data?.teacherRows],
   );
 
-  const missingRevenueCount = useMemo(
-    () => (data?.institutionRows || []).filter(r => !r.hasRevenue).length,
-    [data?.institutionRows],
-  );
-
   const managerFilterIds = useMemo(
     () => ({
       ...resolveManagerFilterIds(data?.managerMap),
@@ -307,6 +313,11 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     return filtered;
   }, [data?.institutionRows, institutionSearch, effectiveManagerFilter, managerFilterIds]);
 
+  const missingRevenueCount = useMemo(
+    () => filteredCanonicalRows.filter(r => !r.hasRevenue).length,
+    [filteredCanonicalRows],
+  );
+
   const displayInstitutionRows = useMemo(() => {
     const expanded = expandFixedPayoutDashboardRows(filteredCanonicalRows, effectiveManagerFilter);
     return sortInstitutionDashboardRows(expanded, data?.managerMap ?? {}, {
@@ -341,32 +352,34 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
         <input type="month" className="sch-input" value={yearMonth} onChange={e => setYearMonth(e.target.value)}/>
       </div>
 
-      <div className="sch-admin-dash-tabs" role="tablist" aria-label="대시보드 구분">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "teachers"}
-          className={`sch-admin-dash-tab${activeTab === "teachers" ? " sch-admin-dash-tab--active" : ""}`}
-          onClick={() => setActiveTab("teachers")}
-        >
-          선생님
-          {missingInputCount > 0 ? (
-            <span className="sch-admin-dash-tab-badge">{missingInputCount}</span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "institutions"}
-          className={`sch-admin-dash-tab${activeTab === "institutions" ? " sch-admin-dash-tab--active" : ""}`}
-          onClick={() => setActiveTab("institutions")}
-        >
-          기관
-          {missingRevenueCount > 0 ? (
-            <span className="sch-admin-dash-tab-badge">{missingRevenueCount}</span>
-          ) : null}
-        </button>
-      </div>
+      {showTeacherTab ? (
+        <div className="sch-admin-dash-tabs" role="tablist" aria-label="대시보드 구분">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "teachers"}
+            className={`sch-admin-dash-tab${activeTab === "teachers" ? " sch-admin-dash-tab--active" : ""}`}
+            onClick={() => setActiveTab("teachers")}
+          >
+            선생님
+            {missingInputCount > 0 ? (
+              <span className="sch-admin-dash-tab-badge">{missingInputCount}</span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "institutions"}
+            className={`sch-admin-dash-tab${activeTab === "institutions" ? " sch-admin-dash-tab--active" : ""}`}
+            onClick={() => setActiveTab("institutions")}
+          >
+            기관
+            {missingRevenueCount > 0 ? (
+              <span className="sch-admin-dash-tab-badge">{missingRevenueCount}</span>
+            ) : null}
+          </button>
+        </div>
+      ) : null}
         </>
       ) : null}
 
@@ -380,7 +393,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
         />
       ) : loading || !data ? <p className="sch-muted">불러오는 중...</p> : (
         <>
-          {activeTab === "teachers" ? (
+          {showTeacherTab && activeTab === "teachers" ? (
             <div className="sch-admin-dash-panel" role="tabpanel">
               <section className="sch-admin-dash-section">
                 <h3 className="sch-admin-dash-section-title">강사별 입력 현황</h3>
@@ -564,7 +577,11 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                             <td>{CONTRACT_TYPES[row.institution.contract_type]}</td>
                             <td className="sch-td-num"><InstitutionRevenueInputCell row={row}/></td>
                             <td className="sch-td-num">
-                              {partner || managerSlice ? "—" : formatWon(row.vat)}
+                              {partner
+                                ? "—"
+                                : managerSlice
+                                  ? formatWon(fixedPayoutManagerSliceVat(row))
+                                  : formatWon(row.vat)}
                             </td>
                             <td className="sch-td-num"><InstitutionIncomeTaxCell row={row}/></td>
                             <td className="sch-td-num"><InstitutionCostCell row={row} me={me}/></td>

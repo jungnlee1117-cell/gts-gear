@@ -17,6 +17,15 @@ import TeacherPayRatesView from "./schedule/TeacherPayRatesView.jsx";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { isScheduleSuperAdmin } from "./schedule/managerScope.js";
 
+function ScheduleAccessDenied({ message, onBack }) {
+  return (
+    <div className="sch-view sch-access-denied">
+      <p className="sch-muted">{message}</p>
+      <button type="button" className="sch-btn sch-btn--ghost" onClick={onBack}>돌아가기</button>
+    </div>
+  );
+}
+
 export default function ScheduleApp({ me, onBack }) {
   const admin = isScheduleAdmin(me);
   const [view, setView] = useState(() => (admin ? "hub" : "payroll"));
@@ -50,23 +59,35 @@ export default function ScheduleApp({ me, onBack }) {
       case "change-alerts":
         return admin ? <ScheduleChangeAlertsView onBack={goHub}/> : null;
       case "payroll":
-        return admin ? (
-          <PayrollAdminView
-            me={me}
-            onBack={goHub}
-            onOpenInstitution={id => { setDetailId(id); setView("institution-detail"); }}
-            onOpenSettlement={() => setView("settlement")}
-            onOpenPayRates={() => setView("pay-rates")}
-          />
-        ) : (
-          <PayrollTeacherView me={me}/>
-        );
+        return admin
+          ? (
+            <PayrollAdminView
+              me={me}
+              onBack={goHub}
+              onOpenInstitution={id => { setDetailId(id); setView("institution-detail"); }}
+              onOpenSettlement={() => setView("settlement")}
+              onOpenPayRates={() => setView("pay-rates")}
+            />
+          )
+          : <PayrollTeacherView me={me}/>;
       case "settlement":
-        return <MonthlySettlementView me={me} onBack={() => setView("payroll")}/>;
+        return admin
+          ? <MonthlySettlementView me={me} onBack={() => setView("payroll")}/>
+          : (
+            <ScheduleAccessDenied
+              message="월별 정산은 관리자만 이용할 수 있습니다."
+              onBack={goHub}
+            />
+          );
       case "pay-rates":
         return isScheduleSuperAdmin(me)
           ? <TeacherPayRatesView me={me} onBack={() => setView("payroll")}/>
-          : null;
+          : (
+            <ScheduleAccessDenied
+              message="강사 단가 관리는 슈퍼관리자만 이용할 수 있습니다."
+              onBack={goHub}
+            />
+          );
       case "institutions":
         return (
           <InstitutionListView
@@ -77,12 +98,19 @@ export default function ScheduleApp({ me, onBack }) {
           />
         );
       case "institution-bulk-revenue":
-        return (
-          <InstitutionBulkRevenueView
-            me={me}
-            onBack={() => setView("institutions")}
-          />
-        );
+        return isScheduleSuperAdmin(me)
+          ? (
+            <InstitutionBulkRevenueView
+              me={me}
+              onBack={() => setView("institutions")}
+            />
+          )
+          : (
+            <ScheduleAccessDenied
+              message="월별 매출 일괄입력은 슈퍼관리자만 이용할 수 있습니다."
+              onBack={() => setView("institutions")}
+            />
+          );
       case "institution-detail":
         return (
           <InstitutionDetailView

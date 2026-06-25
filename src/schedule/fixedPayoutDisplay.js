@@ -118,3 +118,13 @@ export function isFixedPayoutManagerSlice(row) {
 export function isFixedPayoutGtsSlice(row) {
   return row?.displaySlice === FIXED_PAYOUT_SLICE.gts;
 }
+
+/** 고정지급 담당자 행 — 매출(고정지급액) */
+export function fixedPayoutManagerSliceGross(row) {
+  return Number(row?.fixed_payout ?? row?.institution?.fixed_payout_amount) || 0;
+}
+
+/** 고정지급 담당자 행 — 부가세(10%) */
+export function fixedPayoutManagerSliceVat(row) {
+  return Math.round(fixedPayoutManagerSliceGross(row) * MANAGER_PAYOUT_WITHHOLDING_RATE);
+}

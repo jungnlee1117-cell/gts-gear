@@ -870,7 +870,7 @@ function institutionHasRevenueInput(institution, contract, sessionCounts, sessio
     return (sessionCounts || []).some(r => Number(r.session_count) > 0)
       || contract != null;
   }
-  if (isPerCapitaBilling(institution, sessionRates) || institution?.billing_type === "per_session") {
+  if (isPerCapitaBilling(institution, sessionRates, sessionCounts) || institution?.billing_type === "per_session") {
     return (sessionCounts || []).length > 0;
   }
   return contract != null;

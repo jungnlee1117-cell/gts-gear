@@ -1,4 +1,4 @@
-import { formatWon } from "./constants.js";
+import { BILLING_TYPES, formatWon } from "./constants.js";
 import {
   findContractForMonth,
   getInstitutionRevenueInputMode,
@@ -8,6 +8,7 @@ import {
   isMonthlyFixedBilling,
   PER_CAPITA_SESSION_TYPE,
   previousYearMonth,
+  resolveInstitutionBillingType,
 } from "./monthlyBilling.js";
 import {
   computePerCapitaRevenue,
@@ -23,7 +24,13 @@ function instCountsFor(institutionId, sessionCounts) {
   return (sessionCounts || []).filter(c => c.institution_id === institutionId);
 }
 
-/** 목록 매출 컬럼 표시 텍스트 */
+/** 과금 컬럼 — billing_type 라벨 */
+export function formatInstitutionBillingLabel(institution, sessionRates = [], sessionCounts = []) {
+  const type = resolveInstitutionBillingType(institution, sessionRates, sessionCounts);
+  return BILLING_TYPES[type] || type;
+}
+
+/** 매출 컬럼 — 계산된 금액 (과금 유형명은 포함하지 않음) */
 export function formatInstitutionRevenueLabel({
   institution,
   contracts,
@@ -31,7 +38,7 @@ export function formatInstitutionRevenueLabel({
   sessionRates = [],
   yearMonth,
 }) {
-  const mode = getInstitutionRevenueInputMode(institution, sessionRates);
+  const mode = getInstitutionRevenueInputMode(institution, sessionRates, sessionCounts);
 
   if (mode === "partner") return "—";
 
@@ -44,7 +51,7 @@ export function formatInstitutionRevenueLabel({
       const count = Number(row.session_count) || 0;
       const rate = pickSessionRate(instRates, PER_CAPITA_SESSION_TYPE, asOf);
       const total = computePerCapitaRevenue(instCounts, instRates, asOf);
-      return `인당과금 (${count}명×${formatRateWon(rate)} = ${formatWon(total)})`;
+      return `${formatRateWon(rate)}×${count}명=${formatWon(total)}`;
     }
     const prevYm = previousYearMonth(yearMonth);
     const hasPrev = (sessionCounts || []).some(c =>
@@ -58,20 +65,33 @@ export function formatInstitutionRevenueLabel({
 
   if (mode === "per_session") {
     const asOf = `${yearMonth}-28`;
-    const instCounts = instCountsFor(institution.id, sessionCounts);
+    const instCounts = instCountsFor(institution.id, sessionCounts)
+      .filter(c => c.session_type !== PER_CAPITA_SESSION_TYPE);
     const instRates = sessionRates.filter(r => r.institution_id === institution.id);
     const parts = [];
+    let total = 0;
 
     for (const row of instCounts) {
-      if (row.session_type === PER_CAPITA_SESSION_TYPE) continue;
       const count = Number(row.session_count) || 0;
       if (count <= 0) continue;
       const rate = pickSessionRate(instRates, row.session_type, asOf);
-      parts.push(`${row.session_type} ${count}회×${formatRateWon(rate)}`);
+      const subtotal = Math.round(count * rate);
+      total += subtotal;
+      parts.push({
+        sessionType: row.session_type,
+        text: `${formatRateWon(rate)}×${count}회`,
+        subtotal,
+      });
     }
 
     if (parts.length > 0) {
-      return `회당과금 (${parts.join(" + ")})`;
+      if (parts.length === 1 && !parts[0].sessionType.includes(" ")) {
+        return `${parts[0].text}=${formatWon(total)}`;
+      }
+      const detail = parts.map(p => (
+        p.sessionType ? `${p.sessionType} ${p.text}` : p.text
+      )).join(" + ");
+      return `${detail}=${formatWon(total)}`;
     }
     return "미입력";
   }
@@ -79,7 +99,7 @@ export function formatInstitutionRevenueLabel({
   if (isMonthlyFixedBilling(institution)) {
     const current = findContractForMonth(contracts, yearMonth, institution.id);
     if (current) {
-      return `월 고정 (${formatWon(current.contract_amount)})`;
+      return formatWon(current.contract_amount);
     }
     const prev = findContractForMonth(contracts, previousYearMonth(yearMonth), institution.id);
     if (prev) return "미입력 (직전달 있음)";
@@ -96,7 +116,7 @@ export function isInstitutionRevenuePending({
   sessionRates = [],
   yearMonth,
 }) {
-  const mode = getInstitutionRevenueInputMode(institution, sessionRates);
+  const mode = getInstitutionRevenueInputMode(institution, sessionRates, sessionCounts);
   if (mode === "partner") return false;
 
   if (mode === "contract" && isMonthlyFixedBilling(institution)) {
@@ -117,8 +137,8 @@ export function isInstitutionRevenuePending({
   return false;
 }
 
-export function canEditInstitutionRevenue(institution, sessionRates = []) {
-  return getInstitutionRevenueInputMode(institution, sessionRates) !== "partner";
+export function canEditInstitutionRevenue(institution, sessionRates = [], sessionCounts = []) {
+  return getInstitutionRevenueInputMode(institution, sessionRates, sessionCounts) !== "partner";
 }
 
 /** 수정 모달 초기 draft */
@@ -130,7 +150,7 @@ export function buildInstitutionRevenueEditDraft({
   sessionRates,
   yearMonth,
 }) {
-  const mode = getInstitutionRevenueInputMode(institution, sessionRates);
+  const mode = getInstitutionRevenueInputMode(institution, sessionRates, sessionCounts);
 
   if (mode === "per_session") {
     return {

@@ -173,7 +173,135 @@ const NOON = (d) => {
   return x;
 };
 
-/** 주차 슬롯 목록을 날짜순 정렬 */
+function parseLocalDay(value) {
+  if (!value) return null;
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, d] = raw.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return null;
+  return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+}
+
+function toYmd(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** 오늘(또는 지정일)이 속한 주 — 월요일 00:00 ~ 일요일 (날짜만) */
+export function getCalendarWeekRange(date = new Date()) {
+  const d = parseLocalDay(date instanceof Date ? toYmd(date) : date) || new Date();
+  d.setHours(0, 0, 0, 0);
+  const dow = d.getDay();
+  const diff = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return {
+    monday,
+    sunday,
+    startYmd: toYmd(monday),
+    endYmd: toYmd(sunday),
+  };
+}
+
+/** 해당 월의 N번째 월요일 (1-based) */
+export function mondayIndexInMonth(monday) {
+  const y = monday.getFullYear();
+  const m = monday.getMonth();
+  let idx = 0;
+  for (let day = 1; day <= 31; day++) {
+    const cur = new Date(y, m, day);
+    if (cur.getMonth() !== m) break;
+    if (cur.getDay() === 1) {
+      idx += 1;
+      if (cur.getTime() === monday.getTime()) return idx;
+    }
+  }
+  return idx || 1;
+}
+
+/** 예: 6월 29일(월)이 6월 5번째 월요일 → "6월 5주차" */
+export function formatCalendarWeekLabel(date = new Date()) {
+  const { monday } = getCalendarWeekRange(date);
+  const month = monday.getMonth() + 1;
+  return `${month}월 ${mondayIndexInMonth(monday)}주차`;
+}
+
+export function formatCalendarWeekRange(date = new Date()) {
+  const { startYmd, endYmd } = getCalendarWeekRange(date);
+  return formatWeekRange(startYmd, endYmd);
+}
+
+function overlapDays(aStart, aEnd, bStart, bEnd) {
+  const start = aStart > bStart ? aStart : bStart;
+  const end = aEnd < bEnd ? aEnd : bEnd;
+  if (start > end) return 0;
+  return Math.floor((end - start) / 86400000) + 1;
+}
+
+/** Mon~Sun 주간과 겹치는 순환 주차 슬롯 (겹침 일수 최대) */
+export function findRotationWeekForCalendarWeek(monthWeeks, date = new Date()) {
+  const { startYmd, endYmd } = getCalendarWeekRange(date);
+  const calStart = parseLocalDay(startYmd);
+  const calEnd = parseLocalDay(endYmd);
+  if (!calStart || !calEnd) return null;
+
+  let best = null;
+  let bestDays = 0;
+  for (const w of sortMonthWeeks(monthWeeks)) {
+    const ws = parseLocalDay(w.week_start_date);
+    const we = parseLocalDay(w.week_end_date);
+    if (!ws || !we) continue;
+    const days = overlapDays(ws, we, calStart, calEnd);
+    if (days > bestDays) {
+      bestDays = days;
+      best = w;
+    }
+  }
+  return best;
+}
+
+/** 다음 Mon~Sun 주의 순환 주차 슬롯 */
+export function findNextCalendarWeekRotationSlot(monthWeeks, date = new Date()) {
+  const { monday } = getCalendarWeekRange(date);
+  const nextMonday = new Date(monday);
+  nextMonday.setDate(monday.getDate() + 7);
+  return findRotationWeekForCalendarWeek(monthWeeks, nextMonday);
+}
+
+/** DB 순환 슬롯 → Mon~Sun 주차 라벨·범위 (표시용) */
+export function calendarWeekMetaForRotationSlot(slot) {
+  if (!slot?.week_start_date || !slot?.week_end_date) return null;
+  const slotStart = parseLocalDay(slot.week_start_date);
+  const slotEnd = parseLocalDay(slot.week_end_date);
+  if (!slotStart || !slotEnd) return null;
+
+  let bestMonday = null;
+  let bestDays = 0;
+  for (let cur = new Date(slotStart); cur <= slotEnd; cur.setDate(cur.getDate() + 1)) {
+    const { monday, startYmd, endYmd } = getCalendarWeekRange(cur);
+    const calStart = parseLocalDay(startYmd);
+    const calEnd = parseLocalDay(endYmd);
+    const days = overlapDays(slotStart, slotEnd, calStart, calEnd);
+    if (days > bestDays) {
+      bestDays = days;
+      bestMonday = monday;
+    }
+  }
+  if (!bestMonday) return null;
+  const { startYmd, endYmd } = getCalendarWeekRange(bestMonday);
+  return {
+    label: formatCalendarWeekLabel(bestMonday),
+    range: formatWeekRange(startYmd, endYmd),
+  };
+}
+
 export function sortMonthWeeks(weeks) {
   return [...(weeks || [])].sort((a, b) => {
     const as = a.week_start_date || "";

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Search } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import {
   findMonthlyCrossLetterDuplicates,
@@ -134,7 +135,7 @@ function QuickRegisterModal({ itemName, items, onSave, onClose }) {
 
 function WeekRow({
   weekNumber, row, draft, dateRange, items, conflictLetters, monthKeyLabel,
-  onDraftChange, onSave, onDelete, saving, onRegister,
+  highlighted, onDraftChange, onSave, onDelete, saving, onRegister,
 }) {
   const name = draft?.item_name ?? row?.item_name ?? "";
   const isAir = draft?.is_air_product ?? row?.is_air_product ?? isAirProductName(name, weekNumber);
@@ -142,10 +143,13 @@ function WeekRow({
   const hasConflict = conflictLetters.length > 0 && normalizeItemName(name);
 
   return (
-    <div style={{
+    <div
+      id={`gear-rotation-week-${weekNumber}`}
+      style={{
       ...card, padding: "14px 16px",
-      borderColor: hasConflict ? "#fcd34d" : card.border,
-      background: hasConflict ? DS.warnBg : card.background,
+      borderColor: highlighted ? DS.primary : hasConflict ? "#fcd34d" : card.border,
+      background: highlighted ? "#ecfdf5" : hasConflict ? DS.warnBg : card.background,
+      boxShadow: highlighted ? `0 0 0 2px ${DS.primary}` : card.boxShadow,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <div>
@@ -173,6 +177,7 @@ function WeekRow({
       <input
         value={name}
         placeholder="교구명 입력"
+        list="gear-rotation-item-options"
         onChange={e => onDraftChange({
           item_name: e.target.value,
           is_air_product: isAirProductName(e.target.value, weekNumber),
@@ -268,6 +273,9 @@ export default function GearRotationManagePage({
   const [drafts, setDrafts] = useState({});
   const [savingWeek, setSavingWeek] = useState(null);
   const [registerName, setRegisterName] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [highlightWeek, setHighlightWeek] = useState(null);
+  const highlightTimerRef = useRef(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -294,6 +302,68 @@ export default function GearRotationManagePage({
   }, [monthKey]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => () => {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+  }, []);
+
+  const itemOptions = useMemo(
+    () => [...(items || [])].sort((a, b) => (a.name || "").localeCompare(b.name || "", "ko")),
+    [items],
+  );
+
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return { rotation: [], inventory: [] };
+
+    const rotation = weeklyLists
+      .filter(w => {
+        const name = (w.item_name || "").toLowerCase();
+        const activity = (w.simple_activity || "").toLowerCase();
+        return name.includes(q) || activity.includes(q);
+      })
+      .map(w => ({
+        id: w.id,
+        letter: w.letter,
+        targetType: w.target_type,
+        weekNumber: w.week_number,
+        itemName: w.item_name,
+        simpleActivity: w.simple_activity,
+        matched: resolveItemRecord(items, w.item_name),
+      }))
+      .sort((a, b) =>
+        a.letter.localeCompare(b.letter)
+        || a.targetType.localeCompare(b.targetType)
+        || a.weekNumber - b.weekNumber,
+      );
+
+    const inventory = itemOptions
+      .filter(i => {
+        const name = (i.name || "").toLowerCase();
+        const alias = (i.alias || "").toLowerCase();
+        const code = (i.code || "").toLowerCase();
+        return name.includes(q) || alias.includes(q) || code.includes(q);
+      })
+      .slice(0, 12);
+
+    return { rotation, inventory };
+  }, [searchQuery, weeklyLists, items, itemOptions]);
+
+  const jumpToRotation = (entry) => {
+    setLetter(entry.letter);
+    setTab(entry.targetType);
+    setDrafts({});
+    setHighlightWeek(entry.weekNumber);
+    setSearchQuery("");
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    setTimeout(() => {
+      document.getElementById(`gear-rotation-week-${entry.weekNumber}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 80);
+    highlightTimerRef.current = setTimeout(() => setHighlightWeek(null), 2500);
+  };
 
   const monthDupes = useMemo(
     () => findMonthlyCrossLetterDuplicates(weeklyLists, rotationSchedule, monthKey),
@@ -433,6 +503,104 @@ export default function GearRotationManagePage({
         </div>
       )}
 
+      <div style={{ ...card, padding: "14px 16px", marginBottom: 16 }}>
+        <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: DS.textSecondary, marginBottom: 8 }}>
+          교구 검색
+        </label>
+        <div style={{ position: "relative" }}>
+          <Search
+            size={18}
+            aria-hidden
+            style={{
+              position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
+              color: DS.textMuted, pointerEvents: "none",
+            }}
+          />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="교구명·코드 검색 (예: 에어브릿지, BAL-001)"
+            aria-label="교구 검색"
+            style={{
+              width: "100%", boxSizing: "border-box", padding: "10px 12px 10px 40px",
+              borderRadius: 10, border: "1px solid #e5e7eb", fontSize: 14,
+            }}
+          />
+        </div>
+        {searchQuery.trim() ? (
+          <div style={{ marginTop: 12 }}>
+            {searchResults.rotation.length === 0 && searchResults.inventory.length === 0 ? (
+              <p style={{ margin: 0, fontSize: 13, color: DS.textMuted }}>
+                「{searchQuery.trim()}」에 맞는 순환 배정·재고 교구가 없습니다.
+              </p>
+            ) : (
+              <>
+                {searchResults.rotation.length > 0 ? (
+                  <div style={{ marginBottom: searchResults.inventory.length ? 12 : 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: DS.textMuted, marginBottom: 6 }}>
+                      순환 배정 ({searchResults.rotation.length}건)
+                    </div>
+                    <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
+                      {searchResults.rotation.map(entry => (
+                        <li key={entry.id || `${entry.letter}|${entry.targetType}|${entry.weekNumber}|${entry.itemName}`}>
+                          <button
+                            type="button"
+                            onClick={() => jumpToRotation(entry)}
+                            style={{
+                              width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 10,
+                              border: "1px solid #e5e7eb", background: "#f9fafb", cursor: "pointer",
+                              fontFamily: "inherit",
+                            }}
+                          >
+                            <div style={{ fontSize: 14, fontWeight: 700, color: DS.textPrimary }}>
+                              {entry.itemName}
+                            </div>
+                            <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 2 }}>
+                              알파벳 {entry.letter} · {entry.targetType} · {entry.weekNumber}주차
+                              {entry.matched ? ` · ${entry.matched.code}` : " · 재고 미등록"}
+                            </div>
+                            {entry.simpleActivity ? (
+                              <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 4 }}>
+                                {entry.simpleActivity}
+                              </div>
+                            ) : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {searchResults.inventory.length > 0 ? (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: DS.textMuted, marginBottom: 6 }}>
+                      재고 교구 ({searchResults.inventory.length}건{searchResults.inventory.length >= 12 ? "+" : ""})
+                    </div>
+                    <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {searchResults.inventory.map(item => (
+                        <li key={item.id}>
+                          <span style={{
+                            display: "inline-block", padding: "6px 10px", borderRadius: 999,
+                            background: "#ecfdf5", color: DS.primary, fontSize: 12, fontWeight: 600,
+                          }}>
+                            {item.name}
+                            {item.code ? ` (${item.code})` : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : (
+          <p style={{ margin: "10px 0 0", fontSize: 12, color: DS.textMuted }}>
+            순환 배정된 교구와 재고 목록을 검색합니다. 결과를 누르면 해당 알파벳·주차로 이동합니다.
+          </p>
+        )}
+      </div>
+
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
         {ROTATION_LETTERS.map(l => (
           <button
@@ -475,7 +643,13 @@ export default function GearRotationManagePage({
       )}
 
       {!loading && !error && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <>
+          <datalist id="gear-rotation-item-options">
+            {itemOptions.map(opt => (
+              <option key={opt.id} value={opt.name}>{opt.code ? `${opt.code}` : opt.name}</option>
+            ))}
+          </datalist>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {rowsForView.map(({ weekNumber, row }) => {
             const mw = weeksMap.get(weekNumber);
             const draft = getDraft(weekNumber, row);
@@ -494,6 +668,7 @@ export default function GearRotationManagePage({
                 items={items}
                 conflictLetters={conflicts}
                 monthKeyLabel={monthKey.slice(0, 7)}
+                highlighted={highlightWeek === weekNumber}
                 saving={savingWeek === weekNumber}
                 onDraftChange={patch => setDraft(weekNumber, patch)}
                 onSave={() => saveWeek(weekNumber, row)}
@@ -502,7 +677,8 @@ export default function GearRotationManagePage({
               />
             );
           })}
-        </div>
+          </div>
+        </>
       )}
     </PageShell>
   );

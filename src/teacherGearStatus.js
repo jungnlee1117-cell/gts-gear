@@ -1,6 +1,8 @@
 import {
-  findNextWeekSlot,
-  findWeekSlotForDate,
+  findNextCalendarWeekRotationSlot,
+  findRotationWeekForCalendarWeek,
+  formatCalendarWeekRange,
+  getCalendarWeekRange,
   getWeekItemsForLetter,
   resolveItemRecord,
   formatWeekRange,
@@ -210,21 +212,31 @@ export function buildGearRecommendations(me, reqs, ris, items) {
 }
 
 export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklySlots, items }) {
-  const currentSlot = findWeekSlotForDate(monthWeeks);
-  const nextSlot = findNextWeekSlot(monthWeeks, currentSlot);
-  if (!nextSlot) return { rows: [], weekRange: null };
+  const nextSlot = findNextCalendarWeekRotationSlot(monthWeeks);
+  if (!nextSlot) {
+    const { monday } = getCalendarWeekRange(new Date());
+    const nextMonday = new Date(monday);
+    nextMonday.setDate(monday.getDate() + 7);
+    return { rows: [], weekRange: formatCalendarWeekRange(nextMonday) };
+  }
 
   const monthKey = String(nextSlot.year_month).slice(0, 7);
   const letter = (schedules || []).find(s => s.year_month?.startsWith(monthKey))?.assigned_letter;
-  if (!letter) return { rows: [], weekRange: formatWeekRange(nextSlot.week_start_date, nextSlot.week_end_date) };
+  const { monday } = getCalendarWeekRange(new Date());
+  const nextMonday = new Date(monday);
+  nextMonday.setDate(monday.getDate() + 7);
+  const weekRange = formatCalendarWeekRange(nextMonday);
+
+  if (!letter) return { rows: [], weekRange };
 
   const gear = getWeekItemsForLetter(weeklyLists, letter, nextSlot.week_number);
   const gearNames = gearNamesFromWeek(gear);
   if (!gearNames.length) {
-    return { rows: [], weekRange: formatWeekRange(nextSlot.week_start_date, nextSlot.week_end_date) };
+    return { rows: [], weekRange };
   }
 
-  const weekDates = enumerateWeekDates(nextSlot.week_start_date, nextSlot.week_end_date);
+  const cal = getCalendarWeekRange(nextMonday);
+  const weekDates = enumerateWeekDates(cal.startYmd, cal.endYmd);
   const sessions = [];
   for (const d of weekDates) {
     for (const slot of weeklySlots || []) {
@@ -248,7 +260,7 @@ export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklyS
     rows.push({
       itemId: item?.id || null,
       itemName: item?.name || sheetName,
-      classDate: session?.dateLabel || formatKoreanClassDate(nextSlot.week_start_date),
+      classDate: session?.dateLabel || formatKoreanClassDate(cal.startYmd),
       institution: session?.institution || "수업 일정 확인",
       sheetName,
     });
@@ -256,7 +268,7 @@ export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklyS
 
   return {
     rows,
-    weekRange: formatWeekRange(nextSlot.week_start_date, nextSlot.week_end_date),
+    weekRange,
   };
 }
 
