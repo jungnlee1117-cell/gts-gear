@@ -29,10 +29,7 @@ CREATE POLICY "reservations_select" ON public.reservations
   FOR SELECT TO authenticated
   USING (
     teacher_id = auth.uid()
-    OR EXISTS (
-      SELECT 1 FROM public.teachers t
-      WHERE t.id = auth.uid() AND t.role IN ('admin', 'superadmin')
-    )
+    OR public.is_item_admin()
   );
 
 DROP POLICY IF EXISTS "reservations_insert_own" ON public.reservations;
@@ -45,8 +42,5 @@ CREATE POLICY "reservations_update" ON public.reservations
   FOR UPDATE TO authenticated
   USING (
     (teacher_id = auth.uid() AND status = 'pending')
-    OR EXISTS (
-      SELECT 1 FROM public.teachers t
-      WHERE t.id = auth.uid() AND t.role IN ('admin', 'superadmin')
-    )
+    OR public.is_item_admin()
   );

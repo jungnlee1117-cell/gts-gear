@@ -22,7 +22,7 @@ AS $$
     SELECT 1 FROM public.teachers t
     WHERE t.id = auth.uid()
       AND COALESCE(t.active, true)
-      AND (t.role IN ('admin', 'superadmin') OR t.is_item_admin = true)
+      AND (t.role = 'superadmin' OR t.is_item_admin = true)
   );
 $$;
 
@@ -93,3 +93,8 @@ END $$;
 UPDATE public.teachers
 SET role = 'teacher', is_item_admin = true
 WHERE name = '오주영';
+
+-- 양의인(레이첼)·오정석(마이크): 스케줄 관리자 + 교구 승인
+UPDATE public.teachers
+SET is_item_admin = true
+WHERE name IN ('양의인', '오정석');

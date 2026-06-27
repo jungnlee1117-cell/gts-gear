@@ -3212,9 +3212,9 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
 
   const promoteToScheduleAdmin = async (t) => {
     if (!confirm(`${t.name}을(를) 스케줄 관리자로 임명하시겠습니까?\n(원 관리·급여·정산 — 교구 관리 권한도 함께 부여됩니다)`)) return;
-    const { error } = await supabase.from("teachers").update({ role: "admin" }).eq("id", t.id);
+    const { error } = await supabase.from("teachers").update({ role: "admin", is_item_admin: true }).eq("id", t.id);
     if (error) { alert(error.message); return; }
-    setTeachers(p => p.map(x => x.id === t.id ? { ...x, role: "admin" } : x));
+    setTeachers(p => p.map(x => x.id === t.id ? { ...x, role: "admin", is_item_admin: true } : x));
     await logAction("role_change", "스케줄 관리자 임명", t);
     alert(`${t.name}이(가) 스케줄 관리자로 임명되었습니다`);
   };
@@ -3292,7 +3292,7 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
   };
 
   const admins  = teachers.filter(t => t.role === "admin");
-  const itemAdmins = teachers.filter(t => t.role === "teacher" && t.is_item_admin);
+  const itemAdmins = teachers.filter(t => t.is_item_admin && t.role !== "superadmin");
   const tList   = teachers.filter(t => t.role === "teacher");
 
   const sectionTitle = (text) => (
@@ -3380,6 +3380,11 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
                 <div style={{fontSize:11,color:DS.textMuted,marginTop:6}}>보유 교구: {held.reduce((s,r)=>s+r.quantity,0)}개</div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                {t.is_item_admin ? (
+                  <Btn sm ghost danger onClick={() => demoteFromItemAdmin(t)}>교구 관리자 해제</Btn>
+                ) : (
+                  <Btn sm color={DS.primary} onClick={() => promoteToItemAdmin(t)}>교구 관리자 임명</Btn>
+                )}
                 <Btn sm ghost danger onClick={()=>demoteToTeacher(t)}>스케줄 관리자 해제</Btn>
                 <Btn sm ghost color={t.active===false?"#16a34a":"#dc2626"} onClick={()=>toggleActive(t)}>
                   {t.active===false?"활성화":"비활성화"}

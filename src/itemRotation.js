@@ -5,6 +5,82 @@
 const LETTERS = "ABCDEFGHIJKL".split("");
 export const ROTATION_LETTERS = LETTERS;
 
+/** 순환표 강사 순서 (item_rotation_teachers.json 과 동일) */
+export const ROTATION_TEACHER_ORDER = [
+  "정티처", "오정석", "레이첼", "어욱진", "안소연", "김종현",
+  "공다연", "서은총", "김하원", "윤한경", "공성주", "오주영",
+];
+
+/** 순환표 이름 → teachers.name (관리자 본명) */
+export const ROTATION_SHEET_NAME_TO_DB_NAME = {
+  레이첼: "양의인",
+  마이크: "오정석",
+};
+
+/** 교구 순환 조회 — 항상 로그인 본인 teachers.id (담당 원 필터와 무관) */
+export function rotationSubjectTeacherId(me) {
+  return me?.id ?? null;
+}
+
+export function rotationTeacherIndexForUser(me) {
+  const dbName = me?.name;
+  if (!dbName) return -1;
+  return ROTATION_TEACHER_ORDER.findIndex(sheetName => {
+    const mapped = ROTATION_SHEET_NAME_TO_DB_NAME[sheetName] || sheetName;
+    return mapped === dbName || sheetName === dbName;
+  });
+}
+
+function defaultSchoolYearStart(date = new Date()) {
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  return m >= 3 ? y : y - 1;
+}
+
+export function inferAssignedLetterForMonth(me, monthKey, startYear) {
+  const idx = rotationTeacherIndexForUser(me);
+  if (idx < 0) return null;
+  const [y, mo] = String(monthKey).slice(0, 7).split("-").map(Number);
+  const yr = startYear ?? (mo >= 3 ? y : y - 1);
+  const months = schoolYearMonths(yr);
+  const monthIndex = months.indexOf(String(monthKey).slice(0, 7));
+  if (monthIndex < 0) return null;
+  return letterForTeacherMonth(idx, monthIndex);
+}
+
+/** DB 배정 + 순환표 패턴 fallback (본인 계정 기준) */
+export function resolveRotationSchedules(dbSchedules, me, startYear) {
+  const subjectId = rotationSubjectTeacherId(me);
+  if (!subjectId) return [];
+  const yr = startYear ?? defaultSchoolYearStart();
+  const months = schoolYearMonths(yr);
+  const byMonth = new Map();
+  for (const row of dbSchedules || []) {
+    if (row.teacher_id !== subjectId) continue;
+    byMonth.set(String(row.year_month).slice(0, 7), row);
+  }
+  return months.map(ym => {
+    const existing = byMonth.get(ym);
+    if (existing?.assigned_letter) return existing;
+    const letter = inferAssignedLetterForMonth(me, ym, startYear);
+    if (!letter) return null;
+    return {
+      year_month: `${ym}-01`,
+      assigned_letter: letter,
+      teacher_id: subjectId,
+      inferred: true,
+    };
+  }).filter(Boolean);
+}
+
+export function assignedLetterForMonth(schedules, me, monthKey) {
+  const prefix = String(monthKey).slice(0, 7);
+  const row = (schedules || []).find(s =>
+    s.year_month?.startsWith(prefix) && s.teacher_id === rotationSubjectTeacherId(me),
+  );
+  return row?.assigned_letter || inferAssignedLetterForMonth(me, monthKey);
+}
+
 /** 시트 교구명 → DB items.name 수동 매핑 (점검 후 확장) */
 export const ITEM_NAME_ALIASES = {
   "사각징검다리/방구": "밸런스 징검다리",

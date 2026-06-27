@@ -9,10 +9,9 @@ export const SUPER_ADMIN_ID = import.meta.env.VITE_SUPER_ADMIN_ID || "";
 export const isScheduleAdmin = (u) =>
   u?.role === "superadmin" || u?.role === "admin";
 
-/** 교구: 대여/반납/교구 관리 */
+/** 교구: 대여/반납/교구 관리 (스케줄 role=admin 과 분리 — is_item_admin 또는 슈퍼관리자) */
 export const isItemAdmin = (u) =>
   u?.role === "superadmin"
-  || u?.role === "admin"
   || u?.is_item_admin === true;
 
 export const isSuperAdmin = (u) =>

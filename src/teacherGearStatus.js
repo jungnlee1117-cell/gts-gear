@@ -1,10 +1,13 @@
 import {
+  assignedLetterForMonth,
   findNextCalendarWeekRotationSlot,
   findRotationWeekForCalendarWeek,
   formatCalendarWeekRange,
   getCalendarWeekRange,
   getWeekItemsForLetter,
   resolveItemRecord,
+  resolveRotationSchedules,
+  rotationSubjectTeacherId,
   formatWeekRange,
   yearMonthFirstDay,
   schoolYearMonths,
@@ -211,7 +214,7 @@ export function buildGearRecommendations(me, reqs, ris, items) {
   return recs.slice(0, 6);
 }
 
-export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklySlots, items }) {
+export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklySlots, items, me }) {
   const nextSlot = findNextCalendarWeekRotationSlot(monthWeeks);
   if (!nextSlot) {
     const { monday } = getCalendarWeekRange(new Date());
@@ -221,7 +224,9 @@ export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklyS
   }
 
   const monthKey = String(nextSlot.year_month).slice(0, 7);
-  const letter = (schedules || []).find(s => s.year_month?.startsWith(monthKey))?.assigned_letter;
+  const letter = me
+    ? assignedLetterForMonth(schedules, me, monthKey)
+    : (schedules || []).find(s => s.year_month?.startsWith(monthKey))?.assigned_letter;
   const { monday } = getCalendarWeekRange(new Date());
   const nextMonday = new Date(monday);
   nextMonday.setDate(monday.getDate() + 7);
@@ -272,13 +277,14 @@ export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklyS
   };
 }
 
-export async function fetchTeacherGearExtras(supabase, teacherId) {
+export async function fetchTeacherGearExtras(supabase, teacherUser) {
+  const teacherId = rotationSubjectTeacherId(teacherUser);
   const startYear = schoolYearStartYear();
   const ymKeys = schoolYearMonths(startYear).map(m => yearMonthFirstDay(m));
 
   const [schedRes, weeklyRes, weeksRes, slotsRes] = await Promise.all([
     supabase.from("item_rotation_schedule")
-      .select("year_month, assigned_letter")
+      .select("year_month, assigned_letter, teacher_id")
       .eq("teacher_id", teacherId)
       .in("year_month", ymKeys),
     supabase.from("item_weekly_lists").select("*").order("week_number"),
@@ -296,7 +302,7 @@ export async function fetchTeacherGearExtras(supabase, teacherId) {
   }
 
   return {
-    schedules: schedRes.data || [],
+    schedules: resolveRotationSchedules(schedRes.data || [], teacherUser, startYear),
     weeklyLists: weeklyRes.error ? [] : (weeklyRes.data || []),
     monthWeeks: weeksRes.error ? [] : (weeksRes.data || []),
     weeklySlots: slotsRes.error ? [] : (slotsRes.data || []),

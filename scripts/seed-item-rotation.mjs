@@ -53,6 +53,13 @@ function expandWeeklyRows() {
 
 function buildTeachersByName(teachers) {
   const map = new Map((teachers || []).map(t => [t.name, t]));
+  for (const [sheetName, dbName] of Object.entries({
+    레이첼: "양의인",
+    마이크: "오정석",
+  })) {
+    const teacher = map.get(dbName);
+    if (teacher) map.set(sheetName, teacher);
+  }
   const superAdminId = envValue("VITE_SUPER_ADMIN_ID");
   const superAdmin = (teachers || []).find(t => t.id === superAdminId)
     || (teachers || []).find(t => t.role === "superadmin");

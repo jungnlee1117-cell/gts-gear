@@ -112,7 +112,7 @@ export default function TeacherGearStatusSection({
   useEffect(() => {
     let cancelled = false;
     setLoadingExtras(true);
-    fetchTeacherGearExtras(supabase, me.id)
+    fetchTeacherGearExtras(supabase, me)
       .then(data => {
         if (!cancelled) setExtras(data);
       })
@@ -130,6 +130,7 @@ export default function TeacherGearStatusSection({
       monthWeeks: extras.monthWeeks,
       weeklySlots: extras.weeklySlots,
       items,
+      me,
     });
   }, [extras, items]);
 

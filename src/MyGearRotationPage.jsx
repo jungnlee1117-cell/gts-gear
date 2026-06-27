@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import {
+  assignedLetterForMonth,
   findNextCalendarWeekRotationSlot,
   findRotationWeekForCalendarWeek,
   calendarWeekMetaForRotationSlot,
@@ -11,12 +12,15 @@ import {
   getCalendarWeekRange,
   getWeekItemsForLetter,
   resolveItemRecord,
+  resolveRotationSchedules,
+  rotationSubjectTeacherId,
   schoolYearMonths,
   yearMonthFirstDay,
   yearMonthKey,
 } from "./itemRotation.js";
 import {
   clampToSchoolYear,
+  findLessonPlanForKoreanItem,
   monthLabel,
   schoolYearStartYear,
 } from "./lessonPlan.js";
@@ -176,7 +180,37 @@ function GearPhotoGroup({ entries, variant = "highlight" }) {
   );
 }
 
-function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, onRent, onOpenGear }) {
+function gearNamesForLessonPlan(gear) {
+  if (!gear) return [];
+  if (gear.merged) return [gear.item_name].filter(Boolean);
+  if (gear.parts?.length) return gear.parts.map(p => p.name).filter(Boolean);
+  return [gear.item_name || gear.displayName].filter(Boolean);
+}
+
+function LessonPlanPanel({ plan }) {
+  if (!plan) return null;
+  return (
+    <details className="gear-rotation-plan">
+      <summary className="gear-rotation-plan__summary">수업 계획안</summary>
+      <div className="gear-rotation-plan__body">
+        {plan.activity_description ? (
+          <div className="gear-rotation-plan__block">
+            <div className="gear-rotation-plan__label">Activity</div>
+            <p className="gear-rotation-plan__text">{plan.activity_description}</p>
+          </div>
+        ) : null}
+        {plan.key_expressions ? (
+          <div className="gear-rotation-plan__block">
+            <div className="gear-rotation-plan__label">Key Expressions</div>
+            <p className="gear-rotation-plan__text">{plan.key_expressions}</p>
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, lessonPlans, aliases, yearMonth, weekNumber, onRent, onOpenGear }) {
   const typeBadge = gearTypeBadge(gear);
   const photoEntries = useMemo(
     () => resolveGearPhotoEntries(gear, items),
@@ -187,6 +221,14 @@ function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, on
     [gear, items],
   );
   const rentedCount = entries.filter(e => e.item?.id && heldIds?.has(e.item.id)).length;
+  const lessonPlan = useMemo(() => {
+    if (!gear || !yearMonth || !weekNumber) return null;
+    for (const name of gearNamesForLessonPlan(gear)) {
+      const plan = findLessonPlanForKoreanItem(lessonPlans, aliases, yearMonth, weekNumber, name);
+      if (plan) return plan;
+    }
+    return null;
+  }, [gear, lessonPlans, aliases, yearMonth, weekNumber]);
 
   if (!gear) {
     return (
@@ -225,6 +267,7 @@ function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, on
         {gear.simple_activity && (
           <p className="gear-rotation-highlight__activity">{gear.simple_activity}</p>
         )}
+        <LessonPlanPanel plan={lessonPlan} />
         <div className="gear-rotation-highlight__actions">
           {variant === "current" ? (
             <button type="button" className="gear-rotation-highlight__cta" onClick={() => onRent(gear)}>
@@ -241,7 +284,7 @@ function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, on
   );
 }
 
-function MonthGearRow({ row, items, status, heldIds, onOpenGear }) {
+function MonthGearRow({ row, items, status, heldIds, lessonPlans, aliases, viewMonth, onOpenGear }) {
   const typeBadge = gearTypeBadge(row.gear);
   const activityLine = row.gear.simple_activity
     || (row.gear.simpleActivities?.length ? row.gear.simpleActivities.join(" / ") : null);
@@ -258,6 +301,15 @@ function MonthGearRow({ row, items, status, heldIds, onOpenGear }) {
     [row.gear, items],
   );
   const rentedEntries = entries.filter(e => e.item?.id && heldIds.has(e.item.id));
+  const lessonPlan = useMemo(() => {
+    for (const name of gearNamesForLessonPlan(row.gear)) {
+      const plan = findLessonPlanForKoreanItem(
+        lessonPlans, aliases, viewMonth, row.weekNumber, name,
+      );
+      if (plan) return plan;
+    }
+    return null;
+  }, [row.gear, row.weekNumber, lessonPlans, aliases, viewMonth]);
 
   return (
     <article className="gear-rotation-row">
@@ -284,6 +336,7 @@ function MonthGearRow({ row, items, status, heldIds, onOpenGear }) {
           {institutionLine && (
             <p className="gear-rotation-row__meta">대상: {institutionLine}</p>
           )}
+          <LessonPlanPanel plan={lessonPlan} />
         </div>
       </div>
       <div className="gear-rotation-row__side">
@@ -370,6 +423,8 @@ export default function MyGearRotationPage({
   const [schedules, setSchedules] = useState([]);
   const [weeklyLists, setWeeklyLists] = useState([]);
   const [allMonthWeeks, setAllMonthWeeks] = useState([]);
+  const [lessonPlans, setLessonPlans] = useState([]);
+  const [equipmentAliases, setEquipmentAliases] = useState([]);
   const [filter, setFilter] = useState("all");
   const [expanded, setExpanded] = useState(false);
   const [gearDetail, setGearDetail] = useState(null);
@@ -381,16 +436,22 @@ export default function MyGearRotationPage({
       setError("");
       try {
         const ymKeys = schoolMonths.map(m => yearMonthFirstDay(m));
-        const [schedRes, weeklyRes, weeksRes] = await Promise.all([
+        const subjectId = rotationSubjectTeacherId(me);
+        const [schedRes, weeklyRes, weeksRes, plansRes, aliasRes] = await Promise.all([
           supabase.from("item_rotation_schedule")
-            .select("year_month, assigned_letter")
-            .eq("teacher_id", me.id)
+            .select("year_month, assigned_letter, teacher_id")
+            .eq("teacher_id", subjectId)
             .in("year_month", ymKeys),
           supabase.from("item_weekly_lists").select("*").order("week_number"),
           supabase.from("item_rotation_month_weeks")
             .select("*")
             .in("year_month", ymKeys)
             .order("week_number"),
+          supabase.from("monthly_lesson_plans")
+            .select("*")
+            .in("year_month", ymKeys)
+            .order("week_number"),
+          supabase.from("equipment_name_aliases").select("*"),
         ]);
 
         if (schedRes.error?.code === "42P01") {
@@ -400,11 +461,15 @@ export default function MyGearRotationPage({
         if (schedRes.error) throw schedRes.error;
         if (weeklyRes.error) throw weeklyRes.error;
         if (weeksRes.error && weeksRes.error.code !== "42P01") throw weeksRes.error;
+        if (plansRes.error && plansRes.error.code !== "42P01") throw plansRes.error;
+        if (aliasRes.error && aliasRes.error.code !== "42P01") throw aliasRes.error;
 
         if (!cancelled) {
-          setSchedules(schedRes.data || []);
+          setSchedules(resolveRotationSchedules(schedRes.data || [], me, startYear));
           setWeeklyLists(weeklyRes.data || []);
           setAllMonthWeeks(weeksRes.data || []);
+          setLessonPlans(plansRes.error?.code === "42P01" ? [] : (plansRes.data || []));
+          setEquipmentAliases(aliasRes.error?.code === "42P01" ? [] : (aliasRes.data || []));
         }
       } catch (e) {
         if (!cancelled) setError(e.message || "데이터를 불러오지 못했습니다.");
@@ -413,15 +478,14 @@ export default function MyGearRotationPage({
       }
     })();
     return () => { cancelled = true; };
-  }, [me.id, schoolMonths]);
+  }, [me, schoolMonths, startYear]);
 
   const heldIds = useMemo(() => {
     const rentals = buildCurrentRentals(me, reqs || [], ris || [], items || [], rets || []);
     return new Set(rentals.map(r => r.itemId).filter(Boolean));
   }, [me, reqs, ris, items, rets]);
 
-  const scheduleForMonth = (monthKey) =>
-    schedules.find(s => s.year_month?.startsWith(String(monthKey).slice(0, 7))) || null;
+  const letterForMonth = (monthKey) => assignedLetterForMonth(schedules, me, monthKey);
 
   const weeksForMonth = (monthKey) =>
     allMonthWeeks.filter(w => w.year_month?.startsWith(String(monthKey).slice(0, 7)));
@@ -438,7 +502,7 @@ export default function MyGearRotationPage({
     ? String(currentWeekSlot.year_month).slice(0, 7)
     : todayMonth;
 
-  const currentLetter = scheduleForMonth(currentMonthKey)?.assigned_letter;
+  const currentLetter = letterForMonth(currentMonthKey);
 
   const thisWeekGear = useMemo(() => {
     if (!currentLetter || !currentWeekSlot) return null;
@@ -465,14 +529,14 @@ export default function MyGearRotationPage({
   }, []);
 
   const nextWeekMonthKey = nextWeekSlot ? String(nextWeekSlot.year_month).slice(0, 7) : null;
-  const nextLetter = nextWeekMonthKey ? scheduleForMonth(nextWeekMonthKey)?.assigned_letter : null;
+  const nextLetter = nextWeekMonthKey ? letterForMonth(nextWeekMonthKey) : null;
 
   const nextWeekGear = useMemo(() => {
     if (!nextLetter || !nextWeekSlot) return null;
     return getWeekItemsForLetter(weeklyLists, nextLetter, nextWeekSlot.week_number);
   }, [nextLetter, nextWeekSlot, weeklyLists]);
 
-  const viewLetter = scheduleForMonth(viewMonth)?.assigned_letter;
+  const viewLetter = letterForMonth(viewMonth);
   const viewMonthWeeks = weeksForMonth(viewMonth);
 
   const monthWeekRows = useMemo(() => {
@@ -555,6 +619,10 @@ export default function MyGearRotationPage({
               gear={thisWeekGear}
               items={items}
               heldIds={heldIds}
+              lessonPlans={lessonPlans}
+              aliases={equipmentAliases}
+              yearMonth={currentMonthKey}
+              weekNumber={currentWeekSlot?.week_number}
               onRent={handleRent}
               onOpenGear={openGear}
             />
@@ -565,6 +633,10 @@ export default function MyGearRotationPage({
               gear={nextWeekGear}
               items={items}
               heldIds={heldIds}
+              lessonPlans={lessonPlans}
+              aliases={equipmentAliases}
+              yearMonth={nextWeekMonthKey}
+              weekNumber={nextWeekSlot?.week_number}
               onRent={handleRent}
               onOpenGear={openGear}
             />
@@ -618,6 +690,9 @@ export default function MyGearRotationPage({
                       items={items}
                       status={row.status}
                       heldIds={heldIds}
+                      lessonPlans={lessonPlans}
+                      aliases={equipmentAliases}
+                      viewMonth={viewMonth}
                       onOpenGear={openGear}
                     />
                   ))}

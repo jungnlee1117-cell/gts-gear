@@ -1497,9 +1497,16 @@ code {
   gap: 6px;
   padding: 12px 16px 0;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.eng-script-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .eng-script-tab {
+  flex-shrink: 0;
   padding: 9px 14px;
   border-radius: 99px;
   border: 1px solid #e2e8f0;
@@ -1549,6 +1556,12 @@ code {
   gap: 4px;
   padding: 0 12px 16px;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.eng-script-progress::-webkit-scrollbar {
+  display: none;
 }
 
 .eng-script-progress-step {
@@ -2383,10 +2396,31 @@ code {
     max-width: 100%;
   }
 
+  .eng-program-main .eng-landing-nav {
+    display: none;
+  }
+
+  .eng-program-main .eng-landing-main {
+    padding: 8px 16px calc(48px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .eng-program-main .eng-lib-main {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .eng-program-main .sit-manual-main,
+  .eng-program-main .ct-main,
+  .eng-program-main .ct-detail,
+  .eng-program-main .pron-tips-main {
+    padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  }
+
   .flow-tips-page {
     height: auto;
     min-height: calc(100vh - 120px);
     min-height: calc(100dvh - 120px);
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -2394,6 +2428,274 @@ code {
   .eng-program-mobile-bar,
   .eng-program-bottom-nav {
     display: none !important;
+  }
+}
+
+/* ── 영어 프로그램 · 대본 모바일 (≤640px) ── */
+@media (max-width: 640px) {
+  /* 대본 뷰 헤더 · 레벨 · 단계 */
+  .eng-script-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .eng-script-back {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
+  .eng-script-header-controls {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .ab-gear-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+
+  .ab-change-gear-btn {
+    flex-shrink: 0;
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+
+  .eng-script-tabs {
+    padding: 10px 12px 0;
+    gap: 8px;
+  }
+
+  .eng-script-tab,
+  .ab-level-tab {
+    min-height: 44px;
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+
+  .ab-level-desc {
+    padding: 0 12px 8px;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .eng-script-mode-toggle {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .eng-script-mode-btn {
+    min-height: 44px;
+    padding: 12px 10px;
+    font-size: 14px;
+  }
+
+  .eng-script-progress {
+    gap: 6px;
+    padding: 0 12px 12px;
+    scroll-snap-type: x proximity;
+  }
+
+  .eng-script-progress-step {
+    flex: 0 0 auto;
+    min-width: 72px;
+    scroll-snap-align: center;
+  }
+
+  .eng-script-progress-dot {
+    width: 36px;
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .eng-script-progress-label {
+    font-size: 10px;
+    max-width: 72px;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+
+  .eng-script-main {
+    padding: 0 12px calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .eng-script-card {
+    padding: 16px;
+  }
+
+  .eng-script-nav-btn {
+    min-height: 48px;
+    font-size: 15px;
+  }
+
+  .eng-script-footer {
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .ab-bubble-tts,
+  .ab-bubble-mic,
+  .ab-bubble-playback {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+  }
+
+  .ab-card-line .ab-bubble-tts,
+  .ab-card-line .ab-bubble-mic,
+  .ab-card-line .ab-bubble-playback {
+    width: 44px;
+    height: 44px;
+  }
+
+  .ab-card-line {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .ab-card-line-body {
+    flex: 1 1 calc(100% - 48px);
+  }
+
+  .ab-field-card {
+    padding: 14px;
+  }
+
+  .ab-field-card--card-lines {
+    padding: 16px;
+  }
+
+  .ab-bubble {
+    max-width: 94%;
+  }
+
+  /* 랜딩 · 통계 · 카드 */
+  .eng-landing-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .eng-landing-stats-panel {
+    padding: 16px;
+  }
+
+  .eng-landing-stat {
+    padding: 14px 12px;
+  }
+
+  .eng-landing-stat-value {
+    font-size: 24px;
+  }
+
+  .eng-landing-cta {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .eng-landing-card-flow {
+    margin-top: 16px;
+    padding-top: 16px;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .eng-landing-flow-item {
+    flex: 0 0 auto;
+  }
+
+  .eng-landing-flow-step {
+    width: 56px;
+  }
+
+  .eng-landing-flow-num {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+  }
+
+  /* 교구 라이브러리 */
+  .eng-lib-header__title {
+    font-size: 18px;
+  }
+
+  .eng-lib-tab {
+    min-height: 44px;
+    padding: 12px 4px 14px;
+    margin-right: 12px;
+    font-size: 13px;
+  }
+
+  .eng-lib-cat {
+    min-height: 44px;
+    padding: 10px 16px;
+  }
+
+  .eng-lib-card__menu-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .eng-lib-pagination__btn,
+  .eng-lib-pagination__num {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .eng-lib-search,
+  .eng-lib-select {
+    min-height: 44px;
+  }
+
+  .eng-lib-filter-btn {
+    min-height: 44px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* 하위 페이지 공통 */
+  .sit-manual-tabs,
+  .pron-tips-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .sit-manual-tabs::-webkit-scrollbar,
+  .pron-tips-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sit-manual-tab,
+  .pron-tips-tab {
+    flex-shrink: 0;
+    min-height: 44px;
+  }
+
+  .sit-manual-back,
+  .ct-back,
+  .pron-tips-back {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .sit-manual-card-trigger {
+    min-height: 48px;
+  }
+
+  .ft-info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ft-topbar-back {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
@@ -3350,7 +3652,7 @@ code {
   }
 
   .eng-landing-stats {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
   }
 
   .sit-manual-tab,
@@ -4562,11 +4864,12 @@ code {
   }
 
   .eng-landing-stats {
-    gap: 12px;
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
 
   .eng-landing-stat {
-    padding: 18px 14px;
+    padding: 16px 14px;
   }
 
   .eng-landing-stat-value {
@@ -6294,7 +6597,11 @@ code {
   }
 
   .ft-info-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
+  }
+
+  .ft-tab {
+    min-height: 44px;
   }
 }
 
@@ -6452,6 +6759,24 @@ code {
   padding: 16px 24px 40px;
   max-width: none;
   margin: 0;
+}
+
+@media (max-width: 768px) {
+  .pron-tips-header {
+    padding: 12px 16px;
+  }
+
+  .pron-tips-main {
+    padding: 16px 16px 40px;
+  }
+
+  .pron-tips-cat-desc {
+    padding: 12px 16px 0;
+  }
+
+  .pron-tips-tabs {
+    padding: 10px 12px;
+  }
 }
 
 @media (min-width: 900px) {
@@ -9739,5 +10064,41 @@ code {
 }
 .gear-rotation-expand__icon--up {
   transform: rotate(180deg);
+}
+
+.gear-rotation-plan {
+  margin-top: 10px;
+  border: 1px solid #d1fae5;
+  border-radius: 10px;
+  background: #f0fdf4;
+  overflow: hidden;
+}
+.gear-rotation-plan__summary {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #059669;
+  cursor: pointer;
+  list-style: none;
+}
+.gear-rotation-plan__summary::-webkit-details-marker { display: none; }
+.gear-rotation-plan__body {
+  padding: 0 12px 12px;
+}
+.gear-rotation-plan__block + .gear-rotation-plan__block {
+  margin-top: 10px;
+}
+.gear-rotation-plan__label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+.gear-rotation-plan__text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #374151;
+  white-space: pre-wrap;
 }
 
