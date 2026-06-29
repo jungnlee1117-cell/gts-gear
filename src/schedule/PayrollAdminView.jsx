@@ -9,6 +9,7 @@ import {
 } from "./api.js";
 import PayrollDebugPanel from "./PayrollDebugPanel.jsx";
 import PayrollTeacherView from "./PayrollTeacherView.jsx";
+import TempTeacherPayrollDetail, { TempTeacherPayrollTableRow } from "./TempTeacherPayrollDetail.jsx";
 import AdditionalPaymentsAdminSection from "./AdditionalPaymentsAdminSection.jsx";
 import { AdminTeacherNotesSection } from "./TeacherNotesPanel.jsx";
 import { groupNotesByTeacher } from "./teacherNotes.js";
@@ -27,11 +28,22 @@ import {
 import {
   canSeeAllInstitutions,
   canViewInstitutionRevenue,
-  filterTeachersForManagedInstitutions,
+  isScheduleRegionalManager,
   isScheduleSuperAdmin,
   resolveLockedManagerFilter,
   resolveManagerFilterIds,
 } from "./managerScope.js";
+import {
+  expandScopedTeacherRows,
+  filterAdditionalPaymentsForScope,
+  filterTeacherAdditionalForScope,
+  formatInstructorCostBreakdown,
+  sumScopedAdditionalPayments,
+} from "./institutionTeacherPay.js";
+import {
+  resolveSettlementContractType,
+} from "./thresholdSplitSettlement.js";
+import { filterTempTeacherRowsForScope } from "./temporaryTeachers.js";
 
 const MANAGER_FILTER_OPTIONS = [
   { id: "all", label: "전체" },
@@ -40,11 +52,15 @@ const MANAGER_FILTER_OPTIONS = [
   { id: "hq", label: "본사" },
 ];
 
+function contractTypeLabel(institution) {
+  const key = resolveSettlementContractType(institution);
+  return CONTRACT_TYPES[key] ?? key;
+}
+
 function institutionInstructorCostAmount(row, me) {
   if (isFixedPayoutManagerSlice(row)) return 0;
-  const type = row.institution.contract_type;
+  const type = resolveSettlementContractType(row.institution);
   if (type === "manager_personal") return 0;
-  if (type === "manager_fixed_payout") return Number(row.fixed_payout) || 0;
   if (type === "partner_billing") {
     const amt = Number(row.partner_invoice_amount) || 0;
     if (isPartnerManagerRow(row, me)) return -amt;
@@ -65,7 +81,7 @@ function sumInstitutionRows(rows, me) {
     gts_share: 0,
   };
   for (const row of rows) {
-    const type = row.institution.contract_type;
+    const type = resolveSettlementContractType(row.institution);
     const partner = type === "partner_billing";
     const managerSlice = isFixedPayoutManagerSlice(row);
 
@@ -80,7 +96,10 @@ function sumInstitutionRows(rows, me) {
     t.revenue += Number(row.revenue) || 0;
     t.instructor_cost += institutionInstructorCostAmount(row, me);
 
-    if (partner) continue;
+    if (partner) {
+      t.manager_share += Number(row.manager_share) || 0;
+      continue;
+    }
 
     t.vat += Number(row.vat) || 0;
     t.net_profit += Number(row.net_profit) || 0;
@@ -88,7 +107,7 @@ function sumInstitutionRows(rows, me) {
     if (superAdmin || !isFixedPayoutGtsSlice(row)) {
       t.gts_share += Number(row.gts_share) || 0;
     }
-    if (type !== "manager_personal" && type !== "manager_fixed_payout") {
+    if (type !== "manager_personal" && type !== "manager_fixed_payout" && type !== "manager_threshold_split") {
       t.income_tax += Number(row.income_tax) || 0;
     }
   }
@@ -130,13 +149,34 @@ function InstitutionTotalsFoot({ rows, managerFilter, institutionSearch, me }) {
   );
 }
 
+function InstitutionVatCell({ row }) {
+  if (isFixedPayoutManagerSlice(row)) {
+    return formatWon(fixedPayoutManagerSliceVat(row));
+  }
+  const type = resolveSettlementContractType(row.institution);
+  if (type === "partner_billing") return "—";
+  return formatWon(row.vat);
+}
+
+function InstitutionNetProfitCell({ row }) {
+  if (isFixedPayoutManagerSlice(row)) return "—";
+  const type = resolveSettlementContractType(row.institution);
+  if (type === "partner_billing") return "—";
+  if (type === "manager_threshold_split") {
+    const afterVat = Number(row.revenue_after_vat) || 0;
+    if (afterVat <= 1_000_000) return "—";
+    return formatWon(row.net_profit);
+  }
+  return formatWon(row.net_profit);
+}
+
 function InstitutionCostCell({ row, me }) {
   if (isFixedPayoutManagerSlice(row)) return "—";
-  const type = row.institution.contract_type;
+  const type = resolveSettlementContractType(row.institution);
   if (type === "manager_personal") return "—";
-  if (type === "manager_fixed_payout") {
-    return `고정 ${formatWon(row.fixed_payout)}`;
-  }
+  const superAdmin = isScheduleSuperAdmin(me);
+  const breakdownLines = formatInstructorCostBreakdown(row.instructorCostBreakdown, { superAdmin });
+
   if (type === "partner_billing") {
     const amt = Number(row.partner_invoice_amount) || 0;
     if (amt <= 0) return "—";
@@ -150,13 +190,44 @@ function InstitutionCostCell({ row, me }) {
     }
     return formatWon(amt);
   }
+
+  if (type === "manager_threshold_split") {
+    const cost = Number(row.instructor_cost) || 0;
+    if (cost <= 0) return "—";
+    return (
+      <div className="sch-admin-cell-num">
+        <div>{formatWon(cost)}</div>
+        <p className="sch-admin-cell-hint">외부 강사 인건비</p>
+      </div>
+    );
+  }
+
+  if (breakdownLines.length > 0) {
+    return (
+      <div className="sch-admin-cell-num">
+        <div>{formatWon(row.instructor_cost)}</div>
+        {breakdownLines.map(line => (
+          <p key={line} className="sch-admin-cell-hint">{line}</p>
+        ))}
+      </div>
+    );
+  }
+
+  if (type === "manager_fixed_payout") {
+    return `고정 ${formatWon(row.fixed_payout)}`;
+  }
   return formatWon(row.instructor_cost);
 }
 
 function InstitutionIncomeTaxCell({ row }) {
   if (isFixedPayoutManagerSlice(row)) return "—";
-  const type = row.institution.contract_type;
-  if (type === "manager_personal" || type === "manager_fixed_payout" || type === "partner_billing") {
+  const type = resolveSettlementContractType(row.institution);
+  if (
+    type === "manager_personal"
+    || type === "manager_fixed_payout"
+    || type === "manager_threshold_split"
+    || type === "partner_billing"
+  ) {
     return "—";
   }
   return formatWon(row.income_tax);
@@ -168,8 +239,15 @@ function InstitutionShareCell({ row, me }) {
       || managerFixedPayoutNet(row.fixed_payout);
     return formatWon(net);
   }
-  const type = row.institution.contract_type;
-  if (type === "partner_billing") return "—";
+  const type = resolveSettlementContractType(row.institution);
+  if (type === "partner_billing") {
+    const share = Number(row.manager_share) || 0;
+    if (share === 0) return "—";
+    if (isScheduleSuperAdmin(me)) {
+      return `${formatWon(share)} / —`;
+    }
+    return formatWon(share);
+  }
   if (type === "manager_personal") {
     return isScheduleSuperAdmin(me)
       ? `${formatWon(row.manager_share)} / —`
@@ -177,6 +255,23 @@ function InstitutionShareCell({ row, me }) {
   }
   if (isFixedPayoutGtsSlice(row) || type === "manager_fixed_payout") {
     return isScheduleSuperAdmin(me) ? `— / ${formatWon(row.gts_share)}` : "—";
+  }
+  if (type === "manager_threshold_split") {
+    const afterVat = Number(row.revenue_after_vat) || 0;
+    return (
+      <div className="sch-admin-cell-num">
+        {isScheduleSuperAdmin(me) ? (
+          <div>{formatWon(row.manager_share)} / {formatWon(row.gts_share)}</div>
+        ) : (
+          <div>{formatWon(row.manager_share)}</div>
+        )}
+        {afterVat <= 1_000_000 ? (
+          <p className="sch-admin-cell-hint">100만 이하 전액 담당자</p>
+        ) : (
+          <p className="sch-admin-cell-hint">100만 + 초과분 5:5</p>
+        )}
+      </div>
+    );
   }
   if (isScheduleSuperAdmin(me)) {
     return `${formatWon(row.manager_share)} / ${formatWon(row.gts_share)}`;
@@ -199,9 +294,9 @@ function InstitutionRevenueInputCell({ row }) {
   return <span className="sch-admin-status-warn">미입력</span>;
 }
 
-export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpenSettlement, onOpenPayRates }) {
+export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpenSettlement, onOpenPayRates, onOpenTemporaryTeachers }) {
   const superAdmin = isScheduleSuperAdmin(me);
-  const showTeacherTab = superAdmin;
+  const showTeacherTab = superAdmin || isScheduleRegionalManager(me);
 
   const [yearMonth, setYearMonth] = useState(yearMonthKey());
   const [data, setData] = useState(null);
@@ -213,6 +308,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   const [managerFilter, setManagerFilter] = useState("all");
   const [institutionSearch, setInstitutionSearch] = useState("");
   const [viewingTeacher, setViewingTeacher] = useState(null);
+  const [viewingTempTeacher, setViewingTempTeacher] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -287,18 +383,58 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   const effectiveManagerFilter = lockedManagerFilter ?? managerFilter;
 
   const managedInstitutionIds = useMemo(
-    () => new Set((data?.institutions || []).map(i => i.id)),
-    [data?.institutions],
+    () => new Set(
+      (data?.institutions || [])
+        .filter(i => i.manager_id === me?.id)
+        .map(i => i.id),
+    ),
+    [data?.institutions, me?.id],
   );
 
   const scopedTeacherRows = useMemo(() => {
     if (isScheduleSuperAdmin(me)) return data?.teacherRows ?? [];
-    return filterTeachersForManagedInstitutions(
-      data?.teacherRows ?? [],
-      managedInstitutionIds,
-      data?.entries ?? [],
-    );
-  }, [me, data?.teacherRows, data?.entries, managedInstitutionIds]);
+    return expandScopedTeacherRows({
+      teacherRows: data?.teacherRows ?? [],
+      institutionIds: managedInstitutionIds,
+      entries: data?.entries ?? [],
+      additionalPayments: data?.additionalPayments ?? [],
+      institutions: data?.institutions ?? [],
+    });
+  }, [me, data?.teacherRows, data?.entries, data?.institutions, data?.additionalPayments, managedInstitutionIds]);
+
+  const displayTeacherRows = useMemo(() => {
+    if (isScheduleSuperAdmin(me)) return scopedTeacherRows;
+    return scopedTeacherRows.map(row => {
+      const scopedAdditional = filterTeacherAdditionalForScope(
+        row.additionalPayments,
+        data?.institutions ?? [],
+        managedInstitutionIds,
+      );
+      const additionalTotal = sumScopedAdditionalPayments(scopedAdditional);
+      const payDelta = (row.additionalTotal || 0) - additionalTotal;
+      return {
+        ...row,
+        additionalPayments: scopedAdditional,
+        additionalTotal,
+        estimatedPay: Math.max(0, (row.estimatedPay || 0) - payDelta),
+      };
+    });
+  }, [me, scopedTeacherRows, data?.institutions, managedInstitutionIds]);
+
+  const scopedTempTeacherRows = useMemo(
+    () => filterTempTeacherRowsForScope(data?.tempTeacherRows ?? [], me, data?.institutions ?? []),
+    [data?.tempTeacherRows, data?.institutions, me],
+  );
+
+  const scopedTeacherIds = useMemo(
+    () => new Set(scopedTeacherRows.map(r => r.teacher.id)),
+    [scopedTeacherRows],
+  );
+
+  const scopedAdditionalPayments = useMemo(() => {
+    if (isScheduleSuperAdmin(me)) return data?.additionalPayments ?? [];
+    return filterAdditionalPaymentsForScope(data?.additionalPayments, scopedTeacherIds);
+  }, [me, data?.additionalPayments, scopedTeacherIds]);
 
   const filteredCanonicalRows = useMemo(() => {
     const rows = data?.institutionRows || [];
@@ -329,7 +465,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
 
   return (
     <div className="sch-view sch-payroll-admin-view">
-      {!viewingTeacher ? (
+      {!viewingTeacher && !viewingTempTeacher ? (
         <>
       <header className="sch-view-header">
         <button type="button" className="sch-back-btn" onClick={onBack}>
@@ -337,6 +473,9 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
         </button>
         <h2 className="sch-view-title">급여/정산 · 대시보드</h2>
         <div className="sch-header-actions">
+          <button type="button" className="sch-btn sch-btn--ghost" onClick={onOpenTemporaryTeachers}>
+            임시 선생님
+          </button>
           {isScheduleSuperAdmin(me) ? (
             <button type="button" className="sch-btn sch-btn--ghost" onClick={onOpenPayRates}>
               강사 단가 관리
@@ -383,7 +522,13 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
         </>
       ) : null}
 
-      {viewingTeacher ? (
+      {viewingTempTeacher ? (
+        <TempTeacherPayrollDetail
+          row={viewingTempTeacher}
+          yearMonth={yearMonth}
+          onBack={() => setViewingTempTeacher(null)}
+        />
+      ) : viewingTeacher ? (
         <PayrollTeacherView
           me={me}
           subjectTeacher={viewingTeacher}
@@ -399,6 +544,9 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                 <h3 className="sch-admin-dash-section-title">강사별 입력 현황</h3>
                 <p className="sch-muted sch-admin-dash-section-desc">
                   미확인 일수가 있거나 이번 달 입력 이력이 없는 강사는 강조 표시됩니다.
+                  {scopedTempTeacherRows.length > 0
+                    ? ` 이번 달 근무 임시 선생님 ${scopedTempTeacherRows.length}명이 함께 표시됩니다.`
+                    : ""}
                 </p>
                 <div className="sch-table-wrap sch-admin-table-wrap">
                   <table className="sch-table sch-admin-table sch-admin-table--teachers">
@@ -417,7 +565,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                       </tr>
                     </thead>
                     <tbody>
-                      {scopedTeacherRows.map(row => {
+                      {displayTeacherRows.map(row => {
                         const alertRow = row.unconfirmedDays > 0 || row.inputMissing;
                         return (
                         <tr
@@ -447,7 +595,11 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                               {formatWon(grossToNetPay(row.estimatedPay))}
                             </div>
                             {row.additionalTotal > 0 ? (
-                              <p className="sch-admin-cell-hint">수업료 + 추가지급 합산</p>
+                              <div className="sch-admin-cell-hint">
+                                {(row.additionalPayments || []).map(p => (
+                                  <p key={p.id}>{p.reason} +{Number(p.amount).toLocaleString("ko-KR")}원</p>
+                                ))}
+                              </div>
                             ) : null}
                           </td>
                           <td className="sch-td-num">
@@ -469,6 +621,14 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                         </tr>
                         );
                       })}
+                      {scopedTempTeacherRows.map(row => (
+                        <TempTeacherPayrollTableRow
+                          key={row.teacher.id}
+                          row={row}
+                          onSelect={setViewingTempTeacher}
+                          superAdmin={superAdmin}
+                        />
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -477,7 +637,8 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
               <AdditionalPaymentsAdminSection
                 yearMonth={yearMonth}
                 teachers={isScheduleSuperAdmin(me) ? data.teachers : scopedTeacherRows.map(r => r.teacher)}
-                payments={data.additionalPayments}
+                allTeachers={data.teachers}
+                payments={scopedAdditionalPayments}
                 createdById={me.id}
                 onSaved={load}
               />
@@ -489,7 +650,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
               <section className="sch-admin-dash-section">
                 <h3 className="sch-admin-dash-section-title">원별 정산 현황</h3>
                 <p className="sch-muted sch-admin-dash-section-desc">
-                  이번 달 매출·회당 횟수 미입력 원은 강조 표시됩니다. 담당자몫/GTS몫은 계약유형에 따라 계산됩니다.
+                  이번 달 매출·회당 횟수 미입력 원은 강조 표시됩니다. 담당자/GTS는 계약유형에 따라 계산됩니다.
                 </p>
                 <div className="sch-toolbar sch-toolbar--inst-dash">
                   {canSeeAllInstitutions(me) ? (
@@ -540,7 +701,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                         <th className="sch-th-num">강사료 차감</th>
                         <th className="sch-th-num">순이익</th>
                         <th className="sch-th-num">
-                          {isScheduleSuperAdmin(me) ? "담당자몫 / GTS몫" : "담당자 몫"}
+                          {isScheduleSuperAdmin(me) ? "담당자 / GTS" : "담당자"}
                         </th>
                       </tr>
                     </thead>
@@ -556,7 +717,9 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                           ? row.displayManagerId
                           : row.institution.manager_id;
                         const manager = data.managerMap[mgrId];
-                        const partner = row.institution.contract_type === "partner_billing";
+                        const settlementType = resolveSettlementContractType(row.institution);
+                        const partner = settlementType === "partner_billing";
+                        const thresholdSplit = settlementType === "manager_threshold_split";
                         const managerSlice = isFixedPayoutManagerSlice(row);
                         const showRevenueAlert = !row.hasRevenue && !partner && !managerSlice;
                         return (
@@ -574,20 +737,12 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                               </button>
                             </td>
                             <td>{manager?.name || "—"}</td>
-                            <td>{CONTRACT_TYPES[row.institution.contract_type]}</td>
+                            <td>{contractTypeLabel(row.institution)}</td>
                             <td className="sch-td-num"><InstitutionRevenueInputCell row={row}/></td>
-                            <td className="sch-td-num">
-                              {partner
-                                ? "—"
-                                : managerSlice
-                                  ? formatWon(fixedPayoutManagerSliceVat(row))
-                                  : formatWon(row.vat)}
-                            </td>
+                            <td className="sch-td-num"><InstitutionVatCell row={row}/></td>
                             <td className="sch-td-num"><InstitutionIncomeTaxCell row={row}/></td>
                             <td className="sch-td-num"><InstitutionCostCell row={row} me={me}/></td>
-                            <td className="sch-td-num">
-                              {partner || managerSlice ? "—" : formatWon(row.net_profit)}
-                            </td>
+                            <td className="sch-td-num"><InstitutionNetProfitCell row={row}/></td>
                             <td className="sch-td-num"><InstitutionShareCell row={row} me={me}/></td>
                           </tr>
                         );

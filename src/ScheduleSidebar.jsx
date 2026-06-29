@@ -1,5 +1,5 @@
 import {
-  Calendar, Building2, User, PartyPopper, Wallet, Settings, Bell,
+  Calendar, Building2, User, PartyPopper, Wallet, Settings, Bell, UserPlus,
 } from "lucide-react";
 import PlatformMainButton from "./PlatformMainButton.jsx";
 import { filterScheduleMenu } from "./schedule/roles.js";
@@ -11,6 +11,7 @@ const ICONS = {
   events: PartyPopper,
   payroll: Wallet,
   "change-alerts": Bell,
+  "temporary-teachers": UserPlus,
   institutions: Settings,
 };
 

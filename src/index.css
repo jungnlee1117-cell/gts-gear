@@ -7244,6 +7244,17 @@ code {
 .sch-form { display: grid; gap: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; }
 .sch-form--mobile { margin-bottom: 20px; }
 .sch-form-title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 15px; }
+.sch-form--stacked { margin-bottom: 20px; }
+.sch-form-section-title { margin: 4px 0 0; font-size: 14px; color: #334155; }
+.sch-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.sch-form-subsection { display: grid; gap: 12px; padding: 12px; background: #f8fafc; border-radius: 10px; border: 1px dashed #cbd5e1; }
+.sch-field--checkbox { display: flex; align-items: center; gap: 8px; }
+.sch-field--checkbox input { width: auto; }
+.sch-view-desc { margin: 0 0 16px; font-size: 13px; }
+.sch-cal-detail-item--substitute .sch-cal-detail-inst { color: #0369a1; font-weight: 600; }
+.sch-payroll-slot-row--substitute .sch-payroll-slot-inst { color: #0369a1; font-weight: 600; }
+.sch-weekly-class-card-substitute { margin: 4px 0 0; font-size: 11px; font-weight: 600; color: #0369a1; line-height: 1.35; }
+.sch-btn--icon { padding: 6px 8px; min-width: auto; }
 .sch-field { display: grid; gap: 6px; font-size: 13px; color: #475569; }
 .sch-field span { font-weight: 600; }
 .sch-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -7343,6 +7354,39 @@ code {
 .sch-form--inline-billing {
   display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px;
 }
+.sch-form--stacked-billing {
+  display: flex; flex-direction: column; gap: 12px; max-width: 420px;
+}
+.sch-field-hint { display: block; margin-top: 4px; font-size: 12px; line-height: 1.4; }
+.sch-billing-panel--threshold { background: #f8fafc; }
+.sch-threshold-steps {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px;
+}
+.sch-threshold-steps--compact {
+  margin-top: 6px; gap: 4px; font-size: 11px;
+}
+.sch-threshold-steps--compact .sch-threshold-steps__label { font-weight: 500; }
+.sch-threshold-steps__item--highlight .sch-threshold-steps__label { font-weight: 700; color: #0f766e; }
+.sch-threshold-steps li {
+  display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 4px 12px; align-items: baseline;
+  padding: 8px 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px;
+}
+.sch-threshold-steps--compact li {
+  padding: 2px 0; border: none; background: transparent; grid-template-columns: 1fr;
+}
+.sch-threshold-steps__amount { font-weight: 600; text-align: right; white-space: nowrap; }
+.sch-threshold-steps__hint {
+  grid-column: 1 / -1; font-size: 12px; color: #64748b; line-height: 1.35;
+}
+.sch-settlement-detail-row td {
+  background: #f8fafc; padding: 10px 14px 14px; border-top: none;
+}
+.sch-admin-cell-hint-note {
+  font-size: 11px;
+  color: #94a3b8;
+  font-style: italic;
+}
+.sch-settlement-detail-row .sch-threshold-steps { max-width: 640px; }
 .sch-toolbar--inst-list {
   flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 14px;
 }
@@ -8531,6 +8575,25 @@ code {
 .sch-admin-teacher-link strong {
   font-weight: 600;
 }
+.sch-badge--temp {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #0369a1;
+  background: #e0f2fe;
+  border-radius: 99px;
+  vertical-align: middle;
+}
+.sch-admin-row--temp { background: #f8fafc; }
+.sch-detail-dl { display: grid; gap: 10px; margin: 0; }
+.sch-detail-dl-row { display: grid; grid-template-columns: 120px 1fr; gap: 12px; font-size: 14px; }
+.sch-detail-dl-row dt { margin: 0; color: #64748b; font-weight: 600; }
+.sch-detail-dl-row dd { margin: 0; color: #0f172a; }
+.sch-temp-payroll-detail .sch-view-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sch-temp-pay-preview { margin: 0; padding: 10px 12px; background: #f0f9ff; border-radius: 8px; font-size: 14px; }
+.sch-temp-pay-preview strong { color: #0369a1; }
 .sch-payroll-view--admin-inspect {
   padding-top: 0;
 }

@@ -3,13 +3,15 @@ import { ChevronLeft, Search } from "lucide-react";
 import {
   fetchHomeVisitPatterns,
   fetchMonthlyContracts,
+  fetchSubstituteAssignmentsForTeacher,
   fetchTeachers,
   fetchWeeklySchedule,
 } from "./api.js";
-import { yearMonthKey } from "./constants.js";
+import { yearMonthKey, yearMonthLastDay } from "./constants.js";
 import { isScheduleAdmin } from "./roles.js";
 import UnifiedWeeklyScheduleGrid from "./UnifiedWeeklyScheduleGrid.jsx";
 import { buildUnifiedWeeklyItems, mapStudentCountsByInstitution } from "./unifiedWeeklySchedule.js";
+import { enrichWeeklyItemsWithSubstitutes } from "./substituteSchedule.js";
 
 export default function InstitutionScheduleView({ me, onBack }) {
   const admin = isScheduleAdmin(me);
@@ -21,6 +23,7 @@ export default function InstitutionScheduleView({ me, onBack }) {
   const [institutionSlots, setInstitutionSlots] = useState([]);
   const [homeVisitPatterns, setHomeVisitPatterns] = useState([]);
   const [monthlyContracts, setMonthlyContracts] = useState([]);
+  const [substituteAssignments, setSubstituteAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const activeTeacherId = admin ? selectedTeacherId : teacherId;
@@ -48,17 +51,20 @@ export default function InstitutionScheduleView({ me, onBack }) {
     }
 
     setLoading(true);
+    const monthEnd = yearMonthLastDay(yearMonth);
     Promise.all([
       fetchWeeklySchedule(null, activeTeacherId),
       fetchHomeVisitPatterns({ teacherId: activeTeacherId, status: "active" }),
+      fetchSubstituteAssignmentsForTeacher(activeTeacherId, `${yearMonth}-01`, monthEnd),
     ])
-      .then(([slots, patterns]) => {
+      .then(([slots, patterns, subs]) => {
         setInstitutionSlots(slots);
         setHomeVisitPatterns(patterns);
+        setSubstituteAssignments(subs);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [activeTeacherId]);
+  }, [activeTeacherId, yearMonth]);
 
   const filteredTeachers = useMemo(() => {
     const q = teacherSearch.trim().toLowerCase();
@@ -76,10 +82,10 @@ export default function InstitutionScheduleView({ me, onBack }) {
     [monthlyContracts, yearMonth],
   );
 
-  const weeklyItems = useMemo(
-    () => buildUnifiedWeeklyItems(institutionSlots, homeVisitPatterns, studentCountByInstitution),
-    [institutionSlots, homeVisitPatterns, studentCountByInstitution],
-  );
+  const weeklyItems = useMemo(() => {
+    const items = buildUnifiedWeeklyItems(institutionSlots, homeVisitPatterns, studentCountByInstitution);
+    return enrichWeeklyItemsWithSubstitutes(items, substituteAssignments);
+  }, [institutionSlots, homeVisitPatterns, studentCountByInstitution, substituteAssignments]);
 
   return (
     <div className="sch-view sch-unified-schedule-view">

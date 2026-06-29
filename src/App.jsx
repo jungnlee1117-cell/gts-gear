@@ -36,6 +36,7 @@ import {
   isDuplicateItemNameError,
 } from "./itemNames.js";
 import { buildCurrentRentals, buildDueReturns } from "./teacherGearStatus.js";
+import { fetchItemIdeas, insertItemIdea, toggleItemIdeaLike } from "./itemIdeas.js";
 
 const GEAR_SCAN_KEY = "gts_gear_scan";
 
@@ -4837,6 +4838,107 @@ function ImageLightbox({ src, alt, images, index: initialIndex = 0, onClose }) {
   );
 }
 
+function ItemIdeasSection({ itemId, me }) {
+  const [ideas, setIdeas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [liking, setLiking] = useState(null);
+
+  const load = useCallback(async () => {
+    if (!itemId) return;
+    setLoading(true);
+    try {
+      const rows = await fetchItemIdeas(supabase, itemId, me?.id);
+      setIdeas(rows);
+    } catch (e) {
+      console.error(e);
+      setIdeas([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [itemId, me?.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const onLike = async (idea) => {
+    if (!me?.id || liking) return;
+    setLiking(idea.id);
+    try {
+      await toggleItemIdeaLike(supabase, idea.id, me.id, idea.liked_by_me);
+      await load();
+    } catch (e) {
+      alert("좋아요 처리 오류: " + e.message);
+    } finally {
+      setLiking(null);
+    }
+  };
+
+  return (
+    <PanelSection title="선생님들의 활용 아이디어">
+      {loading ? (
+        <Spinner text="아이디어 불러오는 중..."/>
+      ) : ideas.length === 0 ? (
+        <Empty text="아직 공유된 활용 아이디어가 없습니다"/>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {ideas.map(idea => (
+            <div
+              key={idea.id}
+              style={{
+                ...card,
+                marginBottom: 0,
+                padding: "14px 16px",
+              }}
+            >
+              <div style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: 10,
+                marginBottom: 8,
+              }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: DS.textPrimary }}>
+                    {idea.teacher_name}
+                  </div>
+                  <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
+                    {fmt(idea.created_at)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onLike(idea)}
+                  disabled={!me?.id || liking === idea.id}
+                  title={idea.liked_by_me ? "좋아요 취소" : "좋아요"}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    padding: "6px 10px",
+                    borderRadius: 999,
+                    border: `1px solid ${idea.liked_by_me ? DS.primary : "#e2e8f0"}`,
+                    background: idea.liked_by_me ? DS.primaryLight : "#fff",
+                    color: idea.liked_by_me ? DS.primary : DS.textSecondary,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: me?.id ? "pointer" : "default",
+                    fontFamily: "inherit",
+                    flexShrink: 0,
+                  }}
+                >
+                  👍 {idea.like_count || 0}
+                </button>
+              </div>
+              <div style={{ fontSize: 13, lineHeight: 1.75, color: DS.textPrimary, whiteSpace: "pre-wrap" }}>
+                {idea.content}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </PanelSection>
+  );
+}
+
 function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLabel="보유 자산으로",me,onForceReturn}) {
   const [photoLightbox, setPhotoLightbox] = useState(false);
   const [activityLightbox, setActivityLightbox] = useState(null);
@@ -4988,6 +5090,7 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLab
           </div>
         </div>
       )}
+      <ItemIdeasSection itemId={item.id} me={me}/>
       {currR.length > 0 && (
         <PanelSection title={`현재 대여 중 (${currR.length}건)`}>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -7417,10 +7520,10 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClo
 
 function ItemReturnModal({ group, onSubmit, onClose }) {
   const max = group.totalReturnable;
-  const [f, setF] = useState({ quantity: max || 1, condition: "normal", memo: "" });
+  const [f, setF] = useState({ quantity: max || 1, condition: "normal", memo: "", idea: "" });
 
   useEffect(() => {
-    setF(p => ({ ...p, quantity: max || 1 }));
+    setF({ quantity: max || 1, condition: "normal", memo: "", idea: "" });
   }, [max, group.item_id]);
 
   return (
@@ -7447,6 +7550,12 @@ function ItemReturnModal({ group, onSubmit, onClose }) {
         <option value="shortage">수량부족</option>
       </Sel2>
       <Txa2 label="메모" value={f.memo} onChange={e => setF(p => ({ ...p, memo: e.target.value }))}/>
+      <Txa2
+        label="이 교구로 했던 활동 아이디어가 있다면 공유해주세요 (선택)"
+        value={f.idea}
+        onChange={e => setF(p => ({ ...p, idea: e.target.value }))}
+        placeholder="수업에서 활용한 게임·활동 방법을 다른 선생님과 나눠 주세요"
+      />
       <Btn full color="#f97316" onClick={() => {
         const q = parseInt(f.quantity, 10) || 0;
         if (q < 1 || q > max) return alert(`1~${max}개 사이로 입력하세요`);
@@ -7455,6 +7564,7 @@ function ItemReturnModal({ group, onSubmit, onClose }) {
           quantity: q,
           condition: f.condition,
           memo: f.memo,
+          idea: f.idea,
           lines: group.lines,
         });
       }}>
@@ -8407,7 +8517,7 @@ function EquipmentApp({ onBack, me, session }) {
     return true;
   };
 
-  const submitReturnByItem = async ({ quantity, condition, memo, lines }) => {
+  const submitReturnByItem = async ({ quantity, condition, memo, lines, itemId, idea }) => {
     let remaining = quantity;
     const sorted = [...lines].sort(
       (a, b) => new Date(a.ri.approved_at || a.req?.created_at || 0) - new Date(b.ri.approved_at || b.req?.created_at || 0)
@@ -8441,6 +8551,23 @@ function EquipmentApp({ onBack, me, session }) {
       created.push(data);
     }
     setRets(p => [...created, ...p]);
+
+    const ideaText = (idea || "").trim();
+    if (ideaText && itemId) {
+      const { error: ideaErr } = await insertItemIdea(supabase, {
+        itemId,
+        teacherId: me.id,
+        teacherName: me.name,
+        content: ideaText,
+      });
+      if (ideaErr) {
+        alert(
+          "반납은 접수되었으나 활용 아이디어 저장에 실패했습니다.\n"
+          + ideaErr.message
+        );
+      }
+    }
+
     setItemReturnGroup(null);
     alert(
       created.length > 1

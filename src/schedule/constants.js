@@ -5,6 +5,7 @@ export const CONTRACT_TYPES = {
   gts_official: "GTS 공식",
   manager_personal: "관리자 개인",
   manager_fixed_payout: "고정지급 (GTS 전액)",
+  manager_threshold_split: "100만 기준 분배",
   partner_billing: "파트너 과금",
 };
 export const BILLING_TYPES = {

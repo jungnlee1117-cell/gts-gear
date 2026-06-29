@@ -17,6 +17,7 @@ import {
   fetchInstitutions,
   fetchPayrollEntries,
   fetchScheduleExceptions,
+  fetchSubstituteAssignmentsForTeacher,
   fetchTeacherNotes,
   fetchWeeklySchedule,
   upsertTeacherNote,
@@ -35,6 +36,7 @@ import { patternsForCalendarMonth } from "./homeVisitPatterns.js";
 import { buildHomeVisitLegend, buildInstitutionLegend } from "./calendarLegend.js";
 import { plannedSlotDisplayLabel } from "./payrollCalendar.js";
 import CalendarDayStatusIcon, { calendarDayStatusKind } from "./CalendarDayStatusIcon.jsx";
+import { applySubstituteOverlaysToSchedule } from "./substituteSchedule.js";
 
 const TODAY = new Date();
 
@@ -51,6 +53,7 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
   const [noteSaving, setNoteSaving] = useState(false);
   const [detailSlot, setDetailSlot] = useState(null);
   const [detailHomeVisit, setDetailHomeVisit] = useState(null);
+  const [substituteAssignments, setSubstituteAssignments] = useState([]);
 
   const year = monthBase.getFullYear();
   const month = monthBase.getMonth();
@@ -65,13 +68,14 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [w, hv, insts, ex, notes, ents] = await Promise.all([
+      const [w, hv, insts, ex, notes, ents, subs] = await Promise.all([
         fetchWeeklySchedule(null, me.id),
         fetchHomeVisitPatterns({ teacherId: me.id }),
         fetchInstitutions({ teacherScope: true }),
         fetchScheduleExceptions(null, rangeFrom, rangeTo),
         fetchTeacherNotes({ teacherId: me.id, fromDate: rangeFrom, toDate: rangeTo }),
         fetchPayrollEntries({ teacherId: me.id, yearMonth }),
+        fetchSubstituteAssignmentsForTeacher(me.id, rangeFrom, rangeTo),
       ]);
       setSlots(w);
       setHomeVisitPatterns(hv);
@@ -79,6 +83,7 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
       setExceptions(ex);
       setTeacherNotes(notes);
       setEntries(ents);
+      setSubstituteAssignments(subs);
     } catch (e) {
       console.error(e);
     } finally {
@@ -96,6 +101,11 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
   const scheduleByDate = useMemo(
     () => expandMonthSchedule(slots, year, month, exceptions, monthHomeVisitPatterns),
     [slots, year, month, exceptions, monthHomeVisitPatterns],
+  );
+
+  const displayScheduleByDate = useMemo(
+    () => applySubstituteOverlaysToSchedule(scheduleByDate, substituteAssignments),
+    [scheduleByDate, substituteAssignments],
   );
 
   const homeVisitLegend = useMemo(
@@ -120,7 +130,7 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
   );
   const selectedNote = noteByDate(teacherNotes, selectedDateStr);
   const selectedHoliday = getKoreanHoliday(selectedDateStr);
-  const selectedPlanned = scheduleByDate[selectedDateStr] || [];
+  const selectedPlanned = displayScheduleByDate[selectedDateStr] || [];
 
   const shiftMonth = (delta) => {
     setMonthBase(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
@@ -320,7 +330,10 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
                     <li key={`${planned.source}-${planned.slot.id}-${planned.dateStr}`}>
                       <button
                         type="button"
-                        className="sch-cal-detail-item"
+                        className={[
+                          "sch-cal-detail-item",
+                          planned.isSubstituteCovered && "sch-cal-detail-item--substitute",
+                        ].filter(Boolean).join(" ")}
                         onClick={() => {
                           if (isHome) {
                             setDetailHomeVisit(planned);

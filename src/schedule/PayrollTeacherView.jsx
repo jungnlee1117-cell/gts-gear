@@ -9,9 +9,14 @@ import {
   findFixedMonthlySalary,
   formatTeacherAdditionalLine,
   resolveTeacherMonthlyGross,
-  sumAdditionalPayments,
   withholdingTax333,
 } from "./additionalPayments.js";
+import {
+  mergeTeacherAdditionalPayments,
+  monthlyTeacherBonusAmount,
+  monthlyTeacherBonusDisplayItems,
+  sumMergedAdditionalPayments,
+} from "./institutionTeacherPay.js";
 import {
   deletePayrollEntry,
   deleteTeacherNote,
@@ -22,6 +27,7 @@ import {
   fetchPayRates,
   fetchPayrollEntries,
   fetchScheduleExceptions,
+  fetchSubstituteAssignmentsForTeacher,
   fetchTeacherNotes,
   fetchWeeklySchedule,
   savePayrollEntry,
@@ -61,6 +67,7 @@ import {
 } from "./koreanHolidays.js";
 import PayrollDebugPanel from "./PayrollDebugPanel.jsx";
 import CalendarDayStatusIcon, { calendarDayStatusKind } from "./CalendarDayStatusIcon.jsx";
+import { applySubstituteOverlaysToSchedule } from "./substituteSchedule.js";
 import { isScheduleSuperAdmin } from "./managerScope.js";
 
 const QUICK_MINUTES = [30, 40, 45, 50, 60, 90];
@@ -90,6 +97,7 @@ export default function PayrollTeacherView({
   const [teacherNotes, setTeacherNotes] = useState([]);
   const [additionalPayments, setAdditionalPayments] = useState([]);
   const [rates, setRates] = useState([]);
+  const [substituteAssignments, setSubstituteAssignments] = useState([]);
   const [finalizedIds, setFinalizedIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -125,7 +133,7 @@ export default function PayrollTeacherView({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [w, hv, insts, ents, ex, notes, adds, rts, fin] = await Promise.all([
+      const [w, hv, insts, ents, ex, notes, adds, rts, fin, subs] = await Promise.all([
         fetchWeeklySchedule(null, teacherId),
         fetchHomeVisitPatterns({ teacherId }),
         fetchInstitutions({ teacherScope: !adminInspectMode, activeOnly: true }),
@@ -135,6 +143,7 @@ export default function PayrollTeacherView({
         fetchAdditionalPayments({ teacherId, yearMonth }),
         fetchPayRates(teacherId),
         fetchFinalizedInstitutionIds(yearMonth),
+        fetchSubstituteAssignmentsForTeacher(teacherId, rangeFrom, rangeTo),
       ]);
       setWeeklySlots(w);
       setHomeVisitPatterns(hv);
@@ -145,6 +154,7 @@ export default function PayrollTeacherView({
       setAdditionalPayments(adds);
       setRates(rts);
       setFinalizedIds(fin);
+      setSubstituteAssignments(subs);
     } catch (e) {
       console.error(e);
     } finally {
@@ -162,6 +172,11 @@ export default function PayrollTeacherView({
   const scheduleByDate = useMemo(
     () => expandMonthSchedule(weeklySlots, year, month, exceptions, monthHomeVisitPatterns),
     [weeklySlots, year, month, exceptions, monthHomeVisitPatterns],
+  );
+
+  const displayScheduleByDate = useMemo(
+    () => applySubstituteOverlaysToSchedule(scheduleByDate, substituteAssignments),
+    [scheduleByDate, substituteAssignments],
   );
 
   const homeVisitLegend = useMemo(
@@ -196,13 +211,24 @@ export default function PayrollTeacherView({
     () => findFixedMonthlySalary(teacherId),
     [teacherId],
   );
+  const mergedAdditionalPayments = useMemo(
+    () => mergeTeacherAdditionalPayments(teacherName, additionalPayments),
+    [teacherName, additionalPayments],
+  );
+  const displayAdditionalPayments = useMemo(
+    () => [...mergedAdditionalPayments, ...monthlyTeacherBonusDisplayItems(teacherName)],
+    [mergedAdditionalPayments, teacherName],
+  );
   const totalPay = useMemo(
-    () => resolveTeacherMonthlyGross(teacherId, yearMonth, lessonPay, additionalPayments),
-    [teacherId, yearMonth, lessonPay, additionalPayments],
+    () => resolveTeacherMonthlyGross(
+      teacherId, yearMonth, lessonPay, additionalPayments, teacherName,
+    ),
+    [teacherId, yearMonth, lessonPay, additionalPayments, teacherName],
   );
   const additionalTotal = useMemo(
-    () => sumAdditionalPayments(additionalPayments),
-    [additionalPayments],
+    () => sumMergedAdditionalPayments(mergedAdditionalPayments)
+      + monthlyTeacherBonusAmount(teacherName),
+    [mergedAdditionalPayments, teacherName],
   );
   const unconfirmedDays = useMemo(
     () => countUnconfirmedDays(scheduleByDate, entries, today),
@@ -210,7 +236,7 @@ export default function PayrollTeacherView({
   );
 
   const selectedDateStr = fmtLocalDate(selectedDate);
-  const selectedPlanned = scheduleByDate[selectedDateStr] || [];
+  const selectedPlanned = displayScheduleByDate[selectedDateStr] || [];
   const selectedManualEntries = useMemo(
     () => findManualExtraEntriesForDate(entries, selectedDateStr, selectedPlanned),
     [entries, selectedDateStr, selectedPlanned],
@@ -737,7 +763,11 @@ export default function PayrollTeacherView({
                     const status = getEffectiveSlotStatus(entry, planned.dateStr);
 
                     return (
-                      <li key={`${planned.source}-${planned.slot.id}-${planned.dateStr}`} className={`sch-payroll-slot-row${locked ? " sch-payroll-slot-row--locked" : ""}`}>
+                      <li key={`${planned.source}-${planned.slot.id}-${planned.dateStr}`} className={[
+                        "sch-payroll-slot-row",
+                        locked && "sch-payroll-slot-row--locked",
+                        planned.isSubstituteCovered && "sch-payroll-slot-row--substitute",
+                      ].filter(Boolean).join(" ")}>
                         <span className="sch-cal-detail-bar" style={{ background: color }}/>
                         <div className="sch-payroll-slot-row-body">
                           <div className="sch-payroll-slot-time">
@@ -953,8 +983,8 @@ export default function PayrollTeacherView({
         <div
           className={`sch-payroll-stat sch-payroll-stat--additional${additionalTotal > 0 ? " sch-payroll-stat--additional-active" : ""}`}
           title={
-            additionalPayments.length > 0
-              ? additionalPayments.map(p => formatTeacherAdditionalLine(p)).join("\n")
+            additionalPayments.length > 0 || displayAdditionalPayments.length > 0
+              ? displayAdditionalPayments.map(p => formatTeacherAdditionalLine(p)).join("\n")
               : undefined
           }
         >

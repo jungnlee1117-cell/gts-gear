@@ -286,27 +286,121 @@ export function getCalendarWeekRange(date = new Date()) {
   };
 }
 
-/** 해당 월의 N번째 월요일 (1-based) */
-export function mondayIndexInMonth(monday) {
-  const y = monday.getFullYear();
-  const m = monday.getMonth();
-  let idx = 0;
-  for (let day = 1; day <= 31; day++) {
-    const cur = new Date(y, m, day);
-    if (cur.getMonth() !== m) break;
-    if (cur.getDay() === 1) {
-      idx += 1;
-      if (cur.getTime() === monday.getTime()) return idx;
-    }
+/** Mon~Sun 주의 각 날짜를 YYYY-MM별로 집계 */
+function countDaysByCalendarMonth(monday, sunday) {
+  const counts = new Map();
+  const cur = new Date(monday);
+  const end = new Date(sunday);
+  while (cur <= end) {
+    const key = yearMonthKey(cur);
+    counts.set(key, (counts.get(key) || 0) + 1);
+    cur.setDate(cur.getDate() + 1);
   }
-  return idx || 1;
+  return counts;
 }
 
-/** 예: 6월 29일(월)이 6월 5번째 월요일 → "6월 5주차" */
+/** Mon~Sun 7일 중 더 많은 날이 속한 달 (동률 시 뒤쪽 달) */
+export function majorityMonthKeyForWeek(monday, sunday) {
+  const counts = countDaysByCalendarMonth(monday, sunday);
+  let bestKey = null;
+  let bestCount = -1;
+  for (const [key, count] of counts) {
+    if (count > bestCount || (count === bestCount && key > bestKey)) {
+      bestKey = key;
+      bestCount = count;
+    }
+  }
+  return bestKey;
+}
+
+/**
+ * Mon~Sun 주차 분류 — 과반수 날짜가 속한 달 + 그 달에서의 N주차
+ * 예: 6/29(월)~7/5(일) → 7월 5일 → "7월 1주차"
+ */
+export function classifyCalendarWeek(date = new Date()) {
+  const { monday, sunday, startYmd, endYmd } = getCalendarWeekRange(date);
+  const yearMonth = majorityMonthKeyForWeek(monday, sunday);
+  const [, mo] = (yearMonth || "").split("-").map(Number);
+  const weekNumber = weekNumberInMajorityMonth(monday, sunday, yearMonth);
+  return {
+    monday,
+    sunday,
+    startYmd,
+    endYmd,
+    yearMonth,
+    weekNumber,
+    label: mo && weekNumber ? `${mo}월 ${weekNumber}주차` : null,
+  };
+}
+
+/** 특정 달에 과반수 규칙으로 분류되는 Mon~Sun 주차 목록 (1주차부터) */
+export function enumerateMajorityMonthWeeks(year, month) {
+  const targetKey = `${year}-${String(month).padStart(2, "0")}`;
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0);
+  const { monday: scanStart } = getCalendarWeekRange(monthStart);
+  scanStart.setDate(scanStart.getDate() - 7);
+  const scanEnd = new Date(monthEnd);
+  scanEnd.setDate(scanEnd.getDate() + 7);
+
+  const weeks = [];
+  let cur = new Date(scanStart);
+  while (cur <= scanEnd) {
+    const sun = new Date(cur);
+    sun.setDate(cur.getDate() + 6);
+    if (majorityMonthKeyForWeek(cur, sun) === targetKey) {
+      weeks.push({
+        week_number: weeks.length + 1,
+        week_start_date: toYmd(cur),
+        week_end_date: toYmd(sun),
+      });
+    }
+    cur.setDate(cur.getDate() + 7);
+  }
+  return weeks;
+}
+
+/** DB 시드용 — YYYY-MM 키별 주차 배열 */
+export function buildMajorityMonthWeeksSeed(monthKeys) {
+  const out = {};
+  for (const key of monthKeys) {
+    const [y, m] = key.split("-").map(Number);
+    out[key] = enumerateMajorityMonthWeeks(y, m);
+  }
+  return out;
+}
+
+function weekNumberInMajorityMonth(monday, sunday, yearMonth) {
+  if (!yearMonth) return 1;
+  const [y, m] = yearMonth.split("-").map(Number);
+  const weeks = enumerateMajorityMonthWeeks(y, m);
+  const monYmd = toYmd(monday);
+  const idx = weeks.findIndex(w => w.week_start_date === monYmd);
+  if (idx >= 0) return weeks[idx].week_number;
+  const overlapIdx = weeks.findIndex(w => {
+    const ws = parseLocalDay(w.week_start_date);
+    const we = parseLocalDay(w.week_end_date);
+    return ws && we && monday >= ws && monday <= we;
+  });
+  return overlapIdx >= 0 ? weeks[overlapIdx].week_number : 1;
+}
+
+function findSlotByClassification(monthWeeks, yearMonth, weekNumber) {
+  if (!yearMonth || !weekNumber) return null;
+  return sortMonthWeeks(monthWeeks).find(w =>
+    String(w.year_month || "").startsWith(yearMonth) && w.week_number === weekNumber,
+  ) || null;
+}
+
+/** @deprecated 과반수 달 규칙 이전 — classifyCalendarWeek 사용 */
+export function mondayIndexInMonth(monday) {
+  const { sunday } = getCalendarWeekRange(monday);
+  const yearMonth = majorityMonthKeyForWeek(monday, sunday);
+  return weekNumberInMajorityMonth(monday, sunday, yearMonth);
+}
+
 export function formatCalendarWeekLabel(date = new Date()) {
-  const { monday } = getCalendarWeekRange(date);
-  const month = monday.getMonth() + 1;
-  return `${month}월 ${mondayIndexInMonth(monday)}주차`;
+  return classifyCalendarWeek(date).label || "";
 }
 
 export function formatCalendarWeekRange(date = new Date()) {
@@ -321,9 +415,18 @@ function overlapDays(aStart, aEnd, bStart, bEnd) {
   return Math.floor((end - start) / 86400000) + 1;
 }
 
-/** Mon~Sun 주간과 겹치는 순환 주차 슬롯 (겹침 일수 최대) */
+/** Mon~Sun 주간과 겹치는 순환 주차 슬롯 (정확 일치 → 분류 일치 → 겹침 최대) */
 export function findRotationWeekForCalendarWeek(monthWeeks, date = new Date()) {
   const { startYmd, endYmd } = getCalendarWeekRange(date);
+  const exact = sortMonthWeeks(monthWeeks).find(w =>
+    w.week_start_date === startYmd && w.week_end_date === endYmd,
+  );
+  if (exact) return exact;
+
+  const { yearMonth, weekNumber } = classifyCalendarWeek(date);
+  const byClass = findSlotByClassification(monthWeeks, yearMonth, weekNumber);
+  if (byClass) return byClass;
+
   const calStart = parseLocalDay(startYmd);
   const calEnd = parseLocalDay(endYmd);
   if (!calStart || !calEnd) return null;
@@ -351,30 +454,13 @@ export function findNextCalendarWeekRotationSlot(monthWeeks, date = new Date()) 
   return findRotationWeekForCalendarWeek(monthWeeks, nextMonday);
 }
 
-/** DB 순환 슬롯 → Mon~Sun 주차 라벨·범위 (표시용) */
+/** DB 순환 슬롯 → 과반수 달 기준 주차 라벨·범위 */
 export function calendarWeekMetaForRotationSlot(slot) {
   if (!slot?.week_start_date || !slot?.week_end_date) return null;
-  const slotStart = parseLocalDay(slot.week_start_date);
-  const slotEnd = parseLocalDay(slot.week_end_date);
-  if (!slotStart || !slotEnd) return null;
-
-  let bestMonday = null;
-  let bestDays = 0;
-  for (let cur = new Date(slotStart); cur <= slotEnd; cur.setDate(cur.getDate() + 1)) {
-    const { monday, startYmd, endYmd } = getCalendarWeekRange(cur);
-    const calStart = parseLocalDay(startYmd);
-    const calEnd = parseLocalDay(endYmd);
-    const days = overlapDays(slotStart, slotEnd, calStart, calEnd);
-    if (days > bestDays) {
-      bestDays = days;
-      bestMonday = monday;
-    }
-  }
-  if (!bestMonday) return null;
-  const { startYmd, endYmd } = getCalendarWeekRange(bestMonday);
+  const cls = classifyCalendarWeek(slot.week_start_date);
   return {
-    label: formatCalendarWeekLabel(bestMonday),
-    range: formatWeekRange(startYmd, endYmd),
+    label: cls.label || rotationWeekLabelForSlot(slot),
+    range: formatWeekRange(cls.startYmd, cls.endYmd),
   };
 }
 
@@ -386,16 +472,67 @@ export function sortMonthWeeks(weeks) {
   });
 }
 
-/** 오늘이 포함된 주차 슬롯 (없으면 null) */
+/** 순환 슬롯 표시 라벨 — DB year_month + week_number (예: 7월 1주차) */
+export function rotationWeekLabelForSlot(slot) {
+  if (!slot) return null;
+  const ym = String(slot.year_month || "").slice(0, 7);
+  const [, mo] = ym.split("-").map(Number);
+  if (!mo || !slot.week_number) return `${slot.week_number}주차`;
+  return `${mo}월 ${slot.week_number}주차`;
+}
+
+/** 순환 슬롯 실제 대여 기간 표시 */
+export function rotationWeekRangeForSlot(slot) {
+  if (!slot) return null;
+  return formatWeekRange(slot.week_start_date, slot.week_end_date);
+}
+
+/** 오늘이 포함된 주차 슬롯 (동률 시 과반수 달 분류와 일치하는 슬롯 우선) */
 export function findWeekSlotForDate(monthWeeks, date = new Date()) {
-  const today = NOON(date);
-  for (const w of sortMonthWeeks(monthWeeks)) {
-    if (!w.week_start_date || !w.week_end_date) continue;
+  const today = NOON(date instanceof Date ? toYmd(date) : date);
+  const matches = sortMonthWeeks(monthWeeks).filter(w => {
+    if (!w.week_start_date || !w.week_end_date) return false;
     const start = NOON(`${w.week_start_date}T12:00:00`);
     const end = NOON(`${w.week_end_date}T12:00:00`);
-    if (today >= start && today <= end) return w;
+    return today >= start && today <= end;
+  });
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+
+  const { yearMonth, weekNumber } = classifyCalendarWeek(date);
+  const byClass = matches.find(w =>
+    String(w.year_month || "").startsWith(yearMonth) && w.week_number === weekNumber,
+  );
+  if (byClass) return byClass;
+
+  return matches[matches.length - 1];
+}
+
+/**
+ * 이번 순환 주차 — 날짜 포함 슬롯 → 과반수 달 분류 매칭 → 달력 주 겹침
+ */
+export function findCurrentRotationWeekSlot(monthWeeks, date = new Date()) {
+  const byDate = findWeekSlotForDate(monthWeeks, date);
+  if (byDate) return byDate;
+  const { yearMonth, weekNumber } = classifyCalendarWeek(date);
+  return findSlotByClassification(monthWeeks, yearMonth, weekNumber)
+    || findRotationWeekForCalendarWeek(monthWeeks, date);
+}
+
+/** 다음 순환 주차 슬롯 */
+export function findNextRotationWeekSlot(monthWeeks, date = new Date()) {
+  const current = findCurrentRotationWeekSlot(monthWeeks, date);
+  if (current) {
+    const next = findNextWeekSlot(monthWeeks, current);
+    if (next) return next;
   }
-  return null;
+  const { monday } = getCalendarWeekRange(date);
+  const nextMonday = new Date(monday);
+  nextMonday.setDate(monday.getDate() + 7);
+  const { yearMonth, weekNumber } = classifyCalendarWeek(nextMonday);
+  return findSlotByClassification(monthWeeks, yearMonth, weekNumber)
+    || findWeekSlotForDate(monthWeeks, nextMonday)
+    || findRotationWeekForCalendarWeek(monthWeeks, nextMonday);
 }
 
 /** 현재 주차 다음 슬롯 */

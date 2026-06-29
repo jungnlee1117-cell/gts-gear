@@ -1,5 +1,5 @@
 import {
-  Calendar, Building2, User, PartyPopper, Wallet, Settings, Bell,
+  Calendar, Building2, User, PartyPopper, Wallet, Settings, Bell, UserPlus,
 } from "lucide-react";
 import { filterScheduleMenu, isScheduleAdmin } from "./roles.js";
 import { useUnreadChangeAlertCount } from "./ScheduleChangeAlertsView.jsx";
@@ -12,6 +12,7 @@ const ICONS = {
   wallet: Wallet,
   settings: Settings,
   bell: Bell,
+  userplus: UserPlus,
 };
 
 export default function ScheduleHub({ me, onSelect }) {
@@ -32,6 +33,7 @@ export default function ScheduleHub({ me, onSelect }) {
             : item.id === "events" ? "party"
             : item.id === "payroll" ? "wallet"
             : item.id === "change-alerts" ? "bell"
+            : item.id === "temporary-teachers" ? "userplus"
             : "settings"];
           const badge = item.id === "change-alerts" && unreadAlerts > 0 ? unreadAlerts : null;
           return (

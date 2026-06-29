@@ -29,6 +29,11 @@ import {
   PER_CAPITA_SESSION_TYPE,
   previousYearMonth,
 } from "./monthlyBilling.js";
+import {
+  computeManagerThresholdSplitSettlement,
+  isManagerThresholdSplit,
+} from "./thresholdSplitSettlement.js";
+import ThresholdSplitBreakdown from "./ThresholdSplitBreakdown.jsx";
 
 export default function InstitutionBillingTab({ institution, institutionId, canViewRevenue = true }) {
   const [yearMonth, setYearMonth] = useState(yearMonthKey());
@@ -39,6 +44,7 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
   const [loading, setLoading] = useState(true);
 
   const isPartner = institution.contract_type === "partner_billing";
+  const isThresholdSplit = isManagerThresholdSplit(institution);
   const isPerSession = institution.billing_type === "per_session" && !isPartner;
   const isPerCapita = isPerCapitaBilling(institution, sessionRates, sessionCounts);
   const isMonthlyFixed = isMonthlyFixedBilling(institution);
@@ -298,6 +304,13 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
             </div>
           </section>
         </>
+      ) : isThresholdSplit ? (
+        <ThresholdSplitBillingPanel
+          yearMonth={yearMonth}
+          contracts={contracts}
+          institutionId={institutionId}
+          onSaved={load}
+        />
       ) : isMonthlyFixed ? (
         <MonthlyFixedContractPanel
           yearMonth={yearMonth}
@@ -423,6 +436,106 @@ function MonthlyFixedContractPanel({ yearMonth, contracts, institutionId, onSave
         </div>
       ) : null}
     </section>
+  );
+}
+
+function ThresholdSplitBillingPanel({ yearMonth, contracts, institutionId, onSaved }) {
+  const draft = useMemo(
+    () => getMonthlyContractDraft(contracts, yearMonth, institutionId),
+    [contracts, yearMonth, institutionId],
+  );
+  const [amount, setAmount] = useState("");
+  const [externalCost, setExternalCost] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setAmount(draft.source !== "empty" ? String(draft.amount ?? 0) : "");
+    setExternalCost(
+      draft.source !== "empty" ? String(draft.externalInstructorCost ?? 0) : "",
+    );
+  }, [draft]);
+
+  const preview = useMemo(
+    () => computeManagerThresholdSplitSettlement(
+      Number(String(amount).replace(/,/g, "")) || 0,
+      Number(String(externalCost).replace(/,/g, "")) || 0,
+    ),
+    [amount, externalCost],
+  );
+
+  const handleSave = async (e) => {
+    e?.preventDefault?.();
+    setSaving(true);
+    try {
+      await saveMonthlyContract(buildMonthlyContractPayload({
+        institutionId,
+        yearMonth,
+        amount,
+        studentCount: draft.studentCount,
+        externalInstructorCost: externalCost,
+        existingId: draft.contract?.id,
+      }));
+      await onSaved();
+    } catch (err) {
+      alert("저장 실패: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const prevLabel = draft.previousYearMonth ?? previousYearMonth(yearMonth);
+
+  return (
+    <>
+      <section className="sch-billing-panel">
+        <h4 className="sch-subtitle">100만 기준 분배 정산</h4>
+        <p className="sch-muted sch-billing-note">
+          부가세 제외 100만원 이하는 담당자 전액, 초과분은 외부 강사 인건비 차감 후 회사·담당자 5:5 분배합니다.
+        </p>
+        {draft.source === "previous_month" ? (
+          <p className="sch-billing-prefill-hint">
+            {prevLabel} 데이터를 기본값으로 불러왔습니다.
+          </p>
+        ) : null}
+        <form className="sch-form sch-form--stacked-billing" onSubmit={handleSave}>
+          <label className="sch-field">
+            <span>{yearMonth} 매출 (원)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              className="sch-input"
+              value={amount}
+              onChange={e => setAmount(e.target.value.replace(/[^\d]/g, ""))}
+              placeholder="0"
+            />
+          </label>
+          <label className="sch-field">
+            <span>외부 강사 인건비 (원)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              className="sch-input"
+              value={externalCost}
+              onChange={e => setExternalCost(e.target.value.replace(/[^\d]/g, ""))}
+              placeholder="0"
+            />
+            <span className="sch-muted sch-field-hint">
+              해당 기간 고용 강사 수업료 합산 (100만원 초과 시에만 차감)
+            </span>
+          </label>
+          <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
+            {saving ? "저장 중…" : "저장"}
+          </button>
+        </form>
+      </section>
+
+      {amount !== "" ? (
+        <section className="sch-billing-panel sch-billing-panel--threshold">
+          <h4 className="sch-subtitle">정산 미리보기</h4>
+          <ThresholdSplitBreakdown calc={preview} />
+        </section>
+      ) : null}
+    </>
   );
 }
 

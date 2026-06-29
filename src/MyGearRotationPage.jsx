@@ -3,17 +3,17 @@ import { ChevronDown } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import {
   assignedLetterForMonth,
-  findNextCalendarWeekRotationSlot,
-  findRotationWeekForCalendarWeek,
-  calendarWeekMetaForRotationSlot,
+  findCurrentRotationWeekSlot,
+  findNextRotationWeekSlot,
   formatCalendarWeekLabel,
   formatCalendarWeekRange,
   formatWeekRange,
-  getCalendarWeekRange,
   getWeekItemsForLetter,
   resolveItemRecord,
   resolveRotationSchedules,
   rotationSubjectTeacherId,
+  rotationWeekLabelForSlot,
+  rotationWeekRangeForSlot,
   schoolYearMonths,
   yearMonthFirstDay,
   yearMonthKey,
@@ -491,12 +491,16 @@ export default function MyGearRotationPage({
     allMonthWeeks.filter(w => w.year_month?.startsWith(String(monthKey).slice(0, 7)));
 
   const currentWeekSlot = useMemo(
-    () => findRotationWeekForCalendarWeek(allMonthWeeks),
+    () => findCurrentRotationWeekSlot(allMonthWeeks),
     [allMonthWeeks],
   );
 
-  const thisWeekLabel = formatCalendarWeekLabel();
-  const thisWeekRange = formatCalendarWeekRange();
+  const thisWeekLabel = currentWeekSlot
+    ? rotationWeekLabelForSlot(currentWeekSlot)
+    : formatCalendarWeekLabel();
+  const thisWeekRange = currentWeekSlot
+    ? rotationWeekRangeForSlot(currentWeekSlot)
+    : formatCalendarWeekRange();
 
   const currentMonthKey = currentWeekSlot
     ? String(currentWeekSlot.year_month).slice(0, 7)
@@ -510,23 +514,16 @@ export default function MyGearRotationPage({
   }, [currentLetter, currentWeekSlot, weeklyLists]);
 
   const nextWeekSlot = useMemo(
-    () => findNextCalendarWeekRotationSlot(allMonthWeeks),
+    () => findNextRotationWeekSlot(allMonthWeeks),
     [allMonthWeeks],
   );
 
-  const nextWeekLabel = useMemo(() => {
-    const { monday } = getCalendarWeekRange(new Date());
-    const nextMonday = new Date(monday);
-    nextMonday.setDate(monday.getDate() + 7);
-    return formatCalendarWeekLabel(nextMonday);
-  }, []);
-
-  const nextWeekRange = useMemo(() => {
-    const { monday } = getCalendarWeekRange(new Date());
-    const nextMonday = new Date(monday);
-    nextMonday.setDate(monday.getDate() + 7);
-    return formatCalendarWeekRange(nextMonday);
-  }, []);
+  const nextWeekLabel = nextWeekSlot
+    ? rotationWeekLabelForSlot(nextWeekSlot)
+    : formatCalendarWeekLabel(new Date(Date.now() + 7 * 86400000));
+  const nextWeekRange = nextWeekSlot
+    ? rotationWeekRangeForSlot(nextWeekSlot)
+    : formatCalendarWeekRange(new Date(Date.now() + 7 * 86400000));
 
   const nextWeekMonthKey = nextWeekSlot ? String(nextWeekSlot.year_month).slice(0, 7) : null;
   const nextLetter = nextWeekMonthKey ? letterForMonth(nextWeekMonthKey) : null;
@@ -542,15 +539,17 @@ export default function MyGearRotationPage({
   const monthWeekRows = useMemo(() => {
     if (!viewLetter) return [];
     const weeksMap = new Map(viewMonthWeeks.map(w => [w.week_number, w]));
-    return [1, 2, 3, 4, 5].map(wn => {
+    const weekNumbers = viewMonthWeeks.length
+      ? [...viewMonthWeeks].sort((a, b) => a.week_number - b.week_number).map(w => w.week_number)
+      : [1, 2, 3, 4, 5];
+    return weekNumbers.map(wn => {
       const gear = getWeekItemsForLetter(weeklyLists, viewLetter, wn);
       if (!gear) return null;
       const mw = weeksMap.get(wn);
-      const weekMeta = mw ? calendarWeekMetaForRotationSlot(mw) : null;
       return {
         weekNumber: wn,
-        dateRange: weekMeta?.range || (mw ? formatWeekRange(mw.week_start_date, mw.week_end_date) : null),
-        weekLabel: weekMeta?.label || null,
+        dateRange: mw ? formatWeekRange(mw.week_start_date, mw.week_end_date) : null,
+        weekLabel: mw ? rotationWeekLabelForSlot(mw) : null,
         weekSlot: mw || null,
         gear,
         status: weekRentalStatusForGear(mw, gear, items, heldIds),

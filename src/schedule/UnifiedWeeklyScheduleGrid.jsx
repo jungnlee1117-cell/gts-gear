@@ -29,6 +29,9 @@ function ScheduleClassCard({ item }) {
           {displayName}
         </p>
         <p className="sch-weekly-class-card-type">{formatPayTypeLabel(item.payType)}</p>
+        {item.substituteNote ? (
+          <p className="sch-weekly-class-card-substitute">{item.substituteNote}</p>
+        ) : null}
       </div>
       {item.studentCount != null ? (
         <div className="sch-weekly-class-card-count" style={{ color: theme.text }}>

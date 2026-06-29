@@ -30,6 +30,7 @@ export function getMonthlyContractDraft(contracts, yearMonth, institutionId) {
       contract: current,
       amount: Number(current.contract_amount ?? 0),
       studentCount: current.student_count ?? "",
+      externalInstructorCost: Number(current.external_instructor_cost ?? 0),
       source: "saved",
     };
   }
@@ -40,6 +41,7 @@ export function getMonthlyContractDraft(contracts, yearMonth, institutionId) {
       contract: null,
       amount: Number(prev.contract_amount) || 0,
       studentCount: prev.student_count ?? "",
+      externalInstructorCost: Number(prev.external_instructor_cost ?? 0),
       source: "previous_month",
       previousYearMonth: prevYm,
     };
@@ -48,6 +50,7 @@ export function getMonthlyContractDraft(contracts, yearMonth, institutionId) {
     contract: null,
     amount: 0,
     studentCount: "",
+    externalInstructorCost: 0,
     source: "empty",
   };
 }
@@ -71,7 +74,14 @@ export function listBulkPrefillTargets(institutions, contracts, yearMonth) {
     .filter(Boolean);
 }
 
-export function buildMonthlyContractPayload({ institutionId, yearMonth, amount, studentCount, existingId }) {
+export function buildMonthlyContractPayload({
+  institutionId,
+  yearMonth,
+  amount,
+  studentCount,
+  externalInstructorCost,
+  existingId,
+}) {
   const payload = {
     institution_id: institutionId,
     year_month: yearMonthFirstDay(yearMonth),
@@ -79,6 +89,7 @@ export function buildMonthlyContractPayload({ institutionId, yearMonth, amount, 
     student_count: studentCount === "" || studentCount == null
       ? null
       : Number(studentCount),
+    external_instructor_cost: Number(String(externalInstructorCost ?? "").replace(/,/g, "")) || 0,
   };
   if (existingId) payload.id = existingId;
   return payload;

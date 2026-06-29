@@ -3,10 +3,20 @@ import { createClient } from "@supabase/supabase-js";
 import { yearMonthFirstDay, yearMonthLastDay } from "./constants.js";
 import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, isPerCapitaBilling, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
 import {
+  computeInstitutionInstructorCost,
+  applyManagerShareAdjustments,
+  mergeTeacherAdditionalPayments,
+  monthlyTeacherBonusAmount,
+  monthlyTeacherBonusDisplayItems,
+  sumMergedAdditionalPayments,
+} from "./institutionTeacherPay.js";
+import { buildTempTeacherPayrollRows, engagementOverlapsMonth } from "./temporaryTeachers.js";
+import {
   computeSettlement,
   estimateTeacherPayByEntry,
   resolveInstitutionRevenue,
 } from "./settlement.js";
+import { resolveSettlementContractType } from "./thresholdSplitSettlement.js";
 import {
   countSkippedEntries,
   countUnconfirmedDays,
@@ -26,6 +36,141 @@ export async function fetchTeachers() {
     .order("name");
   if (error) throw error;
   return data || [];
+}
+
+export async function fetchTemporaryEngagementsForMonth(yearMonth) {
+  const { data, error } = await scheduleSupabase
+    .from("temp_teachers")
+    .select("*")
+    .eq("is_active", true);
+  if (error) throw error;
+  return (data || []).filter(eng => engagementOverlapsMonth(eng, yearMonth));
+}
+
+export async function fetchTemporaryEngagements() {
+  const { data, error } = await scheduleSupabase
+    .from("temp_teachers")
+    .select("*")
+    .eq("is_active", true)
+    .order("engagement_start_date", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+function normalizeTempTeacherPayFields({ pay_mode, rate_amount, work_hours, work_days }) {
+  const mode = pay_mode;
+  const rate = Math.round(Number(rate_amount) || 0);
+  if (mode === "fixed_total") {
+    return { pay_mode: mode, rate_amount: rate, work_hours: null, work_days: null };
+  }
+  if (mode === "daily") {
+    return {
+      pay_mode: mode,
+      rate_amount: rate,
+      work_hours: null,
+      work_days: Math.round(Number(work_days) || 0) || null,
+    };
+  }
+  if (mode === "hourly") {
+    const hours = Number(work_hours);
+    return {
+      pay_mode: mode,
+      rate_amount: rate,
+      work_hours: Number.isFinite(hours) && hours > 0 ? hours : null,
+      work_days: null,
+    };
+  }
+  return {
+    pay_mode: mode,
+    rate_amount: rate,
+    work_hours: null,
+    work_days: null,
+  };
+}
+
+export async function registerTemporaryTeacher({
+  name,
+  phone = "",
+  bank_name = "",
+  bank_account = "",
+  institution_id,
+  pay_mode,
+  rate_amount,
+  pay_type = "정규",
+  is_substitute = false,
+  substitute_teacher_id = null,
+  substitute_start_date = null,
+  substitute_end_date = null,
+  engagement_start_date,
+  engagement_end_date = null,
+  work_hours = null,
+  work_days = null,
+  created_by,
+}) {
+  const payFields = normalizeTempTeacherPayFields({ pay_mode, rate_amount, work_hours, work_days });
+  const { data, error } = await scheduleSupabase
+    .from("temp_teachers")
+    .insert({
+      name: name.trim(),
+      phone: phone.trim(),
+      bank_name: bank_name.trim(),
+      bank_account: bank_account.trim(),
+      institution_id,
+      ...payFields,
+      pay_type,
+      is_substitute: Boolean(is_substitute),
+      substitute_teacher_id: is_substitute ? substitute_teacher_id : null,
+      substitute_start_date: is_substitute ? substitute_start_date : null,
+      substitute_end_date: is_substitute ? substitute_end_date : null,
+      engagement_start_date,
+      engagement_end_date: engagement_end_date || null,
+      created_by: created_by || null,
+      is_active: true,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchSubstituteAssignmentsForTeacher(teacherId, fromDate, toDate) {
+  if (!teacherId) return [];
+  const { data, error } = await scheduleSupabase
+    .from("temp_teachers")
+    .select("*")
+    .eq("is_active", true)
+    .eq("is_substitute", true)
+    .eq("substitute_teacher_id", teacherId)
+    .lte("substitute_start_date", toDate)
+    .or(`substitute_end_date.is.null,substitute_end_date.gte.${fromDate}`);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function updateTempTeacher(id, payload) {
+  const payFields = normalizeTempTeacherPayFields(payload);
+  const { data, error } = await scheduleSupabase
+    .from("temp_teachers")
+    .update({
+      name: payload.name.trim(),
+      phone: (payload.phone || "").trim(),
+      bank_name: (payload.bank_name || "").trim(),
+      bank_account: (payload.bank_account || "").trim(),
+      institution_id: payload.institution_id,
+      ...payFields,
+      pay_type: payload.pay_type,
+      is_substitute: Boolean(payload.is_substitute),
+      substitute_teacher_id: payload.is_substitute ? payload.substitute_teacher_id : null,
+      substitute_start_date: payload.is_substitute ? payload.substitute_start_date : null,
+      substitute_end_date: payload.is_substitute ? payload.substitute_end_date : null,
+      engagement_start_date: payload.engagement_start_date,
+      engagement_end_date: payload.engagement_end_date || null,
+    })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 export async function fetchInstitutions({ activeOnly = true, teacherScope = false } = {}) {
@@ -811,14 +956,23 @@ export async function fetchFinalizedInstitutionIds(yearMonth) {
   return new Set(rows.filter(r => r.is_finalized).map(r => r.institution_id));
 }
 
-export async function computeAndSaveSettlement(institution, yearMonth, payrollEntries, rates) {
+export async function computeAndSaveSettlement(institution, yearMonth, payrollEntries, rates, teachers = []) {
   const ym = yearMonthFirstDay(yearMonth);
-  const [contracts, sessionCounts, sessionRates] = await Promise.all([
+  const monthEnd = yearMonthLastDay(yearMonth);
+  const [contracts, sessionCounts, sessionRates, temporaryEngagements, allWeekly, exceptionsRes] = await Promise.all([
     fetchMonthlyContracts(institution.id),
     fetchMonthlySessionCounts(institution.id, yearMonth),
     fetchSessionRates(institution.id),
+    fetchTemporaryEngagementsForMonth(yearMonth),
+    fetchAllWeeklySchedules(),
+    scheduleSupabase
+      .from("institution_schedule_exceptions")
+      .select("*")
+      .gte("exception_date", ym)
+      .lte("exception_date", monthEnd),
   ]);
   const contract = contracts.find(c => c.year_month === ym);
+  const scheduleExceptions = exceptionsRes.data || [];
 
   const revenue = resolveInstitutionRevenue({
     institution,
@@ -828,22 +982,50 @@ export async function computeAndSaveSettlement(institution, yearMonth, payrollEn
     yearMonth,
   });
 
-  const instEntries = payrollEntries.filter(e => e.institution_id === institution.id);
-  const instructorCost = institution.contract_type === "manager_personal"
-    ? 0
-    : estimateTeacherPayByEntry(instEntries, rates);
-
-  const calc = computeSettlement({
-    contractType: institution.contract_type,
-    revenue,
-    instructorCost,
-    fixedPayoutAmount: institution.fixed_payout_amount,
+  const manualInstructorCost = Number(contract?.external_instructor_cost) || 0;
+  const costDetail = computeInstitutionInstructorCost({
+    institution,
+    entries: payrollEntries,
+    rates,
+    teachers,
+    yearMonth,
+    temporaryEngagements,
+    weeklySlots: allWeekly,
+    scheduleExceptions,
   });
+  const settlementType = resolveSettlementContractType(institution);
+  const settlementSessionCost = settlementType === "manager_fixed_payout"
+    ? costDetail.supplementaryPay
+    : costDetail.total;
+  let instructorCost = settlementType === "manager_personal"
+    ? 0
+    : settlementSessionCost;
+  if (settlementType === "manager_threshold_split") {
+    instructorCost = manualInstructorCost;
+  }
+
+  const calc = applyManagerShareAdjustments(
+    institution,
+    computeSettlement({
+      contractType: settlementType,
+      revenue,
+      instructorCost,
+      fixedPayoutAmount: institution.fixed_payout_amount,
+    }),
+  );
+
+  let displayInstructorCost = settlementType === "manager_personal"
+    ? 0
+    : costDetail.total;
+  if (settlementType === "manager_threshold_split") {
+    displayInstructorCost = manualInstructorCost;
+  }
 
   const payload = {
     institution_id: institution.id,
     year_month: ym,
     ...calc,
+    instructor_cost: displayInstructorCost,
     updated_at: new Date().toISOString(),
   };
 
@@ -883,6 +1065,10 @@ async function buildInstitutionDashboardRow(
   settlement,
   entries,
   rates,
+  teachers = [],
+  temporaryEngagements = [],
+  weeklySlots = [],
+  scheduleExceptions = [],
 ) {
   const [sessionCounts, sessionRates] = await Promise.all([
     fetchMonthlySessionCounts(institution.id, yearMonth),
@@ -897,18 +1083,45 @@ async function buildInstitutionDashboardRow(
     yearMonth,
   });
   const hasRevenue = institutionHasRevenueInput(institution, contract, sessionCounts, sessionRates);
+  const manualInstructorCost = Number(contract?.external_instructor_cost) || 0;
 
-  const instEntries = entries.filter(e => e.institution_id === institution.id);
-  const instructorCost = institution.contract_type === "manager_personal"
-    ? 0
-    : estimateTeacherPayByEntry(instEntries, rates);
-
-  const calc = computeSettlement({
-    contractType: institution.contract_type,
-    revenue,
-    instructorCost,
-    fixedPayoutAmount: institution.fixed_payout_amount,
+  const costDetail = computeInstitutionInstructorCost({
+    institution,
+    entries,
+    rates,
+    teachers,
+    yearMonth,
+    temporaryEngagements,
+    weeklySlots,
+    scheduleExceptions,
   });
+  const settlementType = resolveSettlementContractType(institution);
+  const settlementSessionCost = settlementType === "manager_fixed_payout"
+    ? costDetail.supplementaryPay
+    : costDetail.total;
+  let instructorCostForCalc = settlementType === "manager_personal"
+    ? 0
+    : settlementSessionCost;
+  if (settlementType === "manager_threshold_split") {
+    instructorCostForCalc = manualInstructorCost;
+  }
+
+  const calc = applyManagerShareAdjustments(
+    institution,
+    computeSettlement({
+      contractType: settlementType,
+      revenue,
+      instructorCost: instructorCostForCalc,
+      fixedPayoutAmount: institution.fixed_payout_amount,
+    }),
+  );
+
+  let displayInstructorCost = settlementType === "manager_personal"
+    ? 0
+    : costDetail.total;
+  if (settlementType === "manager_threshold_split") {
+    displayInstructorCost = manualInstructorCost;
+  }
 
   return {
     institution,
@@ -918,14 +1131,20 @@ async function buildInstitutionDashboardRow(
     hasRevenue,
     revenue: calc.revenue,
     vat: calc.vat,
+    revenue_after_vat: calc.revenue_after_vat,
     income_tax: calc.income_tax,
-    instructor_cost: calc.instructor_cost,
+    instructor_cost: displayInstructorCost,
+    instructorCostBreakdown: costDetail.breakdown,
+    supplementaryInstructorPay: costDetail.supplementaryPay,
     net_profit: calc.net_profit,
     manager_share: calc.manager_share,
     gts_share: calc.gts_share,
     partner_invoice_amount: calc.partner_invoice_amount,
     fixed_payout: calc.fixed_payout,
     manager_payout_net: calc.manager_payout_net,
+    threshold_split_excess: calc.threshold_split_excess,
+    threshold_split_remainder: calc.threshold_split_remainder,
+    external_instructor_cost: manualInstructorCost,
   };
 }
 
@@ -969,8 +1188,17 @@ export async function loadPayrollDashboard(yearMonth) {
         rates,
       );
       const teacherAdditional = additionalPayments.filter(p => p.teacher_id === t.id);
-      const additionalTotal = teacherAdditional.reduce((s, p) => s + Number(p.amount || 0), 0);
-      const estimatedPay = resolveTeacherMonthlyGross(t.id, yearMonth, lessonPay, teacherAdditional);
+      const mergedAdditional = mergeTeacherAdditionalPayments(t.name, teacherAdditional, t.id)
+        .map(p => ({ ...p, teacher_id: p.teacher_id || t.id }));
+      const displayAdditional = [
+        ...mergedAdditional,
+        ...monthlyTeacherBonusDisplayItems(t.name),
+      ];
+      const additionalTotal = sumMergedAdditionalPayments(mergedAdditional)
+        + monthlyTeacherBonusAmount(t.name);
+      const estimatedPay = resolveTeacherMonthlyGross(
+        t.id, yearMonth, lessonPay, teacherAdditional, t.name,
+      );
       const lastEntry = mine[0];
       const teacherInstIds = new Set(
         (weeklyByTeacher[t.id] || []).map(s => s.institution_id).filter(Boolean),
@@ -993,7 +1221,7 @@ export async function loadPayrollDashboard(yearMonth) {
         byType,
         totalMinutes: Object.values(byType).reduce((s, n) => s + n, 0),
         lessonPay,
-        additionalPayments: teacherAdditional,
+        additionalPayments: displayAdditional,
         additionalTotal,
         estimatedPay,
         lastEntryDate: lastEntry?.class_date ?? null,
@@ -1016,6 +1244,8 @@ export async function loadPayrollDashboard(yearMonth) {
   const settlementMap = {};
   settlements.forEach(s => { settlementMap[s.institution_id] = s; });
 
+  const temporaryEngagements = await fetchTemporaryEngagementsForMonth(yearMonth);
+
   const institutionRows = await Promise.all(
     institutions.map(inst =>
       buildInstitutionDashboardRow(
@@ -1025,6 +1255,10 @@ export async function loadPayrollDashboard(yearMonth) {
         settlementMap[inst.id] ?? null,
         entries,
         rates,
+        teachers,
+        temporaryEngagements,
+        allWeekly,
+        exceptions,
       ),
     ),
   );
@@ -1032,5 +1266,27 @@ export async function loadPayrollDashboard(yearMonth) {
   const managerMap = {};
   teachers.forEach(t => { managerMap[t.id] = t; });
 
-  return { teacherRows, institutionRows, entries, rates, institutions, managerMap, teacherNotes, additionalPayments, teachers };
+  const tempTeacherRows = buildTempTeacherPayrollRows({
+    engagements: temporaryEngagements,
+    entries,
+    rates,
+    institutions,
+    teachers,
+    yearMonth,
+    weeklySlots: allWeekly,
+    scheduleExceptions: exceptions,
+  });
+
+  return {
+    teacherRows,
+    tempTeacherRows,
+    institutionRows,
+    entries,
+    rates,
+    institutions,
+    managerMap,
+    teacherNotes,
+    additionalPayments,
+    teachers,
+  };
 }

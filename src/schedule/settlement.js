@@ -1,5 +1,7 @@
 /** 원별 월간 정산 계산 */
 
+import { computeManagerThresholdSplitSettlement } from "./thresholdSplitSettlement.js";
+
 /** 회당 단가 — effective_from 기준 최신 단가 */
 export function pickSessionRate(rates, sessionType, asOfDate) {
   const matched = (rates || [])
@@ -102,15 +104,18 @@ export function computeSettlement({
   }
 
   if (contractType === "manager_fixed_payout") {
+    const supplementary = Math.max(0, Number(cost) || 0);
+    const totalInstructor = fixedPayout + supplementary;
     const managerPayoutNet = Math.round(fixedPayout * 0.9);
-    const netProfit = revenueAfterVat - fixedPayout;
+    const netProfit = revenueAfterVat - totalInstructor;
     return {
       revenue: rev,
       vat,
       revenue_after_vat: revenueAfterVat,
       income_tax: 0,
       revenue_after_tax: revenueAfterVat,
-      instructor_cost: cost,
+      instructor_cost: totalInstructor,
+      supplementary_instructor_cost: supplementary,
       net_profit: netProfit,
       manager_share: managerPayoutNet,
       gts_share: netProfit,
@@ -118,6 +123,10 @@ export function computeSettlement({
       fixed_payout: fixedPayout,
       manager_payout_net: managerPayoutNet,
     };
+  }
+
+  if (contractType === "manager_threshold_split") {
+    return computeManagerThresholdSplitSettlement(rev, cost);
   }
 
   // gts_official (기본)

@@ -7,6 +7,7 @@ import { deleteAdditionalPayment, insertAdditionalPayment } from "./api.js";
 export default function AdditionalPaymentsAdminSection({
   yearMonth,
   teachers,
+  allTeachers,
   payments,
   createdById,
   onSaved,
@@ -15,6 +16,7 @@ export default function AdditionalPaymentsAdminSection({
   const [saving, setSaving] = useState(false);
 
   const teacherList = teachers.filter(t => t.role === "teacher");
+  const nameLookup = allTeachers?.length ? allTeachers : teachers;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -54,8 +56,8 @@ export default function AdditionalPaymentsAdminSection({
   };
 
   const sorted = [...payments].sort((a, b) => {
-    const ta = teacherList.find(t => t.id === a.teacher_id)?.name ?? "";
-    const tb = teacherList.find(t => t.id === b.teacher_id)?.name ?? "";
+    const ta = nameLookup.find(t => t.id === a.teacher_id)?.name ?? "";
+    const tb = nameLookup.find(t => t.id === b.teacher_id)?.name ?? "";
     return ta.localeCompare(tb, "ko") || a.created_at.localeCompare(b.created_at);
   });
 
@@ -116,7 +118,7 @@ export default function AdditionalPaymentsAdminSection({
       ) : (
         <ul className="sch-additional-pay-list">
           {sorted.map(p => {
-            const teacherName = teacherList.find(t => t.id === p.teacher_id)?.name ?? "—";
+            const teacherName = nameLookup.find(t => t.id === p.teacher_id)?.name ?? "—";
             return (
               <li key={p.id} className="sch-additional-pay-item">
                 <div>

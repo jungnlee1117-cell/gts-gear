@@ -1,14 +1,13 @@
 import {
   assignedLetterForMonth,
-  findNextCalendarWeekRotationSlot,
-  findRotationWeekForCalendarWeek,
+  findNextRotationWeekSlot,
   formatCalendarWeekRange,
   getCalendarWeekRange,
   getWeekItemsForLetter,
   resolveItemRecord,
   resolveRotationSchedules,
   rotationSubjectTeacherId,
-  formatWeekRange,
+  rotationWeekRangeForSlot,
   yearMonthFirstDay,
   schoolYearMonths,
 } from "./itemRotation.js";
@@ -215,7 +214,7 @@ export function buildGearRecommendations(me, reqs, ris, items) {
 }
 
 export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklySlots, items, me }) {
-  const nextSlot = findNextCalendarWeekRotationSlot(monthWeeks);
+  const nextSlot = findNextRotationWeekSlot(monthWeeks);
   if (!nextSlot) {
     const { monday } = getCalendarWeekRange(new Date());
     const nextMonday = new Date(monday);
@@ -227,10 +226,8 @@ export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklyS
   const letter = me
     ? assignedLetterForMonth(schedules, me, monthKey)
     : (schedules || []).find(s => s.year_month?.startsWith(monthKey))?.assigned_letter;
-  const { monday } = getCalendarWeekRange(new Date());
-  const nextMonday = new Date(monday);
-  nextMonday.setDate(monday.getDate() + 7);
-  const weekRange = formatCalendarWeekRange(nextMonday);
+  const weekRange = rotationWeekRangeForSlot(nextSlot)
+    || formatCalendarWeekRange(new Date(Date.now() + 7 * 86400000));
 
   if (!letter) return { rows: [], weekRange };
 
@@ -240,7 +237,9 @@ export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklyS
     return { rows: [], weekRange };
   }
 
-  const cal = getCalendarWeekRange(nextMonday);
+  const cal = nextSlot.week_start_date && nextSlot.week_end_date
+    ? { startYmd: nextSlot.week_start_date, endYmd: nextSlot.week_end_date }
+    : getCalendarWeekRange(new Date(Date.now() + 7 * 86400000));
   const weekDates = enumerateWeekDates(cal.startYmd, cal.endYmd);
   const sessions = [];
   for (const d of weekDates) {

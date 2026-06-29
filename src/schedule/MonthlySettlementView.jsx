@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { CONTRACT_TYPES, formatWon, yearMonthKey } from "./constants.js";
+import ThresholdSplitBreakdown from "./ThresholdSplitBreakdown.jsx";
+import { isManagerThresholdSplit, resolveSettlementContractType } from "./thresholdSplitSettlement.js";
 import {
   computeAndSaveSettlement,
   fetchInstitutions,
@@ -27,9 +29,10 @@ import {
 } from "./managerScope.js";
 
 function SettlementRow({ s, me }) {
-  const contractType = s.institutions?.contract_type;
+  const contractType = resolveSettlementContractType(s.institutions);
   const personal = contractType === "manager_personal";
   const fixedPayout = contractType === "manager_fixed_payout";
+  const thresholdSplit = isManagerThresholdSplit(s.institutions);
   const partner = contractType === "partner_billing";
   const managerSlice = isFixedPayoutManagerSlice(s);
   const superAdmin = isScheduleSuperAdmin(me);
@@ -59,23 +62,38 @@ function SettlementRow({ s, me }) {
   }
 
   return (
-    <tr className={!s.revenue && contractType !== "manager_fixed_payout" ? "sch-row-warn" : ""}>
-      <td>{s.institutions?.name}</td>
-      <td>{CONTRACT_TYPES[contractType]}</td>
-      <td>{formatWon(s.revenue)}</td>
-      <td>{formatWon(s.vat)}</td>
-      <td>{formatWon(s.revenue_after_vat)}</td>
-      <td>{personal || fixedPayout ? "—" : formatWon(s.income_tax)}</td>
-      <td>
-        {personal ? "—" : fixedPayout
-          ? `고정 ${formatWon(s.fixed_payout)}`
-          : formatWon(s.instructor_cost)}
-      </td>
-      <td>{formatWon(s.net_profit)}</td>
-      <td>{personal || fixedPayout || isFixedPayoutGtsSlice(s) ? "—" : formatWon(s.manager_share)}</td>
-      <td>{personal ? "—" : formatWon(s.gts_share)}</td>
-      <td>{s.is_finalized ? "확정" : "진행"}</td>
-    </tr>
+    <>
+      <tr className={!s.revenue && contractType !== "manager_fixed_payout" && !thresholdSplit ? "sch-row-warn" : ""}>
+        <td>{s.institutions?.name}</td>
+        <td>{CONTRACT_TYPES[contractType]}</td>
+        <td>{formatWon(s.revenue)}</td>
+        <td>{formatWon(s.vat)}</td>
+        <td>{formatWon(s.revenue_after_vat)}</td>
+        <td>{personal || fixedPayout || thresholdSplit ? "—" : formatWon(s.income_tax)}</td>
+        <td>
+          {personal ? "—" : fixedPayout
+            ? `고정 ${formatWon(s.fixed_payout)}`
+            : thresholdSplit
+              ? (Number(s.instructor_cost) > 0 ? formatWon(s.instructor_cost) : "—")
+              : formatWon(s.instructor_cost)}
+        </td>
+        <td>{formatWon(s.net_profit)}</td>
+        <td>
+          {personal || fixedPayout || isFixedPayoutGtsSlice(s)
+            ? "—"
+            : formatWon(s.manager_share)}
+        </td>
+        <td>{personal || fixedPayout ? "—" : formatWon(s.gts_share)}</td>
+        <td>{s.is_finalized ? "확정" : "진행"}</td>
+      </tr>
+      {thresholdSplit ? (
+        <tr className="sch-settlement-detail-row">
+          <td colSpan={11}>
+            <ThresholdSplitBreakdown calc={s} />
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }
 

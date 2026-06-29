@@ -1,3 +1,9 @@
+import {
+  mergeTeacherAdditionalPayments,
+  monthlyTeacherBonusAmount,
+  sumMergedAdditionalPayments,
+} from "./institutionTeacherPay.js";
+
 /** 스케줄·분 계산과 무관하게 월 총액 고정 (teacherId + YYYY-MM) */
 export const FIXED_GROSS_PAY = [
   {
@@ -42,16 +48,28 @@ export function totalGrossPay(lessonPay, additionalPayments) {
  * 2) FIXED_MONTHLY_SALARY — 고정급 + additional_payments (오주영)
  * 3) 기본 — 수업료 + additional_payments
  */
-export function resolveTeacherMonthlyGross(teacherId, yearMonth, lessonPay, additionalPayments) {
+export function resolveTeacherMonthlyGross(
+  teacherId,
+  yearMonth,
+  lessonPay,
+  additionalPayments,
+  teacherName = "",
+) {
   const fixedMonth = findFixedGrossPay(teacherId, yearMonth);
   if (fixedMonth) return fixedMonth.gross;
 
+  const merged = teacherName
+    ? mergeTeacherAdditionalPayments(teacherName, additionalPayments)
+    : (additionalPayments || []);
+  const additionalTotal = sumMergedAdditionalPayments(merged)
+    + monthlyTeacherBonusAmount(teacherName);
+
   const fixedSalary = findFixedMonthlySalary(teacherId);
   if (fixedSalary) {
-    return fixedSalary.baseGross + sumAdditionalPayments(additionalPayments);
+    return fixedSalary.baseGross + additionalTotal;
   }
 
-  return totalGrossPay(lessonPay, additionalPayments);
+  return Math.round(Number(lessonPay || 0) + additionalTotal);
 }
 
 /** 3.3% 원천징수액 (세전 총액 기준) */

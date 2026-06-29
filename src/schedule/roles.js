@@ -25,6 +25,7 @@ export function filterScheduleMenu(me) {
     },
     ...(admin ? [
       { id: "change-alerts", title: "수업 변동 내역", desc: "강사 스케줄 변경 알림 · 확인", color: "#ef4444", roles: "admin" },
+      { id: "temporary-teachers", title: "임시 선생님", desc: "대체·단기 근무 등록 · 정산 연동", color: "#0ea5e9", roles: "admin" },
       { id: "institutions", title: "원 관리", desc: "원 마스터 · 시간표 · 계약", color: "#f97316", roles: "admin" },
     ] : []),
   ];

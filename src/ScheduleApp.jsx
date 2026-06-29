@@ -13,7 +13,7 @@ import HomeVisitScheduleView from "./schedule/HomeVisitScheduleView.jsx";
 import EventsScheduleView from "./schedule/EventsScheduleView.jsx";
 import ScheduleChangeAlertsView from "./schedule/ScheduleChangeAlertsView.jsx";
 import MonthlySettlementView from "./schedule/MonthlySettlementView.jsx";
-import TeacherPayRatesView from "./schedule/TeacherPayRatesView.jsx";
+import TemporaryTeachersView from "./schedule/TemporaryTeachersView.jsx";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { isScheduleSuperAdmin } from "./schedule/managerScope.js";
 
@@ -67,6 +67,7 @@ export default function ScheduleApp({ me, onBack }) {
               onOpenInstitution={id => { setDetailId(id); setView("institution-detail"); }}
               onOpenSettlement={() => setView("settlement")}
               onOpenPayRates={() => setView("pay-rates")}
+              onOpenTemporaryTeachers={() => setView("temporary-teachers")}
             />
           )
           : <PayrollTeacherView me={me}/>;
@@ -76,6 +77,15 @@ export default function ScheduleApp({ me, onBack }) {
           : (
             <ScheduleAccessDenied
               message="월별 정산은 관리자만 이용할 수 있습니다."
+              onBack={goHub}
+            />
+          );
+      case "temporary-teachers":
+        return admin
+          ? <TemporaryTeachersView me={me} onBack={() => setView("payroll")}/>
+          : (
+            <ScheduleAccessDenied
+              message="임시 선생님 등록은 관리자만 이용할 수 있습니다."
               onBack={goHub}
             />
           );
