@@ -3637,7 +3637,7 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
     }), [ris, reqs, teachers]);
 
   const togglePanel = (id) => setActivePanel(p => p === id ? null : id);
-  const teacherRows = teachers.filter(t=>t.role!=="superadmin").map(t=>{
+  const teacherRows = teachers.map(t=>{
     const held=ris.filter(ri=>["rented","partial_returned"].includes(ri.status)&&reqs.find(r=>r.id===ri.request_id&&r.teacher_id===t.id));
     return {...t,held};
   }).filter(t=>t.held.length>0);
@@ -5141,9 +5141,9 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLab
                       </div>
                     </div>
                   </div>
-                  {admin && onForceReturn && (
+                  {onForceReturn && (
                     <div style={{ marginTop: 12 }}>
-                      <ForceReturnButton ri={ri} me={me} onForceReturn={onForceReturn}/>
+                      <ForceReturnButton ri={ri} me={me} itemName={item?.name} onForceReturn={onForceReturn}/>
                     </div>
                   )}
                 </div>
@@ -5201,7 +5201,6 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLab
 // ═══════════════════════════════════════════════════════════════════════
 function buildTeacherSummaries(teachers, reqs, ris, items, rets) {
   return teachers
-    .filter(t => t.role !== "superadmin")
     .map(teacher => {
       const lines = ris
         .map(ri => {
@@ -5253,20 +5252,77 @@ function MiniBadge({label,bg,color}) {
   );
 }
 
-function ForceReturnButton({ ri, me, onForceReturn, onClick }) {
-  if (!canManage(me) || !onForceReturn || !ri?.id) return null;
+function ForceReturnModal({ itemLabel, onClose, onConfirm }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const text = reason.trim();
+    if (!text) return alert("강제반납 사유를 입력하세요");
+    if (!confirm("강제 반납 처리하시겠습니까?\n선생님 확인 없이 즉시 반납됩니다.")) return;
+    setBusy(true);
+    try {
+      const ok = await onConfirm(text);
+      if (ok) onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <Btn
-      sm
-      danger
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick?.(e);
-        onForceReturn(ri);
-      }}
-    >
-      강제 반납 처리
-    </Btn>
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 1100,
+      background: "rgba(15,23,42,0.55)", backdropFilter: "blur(4px)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+    }} onClick={onClose}>
+      <div style={{
+        background: "#fff", borderRadius: 16, width: "100%", maxWidth: 480,
+        padding: "24px 20px", boxShadow: "0 24px 48px rgba(0,0,0,0.18)",
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 17, fontWeight: 800, color: DS.textPrimary, marginBottom: 8 }}>강제반납</div>
+        {itemLabel && (
+          <div style={{ fontSize: 13, color: DS.textSecondary, marginBottom: 16 }}>{itemLabel}</div>
+        )}
+        <Txa2
+          label="강제반납 사유 *"
+          value={reason}
+          onChange={e => setReason(e.target.value)}
+          placeholder="반납 사유를 입력하세요 (필수)"
+        />
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn full ghost onClick={onClose} disabled={busy}>취소</Btn>
+          <Btn full danger onClick={submit} disabled={busy}>강제반납 처리</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ForceReturnButton({ ri, me, onForceReturn, itemName, onClick }) {
+  const [open, setOpen] = useState(false);
+  if (!isSuperAdmin(me) || !onForceReturn || !ri?.id) return null;
+
+  return (
+    <>
+      <Btn
+        sm
+        danger
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick?.(e);
+          setOpen(true);
+        }}
+      >
+        강제반납
+      </Btn>
+      {open && (
+        <ForceReturnModal
+          itemLabel={itemName ? `${itemName} · ${ri.quantity}개` : undefined}
+          onClose={() => setOpen(false)}
+          onConfirm={reason => onForceReturn(ri, reason)}
+        />
+      )}
+    </>
   );
 }
 
@@ -6622,6 +6678,17 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
     [teachers,reqs,ris,items,rets]
   );
 
+  useEffect(() => {
+    if (!selected) return;
+    const fresh = summaries.find(s => s.teacher.id === selected.teacher.id);
+    if (!fresh) return;
+    const prevKey = selected.current.map(l => `${l.ri.id}:${l.ri.status}`).join("|");
+    const nextKey = fresh.current.map(l => `${l.ri.id}:${l.ri.status}`).join("|");
+    if (prevKey !== nextKey || fresh.totalQty !== selected.totalQty) {
+      setSelected(fresh);
+    }
+  }, [summaries]);
+
   const overdueItems=useMemo(()=>ris
     .filter(ri=>["rented","partial_returned"].includes(ri.status)&&dday(ri.due_date)!==null&&dday(ri.due_date)<0)
     .map(ri=>{
@@ -6751,7 +6818,7 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
                     </div>
                   </div>
                 </div>
-                <ForceReturnButton ri={ri} me={me} onForceReturn={onForceReturn}/>
+                <ForceReturnButton ri={ri} me={me} itemName={itemName} onForceReturn={onForceReturn}/>
               </div>
             </div>
           ))}
@@ -6870,7 +6937,7 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
                       </div>
                       {urgent && (
                         <div style={{ marginTop: 8 }}>
-                          <ForceReturnButton ri={ri} me={me} onForceReturn={onForceReturn}/>
+                          <ForceReturnButton ri={ri} me={me} itemName={itemName} onForceReturn={onForceReturn}/>
                         </div>
                       )}
                     </div>
@@ -7021,7 +7088,12 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
                       </div>
                       <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                         <Badge s={ri.status}/>
-                        {isOverdue && <ForceReturnButton ri={ri} me={me} onForceReturn={onForceReturn}/>}
+                        <ForceReturnButton
+                          ri={ri}
+                          me={me}
+                          itemName={item?.name}
+                          onForceReturn={onForceReturn}
+                        />
                       </div>
                     </div>
                   );
@@ -7215,7 +7287,17 @@ const RENTAL_MAX_DAYS = 28;
 const RENTAL_ERR_DUE_BEFORE_START = "반납 예정일은 대여 시작일 이후여야 합니다";
 const RENTAL_ERR_END_BEFORE_START = "대여 종료일은 대여 시작일 이후여야 합니다";
 const RENTAL_ERR_MAX_PERIOD = "대여 기간은 최대 4주(28일)까지 가능합니다";
-const RESERVATION_ERR_START_BEFORE_TODAY = "예약 시작일은 오늘 이후여야 합니다";
+const RESERVATION_MIN_DAYS_AHEAD = 3;
+const RESERVATION_ERR_MIN_DAYS_AHEAD = "예약은 최소 3일 전부터 가능합니다";
+
+function reservationMinStartYmd() {
+  return addDaysYmd(todayYmd(), RESERVATION_MIN_DAYS_AHEAD);
+}
+
+function defaultReservationDates() {
+  const start_date = reservationMinStartYmd();
+  return { start_date, end_date: addDaysYmd(start_date, 7) };
+}
 
 function parseYmdDate(ymd) {
   if (!ymd) return null;
@@ -7254,9 +7336,12 @@ function validateCartRentalDates(dispatchStart, dispatchEnd, detailItems) {
 
 function validateReservationDates(startYmd, endYmd) {
   if (!startYmd || !endYmd) return "예약 기간을 입력하세요";
-  const start = parseLocalDay(startYmd);
   const today = todayLocalDay();
-  if (start && start < today) return RESERVATION_ERR_START_BEFORE_TODAY;
+  const start = parseLocalDay(startYmd);
+  if (start) {
+    const diff = Math.round((start - today) / 86400000);
+    if (diff < RESERVATION_MIN_DAYS_AHEAD) return RESERVATION_ERR_MIN_DAYS_AHEAD;
+  }
   const endDiff = dayDiffFromRentalStart(startYmd, endYmd);
   if (endDiff !== null && endDiff < 0) return RENTAL_ERR_END_BEFORE_START;
   if (endDiff !== null && endDiff > RENTAL_MAX_DAYS) return RENTAL_ERR_MAX_PERIOD;
@@ -7264,14 +7349,14 @@ function validateReservationDates(startYmd, endYmd) {
 }
 
 function ReservationModal({ item, onClose, onSubmit }) {
-  const initialDates = useMemo(() => defaultRentalDates(), []);
+  const initialDates = useMemo(() => defaultReservationDates(), []);
   const [f, setF] = useState({
     location: "",
-    start_date: initialDates.dispatch_start,
-    end_date: initialDates.dispatch_end,
+    start_date: initialDates.start_date,
+    end_date: initialDates.end_date,
     quantity: 1,
   });
-  const todayMin = todayYmd();
+  const startMin = reservationMinStartYmd();
 
   const submit = () => {
     if (!f.location.trim()) return alert("사용 장소를 입력하세요");
@@ -7291,8 +7376,8 @@ function ReservationModal({ item, onClose, onSubmit }) {
     <Modal title={`교구 예약 · ${item?.name || ""}`} onClose={onClose}>
       <Inp2 label="사용 장소 *" value={f.location} onChange={e => setF(p => ({ ...p, location: e.target.value }))} placeholder="예: 은빛유치원 (성동구)"/>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-        <Inp2 label="예약 시작일 *" type="date" min={todayMin} value={f.start_date} onChange={e => setF(p => ({ ...p, start_date: e.target.value }))}/>
-        <Inp2 label="예약 종료일 *" type="date" min={f.start_date || todayMin} value={f.end_date} onChange={e => setF(p => ({ ...p, end_date: e.target.value }))}/>
+        <Inp2 label="예약 시작일 *" type="date" min={startMin} value={f.start_date} onChange={e => setF(p => ({ ...p, start_date: e.target.value }))}/>
+        <Inp2 label="예약 종료일 *" type="date" min={f.start_date || startMin} value={f.end_date} onChange={e => setF(p => ({ ...p, end_date: e.target.value }))}/>
       </div>
       <Fld label={`수량 * (최대 ${item?.total_quantity || 1}개)`}>
         <QuantityInput
@@ -7303,7 +7388,7 @@ function ReservationModal({ item, onClose, onSubmit }) {
         />
       </Fld>
       <div style={{ fontSize: 12, color: DS.textMuted, marginBottom: 14, lineHeight: 1.6 }}>
-        예약 기간은 최대 4주(28일)까지 가능합니다. 관리자 승인 후 해당 날짜에 대여가 확정됩니다.
+        예약 시작일은 오늘 기준 최소 {RESERVATION_MIN_DAYS_AHEAD}일 후부터 선택할 수 있습니다. 예약 기간은 최대 4주(28일)까지 가능하며, 관리자 승인 후 해당 날짜에 대여가 확정됩니다.
       </div>
       <Btn full onClick={submit}>예약 신청</Btn>
     </Modal>
@@ -8105,6 +8190,30 @@ function gearHomePage(me) {
   return isGearPlatformAdmin(me) ? "dashboard" : "notices";
 }
 
+function removeRowById(rows, id) {
+  if (!id) return rows;
+  return rows.filter(r => r.id !== id);
+}
+
+function upsertRowById(rows, row, { prepend = false } = {}) {
+  if (!row?.id) return rows;
+  const idx = rows.findIndex(r => r.id === row.id);
+  if (idx >= 0) {
+    const next = rows.slice();
+    next[idx] = row;
+    return next;
+  }
+  return prepend ? [row, ...rows] : [...rows, row];
+}
+
+function applyRealtimePayload(setter, payload, { prepend = false } = {}) {
+  setter(prev => {
+    if (payload.eventType === "DELETE") return removeRowById(prev, payload.old?.id);
+    if (payload.new?.id) return upsertRowById(prev, payload.new, { prepend });
+    return prev;
+  });
+}
+
 function parseGearAppUrl(search, me) {
   const raw = search ?? (typeof window !== "undefined" ? window.location.search : "");
   const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
@@ -8190,7 +8299,104 @@ function EquipmentApp({ onBack, me, session }) {
     return () => window.removeEventListener("resize", handle);
   }, []);
 
-  useEffect(()=>{ loadAll(); },[]);
+  const loadAll = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setDataLoading(true);
+    const errors = [];
+    try {
+      let ts = [];
+      try {
+        ts = await fetchTeachers();
+      } catch (e) {
+        errors.push(`선생님 목록: ${e?.message || e}`);
+      }
+
+      const [itemsRes, reqsRes, riRes, retRes, resRes] = await Promise.all([
+        supabase.from("items").select("*").order("code"),
+        supabase.from("rental_requests").select("*").order("created_at", { ascending: false }),
+        supabase.from("rental_items").select("*"),
+        supabase.from("return_requests").select("*").order("created_at", { ascending: false }),
+        supabase.from("reservations").select("*").order("created_at", { ascending: false }),
+      ]);
+
+      const labeled = [
+        ["교구", itemsRes],
+        ["대여신청", reqsRes],
+        ["대여항목", riRes],
+        ["반납신청", retRes],
+        ["예약", resRes],
+      ];
+      for (const [label, res] of labeled) {
+        if (res.error) errors.push(`${label}: ${res.error.message}`);
+      }
+
+      setTeachers(ts);
+      if (!itemsRes.error) setItems(itemsRes.data || []);
+      if (!reqsRes.error) setReqs(reqsRes.data || []);
+      if (!riRes.error) setRIs(riRes.data || []);
+      if (!retRes.error) setRets(retRes.data || []);
+      if (!resRes.error) setReservations(resRes.data || []);
+
+      const noticeList = await fetchNotices();
+      setNotices(noticeList);
+    } catch (e) {
+      console.error("loadAll failed", e);
+      errors.push(String(e?.message || e));
+    } finally {
+      if (!silent) setDataLoading(false);
+      if (errors.length) {
+        console.error("loadAll errors:", errors);
+        if (!silent) {
+          alert(
+            "데이터를 불러오는 중 오류가 발생했습니다.\n"
+            + "새로고침 후에도 반복되면 관리자에게 문의하세요.\n\n"
+            + errors.slice(0, 4).join("\n")
+            + (errors.length > 4 ? `\n…외 ${errors.length - 4}건` : ""),
+          );
+        }
+      }
+    }
+  }, []);
+
+  const loadAllRef = useRef(loadAll);
+  loadAllRef.current = loadAll;
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  useEffect(() => {
+    if (!me?.id) return;
+
+    const channel = supabase
+      .channel(`gear-rentals-${me.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "rental_requests" }, payload => {
+        applyRealtimePayload(setReqs, payload, { prepend: true });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "rental_items" }, payload => {
+        applyRealtimePayload(setRIs, payload);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "return_requests" }, payload => {
+        applyRealtimePayload(setRets, payload, { prepend: true });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, payload => {
+        applyRealtimePayload(setReservations, payload, { prepend: true });
+      })
+      .subscribe(status => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.warn("교구 Realtime 구독 실패 — 탭 전환 시 자동 새로고침으로 보완합니다.", status);
+        }
+      });
+
+    return () => { supabase.removeChannel(channel); };
+  }, [me?.id]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        loadAllRef.current({ silent: true });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   useEffect(() => {
     if (dataLoading || !items.length) return;
@@ -8204,24 +8410,6 @@ function EquipmentApp({ onBack, me, session }) {
       alert("QR로 연결된 교구를 찾을 수 없습니다.");
     }
   }, [dataLoading, items]);
-
-  const loadAll = async () => {
-    setDataLoading(true);
-    try {
-      const [ts, {data:its},{data:rqs},{data:riData},{data:retData},{data:resData}] = await Promise.all([
-        fetchTeachers(),
-        supabase.from("items").select("*").order("code"),
-        supabase.from("rental_requests").select("*").order("created_at",{ascending:false}),
-        supabase.from("rental_items").select("*"),
-        supabase.from("return_requests").select("*").order("created_at",{ascending:false}),
-        supabase.from("reservations").select("*").order("created_at",{ascending:false}),
-      ]);
-      setTeachers(ts||[]); setItems(its||[]); setReqs(rqs||[]); setRIs(riData||[]); setRets(retData||[]); setReservations(resData||[]);
-      const noticeList = await fetchNotices();
-      setNotices(noticeList);
-    } catch(e) { console.error(e); }
-    setDataLoading(false);
-  };
 
   const addNotice = async ({ title, body, importance = "normal" }) => {
     const row = {
@@ -8434,8 +8622,10 @@ function EquipmentApp({ onBack, me, session }) {
   const approveReq = async (reqId) => {
     if (!canManage(me)) return;
     const now=new Date().toISOString();
-    await supabase.from("rental_requests").update({status:"approved",approved_by:me.id,approved_at:now}).eq("id",reqId);
-    await supabase.from("rental_items").update({status:"rented",approved_by:me.id,approved_at:now}).eq("request_id",reqId).eq("status","pending");
+    const { error: reqErr } = await supabase.from("rental_requests").update({status:"approved",approved_by:me.id,approved_at:now}).eq("id",reqId);
+    if (reqErr) { alert("승인 오류: " + reqErr.message); return; }
+    const { error: riErr } = await supabase.from("rental_items").update({status:"rented",approved_by:me.id,approved_at:now}).eq("request_id",reqId).eq("status","pending");
+    if (riErr) { alert("교구 항목 승인 오류: " + riErr.message); return; }
     setReqs(p=>p.map(r=>r.id===reqId?{...r,status:"approved",approved_by:me.id,approved_at:now}:r));
     setRIs(p=>p.map(ri=>ri.request_id===reqId&&ri.status==="pending"?{...ri,status:"rented",approved_by:me.id,approved_at:now}:ri));
     alert("대여 신청이 승인되었습니다.");
@@ -8444,8 +8634,10 @@ function EquipmentApp({ onBack, me, session }) {
   const rejectReq = async (reqId,reason) => {
     if (!canManage(me)) return;
     const now=new Date().toISOString();
-    await supabase.from("rental_requests").update({status:"rejected",rejected_by:me.id,rejected_at:now,rejection_reason:reason}).eq("id",reqId);
-    await supabase.from("rental_items").update({status:"rejected"}).eq("request_id",reqId).eq("status","pending");
+    const { error: reqErr } = await supabase.from("rental_requests").update({status:"rejected",rejected_by:me.id,rejected_at:now,rejection_reason:reason}).eq("id",reqId);
+    if (reqErr) { alert("거절 오류: " + reqErr.message); return; }
+    const { error: riErr } = await supabase.from("rental_items").update({status:"rejected"}).eq("request_id",reqId).eq("status","pending");
+    if (riErr) { alert("교구 항목 거절 오류: " + riErr.message); return; }
     setReqs(p=>p.map(r=>r.id===reqId?{...r,status:"rejected",rejected_by:me.id,rejected_at:now,rejection_reason:reason}:r));
     setRIs(p=>p.map(ri=>ri.request_id===reqId&&ri.status==="pending"?{...ri,status:"rejected"}:ri));
     alert("대여 신청이 거절되었습니다.");
@@ -8576,20 +8768,25 @@ function EquipmentApp({ onBack, me, session }) {
     );
   };
 
-  const forceReturnRentalItem = async (ri) => {
-    if (!canManage(me)) return;
-    if (!ri?.id) return;
-    if (!confirm("강제 반납 처리하시겠습니까?")) return;
+  const forceReturnRentalItem = async (ri, reason) => {
+    if (!isSuperAdmin(me)) return false;
+    if (!ri?.id) return false;
+    const reasonText = (reason || "").trim();
+    if (!reasonText) {
+      alert("강제반납 사유를 입력하세요");
+      return false;
+    }
 
     const now = new Date().toISOString();
     const req = reqs.find(r => r.id === ri.request_id);
     const qty = Math.max(1, heldQtyForRi(ri, rets) || ri.quantity);
+    const memo = `강제 반납: ${reasonText}`;
 
     const { data: newRet, error: retErr } = await supabase.from("return_requests").insert({
       rental_item_id: ri.id,
       quantity: qty,
       condition: "normal",
-      memo: FORCE_RETURN_MEMO,
+      memo,
       teacher_id: req?.teacher_id || me.id,
       status: "return_approved",
       approved_by: me.id,
@@ -8598,19 +8795,19 @@ function EquipmentApp({ onBack, me, session }) {
 
     if (retErr) {
       alert("강제 반납 기록 저장 오류: " + retErr.message);
-      return;
+      return false;
     }
 
     const { error } = await supabase.from("rental_items").update({ status: "returned" }).eq("id", ri.id);
     if (error) {
       alert("강제 반납 오류: " + error.message);
-      return;
+      return false;
     }
 
     await supabase.from("activity_logs").insert({
       entity_type: "rental_item",
       entity_id: ri.id,
-      action: FORCE_RETURN_MEMO,
+      action: memo,
       actor_id: me.id,
       actor_name: me.name,
       target_id: req?.teacher_id || null,
@@ -8630,6 +8827,7 @@ function EquipmentApp({ onBack, me, session }) {
     }
 
     alert(`강제 반납 처리되었습니다.\n처리자: ${me.name}\n처리 시간: ${fmtdt(now)}`);
+    return true;
   };
 
   const approveReturn = async (retId) => {
