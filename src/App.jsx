@@ -381,13 +381,148 @@ function selectInputOnFocus(e) {
   e.target.select();
 }
 
-function parseQuantityValue(raw, { min = 1, max } = {}) {
+function clampQuantity(n, { min = 1, max } = {}) {
+  let v = Number(n);
+  if (!Number.isFinite(v)) return min;
+  v = Math.floor(v);
+  if (v < min) return min;
+  if (max != null && v > max) return max;
+  return v;
+}
+
+/** blur/submit 시에만 min·max 적용 (입력 중에는 draft 문자열 유지) */
+function commitQuantityDraft(raw, { min = 1, max } = {}) {
   const cleaned = String(raw).replace(/\D/g, "");
   if (!cleaned) return min;
-  let n = parseInt(cleaned, 10);
+  const n = parseInt(cleaned, 10);
   if (Number.isNaN(n)) return min;
-  if (max != null) n = Math.min(max, n);
-  return Math.max(min, n);
+  return clampQuantity(n, { min, max });
+}
+
+function parseQuantityValue(raw, { min = 1, max } = {}) {
+  return commitQuantityDraft(raw, { min, max });
+}
+
+const qtyStepBtn = {
+  flex: "0 0 44px",
+  width: 44,
+  minHeight: 44,
+  padding: 0,
+  border: "1px solid #e2e8f0",
+  background: "#f8fafc",
+  color: "#334155",
+  fontSize: 18,
+  fontWeight: 700,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  lineHeight: 1,
+};
+
+function QuantityInput({
+  value,
+  onChange,
+  min = 1,
+  max,
+  disabled = false,
+  style,
+  inputStyle,
+}) {
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(() => String(value ?? min));
+
+  useEffect(() => {
+    if (!focused) setDraft(String(value ?? min));
+  }, [value, focused, min]);
+
+  const displayMax = max ?? null;
+  const atMin = (value ?? min) <= min;
+  const atMax = displayMax != null && (value ?? min) >= displayMax;
+
+  const commit = (raw) => {
+    const next = commitQuantityDraft(raw, { min, max: displayMax });
+    onChange(next);
+    return next;
+  };
+
+  const step = (delta) => {
+    const base = focused ? commitQuantityDraft(draft, { min, max: displayMax }) : (value ?? min);
+    const next = clampQuantity(base + delta, { min, max: displayMax });
+    setDraft(String(next));
+    onChange(next);
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "stretch",
+        width: "100%",
+        ...style,
+      }}
+    >
+      <button
+        type="button"
+        aria-label="수량 줄이기"
+        disabled={disabled || atMin}
+        onClick={() => step(-1)}
+        style={{
+          ...qtyStepBtn,
+          borderRadius: "10px 0 0 10px",
+          opacity: disabled || atMin ? 0.45 : 1,
+          cursor: disabled || atMin ? "not-allowed" : "pointer",
+        }}
+      >
+        −
+      </button>
+      <input
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        disabled={disabled}
+        value={focused ? draft : String(value ?? min)}
+        onFocus={(e) => {
+          setFocused(true);
+          setDraft(String(value ?? min));
+          selectInputOnFocus(e);
+        }}
+        onBlur={() => {
+          setFocused(false);
+          const next = commit(draft);
+          setDraft(String(next));
+        }}
+        onChange={(e) => {
+          setDraft(e.target.value.replace(/\D/g, ""));
+        }}
+        style={{
+          ...inp,
+          flex: 1,
+          minWidth: 0,
+          minHeight: 44,
+          textAlign: "center",
+          borderRadius: 0,
+          borderLeft: "none",
+          borderRight: "none",
+          padding: "9px 8px",
+          fontSize: 14,
+          ...(inputStyle || {}),
+        }}
+      />
+      <button
+        type="button"
+        aria-label="수량 늘리기"
+        disabled={disabled || atMax}
+        onClick={() => step(+1)}
+        style={{
+          ...qtyStepBtn,
+          borderRadius: "0 10px 10px 0",
+          opacity: disabled || atMax ? 0.45 : 1,
+          cursor: disabled || atMax ? "not-allowed" : "pointer",
+        }}
+      >
+        +
+      </button>
+    </div>
+  );
 }
 
 function getScheduleTiming(start, end) {
@@ -7056,16 +7191,14 @@ function ReservationModal({ item, onClose, onSubmit }) {
         <Inp2 label="예약 시작일 *" type="date" min={todayMin} value={f.start_date} onChange={e => setF(p => ({ ...p, start_date: e.target.value }))}/>
         <Inp2 label="예약 종료일 *" type="date" min={f.start_date || todayMin} value={f.end_date} onChange={e => setF(p => ({ ...p, end_date: e.target.value }))}/>
       </div>
-      <Inp2
-        label={`수량 * (최대 ${item?.total_quantity || 1}개)`}
-        type="number"
-        inputMode="numeric"
-        min={1}
-        max={item?.total_quantity || 1}
-        value={f.quantity}
-        onFocus={selectInputOnFocus}
-        onChange={e => setF(p => ({ ...p, quantity: parseQuantityValue(e.target.value, { min: 1, max: item?.total_quantity || 1 }) }))}
-      />
+      <Fld label={`수량 * (최대 ${item?.total_quantity || 1}개)`}>
+        <QuantityInput
+          value={f.quantity}
+          min={1}
+          max={item?.total_quantity || 1}
+          onChange={quantity => setF(p => ({ ...p, quantity }))}
+        />
+      </Fld>
       <div style={{ fontSize: 12, color: DS.textMuted, marginBottom: 14, lineHeight: 1.6 }}>
         예약 기간은 최대 4주(28일)까지 가능합니다. 관리자 승인 후 해당 날짜에 대여가 확정됩니다.
       </div>
@@ -7107,9 +7240,7 @@ function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
       return;
     }
     if (k === "quantity") {
-      const item = items.find(i => i.id === id);
-      const av = item ? availQty(item, ris, rets) : 1;
-      setDetails(p => p.map(c => c.item_id === id ? { ...c, quantity: parseQuantityValue(v, { min: 1, max: av }) } : c));
+      setDetails(p => p.map(c => c.item_id === id ? { ...c, quantity: v } : c));
       return;
     }
     setDetails(p=>p.map(c=>c.item_id===id?{...c,[k]:v}:c));
@@ -7161,15 +7292,11 @@ function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 9px"}}>
               <div>
                 <label style={lbl}>수량 (최대 {av})</label>
-                <input
-                  type="number"
-                  inputMode="numeric"
+                <QuantityInput
+                  value={c.quantity}
                   min={1}
                   max={av}
-                  value={c.quantity}
-                  onFocus={selectInputOnFocus}
-                  onChange={e => setD(c.item_id, "quantity", e.target.value)}
-                  style={{...inp,padding:"9px 11px",fontSize:14}}
+                  onChange={quantity => setD(c.item_id, "quantity", quantity)}
                 />
               </div>
               <div>
@@ -7267,15 +7394,11 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClo
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 9px" }}>
                 <div>
                   <label style={lbl}>수량 (최대 {av})</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
+                  <QuantityInput
+                    value={c.quantity}
                     min={1}
                     max={av}
-                    value={c.quantity}
-                    onFocus={selectInputOnFocus}
-                    onChange={e => setD(c.rental_item_id, "quantity", parseQuantityValue(e.target.value, { min: 1, max: av }))}
-                    style={{ ...inp, padding: "9px 11px", fontSize: 14 }}
+                    onChange={quantity => setD(c.rental_item_id, "quantity", quantity)}
                   />
                 </div>
                 <div>
@@ -7309,16 +7432,14 @@ function ItemReturnModal({ group, onSubmit, onClose }) {
           {group.totalPendingReturn > 0 && ` · 승인 대기 ${group.totalPendingReturn}개`}
         </div>
       </div>
-      <Inp2
-        label={`반납 수량 (최대 ${max})`}
-        type="number"
-        inputMode="numeric"
-        min={1}
-        max={max}
-        value={f.quantity}
-        onFocus={selectInputOnFocus}
-        onChange={e => setF(p => ({ ...p, quantity: parseQuantityValue(e.target.value, { min: 1, max: max }) }))}
-      />
+      <Fld label={`반납 수량 (최대 ${max})`}>
+        <QuantityInput
+          value={f.quantity}
+          min={1}
+          max={max}
+          onChange={quantity => setF(p => ({ ...p, quantity }))}
+        />
+      </Fld>
       <Sel2 label="반납 상태" value={f.condition} onChange={e => setF(p => ({ ...p, condition: e.target.value }))}>
         <option value="normal">정상</option>
         <option value="damaged">파손</option>
