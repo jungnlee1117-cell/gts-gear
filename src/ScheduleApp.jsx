@@ -14,6 +14,7 @@ import EventsScheduleView from "./schedule/EventsScheduleView.jsx";
 import ScheduleChangeAlertsView from "./schedule/ScheduleChangeAlertsView.jsx";
 import MonthlySettlementView from "./schedule/MonthlySettlementView.jsx";
 import TemporaryTeachersView from "./schedule/TemporaryTeachersView.jsx";
+import TeacherPayRatesView from "./schedule/TeacherPayRatesView.jsx";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { isScheduleSuperAdmin } from "./schedule/managerScope.js";
 
