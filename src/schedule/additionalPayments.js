@@ -1,9 +1,3 @@
-import {
-  mergeTeacherAdditionalPayments,
-  monthlyTeacherBonusAmount,
-  sumMergedAdditionalPayments,
-} from "./institutionTeacherPay.js";
-
 /** 스케줄·분 계산과 무관하게 월 총액 고정 (teacherId + YYYY-MM) */
 export const FIXED_GROSS_PAY = [
   {
@@ -58,11 +52,7 @@ export function resolveTeacherMonthlyGross(
   const fixedMonth = findFixedGrossPay(teacherId, yearMonth);
   if (fixedMonth) return fixedMonth.gross;
 
-  const merged = teacherName
-    ? mergeTeacherAdditionalPayments(teacherName, additionalPayments)
-    : (additionalPayments || []);
-  const additionalTotal = sumMergedAdditionalPayments(merged)
-    + monthlyTeacherBonusAmount(teacherName);
+  const additionalTotal = sumAdditionalPayments(additionalPayments);
 
   const fixedSalary = findFixedMonthlySalary(teacherId);
   if (fixedSalary) {

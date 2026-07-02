@@ -15,7 +15,7 @@ function entriesForTeacher(entries, teacherId) {
   return (entries || []).filter(e => e.teacher_id === teacherId);
 }
 
-/** 원별 강사료 — 고정급·추가금 */
+/** 원별 강사료 — 고정급 (기관별 추가수당은 additional_payments DB, 원별 breakdown 미연동) */
 export const INSTITUTION_INSTRUCTOR_RULES = [
   {
     institutionPattern: /광교폴리/,
@@ -23,34 +23,6 @@ export const INSTITUTION_INSTRUCTOR_RULES = [
     mode: "fixed_monthly",
     amount: 2600000,
     label: "고정 계약급",
-  },
-  {
-    institutionPattern: /수지폴리\s*본관/,
-    teacherName: "김종현",
-    mode: "monthly_bonus",
-    amount: 100000,
-    label: "추가금액",
-  },
-];
-
-/** 강사 월 추가수당 — 기관별 분리 표시 (윤한경) */
-export const TEACHER_INSTITUTION_ADDITIONAL = [
-  {
-    teacherName: "윤한경",
-    items: [
-      {
-        institutionPattern: /프랜시스/,
-        amount: 50000,
-        reason: "프랜시스파커 추가수당",
-        managerName: "양의인",
-      },
-      {
-        institutionPattern: /관악/,
-        amount: 50000,
-        reason: "관악SLP 추가수당",
-        managerName: "오정석",
-      },
-    ],
   },
 ];
 
@@ -87,26 +59,6 @@ export function findInstitutionInstructorRules(institution) {
   );
 }
 
-export function findCodedTeacherAdditional(teacherName) {
-  return TEACHER_INSTITUTION_ADDITIONAL.find(t => t.teacherName === teacherName) ?? null;
-}
-
-/** 원별 강사 추가수당 (정산 차감 아님 · 화면 표시용) */
-export function institutionCodedAdditionalAllowances(institution) {
-  const items = [];
-  for (const config of TEACHER_INSTITUTION_ADDITIONAL) {
-    for (const item of config.items) {
-      if (!matchInstitutionName(institution?.name, item.institutionPattern)) continue;
-      items.push({
-        teacherName: config.teacherName,
-        reason: item.reason,
-        amount: item.amount,
-      });
-    }
-  }
-  return items;
-}
-
 export function formatInstitutionTeacherAdditionalAllowances(allowances) {
   return (allowances || []).map(a =>
     `${a.teacherName} ${a.reason} ${Number(a.amount).toLocaleString("ko-KR")}원`,
@@ -117,86 +69,8 @@ export function sumInstitutionCodedAdditionalAllowances(allowances) {
   return (allowances || []).reduce((s, a) => s + Number(a.amount || 0), 0);
 }
 
-/** 월 1회만 합산되는 강사 보너스 (수지폴리 본관·김종현 등) */
-export function monthlyTeacherBonusAmount(teacherName, institutions = null, managedInstitutionIds = null) {
-  const rules = INSTITUTION_INSTRUCTOR_RULES.filter(
-    r => r.mode === "monthly_bonus" && r.teacherName === teacherName,
-  );
-  if (!rules.length) return 0;
-  if (!institutions || !managedInstitutionIds?.size) {
-    return rules.reduce((s, r) => s + r.amount, 0);
-  }
-  return rules.reduce((sum, rule) => {
-    const applies = institutions.some(inst =>
-      managedInstitutionIds.has(inst.id)
-      && matchInstitutionName(inst.name, rule.institutionPattern),
-    );
-    return applies ? sum + rule.amount : sum;
-  }, 0);
-}
-
-export function monthlyTeacherBonusDisplayItems(teacherName, institutions = null, managedInstitutionIds = null) {
-  return INSTITUTION_INSTRUCTOR_RULES.filter(
-    r => r.mode === "monthly_bonus" && r.teacherName === teacherName,
-  ).filter(r => {
-    if (!institutions || !managedInstitutionIds?.size) return true;
-    return institutions.some(inst =>
-      managedInstitutionIds.has(inst.id)
-      && matchInstitutionName(inst.name, r.institutionPattern),
-    );
-  }).map((r, idx) => ({
-    id: `monthly-bonus-${teacherName}-${idx}`,
-    reason: r.label,
-    amount: r.amount,
-    coded: true,
-  }));
-}
-
-/**
- * DB additional_payments + 기관별 코딩 수당 병합 (중복 합산 방지)
- * 윤한경: DB에 통합 10만이 있어도 화면에는 5만+5만으로 표시
- */
-export function mergeTeacherAdditionalPayments(teacherName, dbPayments = [], teacherId = null) {
-  const coded = findCodedTeacherAdditional(teacherName);
-  if (!coded) return dbPayments || [];
-
-  const codedItems = coded.items.map((item, idx) => ({
-    id: `coded-additional-${teacherName}-${idx}`,
-    teacher_id: teacherId || dbPayments[0]?.teacher_id,
-    amount: item.amount,
-    reason: item.reason,
-    institutionPattern: item.institutionPattern,
-    managerName: item.managerName,
-    coded: true,
-  }));
-
-  const codedTotal = codedItems.reduce((s, p) => s + Number(p.amount || 0), 0);
-  const dbTotal = (dbPayments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
-
-  if (dbTotal >= codedTotal && dbTotal > 0) {
-    return codedItems.map((item, idx) => ({
-      ...item,
-      teacher_id: teacherId || dbPayments[0]?.teacher_id,
-      id: dbPayments[idx]?.id ?? item.id,
-    }));
-  }
-
-  if (!dbPayments?.length) return codedItems;
-  if (dbTotal > 0 && dbTotal < codedTotal) {
-    return codedItems.map(item => ({
-      ...item,
-      teacher_id: teacherId || dbPayments[0]?.teacher_id,
-    }));
-  }
-  return [...dbPayments, ...codedItems];
-}
-
-export function sumMergedAdditionalPayments(mergedPayments) {
-  const coded = (mergedPayments || []).filter(p => p.coded);
-  if (coded.length) {
-    return coded.reduce((s, p) => s + Number(p.amount || 0), 0);
-  }
-  return (mergedPayments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+export function sumMergedAdditionalPayments(payments) {
+  return (payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
 }
 
 export function supplementaryInstructorPayAtInstitution({
@@ -285,16 +159,6 @@ export function computeInstitutionInstructorCost({
         superAdminOnly: false,
       });
     }
-
-    if (rule.mode === "monthly_bonus") {
-      breakdown.push({
-        teacherName: rule.teacherName,
-        label: rule.label,
-        amount: rule.amount,
-        kind: "bonus",
-        superAdminOnly: false,
-      });
-    }
   }
 
   const fixedPayout = institution?.contract_type === "manager_fixed_payout"
@@ -329,17 +193,7 @@ export function computeInstitutionInstructorCost({
     });
   }
 
-  const additionalAllowances = institutionCodedAdditionalAllowances(institution);
-  for (const item of additionalAllowances) {
-    breakdown.push({
-      teacherName: item.teacherName,
-      label: item.reason,
-      amount: item.amount,
-      kind: "teacher_additional",
-      superAdminOnly: false,
-    });
-  }
-  const allowanceTotal = sumInstitutionCodedAdditionalAllowances(additionalAllowances);
+  const allowanceTotal = 0;
 
   const temporaryCost = yearMonth
     ? computeTemporaryInstructorCostForInstitution({
@@ -401,15 +255,10 @@ export function expandScopedTeacherRows({
 
   for (const row of teacherRows || []) {
     if (seen.has(row.teacher.id)) continue;
-    const name = row.teacher.name;
-    const hasDbAdditional = (additionalPayments || []).some(p => p.teacher_id === row.teacher.id);
-    const coded = findCodedTeacherAdditional(name);
-    const linked = coded?.items?.some(item =>
-      (institutions || []).some(inst =>
-        idSet.has(inst.id) && matchInstitutionName(inst.name, item.institutionPattern),
-      ),
+    const hasDbAdditional = (additionalPayments || []).some(
+      p => p.teacher_id === row.teacher.id,
     );
-    if (hasDbAdditional || linked) extras.push(row);
+    if (hasDbAdditional) extras.push(row);
   }
 
   return [...base, ...extras];
@@ -420,35 +269,11 @@ export function filterAdditionalPaymentsForScope(payments, scopedTeacherIds) {
   return (payments || []).filter(p => ids.has(p.teacher_id));
 }
 
-/** 지역 관리자 — 담당 원에 연결된 코딩 추가수당만 표시 */
-export function filterTeacherAdditionalForScope(payments, institutions, managedInstitutionIds) {
-  const idSet = managedInstitutionIds ?? new Set();
-  return (payments || []).filter(p => {
-    if (String(p.id || "").startsWith("monthly-bonus-")) {
-      const match = String(p.id).match(/^monthly-bonus-(.+)-\d+$/);
-      const teacherName = match?.[1] ?? "";
-      return INSTITUTION_INSTRUCTOR_RULES.some(rule =>
-        rule.mode === "monthly_bonus"
-        && rule.teacherName === teacherName
-        && (institutions || []).some(inst =>
-          idSet.has(inst.id) && matchInstitutionName(inst.name, rule.institutionPattern),
-        ),
-      );
-    }
-    if (!p.coded) return true;
-    if (p.institutionPattern) {
-      return (institutions || []).some(inst =>
-        idSet.has(inst.id) && matchInstitutionName(inst.name, p.institutionPattern),
-      );
-    }
-    return false;
-  });
+/** 지역 관리자 — 강사별 추가수당 (additional_payments는 teacher_id 기준만) */
+export function filterTeacherAdditionalForScope(payments) {
+  return payments || [];
 }
 
 export function sumScopedAdditionalPayments(payments) {
-  const coded = (payments || []).filter(p => p.coded);
-  if (coded.length) {
-    return coded.reduce((s, p) => s + Number(p.amount || 0), 0);
-  }
   return (payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
 }

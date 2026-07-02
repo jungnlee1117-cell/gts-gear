@@ -5,9 +5,6 @@ import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBill
 import {
   computeInstitutionInstructorCost,
   applyManagerShareAdjustments,
-  mergeTeacherAdditionalPayments,
-  monthlyTeacherBonusAmount,
-  monthlyTeacherBonusDisplayItems,
   sumMergedAdditionalPayments,
 } from "./institutionTeacherPay.js";
 import { buildTempTeacherPayrollRows, engagementOverlapsMonth } from "./temporaryTeachers.js";
@@ -908,18 +905,26 @@ export async function fetchAdditionalPayments({ teacherId, yearMonth } = {}) {
   let q = scheduleSupabase
     .from("additional_payments")
     .select("*")
-    .order("created_at", { ascending: true });
+    .order("year_month", { ascending: true });
   if (teacherId) q = q.eq("teacher_id", teacherId);
-  if (yearMonth) q = q.eq("year_month", yearMonthFirstDay(yearMonth));
+  if (yearMonth) {
+    q = q.eq("year_month", toYearMonthDate(yearMonth));
+  }
   const { data, error } = await q;
   if (error) throw error;
   return data || [];
 }
 
+function toYearMonthDate(key) {
+  if (!key) return null;
+  const ym = String(key).slice(0, 7);
+  return `${ym}-01`;
+}
+
 export async function insertAdditionalPayment(payload) {
   const row = {
     teacher_id: payload.teacher_id,
-    year_month: yearMonthFirstDay(payload.year_month),
+    year_month: toYearMonthDate(payload.year_month),
     amount: Number(payload.amount),
     reason: payload.reason.trim(),
     created_by: payload.created_by,
@@ -933,12 +938,110 @@ export async function insertAdditionalPayment(payload) {
   return data;
 }
 
+export async function updateAdditionalPayment(id, payload) {
+  const { data, error } = await scheduleSupabase
+    .from("additional_payments")
+    .update({
+      amount: Number(payload.amount),
+      reason: payload.reason.trim(),
+      year_month: toYearMonthDate(payload.year_month),
+    })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 export async function deleteAdditionalPayment(id) {
   const { error } = await scheduleSupabase
     .from("additional_payments")
     .delete()
     .eq("id", id);
   if (error) throw error;
+}
+
+export async function fetchAdditionalPaymentRequests({ teacherId, yearMonth, status } = {}) {
+  let q = scheduleSupabase
+    .from("additional_payment_requests")
+    .select("*, teachers(id, name)")
+    .order("created_at", { ascending: false });
+  if (teacherId) q = q.eq("teacher_id", teacherId);
+  if (yearMonth) q = q.eq("year_month", yearMonthFirstDay(yearMonth));
+  if (status) q = q.eq("status", status);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function insertAdditionalPaymentRequest({ teacher_id, year_month, amount, reason, memo }) {
+  const { data, error } = await scheduleSupabase
+    .from("additional_payment_requests")
+    .insert({
+      teacher_id,
+      year_month: yearMonthFirstDay(year_month),
+      amount: Number(amount),
+      reason: reason.trim(),
+      memo: memo?.trim() || null,
+      status: "pending",
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function approveAdditionalPaymentRequest(requestId, { reviewed_by, created_by }) {
+  const { data: req, error: fetchErr } = await scheduleSupabase
+    .from("additional_payment_requests")
+    .select("*")
+    .eq("id", requestId)
+    .single();
+  if (fetchErr || !req) throw fetchErr || new Error("신청을 찾을 수 없습니다.");
+  if (req.status !== "pending") throw new Error("이미 처리된 신청입니다.");
+
+  const payment = await insertAdditionalPayment({
+    teacher_id: req.teacher_id,
+    year_month: req.year_month,
+    amount: req.amount,
+    reason: req.reason,
+    created_by: created_by || reviewed_by,
+  });
+
+  const now = new Date().toISOString();
+  const { data, error } = await scheduleSupabase
+    .from("additional_payment_requests")
+    .update({
+      status: "approved",
+      reviewed_by,
+      reviewed_at: now,
+      additional_payment_id: payment.id,
+    })
+    .eq("id", requestId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function rejectAdditionalPaymentRequest(requestId, { reviewed_by, rejection_reason }) {
+  const reason = (rejection_reason || "").trim();
+  if (!reason) throw new Error("반려 사유를 입력하세요.");
+  const now = new Date().toISOString();
+  const { data, error } = await scheduleSupabase
+    .from("additional_payment_requests")
+    .update({
+      status: "rejected",
+      rejection_reason: reason,
+      reviewed_by,
+      reviewed_at: now,
+    })
+    .eq("id", requestId)
+    .eq("status", "pending")
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 export async function fetchSettlements(yearMonth) {
@@ -1188,14 +1291,7 @@ export async function loadPayrollDashboard(yearMonth) {
         rates,
       );
       const teacherAdditional = additionalPayments.filter(p => p.teacher_id === t.id);
-      const mergedAdditional = mergeTeacherAdditionalPayments(t.name, teacherAdditional, t.id)
-        .map(p => ({ ...p, teacher_id: p.teacher_id || t.id }));
-      const displayAdditional = [
-        ...mergedAdditional,
-        ...monthlyTeacherBonusDisplayItems(t.name),
-      ];
-      const additionalTotal = sumMergedAdditionalPayments(mergedAdditional)
-        + monthlyTeacherBonusAmount(t.name);
+      const additionalTotal = sumMergedAdditionalPayments(teacherAdditional);
       const estimatedPay = resolveTeacherMonthlyGross(
         t.id, yearMonth, lessonPay, teacherAdditional, t.name,
       );
@@ -1221,7 +1317,7 @@ export async function loadPayrollDashboard(yearMonth) {
         byType,
         totalMinutes: Object.values(byType).reduce((s, n) => s + n, 0),
         lessonPay,
-        additionalPayments: displayAdditional,
+        additionalPayments: teacherAdditional,
         additionalTotal,
         estimatedPay,
         lastEntryDate: lastEntry?.class_date ?? null,

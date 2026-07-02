@@ -8011,6 +8011,59 @@ code {
   display: inline-block; margin-right: 8px; font-weight: 800; color: #334155; font-size: 13px;
 }
 .sch-additional-pay-line { font-size: 13px; color: #0f172a; }
+.sch-additional-pay-actions {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+}
+.sch-additional-pay-form--extended {
+  max-width: none;
+}
+@media (min-width: 900px) {
+  .sch-additional-pay-form--extended {
+    grid-template-columns: 1fr 130px 1.2fr 120px auto;
+  }
+}
+
+.sch-additional-request-section { margin-top: 8px; }
+.sch-section-header-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 8px;
+}
+.sch-section-header-row h3 { margin: 0; }
+.sch-additional-request-form {
+  display: grid; gap: 10px; max-width: 520px; margin-bottom: 16px;
+}
+.sch-additional-request-list {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 8px;
+}
+.sch-additional-request-item {
+  padding: 12px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+}
+.sch-additional-request-item--pending {
+  border-color: #fcd34d; background: #fffbeb;
+}
+.sch-additional-request-main {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+}
+.sch-additional-request-teacher { font-weight: 800; color: #334155; font-size: 13px; }
+.sch-additional-request-reason { font-size: 13px; color: #0f172a; }
+.sch-additional-request-amount { font-weight: 700; font-size: 13px; color: #15803d; margin-left: auto; }
+.sch-additional-request-memo { margin: 6px 0 0; font-size: 12px; }
+.sch-additional-request-rejection {
+  margin: 6px 0 0; font-size: 12px; color: #b91c1c;
+}
+.sch-additional-request-actions {
+  display: flex; gap: 8px; margin-top: 10px;
+}
+.sch-additional-request-subtitle {
+  margin: 16px 0 8px; font-size: 13px; font-weight: 800; color: #475569;
+}
+.sch-request-status {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 800;
+}
+.sch-request-status--pending { background: #fef3c7; color: #92400e; }
+.sch-request-status--approved { background: #dcfce7; color: #166534; }
+.sch-request-status--rejected { background: #fee2e2; color: #991b1b; }
 
 .sch-additional-pay-summary {
   margin: 0 0 16px; padding: 14px 16px;

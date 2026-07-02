@@ -9,14 +9,10 @@ import {
   findFixedMonthlySalary,
   formatTeacherAdditionalLine,
   resolveTeacherMonthlyGross,
+  sumAdditionalPayments,
   withholdingTax333,
 } from "./additionalPayments.js";
-import {
-  mergeTeacherAdditionalPayments,
-  monthlyTeacherBonusAmount,
-  monthlyTeacherBonusDisplayItems,
-  sumMergedAdditionalPayments,
-} from "./institutionTeacherPay.js";
+import AdditionalPaymentRequestsTeacherSection from "./AdditionalPaymentRequestsTeacherSection.jsx";
 import {
   deletePayrollEntry,
   deleteTeacherNote,
@@ -81,6 +77,7 @@ export default function PayrollTeacherView({
 }) {
   const teacherId = subjectTeacher?.id ?? me.id;
   const teacherName = subjectTeacher?.name ?? me.name;
+  const canEditPayroll = !adminInspectMode || isScheduleSuperAdmin(me);
   const today = new Date();
   const todayStr = fmtLocalDate(today);
   const [yearMonth, setYearMonth] = useState(initialYearMonth ?? yearMonthKey());
@@ -211,14 +208,7 @@ export default function PayrollTeacherView({
     () => findFixedMonthlySalary(teacherId),
     [teacherId],
   );
-  const mergedAdditionalPayments = useMemo(
-    () => mergeTeacherAdditionalPayments(teacherName, additionalPayments),
-    [teacherName, additionalPayments],
-  );
-  const displayAdditionalPayments = useMemo(
-    () => [...mergedAdditionalPayments, ...monthlyTeacherBonusDisplayItems(teacherName)],
-    [mergedAdditionalPayments, teacherName],
-  );
+  const displayAdditionalPayments = additionalPayments;
   const totalPay = useMemo(
     () => resolveTeacherMonthlyGross(
       teacherId, yearMonth, lessonPay, additionalPayments, teacherName,
@@ -226,9 +216,8 @@ export default function PayrollTeacherView({
     [teacherId, yearMonth, lessonPay, additionalPayments, teacherName],
   );
   const additionalTotal = useMemo(
-    () => sumMergedAdditionalPayments(mergedAdditionalPayments)
-      + monthlyTeacherBonusAmount(teacherName),
-    [mergedAdditionalPayments, teacherName],
+    () => sumAdditionalPayments(additionalPayments),
+    [additionalPayments],
   );
   const unconfirmedDays = useMemo(
     () => countUnconfirmedDays(scheduleByDate, entries, today),
@@ -591,6 +580,9 @@ export default function PayrollTeacherView({
         <h2 className="sch-view-title">
           {adminInspectMode ? `${teacherName} 선생님 · ${year}년 ${month + 1}월` : "내 수업과 급여"}
         </h2>
+        {adminInspectMode && canEditPayroll ? (
+          <p className="sch-muted sch-payroll-admin-inspect-hint">슈퍼관리자 · 수업시간 등록·수정 가능</p>
+        ) : null}
       </header>
 
       <PayrollMonthNotices exceptions={exceptions} year={year} month={month}/>
@@ -721,7 +713,7 @@ export default function PayrollTeacherView({
             </button>
           </div>
 
-          {!adminInspectMode ? (
+          {canEditPayroll ? (
             <TeacherNotesMonthList
               notes={teacherNotes}
               year={year}
@@ -793,7 +785,7 @@ export default function PayrollTeacherView({
                               <Pencil size={13}/> 수정
                             </button>
                             {status ? (
-                              !adminInspectMode ? (
+                              canEditPayroll ? (
                                 <button
                                   type="button"
                                   className="sch-btn sch-btn--ghost sch-payroll-edit-btn sch-payroll-edit-btn--muted"
@@ -841,7 +833,7 @@ export default function PayrollTeacherView({
                               ) : null}
                               {locked ? <span className="sch-lock-badge">정산 확정</span> : null}
                             </div>
-                            {!locked && !adminInspectMode ? (
+                            {!locked && canEditPayroll ? (
                               <div className="sch-payroll-slot-row-actions">
                                 <button
                                   type="button"
@@ -868,7 +860,7 @@ export default function PayrollTeacherView({
                   </>
                 ) : null}
 
-                {selectedPlanned.length > 0 && selectedDateConfirmable && dayHasUnlockable && !adminInspectMode ? (
+                {selectedPlanned.length > 0 && selectedDateConfirmable && dayHasUnlockable && canEditPayroll ? (
                   <div className="sch-payroll-day-actions">
                     <button
                       type="button"
@@ -902,7 +894,7 @@ export default function PayrollTeacherView({
                 ) : null}
               </>
             )}
-            {!adminInspectMode ? (
+            {canEditPayroll ? (
               <TeacherNoteDayEditor
                 noteDate={selectedDateStr}
                 note={selectedNote}
@@ -913,7 +905,7 @@ export default function PayrollTeacherView({
             ) : null}
           </section>
 
-          {!adminInspectMode ? (
+          {canEditPayroll ? (
           <details className="sch-payroll-extra">
             <summary>스케줄에 없는 수업 (개인레슨 등) 직접 추가</summary>
             <form className="sch-form sch-form--mobile" onSubmit={handleExtraSubmit}>
@@ -952,7 +944,7 @@ export default function PayrollTeacherView({
         </>
       )}
 
-      {!loading && !adminInspectMode && isScheduleSuperAdmin(me) ? (
+      {!loading && isScheduleSuperAdmin(me) ? (
         <PayrollDebugPanel
           weeklySlots={weeklySlots}
           homeVisitPatterns={monthHomeVisitPatterns}
@@ -1032,6 +1024,12 @@ export default function PayrollTeacherView({
           </p>
         </div>
       </div>
+
+      <AdditionalPaymentRequestsTeacherSection
+        teacherId={teacherId}
+        yearMonth={yearMonth}
+        readOnly={adminInspectMode && !canEditPayroll}
+      />
 
       {customEdit ? (
         <div className="sch-modal-overlay" onClick={() => setCustomEdit(null)}>

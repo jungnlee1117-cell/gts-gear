@@ -11,6 +11,7 @@ import PayrollDebugPanel from "./PayrollDebugPanel.jsx";
 import PayrollTeacherView from "./PayrollTeacherView.jsx";
 import TempTeacherPayrollDetail, { TempTeacherPayrollTableRow } from "./TempTeacherPayrollDetail.jsx";
 import AdditionalPaymentsAdminSection from "./AdditionalPaymentsAdminSection.jsx";
+import AdditionalPaymentRequestsAdminSection from "./AdditionalPaymentRequestsAdminSection.jsx";
 import { AdminTeacherNotesSection } from "./TeacherNotesPanel.jsx";
 import { groupNotesByTeacher } from "./teacherNotes.js";
 import { sortInstitutionDashboardRows } from "./institutionSort.js";
@@ -405,11 +406,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   const displayTeacherRows = useMemo(() => {
     if (isScheduleSuperAdmin(me)) return scopedTeacherRows;
     return scopedTeacherRows.map(row => {
-      const scopedAdditional = filterTeacherAdditionalForScope(
-        row.additionalPayments,
-        data?.institutions ?? [],
-        managedInstitutionIds,
-      );
+      const scopedAdditional = filterTeacherAdditionalForScope(row.additionalPayments);
       const additionalTotal = sumScopedAdditionalPayments(scopedAdditional);
       const payDelta = (row.additionalTotal || 0) - additionalTotal;
       return {
@@ -640,8 +637,17 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                 allTeachers={data.teachers}
                 payments={scopedAdditionalPayments}
                 createdById={me.id}
+                isSuperAdmin={superAdmin}
                 onSaved={load}
               />
+
+              {superAdmin ? (
+                <AdditionalPaymentRequestsAdminSection
+                  yearMonth={yearMonth}
+                  reviewerId={me.id}
+                  onSaved={load}
+                />
+              ) : null}
 
               <AdminTeacherNotesSection noteGroups={noteGroups} />
             </div>
