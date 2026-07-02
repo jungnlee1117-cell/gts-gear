@@ -8041,7 +8041,7 @@ const HUB_MODULES = [
     title: "스케줄 관리",
     desc: "선생님 일정과 수업 일정을 한눈에 관리하세요.",
     theme: "teal",
-    features: ["선생님 월별 일정", "원 수업 일정", "급여/정산", "원 관리"],
+    features: ["선생님 월별 일정", "선생님 시간표", "급여/정산", "원 관리"],
     Icon: HubIconCalendar,
     wide: false,
     ready: true,

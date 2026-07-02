@@ -1,40 +1,39 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Search } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import {
   fetchHomeVisitPatterns,
   fetchMonthlyContracts,
   fetchSubstituteAssignmentsForTeacher,
-  fetchTeachers,
   fetchWeeklySchedule,
 } from "./api.js";
 import { yearMonthKey, yearMonthLastDay } from "./constants.js";
-import { isScheduleAdmin } from "./roles.js";
 import UnifiedWeeklyScheduleGrid from "./UnifiedWeeklyScheduleGrid.jsx";
 import { buildUnifiedWeeklyItems, mapStudentCountsByInstitution } from "./unifiedWeeklySchedule.js";
 import { enrichWeeklyItemsWithSubstitutes } from "./substituteSchedule.js";
+import TeacherPickerToolbar, { useTeacherPicker } from "./TeacherPickerToolbar.jsx";
 
-export default function InstitutionScheduleView({ me, onBack }) {
-  const admin = isScheduleAdmin(me);
-  const teacherId = admin ? null : me.id;
+export default function TeacherWeeklyScheduleView({ me, onBack }) {
+  const picker = useTeacherPicker(me);
+  const {
+    admin,
+    activeTeacherId,
+    selectedTeacher,
+    teacherSearch,
+    setTeacherSearch,
+    selectedTeacherId,
+    selectTeacher,
+    filteredTeachers,
+    teacherNotFound,
+    handleTeacherSearchKeyDown,
+  } = picker;
 
-  const [teachers, setTeachers] = useState([]);
-  const [teacherSearch, setTeacherSearch] = useState("");
-  const [selectedTeacherId, setSelectedTeacherId] = useState(admin ? "" : me.id);
   const [institutionSlots, setInstitutionSlots] = useState([]);
   const [homeVisitPatterns, setHomeVisitPatterns] = useState([]);
   const [monthlyContracts, setMonthlyContracts] = useState([]);
   const [substituteAssignments, setSubstituteAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const activeTeacherId = admin ? selectedTeacherId : teacherId;
   const yearMonth = yearMonthKey();
-
-  useEffect(() => {
-    if (!admin) return;
-    fetchTeachers()
-      .then(rows => setTeachers(rows.filter(t => t.role === "teacher")))
-      .catch(console.error);
-  }, [admin]);
 
   useEffect(() => {
     fetchMonthlyContracts()
@@ -46,6 +45,7 @@ export default function InstitutionScheduleView({ me, onBack }) {
     if (!activeTeacherId) {
       setInstitutionSlots([]);
       setHomeVisitPatterns([]);
+      setSubstituteAssignments([]);
       setLoading(false);
       return;
     }
@@ -66,17 +66,6 @@ export default function InstitutionScheduleView({ me, onBack }) {
       .finally(() => setLoading(false));
   }, [activeTeacherId, yearMonth]);
 
-  const filteredTeachers = useMemo(() => {
-    const q = teacherSearch.trim().toLowerCase();
-    if (!q) return teachers;
-    return teachers.filter(t => t.name.toLowerCase().includes(q));
-  }, [teachers, teacherSearch]);
-
-  const selectedTeacher = useMemo(
-    () => teachers.find(t => t.id === selectedTeacherId) ?? null,
-    [teachers, selectedTeacherId],
-  );
-
   const studentCountByInstitution = useMemo(
     () => mapStudentCountsByInstitution(monthlyContracts, yearMonth),
     [monthlyContracts, yearMonth],
@@ -93,36 +82,24 @@ export default function InstitutionScheduleView({ me, onBack }) {
         <button type="button" className="sch-back-btn" onClick={onBack}>
           <ChevronLeft size={18}/> 스케줄 관리
         </button>
-        <h2 className="sch-view-title">원 수업 일정</h2>
+        <h2 className="sch-view-title">선생님 시간표</h2>
         <p className="sch-muted">
           {admin
-            ? "강사별 통합 주간 시간표 — 모든 원 · 가정방문 · 센터"
-            : "배정된 모든 원 · 가정방문 · 센터 시간표"}
+            ? "선생님별 주간 시간표 — 월~금 · 모든 원 · 가정방문 · 센터"
+            : "내 주간 시간표 — 월~금"}
         </p>
       </header>
 
       {admin ? (
-        <div className="sch-toolbar sch-unified-toolbar">
-          <div className="sch-search-inline sch-unified-teacher-search">
-            <Search size={16}/>
-            <input
-              className="sch-input"
-              placeholder="강사 이름 검색"
-              value={teacherSearch}
-              onChange={e => setTeacherSearch(e.target.value)}
-            />
-          </div>
-          <select
-            className="sch-select"
-            value={selectedTeacherId}
-            onChange={e => setSelectedTeacherId(e.target.value)}
-          >
-            <option value="">강사 선택</option>
-            {filteredTeachers.map(t => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </div>
+        <TeacherPickerToolbar
+          teacherSearch={teacherSearch}
+          setTeacherSearch={setTeacherSearch}
+          selectedTeacherId={selectedTeacherId}
+          selectTeacher={selectTeacher}
+          filteredTeachers={filteredTeachers}
+          teacherNotFound={teacherNotFound}
+          handleTeacherSearchKeyDown={handleTeacherSearchKeyDown}
+        />
       ) : null}
 
       {admin && selectedTeacher ? (
@@ -134,7 +111,7 @@ export default function InstitutionScheduleView({ me, onBack }) {
       {loading ? (
         <p className="sch-muted">불러오는 중...</p>
       ) : !activeTeacherId ? (
-        <p className="sch-muted sch-unified-empty-prompt">강사를 선택하면 통합 시간표가 표시됩니다.</p>
+        <p className="sch-muted sch-unified-empty-prompt">선생님을 선택하면 주간 시간표가 표시됩니다.</p>
       ) : (
         <UnifiedWeeklyScheduleGrid
           items={weeklyItems}

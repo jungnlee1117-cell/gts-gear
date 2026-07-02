@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Trash2 } from "lucide-react";
+import { ChevronLeft, Pencil, Trash2 } from "lucide-react";
 import {
   DAY_LABELS,
   EXCEPTION_LABELS,
@@ -17,7 +17,9 @@ import {
   exceptionsForDate,
   filterExceptionsForMonth,
   formatExceptionNotice,
+  buildExceptionsByDateMap,
 } from "./scheduleExceptions.js";
+import CalendarEventBadges from "./CalendarEventBadges.jsx";
 import { fmtLocalDate, getMonthGrid } from "./payrollCalendar.js";
 import { isScheduleAdmin } from "./roles.js";
 
@@ -29,7 +31,27 @@ const EMPTY_FORM = {
   note: "",
 };
 
-function EventRegisterForm({ form, setForm, institutions, saving, onSubmit, onCancel, showCancel = false }) {
+function exceptionToForm(ex) {
+  return {
+    id: ex.id,
+    institution_id: ex.institution_id || "",
+    start_date: ex.exception_date || "",
+    end_date: ex.end_date && ex.end_date !== ex.exception_date ? ex.end_date : "",
+    exception_type: ex.exception_type || "event",
+    note: ex.note || "",
+  };
+}
+
+function EventRegisterForm({
+  form,
+  setForm,
+  institutions,
+  saving,
+  onSubmit,
+  onCancel,
+  showCancel = false,
+  submitLabel = "안내 저장",
+}) {
   return (
     <form className="sch-form sch-events-form" onSubmit={onSubmit}>
       <label className="sch-field">
@@ -82,7 +104,7 @@ function EventRegisterForm({ form, setForm, institutions, saving, onSubmit, onCa
           </button>
         ) : null}
         <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
-          {saving ? "저장 중..." : "안내 저장"}
+          {saving ? "저장 중..." : submitLabel}
         </button>
       </div>
     </form>
@@ -99,6 +121,7 @@ export default function EventsScheduleView({ me, onBack }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [selectedDate, setSelectedDate] = useState(() => fmtLocalDate(new Date()));
   const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [editingException, setEditingException] = useState(null);
 
   const [y, m] = yearMonth.split("-").map(Number);
   const monthStart = `${yearMonth}-01`;
@@ -133,22 +156,10 @@ export default function EventsScheduleView({ me, onBack }) {
     [monthExceptions, selectedDate],
   );
 
-  const exceptionsByDate = useMemo(() => {
-    const map = {};
-    for (const ex of monthExceptions) {
-      const end = ex.end_date || ex.exception_date;
-      let cur = ex.exception_date;
-      while (cur <= end) {
-        if (cur >= monthStart && cur <= monthEnd) {
-          if (!map[cur]) map[cur] = [];
-          if (!map[cur].some(e => e.id === ex.id)) map[cur].push(ex);
-        }
-        const [cy, cm, cd] = cur.split("-").map(Number);
-        cur = fmtLocalDate(new Date(cy, cm - 1, cd + 1));
-      }
-    }
-    return map;
-  }, [monthExceptions, monthStart, monthEnd]);
+  const exceptionsByDate = useMemo(
+    () => buildExceptionsByDateMap(monthExceptions, monthStart, monthEnd),
+    [monthExceptions, monthStart, monthEnd],
+  );
 
   const gridCells = useMemo(() => getMonthGrid(y, m - 1), [y, m]);
 
@@ -164,6 +175,16 @@ export default function EventsScheduleView({ me, onBack }) {
     setShowRegisterModal(false);
   };
 
+  const openEdit = (ex) => {
+    setEditingException(ex);
+    setForm(exceptionToForm(ex));
+  };
+
+  const closeEditModal = () => {
+    setEditingException(null);
+    setForm(EMPTY_FORM);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!admin) return;
@@ -174,15 +195,20 @@ export default function EventsScheduleView({ me, onBack }) {
     if (end < form.start_date) return alert("종료일은 시작일 이후여야 합니다.");
     setSaving(true);
     try {
-      await saveScheduleException({
+      const payload = {
         institution_id: form.institution_id,
         exception_date: form.start_date,
         end_date: form.end_date && form.end_date !== form.start_date ? form.end_date : null,
         exception_type: form.exception_type,
         note: form.note.trim(),
-      });
+      };
+      if (form.id) payload.id = form.id;
+
+      await saveScheduleException(payload);
       setForm(EMPTY_FORM);
       setShowRegisterModal(false);
+      setEditingException(null);
+      setSelectedDate(form.start_date);
       await load();
     } catch (err) {
       alert("저장 실패: " + err.message);
@@ -257,10 +283,26 @@ export default function EventsScheduleView({ me, onBack }) {
                         <td>{ex.note || "—"}</td>
                         {admin ? (
                           <td>
-                            <button type="button" className="sch-btn sch-btn--ghost sch-btn--sm" disabled={saving}
-                              onClick={() => handleDelete(ex.id)}>
-                              <Trash2 size={13}/>
-                            </button>
+                            <div className="sch-events-row-actions">
+                              <button
+                                type="button"
+                                className="sch-btn sch-btn--ghost sch-btn--sm"
+                                disabled={saving}
+                                onClick={() => openEdit(ex)}
+                                aria-label="수정"
+                              >
+                                <Pencil size={13}/>
+                              </button>
+                              <button
+                                type="button"
+                                className="sch-btn sch-btn--ghost sch-btn--sm"
+                                disabled={saving}
+                                onClick={() => handleDelete(ex.id)}
+                                aria-label="삭제"
+                              >
+                                <Trash2 size={13}/>
+                              </button>
+                            </div>
                           </td>
                         ) : null}
                       </tr>
@@ -291,7 +333,6 @@ export default function EventsScheduleView({ me, onBack }) {
                 const dateStr = fmtLocalDate(date);
                 const dayEx = inMonth ? (exceptionsByDate[dateStr] || []) : [];
                 const isSelected = selectedDate === dateStr;
-                const instIds = [...new Set(dayEx.map(ex => ex.institution_id))];
                 return (
                   <button
                     key={dateStr}
@@ -310,11 +351,7 @@ export default function EventsScheduleView({ me, onBack }) {
                   >
                     <span className="sch-cal-day-num">{date.getDate()}</span>
                     {dayEx.length > 0 ? (
-                      <span className="sch-cal-dots">
-                        {instIds.slice(0, 4).map(id => (
-                          <span key={id} className="sch-cal-dot" style={{ background: institutionColor(id) }}/>
-                        ))}
-                      </span>
+                      <CalendarEventBadges events={dayEx} maxVisible={4}/>
                     ) : null}
                   </button>
                 );
@@ -337,10 +374,26 @@ export default function EventsScheduleView({ me, onBack }) {
                     </span>
                     <span>{formatExceptionNotice(ex)}</span>
                     {admin ? (
-                      <button type="button" className="sch-btn sch-btn--ghost sch-btn--sm" disabled={saving}
-                        onClick={() => handleDelete(ex.id)}>
-                        <Trash2 size={13}/>
-                      </button>
+                      <div className="sch-events-row-actions">
+                        <button
+                          type="button"
+                          className="sch-btn sch-btn--ghost sch-btn--sm"
+                          disabled={saving}
+                          onClick={() => openEdit(ex)}
+                          aria-label="수정"
+                        >
+                          <Pencil size={13}/>
+                        </button>
+                        <button
+                          type="button"
+                          className="sch-btn sch-btn--ghost sch-btn--sm"
+                          disabled={saving}
+                          onClick={() => handleDelete(ex.id)}
+                          aria-label="삭제"
+                        >
+                          <Trash2 size={13}/>
+                        </button>
+                      </div>
                     ) : null}
                   </li>
                 ))}
@@ -377,6 +430,26 @@ export default function EventsScheduleView({ me, onBack }) {
               onSubmit={handleSubmit}
               onCancel={closeRegisterModal}
               showCancel
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {editingException ? (
+        <div className="sch-modal-overlay" onClick={() => !saving && closeEditModal()}>
+          <div className="sch-modal sch-modal--wide" onClick={e => e.stopPropagation()}>
+            <div className="sch-modal-head">
+              <h3>안내 수정 · {editingException.note || "행사"}</h3>
+            </div>
+            <EventRegisterForm
+              form={form}
+              setForm={setForm}
+              institutions={institutions}
+              saving={saving}
+              onSubmit={handleSubmit}
+              onCancel={closeEditModal}
+              showCancel
+              submitLabel="수정 저장"
             />
           </div>
         </div>

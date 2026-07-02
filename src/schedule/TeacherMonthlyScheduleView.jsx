@@ -23,8 +23,14 @@ import {
   upsertTeacherNote,
 } from "./api.js";
 import MonthExceptionNotice from "./MonthExceptionNotice.jsx";
+import CalendarEventBadges from "./CalendarEventBadges.jsx";
 import { TeacherNoteDayEditor, TeacherNotesMonthList } from "./TeacherNotesPanel.jsx";
-import { exceptionsForDate, formatExceptionNotice } from "./scheduleExceptions.js";
+import {
+  exceptionsForDate,
+  formatExceptionNotice,
+  buildExceptionsByDateMap,
+  filterExceptionsForInstitutions,
+} from "./scheduleExceptions.js";
 import { noteByDate } from "./teacherNotes.js";
 import {
   getKoreanHoliday,
@@ -40,7 +46,15 @@ import { applySubstituteOverlaysToSchedule } from "./substituteSchedule.js";
 
 const TODAY = new Date();
 
-export default function TeacherMonthlyScheduleView({ me, onBack }) {
+export default function TeacherMonthlyScheduleView({
+  me,
+  onBack,
+  targetTeacherId = null,
+  targetTeacherName = null,
+  embedded = false,
+}) {
+  const teacherId = targetTeacherId || me.id;
+  const canEditNotes = teacherId === me.id;
   const [monthBase, setMonthBase] = useState(() => new Date(TODAY.getFullYear(), TODAY.getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => new Date(TODAY));
   const [slots, setSlots] = useState([]);
@@ -69,17 +83,29 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
     setLoading(true);
     try {
       const [w, hv, insts, ex, notes, ents, subs] = await Promise.all([
-        fetchWeeklySchedule(null, me.id),
-        fetchHomeVisitPatterns({ teacherId: me.id }),
-        fetchInstitutions({ teacherScope: true }),
+        fetchWeeklySchedule(null, teacherId),
+        fetchHomeVisitPatterns({ teacherId }),
+        teacherId === me.id
+          ? fetchInstitutions({ teacherScope: true })
+          : Promise.resolve([]),
         fetchScheduleExceptions(null, rangeFrom, rangeTo),
-        fetchTeacherNotes({ teacherId: me.id, fromDate: rangeFrom, toDate: rangeTo }),
-        fetchPayrollEntries({ teacherId: me.id, yearMonth }),
-        fetchSubstituteAssignmentsForTeacher(me.id, rangeFrom, rangeTo),
+        canEditNotes
+          ? fetchTeacherNotes({ teacherId, fromDate: rangeFrom, toDate: rangeTo })
+          : Promise.resolve([]),
+        fetchPayrollEntries({ teacherId, yearMonth }),
+        fetchSubstituteAssignmentsForTeacher(teacherId, rangeFrom, rangeTo),
       ]);
       setSlots(w);
       setHomeVisitPatterns(hv);
-      setAssignedInstitutions(insts);
+      if (teacherId === me.id) {
+        setAssignedInstitutions(insts);
+      } else {
+        const byId = new Map();
+        for (const slot of w) {
+          if (slot.institutions?.id) byId.set(slot.institutions.id, slot.institutions);
+        }
+        setAssignedInstitutions([...byId.values()]);
+      }
       setExceptions(ex);
       setTeacherNotes(notes);
       setEntries(ents);
@@ -89,7 +115,7 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
     } finally {
       setLoading(false);
     }
-  }, [me.id, rangeFrom, rangeTo, yearMonth]);
+  }, [teacherId, me.id, rangeFrom, rangeTo, yearMonth, canEditNotes]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -98,9 +124,19 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
     [homeVisitPatterns, rangeFrom, rangeTo],
   );
 
+  const teacherInstitutionIds = useMemo(
+    () => new Set(slots.map(s => s.institution_id).filter(Boolean)),
+    [slots],
+  );
+
+  const teacherExceptions = useMemo(
+    () => filterExceptionsForInstitutions(exceptions, teacherInstitutionIds),
+    [exceptions, teacherInstitutionIds],
+  );
+
   const scheduleByDate = useMemo(
-    () => expandMonthSchedule(slots, year, month, exceptions, monthHomeVisitPatterns),
-    [slots, year, month, exceptions, monthHomeVisitPatterns],
+    () => expandMonthSchedule(slots, year, month, teacherExceptions, monthHomeVisitPatterns),
+    [slots, year, month, teacherExceptions, monthHomeVisitPatterns],
   );
 
   const displayScheduleByDate = useMemo(
@@ -124,9 +160,15 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
 
   const selectedDateStr = fmtLocalDate(selectedDate);
   const selectedDow = selectedDate.getDay();
+
+  const exceptionsByDate = useMemo(
+    () => buildExceptionsByDateMap(teacherExceptions, rangeFrom, rangeTo),
+    [teacherExceptions, rangeFrom, rangeTo],
+  );
+
   const selectedDayExceptions = useMemo(
-    () => exceptionsForDate(exceptions, selectedDateStr),
-    [exceptions, selectedDateStr],
+    () => exceptionsForDate(teacherExceptions, selectedDateStr),
+    [teacherExceptions, selectedDateStr],
   );
   const selectedNote = noteByDate(teacherNotes, selectedDateStr);
   const selectedHoliday = getKoreanHoliday(selectedDateStr);
@@ -143,6 +185,7 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
   };
 
   const handleNoteSave = async ({ note_date, content, id }) => {
+    if (!canEditNotes) return;
     setNoteSaving(true);
     try {
       await upsertTeacherNote({ id, teacher_id: me.id, note_date, content });
@@ -155,6 +198,7 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
   };
 
   const handleNoteDelete = async (id) => {
+    if (!canEditNotes) return;
     if (!confirm("이 날짜 메모를 삭제할까요?")) return;
     setNoteSaving(true);
     try {
@@ -179,13 +223,19 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
   };
 
   return (
-    <div className="sch-view">
-      <header className="sch-view-header">
-        <button type="button" className="sch-back-btn" onClick={onBack}>
-          <ChevronLeft size={18}/> 스케줄 관리
-        </button>
-        <h2 className="sch-view-title">선생님 월별 일정</h2>
-      </header>
+    <div className={`sch-view${embedded ? " sch-view--embedded-calendar" : ""}`}>
+      {!embedded ? (
+        <header className="sch-view-header">
+          <button type="button" className="sch-back-btn" onClick={onBack}>
+            <ChevronLeft size={18}/> 스케줄 관리
+          </button>
+          <h2 className="sch-view-title">선생님 월별 일정</h2>
+        </header>
+      ) : targetTeacherName ? (
+        <p className="sch-unified-teacher-banner">
+          <strong>{targetTeacherName}</strong> 선생님 월별 일정
+        </p>
+      ) : null}
 
       <div className="sch-month-nav">
         <button type="button" className="sch-btn sch-btn--ghost" onClick={() => shiftMonth(-1)} aria-label="이전 달">
@@ -238,6 +288,7 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
                 const isSelected = isSameDay(date, selectedDate);
                 const holiday = getKoreanHoliday(dateStr);
                 const markers = uniqueInstitutionsForCell(date);
+                const dayEvents = inMonth ? (exceptionsByDate[dateStr] || []) : [];
                 const planned = inMonth ? (scheduleByDate[dateStr] || []) : [];
                 const statusKind = calendarDayStatusKind(planned, entries, { isHoliday: !!holiday });
 
@@ -252,6 +303,7 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
                       isToday && "sch-cal-cell--today",
                       isSelected && "sch-cal-cell--selected",
                       holiday && "sch-cal-cell--holiday",
+                      dayEvents.length > 0 && "sch-cal-cell--has-events",
                     ].filter(Boolean).join(" ")}
                     onClick={() => setSelectedDate(new Date(date))}
                     aria-label={`${date.getMonth() + 1}월 ${date.getDate()}일${holiday ? ` ${holiday.name}` : ""}${statusKind === "unconfirmed" ? " 미확인" : statusKind === "confirmed" ? " 등록완료" : ""}`}
@@ -263,6 +315,8 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
                       <span className="sch-cal-holiday-label" title={holiday.name}>
                         {holidayShortLabel(holiday.name)}
                       </span>
+                    ) : dayEvents.length > 0 ? (
+                      <CalendarEventBadges events={dayEvents} maxVisible={2} compact/>
                     ) : (
                       <span className="sch-cal-dots">
                         {markers.map(marker => (
@@ -288,15 +342,17 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
             </div>
           </div>
 
-          <MonthExceptionNotice exceptions={exceptions} year={year} month={month}/>
+          <MonthExceptionNotice exceptions={teacherExceptions} year={year} month={month}/>
 
-          <TeacherNotesMonthList
-            notes={teacherNotes}
-            year={year}
-            month={month}
-            selectedDateStr={selectedDateStr}
-            onSelectDate={handleNoteDateSelect}
-          />
+          {canEditNotes ? (
+            <TeacherNotesMonthList
+              notes={teacherNotes}
+              year={year}
+              month={month}
+              selectedDateStr={selectedDateStr}
+              onSelectDate={handleNoteDateSelect}
+            />
+          ) : null}
 
           <section className="sch-cal-detail" aria-live="polite">
             <h3 className="sch-cal-detail-title">
@@ -366,6 +422,7 @@ export default function TeacherMonthlyScheduleView({ me, onBack }) {
               onSave={handleNoteSave}
               onDelete={handleNoteDelete}
               saving={noteSaving}
+              readOnly={!canEditNotes}
             />
           </section>
         </>

@@ -4,7 +4,7 @@
 ALTER TABLE public.resources DROP CONSTRAINT IF EXISTS resources_file_type_check;
 ALTER TABLE public.resources ADD CONSTRAINT resources_file_type_check
   CHECK (file_type IS NULL OR file_type IN (
-    'pdf', 'video', 'image', 'word', 'excel', 'hwp', 'audio', 'other'
+    'pdf', 'video', 'image', 'word', 'excel', 'hwp', 'audio', 'youtube', 'other'
   ));
 
 DROP POLICY IF EXISTS "resources_update_admin" ON public.resources;

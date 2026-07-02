@@ -2,8 +2,8 @@ import { useState } from "react";
 import ScheduleHub from "./schedule/ScheduleHub.jsx";
 import ScheduleSidebar from "./ScheduleSidebar.jsx";
 import PlatformMainButton from "./PlatformMainButton.jsx";
-import TeacherMonthlyScheduleView from "./schedule/TeacherMonthlyScheduleView.jsx";
-import InstitutionScheduleView from "./schedule/InstitutionScheduleView.jsx";
+import TeacherMonthlySchedulePage from "./schedule/TeacherMonthlySchedulePage.jsx";
+import TeacherWeeklyScheduleView from "./schedule/TeacherWeeklyScheduleView.jsx";
 import PayrollTeacherView from "./schedule/PayrollTeacherView.jsx";
 import PayrollAdminView from "./schedule/PayrollAdminView.jsx";
 import InstitutionListView from "./schedule/InstitutionListView.jsx";
@@ -50,9 +50,9 @@ export default function ScheduleApp({ me, onBack }) {
   const renderView = () => {
     switch (view) {
       case "teacher-monthly":
-        return <TeacherMonthlyScheduleView me={me} onBack={goHub}/>;
+        return <TeacherMonthlySchedulePage me={me} onBack={goHub}/>;
       case "institution-schedule":
-        return <InstitutionScheduleView me={me} onBack={goHub}/>;
+        return <TeacherWeeklyScheduleView me={me} onBack={goHub}/>;
       case "home-visit":
         return <HomeVisitScheduleView me={me} onBack={goHub}/>;
       case "events":

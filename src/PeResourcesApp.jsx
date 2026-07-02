@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   Users, Trophy, Languages, ClipboardList, PartyPopper,
   Baby, GraduationCap, Video, ChevronLeft, Search, X, Upload, Download,
-  Pencil, Trash2, Eye, Settings, Plus,
+  Pencil, Trash2, Eye, Settings, Plus, ExternalLink,
 } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://YOUR.supabase.co";
@@ -129,8 +129,57 @@ function detectFileType(file) {
   return "other";
 }
 
+function parseYoutubeVideoId(url) {
+  if (!url) return null;
+  const trimmed = String(url).trim();
+  if (!trimmed) return null;
+  try {
+    const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const u = new URL(normalized);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtu.be") {
+      return u.pathname.split("/").filter(Boolean)[0] || null;
+    }
+    if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
+      if (u.pathname.startsWith("/embed/")) {
+        return u.pathname.split("/")[2] || null;
+      }
+      if (u.pathname.startsWith("/shorts/")) {
+        return u.pathname.split("/")[2] || null;
+      }
+      return u.searchParams.get("v");
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function buildYoutubeWatchUrl(videoId) {
+  return `https://www.youtube.com/watch?v=${videoId}`;
+}
+
+function getYoutubeThumbnail(videoId, quality = "hqdefault") {
+  return `https://img.youtube.com/vi/${videoId}/${quality}.jpg`;
+}
+
+function getYoutubeEmbedUrl(videoId) {
+  return `https://www.youtube-nocookie.com/embed/${videoId}?rel=0`;
+}
+
+function isYoutubeResource(res) {
+  if (!res) return false;
+  if (res.file_type === "youtube") return true;
+  return Boolean(parseYoutubeVideoId(res.file_url));
+}
+
+function getYoutubeVideoIdFromResource(res) {
+  if (!res) return null;
+  return parseYoutubeVideoId(res.file_url);
+}
+
 function fileTypeLabel(t) {
-  const m = { pdf: "PDF", video: "영상", image: "이미지", word: "Word", excel: "엑셀", hwp: "한글", audio: "음원" };
+  const m = { pdf: "PDF", video: "영상", image: "이미지", word: "Word", excel: "엑셀", hwp: "한글", audio: "음원", youtube: "유튜브" };
   return m[t] || "파일";
 }
 
@@ -154,7 +203,7 @@ function getStoragePath(fileUrl) {
 }
 
 function supportsInlinePreview(fileType) {
-  return ["pdf", "image", "audio", "video"].includes(fileType);
+  return ["pdf", "image", "audio", "video", "youtube"].includes(fileType);
 }
 
 function isOfficeNoPreview(fileType) {
@@ -193,6 +242,21 @@ function CategoryIcon({ type, color, size = 22 }) {
   return <Icon size={size} strokeWidth={1.75} color={color} aria-hidden />;
 }
 
+function YoutubeIcon({ size = 20, className }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-hidden
+    >
+      <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8ZM9.75 15.02V8.98L15.5 12l-5.75 3.02Z"/>
+    </svg>
+  );
+}
+
 function GtsPlatformLogo() {
   return (
     <span className="pe-res-platform-title">
@@ -217,35 +281,59 @@ function ModalShell({ title, onClose, children, wide }) {
 }
 
 function ResourceUploadModal({ category, me, onClose, onSaved }) {
+  const [uploadMode, setUploadMode] = useState("file");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
   const [subcategory, setSubcategory] = useState(category?.subs?.[0] || "");
   const [file, setFile] = useState(null);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const fileRef = useRef(null);
 
+  const youtubeVideoId = useMemo(() => parseYoutubeVideoId(youtubeUrl), [youtubeUrl]);
+
   const submit = async () => {
     if (!title.trim()) return alert("자료명을 입력하세요");
-    if (!file) return alert("파일을 선택하세요");
-    if (!isAllowedFile(file)) return alert("허용되지 않는 파일 형식입니다.\n\n" + ALLOWED_FILE_HINT);
+    if (uploadMode === "file") {
+      if (!file) return alert("파일을 선택하세요");
+      if (!isAllowedFile(file)) return alert("허용되지 않는 파일 형식입니다.\n\n" + ALLOWED_FILE_HINT);
+    } else if (!youtubeVideoId) {
+      return alert("유효한 유튜브 링크를 입력하세요.\n\n예: https://www.youtube.com/watch?v=영상ID");
+    }
+
     setSaving(true);
     try {
-      const ext = file.name.split(".").pop() || "bin";
-      const path = `${category.id}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("pe-resources").upload(path, file, { upsert: false });
-      if (upErr) throw new Error(upErr.message);
-      const { data: urlData } = supabase.storage.from("pe-resources").getPublicUrl(path);
       const tagList = tags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean);
-      const { error: insErr } = await supabase.from("resources").insert({
-        category_id: category.id, subcategory: subcategory || null,
-        title: title.trim(), description: description.trim(), tags: tagList,
-        file_url: urlData.publicUrl, file_name: file.name,
-        file_type: detectFileType(file), file_size: file.size,
-        author_id: me.id, author_name: me.name,
-      });
+      let payload;
+
+      if (uploadMode === "file") {
+        const ext = file.name.split(".").pop() || "bin";
+        const path = `${category.id}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const { error: upErr } = await supabase.storage.from("pe-resources").upload(path, file, { upsert: false });
+        if (upErr) throw new Error(upErr.message);
+        const { data: urlData } = supabase.storage.from("pe-resources").getPublicUrl(path);
+        payload = {
+          category_id: category.id, subcategory: subcategory || null,
+          title: title.trim(), description: description.trim(), tags: tagList,
+          file_url: urlData.publicUrl, file_name: file.name,
+          file_type: detectFileType(file), file_size: file.size,
+          author_id: me.id, author_name: me.name,
+        };
+      } else {
+        payload = {
+          category_id: category.id, subcategory: subcategory || null,
+          title: title.trim(), description: description.trim(), tags: tagList,
+          file_url: buildYoutubeWatchUrl(youtubeVideoId),
+          file_name: `${youtubeVideoId}.youtube`,
+          file_type: "youtube", file_size: null,
+          author_id: me.id, author_name: me.name,
+        };
+      }
+
+      const { error: insErr } = await supabase.from("resources").insert(payload);
       if (insErr) throw new Error(insErr.message);
-      alert("자료가 업로드되었습니다.");
+      alert(uploadMode === "file" ? "자료가 업로드되었습니다." : "유튜브 자료가 등록되었습니다.");
       onSaved(); onClose();
     } catch (e) {
       alert("업로드 오류: " + (e.message || "알 수 없는 오류"));
@@ -255,6 +343,27 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
 
   return (
     <ModalShell title="자료 업로드" onClose={onClose}>
+      <div className="pe-res-upload-mode-toggle" role="tablist" aria-label="업로드 방식">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={uploadMode === "file"}
+          className={`pe-res-upload-mode-btn${uploadMode === "file" ? " active" : ""}`}
+          onClick={() => setUploadMode("file")}
+        >
+          <Upload size={15} aria-hidden/> 파일 업로드
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={uploadMode === "youtube"}
+          className={`pe-res-upload-mode-btn${uploadMode === "youtube" ? " active" : ""}`}
+          onClick={() => setUploadMode("youtube")}
+        >
+          <YoutubeIcon size={15} aria-hidden/> 유튜브 링크
+        </button>
+      </div>
+
       <label style={peLbl}>자료명 *</label>
       <input value={title} onChange={e => setTitle(e.target.value)} style={peInp} placeholder="자료 제목"/>
       <label style={peLbl}>설명</label>
@@ -265,12 +374,40 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
       </select>
       <label style={peLbl}>태그 (쉼표로 구분)</label>
       <input value={tags} onChange={e => setTags(e.target.value)} style={peInp} placeholder="예: 4세 균형, 축구"/>
-      <label style={peLbl}>파일 *</label>
-      <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.55, marginBottom: 8 }}>허용 형식: {ALLOWED_FILE_HINT}</div>
-      <input ref={fileRef} type="file" accept={ALLOWED_FILE_ACCEPT} onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...peInp, padding: 10 }}/>
-      {file && <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>{file.name} ({Math.round(file.size / 1024)} KB)</div>}
+
+      {uploadMode === "file" ? (
+        <>
+          <label style={peLbl}>파일 *</label>
+          <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.55, marginBottom: 8 }}>허용 형식: {ALLOWED_FILE_HINT}</div>
+          <input ref={fileRef} type="file" accept={ALLOWED_FILE_ACCEPT} onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...peInp, padding: 10 }}/>
+          {file && <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>{file.name} ({Math.round(file.size / 1024)} KB)</div>}
+        </>
+      ) : (
+        <>
+          <label style={peLbl}>유튜브 링크 *</label>
+          <input
+            value={youtubeUrl}
+            onChange={e => setYoutubeUrl(e.target.value)}
+            style={peInp}
+            placeholder="https://www.youtube.com/watch?v=..."
+            inputMode="url"
+          />
+          {youtubeVideoId ? (
+            <div className="pe-res-youtube-preview">
+              <img src={getYoutubeThumbnail(youtubeVideoId)} alt="유튜브 썸네일 미리보기" className="pe-res-youtube-preview-img"/>
+              <div className="pe-res-youtube-preview-meta">
+                <YoutubeIcon size={16} aria-hidden/>
+                <span>미리보기 · {youtubeVideoId}</span>
+              </div>
+            </div>
+          ) : youtubeUrl.trim() ? (
+            <p className="pe-res-youtube-preview-error" role="alert">유효한 유튜브 링크가 아닙니다.</p>
+          ) : null}
+        </>
+      )}
+
       <button type="button" onClick={submit} disabled={saving} style={{ ...pePrimaryBtn, width: "100%" }}>
-        {saving ? "업로드 중..." : "업로드"}
+        {saving ? "저장 중..." : uploadMode === "file" ? "업로드" : "등록"}
       </button>
     </ModalShell>
   );
@@ -320,6 +457,8 @@ function ResourceEditModal({ resource, onClose, onSaved }) {
 function ResourcePreviewModal({ resource, accent, onClose }) {
   const ft = resource.file_type;
   const url = resource.file_url;
+  const youtubeVideoId = getYoutubeVideoIdFromResource(resource);
+  const isYoutube = ft === "youtube" || youtubeVideoId;
 
   return (
     <div className="pe-res-overlay" onClick={onClose}>
@@ -329,21 +468,40 @@ function ResourcePreviewModal({ resource, accent, onClose }) {
           <button type="button" onClick={onClose} className="pe-res-modal-close" aria-label="닫기"><X size={18}/></button>
         </div>
         <div className="pe-res-preview-body">
-          {ft === "pdf" && url && (
+          {isYoutube && youtubeVideoId && (
+            <div className="pe-res-preview-youtube-wrap">
+              <iframe
+                title={resource.title}
+                src={getYoutubeEmbedUrl(youtubeVideoId)}
+                className="pe-res-preview-youtube"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+              <a
+                href={url || buildYoutubeWatchUrl(youtubeVideoId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="pe-res-youtube-open-btn"
+              >
+                <ExternalLink size={15} aria-hidden/> 유튜브에서 열기
+              </a>
+            </div>
+          )}
+          {!isYoutube && ft === "pdf" && url && (
             <iframe title={resource.title} src={url} className="pe-res-preview-pdf"/>
           )}
-          {ft === "image" && url && (
+          {!isYoutube && ft === "image" && url && (
             <img src={url} alt={resource.title} className="pe-res-preview-image"/>
           )}
-          {ft === "audio" && url && (
+          {!isYoutube && ft === "audio" && url && (
             <div className="pe-res-preview-audio-wrap">
               <audio controls src={url} className="pe-res-preview-audio"/>
             </div>
           )}
-          {ft === "video" && url && (
+          {!isYoutube && ft === "video" && url && (
             <video controls src={url} className="pe-res-preview-video"/>
           )}
-          {isOfficeNoPreview(ft) && (
+          {!isYoutube && isOfficeNoPreview(ft) && (
             <div className="pe-res-preview-nosupport">
               <p>Word, 엑셀, 한글 파일은 브라우저에서 미리보기를 지원하지 않습니다.</p>
               <p style={{ fontSize: 13, color: "#94a3b8" }}>파일을 다운로드하여 확인해 주세요.</p>
@@ -354,7 +512,7 @@ function ResourcePreviewModal({ resource, accent, onClose }) {
               )}
             </div>
           )}
-          {!supportsInlinePreview(ft) && !isOfficeNoPreview(ft) && (
+          {!isYoutube && !supportsInlinePreview(ft) && !isOfficeNoPreview(ft) && (
             <div className="pe-res-preview-nosupport">
               <p>이 파일 형식은 미리보기를 지원하지 않습니다.</p>
               {url && (
@@ -527,6 +685,10 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
   };
 
   const handlePreview = (res) => {
+    if (isYoutubeResource(res)) {
+      setPreviewTarget(res);
+      return;
+    }
     if (isOfficeNoPreview(res.file_type)) {
       setPreviewTarget(res);
       return;
@@ -567,13 +729,25 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
         <div className="pe-res-empty pe-res-empty-box">등록된 자료가 없습니다</div>
       ) : (
         <div className="pe-res-resource-list">
-          {filtered.map(res => (
-            <div key={res.id} className="pe-res-resource-item">
-              <div className="pe-res-resource-type" style={{ background: `${accent}18`, color: accent }}>
-                {fileTypeLabel(res.file_type)}
+          {filtered.map(res => {
+            const youtube = isYoutubeResource(res);
+            const youtubeVideoId = youtube ? getYoutubeVideoIdFromResource(res) : null;
+            return (
+            <div key={res.id} className={`pe-res-resource-item${youtube ? " pe-res-resource-item--youtube" : ""}`}>
+              <div
+                className={`pe-res-resource-type${youtube ? " pe-res-resource-type--youtube" : ""}`}
+                style={youtube ? undefined : { background: `${accent}18`, color: accent }}
+                title={fileTypeLabel(res.file_type)}
+              >
+                {youtube ? <YoutubeIcon size={20} aria-hidden/> : fileTypeLabel(res.file_type)}
               </div>
               <div className="pe-res-resource-body">
                 <div className="pe-res-resource-title">{res.title}</div>
+                {youtubeVideoId && (
+                  <div className="pe-res-resource-youtube-thumb">
+                    <img src={getYoutubeThumbnail(youtubeVideoId, "mqdefault")} alt="" aria-hidden/>
+                  </div>
+                )}
                 {res.description && <div className="pe-res-resource-desc">{res.description}</div>}
                 <div className="pe-res-resource-meta">
                   {res.subcategory && <span className="pe-res-meta-tag">{res.subcategory}</span>}
@@ -589,12 +763,23 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
                 {res.file_url && (
                   <>
                     <button type="button" className="pe-res-action-btn pe-res-action-preview" onClick={() => handlePreview(res)}>
-                      <Eye size={14}/> 미리보기
+                      <Eye size={14}/> {youtube ? "재생" : "미리보기"}
                     </button>
-                    <a href={res.file_url} target="_blank" rel="noopener noreferrer" download={res.file_name || undefined}
-                      className="pe-res-download-btn" style={{ background: accent }}>
-                      <Download size={15} strokeWidth={2.5}/> 다운로드
-                    </a>
+                    {youtube ? (
+                      <a
+                        href={res.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="pe-res-download-btn pe-res-youtube-open-link"
+                      >
+                        <ExternalLink size={15} strokeWidth={2.5}/> 유튜브 열기
+                      </a>
+                    ) : (
+                      <a href={res.file_url} target="_blank" rel="noopener noreferrer" download={res.file_name || undefined}
+                        className="pe-res-download-btn" style={{ background: accent }}>
+                        <Download size={15} strokeWidth={2.5}/> 다운로드
+                      </a>
+                    )}
                   </>
                 )}
                 {canEditResource(me, res) && (
@@ -609,7 +794,7 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
                 )}
               </div>
             </div>
-          ))}
+          );})}
         </div>
       )}
 

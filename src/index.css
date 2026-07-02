@@ -1143,6 +1143,27 @@ code {
   flex-shrink: 0;
 }
 
+.pe-res-resource-type--youtube {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.pe-res-resource-youtube-thumb {
+  margin: 8px 0 10px;
+  max-width: 220px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+.pe-res-resource-youtube-thumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
 .pe-res-resource-body {
   flex: 1;
   min-width: 0;
@@ -1424,6 +1445,103 @@ code {
 
 .pe-res-preview-nosupport p {
   margin: 0 0 8px;
+}
+
+.pe-res-upload-mode-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.pe-res-upload-mode-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.pe-res-upload-mode-btn.active {
+  border-color: #22c55e;
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+.pe-res-youtube-preview {
+  margin: -6px 0 14px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  background: #0f172a;
+}
+
+.pe-res-youtube-preview-img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.pe-res-youtube-preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  background: #111827;
+}
+
+.pe-res-youtube-preview-error {
+  margin: -6px 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #dc2626;
+}
+
+.pe-res-preview-youtube-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pe-res-preview-youtube {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 12px;
+  background: #000;
+}
+
+.pe-res-youtube-open-btn,
+.pe-res-youtube-open-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  align-self: flex-start;
+}
+
+.pe-res-youtube-open-link {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 @media (max-width: 640px) {
@@ -8131,6 +8249,72 @@ code {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 100%; padding: 0 2px;
 }
 
+.sch-cal-event-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 0 1px;
+  margin-top: 2px;
+}
+
+.sch-cal-event-badges--compact {
+  gap: 1px;
+}
+
+.sch-cal-event-badge {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  padding: 1px 3px;
+  border-radius: 4px;
+  border: 1px solid;
+  font-size: clamp(7px, 1.6vw, 9px);
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.sch-cal-event-badge--more {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #64748b;
+  font-size: 8px;
+}
+
+.sch-cal-cell--has-events {
+  min-height: 72px;
+  align-items: stretch;
+}
+
+.sch-events-cal-cell {
+  min-height: 88px;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding-top: 4px;
+}
+
+.sch-events-cal-cell .sch-cal-day-num {
+  align-self: center;
+}
+
+.sch-events-cal-cell .sch-cal-event-badges {
+  flex: 1;
+  justify-content: flex-start;
+}
+
+.sch-view--embedded-calendar .sch-month-nav {
+  margin-top: 0;
+}
+
+.sch-teacher-schedule-view .sch-unified-empty-prompt {
+  margin-top: 8px;
+}
+
 .sch-cal-detail {
   background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px 16px;
 }
@@ -8500,6 +8684,13 @@ code {
 .sch-unified-teacher-search {
   flex: 1 1 200px;
   min-width: 0;
+}
+.sch-unified-teacher-search-error {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #dc2626;
 }
 .sch-unified-teacher-banner {
   margin: 0 0 12px;
@@ -9153,6 +9344,11 @@ code {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+.sch-events-row-actions {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 .sch-events-form .sch-btn--primary {
   justify-self: start;

@@ -579,13 +579,16 @@ function ActivityPrepView({ gearScripts, levelId, openSections, onToggle, tts, r
   );
 }
 
-function FieldCardView({ section, levelColor, tts, sectionIndex }) {
+function FieldCardView({ section, levelColor, tts, recording, sectionIndex }) {
   const enLines = section.script.filter(l => l.en && l.who === "teacher");
   const ttsText = enLines.map(l => l.text).join(" ");
   const allKey = `field-${sectionIndex}`;
 
   const handleListen = () => {
-    if (ttsText) tts.toggle(ttsText, allKey);
+    if (ttsText) {
+      recording?.stopPlayback?.();
+      tts.toggle(ttsText, allKey);
+    }
   };
 
   const listenLabel = tts.isLineLoading(allKey)
@@ -596,6 +599,14 @@ function FieldCardView({ section, levelColor, tts, sectionIndex }) {
 
   return (
     <div className="ab-field-card">
+      {recording?.micError ? (
+        <div className="ab-mic-error" role="alert">
+          <span>{recording.micError}</span>
+          <button type="button" className="ab-mic-error-dismiss" onClick={recording.dismissMicError} aria-label="닫기">
+            <X size={16} aria-hidden/>
+          </button>
+        </div>
+      ) : null}
       <div className="ab-field-card-top">
         <SectionMeta section={section}/>
         {enLines.length > 0 && (
@@ -617,6 +628,8 @@ function FieldCardView({ section, levelColor, tts, sectionIndex }) {
         lines={section.script}
         compact
         tts={tts}
+        recording={recording}
+        enablePractice
         lineKeyPrefix={`field-${sectionIndex}-`}
       />
       <TipBox tip={section.tip}/>
@@ -685,7 +698,7 @@ function CardLinesActivityFieldCardView({ activity, levelId, levelColor, tts, re
   );
 }
 
-function ActivityFieldCardView({ activity, levelId, levelColor, tts, activityIndex }) {
+function ActivityFieldCardView({ activity, levelId, levelColor, tts, recording, activityIndex }) {
   const lines = useMemo(
     () => resolveActivityLines(activity.script, levelId),
     [activity.script, levelId],
@@ -703,7 +716,10 @@ function ActivityFieldCardView({ activity, levelId, levelColor, tts, activityInd
   const allKey = `field-act-${activityIndex}`;
 
   const handleListen = () => {
-    if (ttsText) tts.toggle(ttsText, allKey);
+    if (ttsText) {
+      recording?.stopPlayback?.();
+      tts.toggle(ttsText, allKey);
+    }
   };
 
   const listenLabel = tts.isLineLoading(allKey)
@@ -714,6 +730,14 @@ function ActivityFieldCardView({ activity, levelId, levelColor, tts, activityInd
 
   return (
     <div className="ab-field-card">
+      {recording?.micError ? (
+        <div className="ab-mic-error" role="alert">
+          <span>{recording.micError}</span>
+          <button type="button" className="ab-mic-error-dismiss" onClick={recording.dismissMicError} aria-label="닫기">
+            <X size={16} aria-hidden/>
+          </button>
+        </div>
+      ) : null}
       <div className="ab-field-card-top">
         <ActivityMeta activity={activity}/>
         {enLines.length > 0 && (
@@ -735,12 +759,16 @@ function ActivityFieldCardView({ activity, levelId, levelColor, tts, activityInd
         transitionIn={activity.transitionIn}
         levelId={levelId}
         tts={tts}
+        recording={recording}
+        enablePractice
         lineKeyPrefix={`field-act-${activityIndex}-`}
       />
       <Dialogue
         lines={lines}
         compact
         tts={tts}
+        recording={recording}
+        enablePractice
         lineKeyPrefix={`field-act-${activityIndex}-`}
       />
       <TipBox tip={activity.tip}/>
@@ -748,7 +776,7 @@ function ActivityFieldCardView({ activity, levelId, levelColor, tts, activityInd
   );
 }
 
-function ActivityIntroClosingCard({ section, levelId, levelColor, tts, cardIndex, variant, introTagSuffix }) {
+function ActivityIntroClosingCard({ section, levelId, levelColor, tts, recording, cardIndex, variant, introTagSuffix }) {
   const lines = useMemo(
     () => resolveActivityLines(section.script, levelId),
     [section.script, levelId],
@@ -762,7 +790,10 @@ function ActivityIntroClosingCard({ section, levelId, levelColor, tts, cardIndex
     : section.title;
 
   const handleListen = () => {
-    if (ttsText) tts.toggle(ttsText, allKey);
+    if (ttsText) {
+      recording?.stopPlayback?.();
+      tts.toggle(ttsText, allKey);
+    }
   };
 
   const listenLabel = tts.isLineLoading(allKey)
@@ -773,6 +804,14 @@ function ActivityIntroClosingCard({ section, levelId, levelColor, tts, cardIndex
 
   return (
     <div className="ab-field-card">
+      {recording?.micError ? (
+        <div className="ab-mic-error" role="alert">
+          <span>{recording.micError}</span>
+          <button type="button" className="ab-mic-error-dismiss" onClick={recording.dismissMicError} aria-label="닫기">
+            <X size={16} aria-hidden/>
+          </button>
+        </div>
+      ) : null}
       <div className="ab-field-card-top">
         <div className="ab-section-meta">
           <span className={`ab-tag ${tagClass}`}>{tagLabel}</span>
@@ -796,6 +835,8 @@ function ActivityIntroClosingCard({ section, levelId, levelColor, tts, cardIndex
         lines={lines}
         compact
         tts={tts}
+        recording={recording}
+        enablePractice
         lineKeyPrefix={`field-actgear-${variant}-${cardIndex}-`}
       />
     </div>
@@ -822,6 +863,7 @@ function ActivityScriptCardView({ card, levelId, levelColor, tts, recording, car
         levelId={levelId}
         levelColor={levelColor}
         tts={tts}
+        recording={recording}
         activityIndex={cardIndex}
       />
     );
@@ -833,6 +875,7 @@ function ActivityScriptCardView({ card, levelId, levelColor, tts, recording, car
       levelId={levelId}
       levelColor={levelColor}
       tts={tts}
+      recording={recording}
       cardIndex={cardIndex}
       variant={card.type}
       introTagSuffix={introTagSuffix}
@@ -1073,6 +1116,7 @@ function ScriptView({ gearId, onBack, onChangeGear, levelId, mode, cardIndex, on
             section={currentSection}
             levelColor={level.color}
             tts={tts}
+            recording={recording}
             sectionIndex={cardIndex}
           />
         ) : null}
