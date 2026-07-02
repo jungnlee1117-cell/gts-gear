@@ -7664,6 +7664,7 @@ function ItemReturnModal({ group, onSubmit, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════
 const HUB_APP_ROUTES = {
   edu: "/gear",
+  videos: "/pe-resources?category=videos",
   pe: "/pe-resources",
   english: "/english-script",
   schedule: "/schedule",
@@ -7971,6 +7972,15 @@ function HubIconBook({ color }) {
   );
 }
 
+function HubIconVideo({ color }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" aria-hidden>
+      <rect x="2" y="5" width="15" height="14" rx="2"/>
+      <path d="M17 9l5-3v12l-5-3"/>
+    </svg>
+  );
+}
+
 const HUB_THEMES = {
   green: {
     color: "#16a34a",
@@ -8014,16 +8024,15 @@ const HUB_MODULES = [
     appRoute: "edu",
   },
   {
-    id: "pe",
-    title: "체육 프로그램",
-    desc: "연령별 체육 프로그램을 확인하고 수업을 준비하세요.",
+    id: "videos",
+    title: "영상자료실",
+    desc: "수업·교구·행사 영상을 바로 검색하고 재생하세요.",
     theme: "blue",
-    features: ["3-4세 프로그램", "5-6세 프로그램", "7세 프로그램", "영어체육 프로그램"],
-    Icon: HubIconUser,
+    features: ["수업 영상", "교구 활용 영상", "행사 영상", "영어체육 영상"],
+    Icon: HubIconVideo,
     wide: false,
     ready: true,
-    appRoute: "pe",
-    adminOnly: true,
+    appRoute: "videos",
   },
   {
     id: "english",

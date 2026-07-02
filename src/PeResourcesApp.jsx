@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
 import {
   Users, Trophy, Languages, ClipboardList, PartyPopper,
@@ -744,9 +745,14 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
               <div className="pe-res-resource-body">
                 <div className="pe-res-resource-title">{res.title}</div>
                 {youtubeVideoId && (
-                  <div className="pe-res-resource-youtube-thumb">
+                  <button
+                    type="button"
+                    className="pe-res-resource-youtube-thumb"
+                    onClick={() => handlePreview(res)}
+                    aria-label={`${res.title} 재생`}
+                  >
                     <img src={getYoutubeThumbnail(youtubeVideoId, "mqdefault")} alt="" aria-hidden/>
-                  </div>
+                  </button>
                 )}
                 {res.description && <div className="pe-res-resource-desc">{res.description}</div>}
                 <div className="pe-res-resource-meta">
@@ -884,8 +890,18 @@ function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTa
 }
 
 export default function PeResourcesApp({ me, onBack, onNavigate }) {
-  const [view, setView] = useState("hub");
-  const [category, setCategory] = useState(null);
+  const location = useLocation();
+  const directCategoryId = useMemo(
+    () => new URLSearchParams(location.search).get("category"),
+    [location.search],
+  );
+  const isDirectCategory = Boolean(directCategoryId);
+
+  const [view, setView] = useState(() => (isDirectCategory ? "list" : "hub"));
+  const [category, setCategory] = useState(() => {
+    if (!directCategoryId) return null;
+    return DEFAULT_PE_CATEGORIES.find(c => c.id === directCategoryId) || null;
+  });
   const [search, setSearch] = useState("");
   const [listSearch, setListSearch] = useState("");
   const [resources, setResources] = useState([]);
@@ -910,6 +926,15 @@ export default function PeResourcesApp({ me, onBack, onNavigate }) {
   };
 
   useEffect(() => { loadAll(); }, []);
+
+  useEffect(() => {
+    if (!directCategoryId || !categories.length) return;
+    const cat = categories.find(c => c.id === directCategoryId);
+    if (cat) {
+      setCategory(cat);
+      setView("list");
+    }
+  }, [directCategoryId, categories]);
 
   const resourceCounts = useMemo(() => {
     const m = {};
@@ -936,6 +961,11 @@ export default function PeResourcesApp({ me, onBack, onNavigate }) {
 
   const goHub = () => { setView("hub"); setCategory(null); };
 
+  const handleListBack = () => {
+    if (isDirectCategory) onBack?.();
+    else goHub();
+  };
+
   const roleLabel = me?.role === "superadmin" ? "슈퍼관리자" : me?.role === "admin" ? "관리자" : "선생님";
 
   const activeCategory = category
@@ -947,8 +977,8 @@ export default function PeResourcesApp({ me, onBack, onNavigate }) {
       <header className="pe-res-header">
         <div className="pe-res-header-left">
           {view === "list" ? (
-            <button type="button" className="pe-res-back-btn pe-res-back-btn-header" onClick={goHub}>
-              <ChevronLeft size={18} strokeWidth={2.5}/> 체육자료실
+            <button type="button" className="pe-res-back-btn pe-res-back-btn-header" onClick={handleListBack}>
+              <ChevronLeft size={18} strokeWidth={2.5}/> {isDirectCategory ? "메인" : "체육자료실"}
             </button>
           ) : (
             <button type="button" className="pe-res-logo-btn" onClick={onBack}>

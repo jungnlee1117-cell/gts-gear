@@ -1156,6 +1156,19 @@ code {
   border: 1px solid #e2e8f0;
 }
 
+button.pe-res-resource-youtube-thumb {
+  display: block;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+button.pe-res-resource-youtube-thumb:hover {
+  border-color: #94a3b8;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
 .pe-res-resource-youtube-thumb img {
   display: block;
   width: 100%;
