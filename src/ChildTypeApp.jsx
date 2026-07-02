@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import {
-  ChevronLeft, ChevronRight, HelpCircle, Lightbulb, TrendingUp, Ban, ListOrdered,
+  ChevronRight, HelpCircle, Lightbulb, TrendingUp, Ban, ListOrdered,
 } from "lucide-react";
 import { CHILD_TYPES } from "./childTypesData.js";
 import { GTS_ICON_STROKE, TYPE_ICONS } from "./childTypeIcons.js";
 import EnglishProgramLayout from "./EnglishProgramLayout.jsx";
+import EnglishContentDetailShell from "./EnglishContentDetailShell.jsx";
 import { useEnglishProgramNavigate } from "./useEnglishProgramNavigate.js";
 
 function TypeIcon({ typeId, size = 20 }) {
@@ -58,7 +59,7 @@ function TypeListView({ onSelect }) {
             <button
               key={type.id}
               type="button"
-              className="ct-card ct-list-card"
+              className="ct-card ct-list-card ct-list-card--navigate"
               onClick={() => onSelect(type.id)}
             >
               <div className="ct-list-card-top">
@@ -81,98 +82,86 @@ function TypeListView({ onSelect }) {
   );
 }
 
-function TypeDetailView({ type, onBack }) {
+function TypeDetailContent({ type }) {
   return (
-    <div className="child-type">
-      <header className="ct-header">
-        <button type="button" className="ct-back" onClick={onBack}>
-          <ChevronLeft size={18} strokeWidth={GTS_ICON_STROKE}/>
-          목록으로
-        </button>
-        <div className="ct-header-text">
-          <h1 className="ct-header-title">아이 유형별 가이드</h1>
+    <div className="ct-detail ct-detail--page">
+      <article className="ct-card ct-hero">
+        <div className="ct-hero-top">
+          <IconBox size="lg">
+            <TypeIcon typeId={type.id} size={24}/>
+          </IconBox>
+          <div className="ct-hero-text">
+            <span className="ct-hero-badge">{type.title}</span>
+            <h2 className="ct-hero-title">{type.title} 아이</h2>
+            <p className="ct-hero-sub">{type.subtitle}</p>
+          </div>
         </div>
-      </header>
+        <p className="ct-hero-desc">{type.description}</p>
+        <TagList tags={type.features}/>
+        <div className="ct-hero-meta">
+          <span>발생 빈도 {type.frequency}</span>
+          <span>지도 난이도 {type.difficulty}</span>
+        </div>
+      </article>
 
-      <main className="ct-detail">
-        <article className="ct-card ct-hero">
-          <div className="ct-hero-top">
-            <IconBox size="lg">
-              <TypeIcon typeId={type.id} size={24}/>
-            </IconBox>
-            <div className="ct-hero-text">
-              <span className="ct-hero-badge">{type.title}</span>
-              <h2 className="ct-hero-title">{type.title} 아이</h2>
-              <p className="ct-hero-sub">{type.subtitle}</p>
-            </div>
-          </div>
-          <p className="ct-hero-desc">{type.description}</p>
-          <TagList tags={type.features}/>
-          <div className="ct-hero-meta">
-            <span>발생 빈도 {type.frequency}</span>
-            <span>지도 난이도 {type.difficulty}</span>
-          </div>
-        </article>
+      <section className="ct-section">
+        <SectionHeader icon={HelpCircle} title="왜 이런 성향이 나타날까요?"/>
+        <div className="ct-card ct-card-body">
+          <p className="ct-prose">{type.whyText}</p>
+          <TagList tags={type.whyTags}/>
+        </div>
+      </section>
 
-        <section className="ct-section">
-          <SectionHeader icon={HelpCircle} title="왜 이런 성향이 나타날까요?"/>
-          <div className="ct-card ct-card-body">
-            <p className="ct-prose">{type.whyText}</p>
-            <TagList tags={type.whyTags}/>
-          </div>
-        </section>
+      <section className="ct-section">
+        <SectionHeader icon={ListOrdered} title="이렇게 지도하세요"/>
+        <ol className="ct-stack">
+          {type.steps.map(step => (
+            <li key={step.n} className="ct-card ct-step">
+              <span className="ct-step-num" aria-hidden>{step.n}</span>
+              <div className="ct-step-body">
+                <p className="ct-step-title">{step.title}</p>
+                <p className="ct-step-desc">{step.desc}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
 
-        <section className="ct-section">
-          <SectionHeader icon={ListOrdered} title="이렇게 지도하세요"/>
-          <ol className="ct-stack">
-            {type.steps.map(step => (
-              <li key={step.n} className="ct-card ct-step">
-                <span className="ct-step-num" aria-hidden>{step.n}</span>
-                <div className="ct-step-body">
-                  <p className="ct-step-title">{step.title}</p>
-                  <p className="ct-step-desc">{step.desc}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </section>
+      <section className="ct-section">
+        <SectionHeader icon={Lightbulb} title="베테랑 팁"/>
+        <ul className="ct-stack">
+          {type.tips.map(tip => (
+            <li key={tip.title} className="ct-card ct-tip">
+              <p className="ct-tip-title">{tip.title}</p>
+              <p className="ct-tip-desc">{tip.desc}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
 
-        <section className="ct-section">
-          <SectionHeader icon={Lightbulb} title="베테랑 팁"/>
-          <ul className="ct-stack">
-            {type.tips.map(tip => (
-              <li key={tip.title} className="ct-card ct-tip">
-                <p className="ct-tip-title">{tip.title}</p>
-                <p className="ct-tip-desc">{tip.desc}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
+      <section className="ct-section">
+        <SectionHeader icon={TrendingUp} title="한 달 후 기대 변화"/>
+        <ul className="ct-card ct-card-body ct-timeline">
+          {type.change.map(item => (
+            <li key={item.week} className="ct-timeline-item">
+              <span className="ct-timeline-week">{item.week}</span>
+              <span className="ct-timeline-text">{item.text}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
 
-        <section className="ct-section">
-          <SectionHeader icon={TrendingUp} title="한 달 후 기대 변화"/>
-          <ul className="ct-card ct-card-body ct-timeline">
-            {type.change.map(item => (
-              <li key={item.week} className="ct-timeline-item">
-                <span className="ct-timeline-week">{item.week}</span>
-                <span className="ct-timeline-text">{item.text}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="ct-section ct-section--danger">
-          <SectionHeader icon={Ban} title="절대 하지 말아야 할 것"/>
-          <ul className="ct-stack">
-            {type.never.map(item => (
-              <li key={item.title} className="ct-card ct-danger">
-                <p className="ct-danger-title">{item.title}</p>
-                <p className="ct-danger-desc">{item.desc}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </main>
+      <section className="ct-section ct-section--danger">
+        <SectionHeader icon={Ban} title="절대 하지 말아야 할 것"/>
+        <ul className="ct-stack">
+          {type.never.map(item => (
+            <li key={item.title} className="ct-card ct-danger">
+              <p className="ct-danger-title">{item.title}</p>
+              <p className="ct-danger-desc">{item.desc}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
@@ -189,10 +178,13 @@ export default function ChildTypeApp({ onBack, onGoMain }) {
   return (
     <EnglishProgramLayout activeId="child-types" onBack={onBack} onGoMain={onGoMain} onNavigate={onNavigate}>
       {selectedType ? (
-        <TypeDetailView
-          type={selectedType}
+        <EnglishContentDetailShell
+          title={`${selectedType.title} 아이`}
+          subtitle={selectedType.subtitle}
           onBack={() => setSelectedId(null)}
-        />
+        >
+          <TypeDetailContent type={selectedType}/>
+        </EnglishContentDetailShell>
       ) : (
         <TypeListView onSelect={setSelectedId}/>
       )}

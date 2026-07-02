@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  ChevronLeft, Search, Star, ListOrdered, CheckCircle2,
-  Lightbulb, Clock, Users, Layers, Package, ChevronDown,
+  Search, Star, ListOrdered, CheckCircle2,
+  Lightbulb, Clock, Users, Layers, Package, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { activities, TIP_CATEGORIES, getCategoryCounts } from "./tipsData.js";
 import { CAT_ICONS, GTS_ICON_STROKE, TIP_ICONS } from "./tipsIcons.js";
 import EnglishProgramLayout from "./EnglishProgramLayout.jsx";
+import EnglishContentDetailShell from "./EnglishContentDetailShell.jsx";
 import { useEnglishProgramNavigate } from "./useEnglishProgramNavigate.js";
+import { useMediaQuery } from "./useMediaQuery.js";
 
 const FAV_KEY = "gts-flow-tips-favorites";
 const TYPE_TAGS = ["활동적", "협동", "신체활동", "영어", "집중", "게임형", "이완", "노하우"];
+const MOBILE_MQ = "(max-width: 768px)";
 
 function loadFavorites() {
   try {
@@ -44,18 +47,123 @@ function TagList({ tags }) {
   );
 }
 
+function ActivityDetailContent({ selected, activeLabel, favorites, onToggleFavorite }) {
+  return (
+    <div className="ft-detail" key={selected.id}>
+      <div className="ft-detail-head">
+        <div className="ft-detail-head-top">
+          <IconBox size="lg">
+            <ActivityIcon name={selected.icon} size={24}/>
+          </IconBox>
+          <div className="ft-detail-head-text">
+            <p className="ft-detail-cat">{activeLabel}</p>
+            <h2 className="ft-detail-title">{selected.title}</h2>
+            <TagList tags={selected.tags}/>
+          </div>
+          <button
+            type="button"
+            className={`ft-fav-btn ft-fav-btn--lg${favorites.includes(selected.id) ? " on" : ""}`}
+            onClick={e => onToggleFavorite(selected.id, e)}
+            aria-label="즐겨찾기"
+          >
+            <Star size={20} strokeWidth={GTS_ICON_STROKE}/>
+          </button>
+        </div>
+        <p className="ft-detail-desc">{selected.description}</p>
+      </div>
+
+      <div className="ft-info-grid">
+        <div className="ft-info-item">
+          <Clock size={16} strokeWidth={GTS_ICON_STROKE}/>
+          <div>
+            <span className="ft-info-label">소요시간</span>
+            <span className="ft-info-value">{selected.info.duration}</span>
+          </div>
+        </div>
+        <div className="ft-info-item">
+          <Users size={16} strokeWidth={GTS_ICON_STROKE}/>
+          <div>
+            <span className="ft-info-label">추천연령</span>
+            <span className="ft-info-value">{selected.info.age}</span>
+          </div>
+        </div>
+        <div className="ft-info-item">
+          <Layers size={16} strokeWidth={GTS_ICON_STROKE}/>
+          <div>
+            <span className="ft-info-label">활동유형</span>
+            <span className="ft-info-value">{selected.info.type}</span>
+          </div>
+        </div>
+        <div className="ft-info-item">
+          <Package size={16} strokeWidth={GTS_ICON_STROKE}/>
+          <div>
+            <span className="ft-info-label">준비물</span>
+            <span className="ft-info-value">{selected.info.materials}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="ft-detail-section">
+        <div className="ft-section-head">
+          <IconBox size="sm">
+            <ListOrdered size={16} strokeWidth={GTS_ICON_STROKE}/>
+          </IconBox>
+          <h3 className="ft-section-title">하는 방법</h3>
+        </div>
+        <ol className="ft-steps">
+          {selected.steps.map((step, i) => (
+            <li key={i} className="ft-step">
+              <span className="ft-step-num">{i + 1}</span>
+              <span className="ft-step-text">{step}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <div className="ft-detail-columns">
+        <div className="ft-detail-section">
+          <div className="ft-section-head">
+            <IconBox size="sm">
+              <CheckCircle2 size={16} strokeWidth={GTS_ICON_STROKE}/>
+            </IconBox>
+            <h3 className="ft-section-title">왜 좋은가?</h3>
+          </div>
+          <ul className="ft-bullets">
+            {selected.benefits.map((b, i) => (
+              <li key={i}>{b}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="ft-detail-section ft-detail-section--soft">
+          <div className="ft-section-head">
+            <IconBox size="sm">
+              <Lightbulb size={16} strokeWidth={GTS_ICON_STROKE}/>
+            </IconBox>
+            <h3 className="ft-section-title">활용 팁</h3>
+          </div>
+          <ul className="ft-bullets">
+            {selected.tips.map((t, i) => (
+              <li key={i}>{t}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ClassFlowTipsApp({ onBack, onGoMain }) {
   const onNavigate = useEnglishProgramNavigate();
+  const isMobile = useMediaQuery(MOBILE_MQ);
   const counts = useMemo(() => getCategoryCounts(), []);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeCat = useMemo(() => {
     const cat = searchParams.get("cat");
     return TIP_CATEGORIES.some(c => c.id === cat) ? cat : "greeting";
   }, [searchParams]);
-  const [selectedId, setSelectedId] = useState(() => {
-    const activity = searchParams.get("activity");
-    return activity || null;
-  });
+  const [selectedId, setSelectedId] = useState(() => searchParams.get("activity") || null);
+  const [detailPageOpen, setDetailPageOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [favorites, setFavorites] = useState(loadFavorites);
@@ -77,20 +185,21 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
   }, [activeCat, search, typeFilter]);
 
   const selected = useMemo(
-    () => filtered.find(a => a.id === selectedId) ?? null,
-    [selectedId, filtered],
+    () => activities.find(a => a.id === selectedId) ?? null,
+    [selectedId],
   );
 
+  const activeLabel = TIP_CATEGORIES.find(c => c.id === activeCat)?.label ?? "";
+  const pageTitle = activeCat === "veteran" ? "베테랑 노하우" : "수업 흐름 팁";
+
   useEffect(() => {
+    if (isMobile) return;
     if (filtered.length === 0) {
       setSelectedId(null);
       return;
     }
     const urlId = searchParams.get("activity");
-    let nextId = urlId && filtered.some(a => a.id === urlId) ? urlId : null;
-    if (!nextId) {
-      nextId = filtered[0].id;
-    }
+    let nextId = urlId && filtered.some(a => a.id === urlId) ? urlId : filtered[0].id;
     setSelectedId(nextId);
     if (urlId !== nextId) {
       setSearchParams(prev => {
@@ -99,7 +208,16 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
         return next;
       }, { replace: true });
     }
-  }, [filtered, searchParams, setSearchParams]);
+  }, [filtered, isMobile, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const urlId = searchParams.get("activity");
+    if (urlId && activities.some(a => a.id === urlId)) {
+      setSelectedId(urlId);
+      setDetailPageOpen(true);
+    }
+  }, [isMobile, searchParams]);
 
   useEffect(() => {
     localStorage.setItem(FAV_KEY, JSON.stringify(favorites));
@@ -112,9 +230,19 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
     ));
   }, []);
 
-  const activeLabel = TIP_CATEGORIES.find(c => c.id === activeCat)?.label ?? "";
+  const closeDetailPage = useCallback(() => {
+    setDetailPageOpen(false);
+    setSelectedId(null);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete("activity");
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const handleCatChange = useCallback((catId) => {
+    setDetailPageOpen(false);
+    setSelectedId(null);
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       next.set("cat", catId);
@@ -123,7 +251,6 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
     }, { replace: false });
     setSearch("");
     setTypeFilter("all");
-    setSelectedId(null);
   }, [setSearchParams]);
 
   const selectActivity = useCallback((id) => {
@@ -133,24 +260,16 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
       next.set("activity", id);
       return next;
     }, { replace: false });
-  }, [setSearchParams]);
-
-  const handleSearchChange = useCallback((value) => {
-    setSearch(value);
-  }, []);
-
-  const handleTypeFilterChange = useCallback((value) => {
-    setTypeFilter(value);
-  }, []);
+    if (isMobile) setDetailPageOpen(true);
+  }, [isMobile, setSearchParams]);
 
   const sidebarActiveId = activeCat === "veteran" ? "veteran" : "flow-tips";
 
-  return (
-    <EnglishProgramLayout activeId={sidebarActiveId} onBack={onBack} onGoMain={onGoMain} onNavigate={onNavigate}>
+  const listView = (
     <div className="flow-tips-page eng-program-page">
       <header className="ft-topbar ft-topbar--page">
         <div className="ft-topbar-brand">
-          <h1 className="ft-topbar-title">수업 흐름 팁</h1>
+          <h1 className="ft-topbar-title">{pageTitle}</h1>
           <p className="ft-topbar-desc">실전 활동 라이브러리 · {counts.all}개 활동</p>
         </div>
       </header>
@@ -178,7 +297,7 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
         </div>
       </nav>
 
-      <div className="ft-workspace">
+      <div className={`ft-workspace${isMobile ? " ft-workspace--list-only" : ""}`}>
         <section className="ft-list-col" aria-label="활동 목록">
           <div className="ft-list-toolbar">
             <div className="ft-search-wrap">
@@ -188,7 +307,7 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
                 className="ft-search"
                 placeholder={`${activeLabel} 활동 검색...`}
                 value={search}
-                onChange={e => handleSearchChange(e.target.value)}
+                onChange={e => setSearch(e.target.value)}
               />
             </div>
             <div className="ft-filter-wrap">
@@ -198,7 +317,7 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
                   id="ft-type-filter"
                   className="ft-select"
                   value={typeFilter}
-                  onChange={e => handleTypeFilterChange(e.target.value)}
+                  onChange={e => setTypeFilter(e.target.value)}
                 >
                   <option value="all">전체</option>
                   {TYPE_TAGS.map(tag => (
@@ -220,14 +339,14 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
               <li className="ft-list-empty">검색 결과가 없습니다.</li>
             ) : (
               filtered.map((item, idx) => {
-                const isActive = selected?.id === item.id;
+                const isActive = !isMobile && selected?.id === item.id;
                 const isFav = favorites.includes(item.id);
                 return (
                   <li key={item.id}>
                     <div
                       role="button"
                       tabIndex={0}
-                      className={`ft-card${isActive ? " active" : ""}`}
+                      className={`ft-card${isActive ? " active" : ""}${isMobile ? " ft-card--navigate" : ""}`}
                       onClick={() => selectActivity(item.id)}
                       onKeyDown={e => {
                         if (e.key === "Enter" || e.key === " ") {
@@ -246,14 +365,18 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
                         <span className="ft-card-summary">{item.summary}</span>
                         <TagList tags={item.tags.slice(0, 3)}/>
                       </div>
-                      <button
-                        type="button"
-                        className={`ft-fav-btn${isFav ? " on" : ""}`}
-                        onClick={e => toggleFavorite(item.id, e)}
-                        aria-label={isFav ? "즐겨찾기 해제" : "즐겨찾기"}
-                      >
-                        <Star size={17} strokeWidth={GTS_ICON_STROKE}/>
-                      </button>
+                      {isMobile ? (
+                        <ChevronRight size={18} strokeWidth={GTS_ICON_STROKE} className="ft-card-arrow" aria-hidden/>
+                      ) : (
+                        <button
+                          type="button"
+                          className={`ft-fav-btn${isFav ? " on" : ""}`}
+                          onClick={e => toggleFavorite(item.id, e)}
+                          aria-label={isFav ? "즐겨찾기 해제" : "즐겨찾기"}
+                        >
+                          <Star size={17} strokeWidth={GTS_ICON_STROKE}/>
+                        </button>
+                      )}
                     </div>
                   </li>
                 );
@@ -262,122 +385,43 @@ export default function ClassFlowTipsApp({ onBack, onGoMain }) {
           </ul>
         </section>
 
-        <section
-          className="ft-detail-col"
-          aria-label="활동 상세"
-          aria-live="polite"
-        >
-          {selected ? (
-            <div className="ft-detail" key={selected.id}>
-              <div className="ft-detail-head">
-                <div className="ft-detail-head-top">
-                  <IconBox size="lg">
-                    <ActivityIcon name={selected.icon} size={24}/>
-                  </IconBox>
-                  <div className="ft-detail-head-text">
-                    <p className="ft-detail-cat">{activeLabel}</p>
-                    <h2 className="ft-detail-title">{selected.title}</h2>
-                    <TagList tags={selected.tags}/>
-                  </div>
-                  <button
-                    type="button"
-                    className={`ft-fav-btn ft-fav-btn--lg${favorites.includes(selected.id) ? " on" : ""}`}
-                    onClick={e => toggleFavorite(selected.id, e)}
-                    aria-label="즐겨찾기"
-                  >
-                    <Star size={20} strokeWidth={GTS_ICON_STROKE}/>
-                  </button>
-                </div>
-                <p className="ft-detail-desc">{selected.description}</p>
+        {!isMobile ? (
+          <section className="ft-detail-col" aria-label="활동 상세" aria-live="polite">
+            {selected ? (
+              <ActivityDetailContent
+                selected={selected}
+                activeLabel={activeLabel}
+                favorites={favorites}
+                onToggleFavorite={toggleFavorite}
+              />
+            ) : (
+              <div className="ft-detail-empty">
+                <Lightbulb size={32} strokeWidth={1.5}/>
+                <p>왼쪽에서 활동을 선택하면 상세 내용이 표시됩니다.</p>
               </div>
-
-              <div className="ft-info-grid">
-                <div className="ft-info-item">
-                  <Clock size={16} strokeWidth={GTS_ICON_STROKE}/>
-                  <div>
-                    <span className="ft-info-label">소요시간</span>
-                    <span className="ft-info-value">{selected.info.duration}</span>
-                  </div>
-                </div>
-                <div className="ft-info-item">
-                  <Users size={16} strokeWidth={GTS_ICON_STROKE}/>
-                  <div>
-                    <span className="ft-info-label">추천연령</span>
-                    <span className="ft-info-value">{selected.info.age}</span>
-                  </div>
-                </div>
-                <div className="ft-info-item">
-                  <Layers size={16} strokeWidth={GTS_ICON_STROKE}/>
-                  <div>
-                    <span className="ft-info-label">활동유형</span>
-                    <span className="ft-info-value">{selected.info.type}</span>
-                  </div>
-                </div>
-                <div className="ft-info-item">
-                  <Package size={16} strokeWidth={GTS_ICON_STROKE}/>
-                  <div>
-                    <span className="ft-info-label">준비물</span>
-                    <span className="ft-info-value">{selected.info.materials}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="ft-detail-section">
-                <div className="ft-section-head">
-                  <IconBox size="sm">
-                    <ListOrdered size={16} strokeWidth={GTS_ICON_STROKE}/>
-                  </IconBox>
-                  <h3 className="ft-section-title">하는 방법</h3>
-                </div>
-                <ol className="ft-steps">
-                  {selected.steps.map((step, i) => (
-                    <li key={i} className="ft-step">
-                      <span className="ft-step-num">{i + 1}</span>
-                      <span className="ft-step-text">{step}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-
-              <div className="ft-detail-columns">
-                <div className="ft-detail-section">
-                  <div className="ft-section-head">
-                    <IconBox size="sm">
-                      <CheckCircle2 size={16} strokeWidth={GTS_ICON_STROKE}/>
-                    </IconBox>
-                    <h3 className="ft-section-title">왜 좋은가?</h3>
-                  </div>
-                  <ul className="ft-bullets">
-                    {selected.benefits.map((b, i) => (
-                      <li key={i}>{b}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="ft-detail-section ft-detail-section--soft">
-                  <div className="ft-section-head">
-                    <IconBox size="sm">
-                      <Lightbulb size={16} strokeWidth={GTS_ICON_STROKE}/>
-                    </IconBox>
-                    <h3 className="ft-section-title">활용 팁</h3>
-                  </div>
-                  <ul className="ft-bullets">
-                    {selected.tips.map((t, i) => (
-                      <li key={i}>{t}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="ft-detail-empty">
-              <Lightbulb size={32} strokeWidth={1.5}/>
-              <p>왼쪽에서 활동을 선택하면 상세 내용이 표시됩니다.</p>
-            </div>
-          )}
-        </section>
+            )}
+          </section>
+        ) : null}
       </div>
     </div>
+  );
+
+  return (
+    <EnglishProgramLayout activeId={sidebarActiveId} onBack={onBack} onGoMain={onGoMain} onNavigate={onNavigate}>
+      {isMobile && detailPageOpen && selected ? (
+        <EnglishContentDetailShell
+          title={selected.title}
+          subtitle={activeLabel}
+          onBack={closeDetailPage}
+        >
+          <ActivityDetailContent
+            selected={selected}
+            activeLabel={activeLabel}
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+          />
+        </EnglishContentDetailShell>
+      ) : listView}
     </EnglishProgramLayout>
   );
 }
