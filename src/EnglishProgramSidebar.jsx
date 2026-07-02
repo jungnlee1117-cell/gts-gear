@@ -44,7 +44,7 @@ function roleLabel(me) {
   return "선생님";
 }
 
-export default function EnglishProgramSidebar({ activeId, onBack, onGoMain, onNavigate, me }) {
+export default function EnglishProgramSidebar({ activeId, onBack, onGoMain, onNavigate, onCloseMobileNav, me }) {
   const { items } = useGearItems();
   const registeredScriptCount = useMemo(
     () => items.filter(item => matchGearId(item)).length,
@@ -71,7 +71,7 @@ export default function EnglishProgramSidebar({ activeId, onBack, onGoMain, onNa
         </div>
       </div>
 
-      <button type="button" className="eng-program-sidebar-back" onClick={onBack}>
+      <button type="button" className="eng-program-sidebar-back" onClick={() => { onCloseMobileNav?.(); onBack?.(); }}>
         <ChevronLeft size={14} strokeWidth={2.5}/>
         뒤로가기
       </button>
@@ -87,8 +87,8 @@ export default function EnglishProgramSidebar({ activeId, onBack, onGoMain, onNa
               type="button"
               className={`eng-program-sidebar-item${isActive ? " active" : ""}`}
               onClick={() => {
-                if (isActive) return;
-                handleNav(item.nav);
+                if (!isActive) handleNav(item.nav);
+                onCloseMobileNav?.();
               }}
               aria-current={isActive ? "page" : undefined}
             >

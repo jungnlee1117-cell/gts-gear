@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Menu, X } from "lucide-react";
+import { X } from "lucide-react";
 import EnglishProgramSidebar, { PROGRAM_SIDEBAR_MENU } from "./EnglishProgramSidebar.jsx";
 import PlatformMainButton from "./PlatformMainButton.jsx";
 
@@ -15,10 +15,22 @@ export default function EnglishProgramLayout({
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
+  const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
+
   const handleNavigate = useCallback((nav) => {
     onNavigate?.(nav);
     setMobileNavOpen(false);
   }, [onNavigate]);
+
+  const handleBack = useCallback(() => {
+    closeMobileNav();
+    onBack?.();
+  }, [closeMobileNav, onBack]);
+
+  const handleGoMain = useCallback(() => {
+    closeMobileNav();
+    onGoMain?.();
+  }, [closeMobileNav, onGoMain]);
 
   return (
     <div
@@ -32,7 +44,7 @@ export default function EnglishProgramLayout({
           aria-label={mobileNavOpen ? "메뉴 닫기" : "메뉴 열기"}
           aria-expanded={mobileNavOpen}
         >
-          {mobileNavOpen ? <X size={22} strokeWidth={2}/> : <Menu size={22} strokeWidth={2}/>}
+          {mobileNavOpen ? <X size={22} strokeWidth={2}/> : <span className="eng-program-mobile-menu-icon" aria-hidden>☰</span>}
         </button>
         <span className="eng-program-mobile-title">GTS English Program</span>
       </header>
@@ -48,9 +60,10 @@ export default function EnglishProgramLayout({
 
       <EnglishProgramSidebar
         activeId={activeId}
-        onBack={onBack}
-        onGoMain={onGoMain}
+        onBack={handleBack}
+        onGoMain={handleGoMain}
         onNavigate={handleNavigate}
+        onCloseMobileNav={closeMobileNav}
         me={me}
       />
 
