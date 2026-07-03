@@ -5331,6 +5331,46 @@ function RentalApprovalPage({me,reqs,ris,items,teachers,onApprove,onReject}) {
   const [reason,setReason]=useState("");
   const pendReqs=reqs.filter(r=>r.status==="pending");
 
+  const approvedRows = useMemo(() => reqs
+    .filter(r => ["approved", "partial", "completed"].includes(r.status))
+    .map(req => {
+      const reqRIs = ris.filter(ri => ri.request_id === req.id && !["pending", "rejected", "cancelled"].includes(ri.status));
+      const approverId = req.approved_by || reqRIs.find(ri => ri.approved_by)?.approved_by;
+      const approvedAt = req.approved_at
+        || reqRIs.map(ri => ri.approved_at).filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0];
+      return {
+        req,
+        reqRIs,
+        teacherName: tname(req.teacher_id, teachers),
+        rentDate: req.dispatch_start,
+        approverName: approverId ? tname(approverId, teachers) : "-",
+        approvedAt,
+      };
+    })
+    .filter(row => row.reqRIs.length > 0 || row.req.approved_by)
+    .sort((a, b) => new Date(b.approvedAt || b.req.created_at) - new Date(a.approvedAt || a.req.created_at)),
+  [reqs, ris, teachers]);
+
+  const approvalTableHead = {
+    display: "grid",
+    gap: 8,
+    padding: "8px 0",
+    borderBottom: "1px solid #e2e8f0",
+    fontSize: 10,
+    fontWeight: 700,
+    color: DS.textMuted,
+    gridTemplateColumns: "minmax(72px, 0.9fr) minmax(72px, 0.8fr) minmax(72px, 0.9fr) minmax(108px, 1.1fr) minmax(120px, 1.6fr) minmax(56px, 0.6fr)",
+  };
+  const approvalTableRow = {
+    display: "grid",
+    gap: 8,
+    padding: "12px 0",
+    borderTop: "1px solid #f8fafc",
+    fontSize: 12,
+    alignItems: "start",
+    gridTemplateColumns: "minmax(72px, 0.9fr) minmax(72px, 0.8fr) minmax(72px, 0.9fr) minmax(108px, 1.1fr) minmax(120px, 1.6fr) minmax(56px, 0.6fr)",
+  };
+
   return (
     <PageShell>
       <PageHeader me={me} subtitle={PAGE_META["rental-approval"].sub} alertCount={pendReqs.length}/>
@@ -5340,6 +5380,7 @@ function RentalApprovalPage({me,reqs,ris,items,teachers,onApprove,onReject}) {
         gap:14,marginBottom:24,
       }}>
         <DashStatCard label="승인 대기" value={pendReqs.length} iconMark="대기" iconBg="#fef3c7" iconColor="#d97706"/>
+        <DashStatCard label="승인 완료" value={approvedRows.length} iconMark="완료" iconBg="#dcfce7" iconColor="#16a34a"/>
       </div>
 
       {pendReqs.length===0 ? (
@@ -5353,7 +5394,8 @@ function RentalApprovalPage({me,reqs,ris,items,teachers,onApprove,onReject}) {
           <PanelSection key={req.id} title={`${t?.name||"선생님"} · ${req.dispatch_location}`}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
               <div style={{fontSize:12,color:DS.textSecondary,lineHeight:1.7}}>
-                <div>파견 기간: {fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}</div>
+                <div><strong style={{color:DS.textPrimary}}>대여자</strong> {t?.name||"-"}</div>
+                <div><strong style={{color:DS.textPrimary}}>대여기간</strong> {fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}</div>
                 {req.memo&&<div style={{marginTop:4,color:DS.textMuted}}>메모: {req.memo}</div>}
                 <div style={{marginTop:4}}>신청일: {fmt(req.created_at)}</div>
               </div>
@@ -5377,6 +5419,37 @@ function RentalApprovalPage({me,reqs,ris,items,teachers,onApprove,onReject}) {
           </PanelSection>
         );
       })}
+
+      <PanelSection title={`대여 승인 내역 (${approvedRows.length})`}>
+        {approvedRows.length === 0 ? (
+          <Empty text="승인된 대여 내역이 없습니다"/>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ ...approvalTableHead, minWidth: 640 }}>
+              <span>대여자</span>
+              <span>대여일</span>
+              <span>승인자</span>
+              <span>승인일시</span>
+              <span>교구</span>
+              <span>상태</span>
+            </div>
+            {approvedRows.map(({ req, reqRIs, teacherName, rentDate, approverName, approvedAt }) => {
+              const itemSummary = reqRIs.map(ri => `${iname(ri.item_id, items)} ×${ri.quantity}`).join(", ");
+              const statusKey = req.status === "completed" ? "completed" : req.status === "partial" ? "partial" : "approved";
+              return (
+                <div key={req.id} style={{ ...approvalTableRow, minWidth: 640 }}>
+                  <span style={{ fontWeight: 700, color: DS.textPrimary }}>{teacherName}</span>
+                  <span style={{ color: DS.textSecondary }}>{fmt(rentDate)}</span>
+                  <span style={{ fontWeight: 600, color: DS.textPrimary }}>{approverName}</span>
+                  <span style={{ color: DS.textSecondary, lineHeight: 1.5 }}>{fmtdt(approvedAt)}</span>
+                  <span style={{ color: DS.textSecondary, lineHeight: 1.5 }}>{itemSummary || "-"}</span>
+                  <span><Badge s={statusKey}/></span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </PanelSection>
 
       {rejectId&&(
         <Modal title="거절 사유 입력" onClose={()=>setRejectId(null)}>
