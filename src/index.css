@@ -735,6 +735,10 @@ code {
   flex-shrink: 0;
 }
 
+.pe-res-header-main-btn {
+  flex-shrink: 0;
+}
+
 .pe-res-platform-title {
   font-size: 17px;
   font-weight: 900;
@@ -9451,9 +9455,101 @@ button.pe-res-resource-youtube-thumb:hover {
 .sch-change-alerts-item {
   border-radius: 12px;
   overflow: hidden;
+  border: 0.5px solid var(--sch-beige-border);
+  background: #fff;
 }
 .sch-change-alerts-item--unread {
   box-shadow: 0 0 0 2px #fca5a5, 0 2px 8px rgba(239, 68, 68, 0.12);
+}
+.sch-change-alerts-item--unread .sch-change-alerts-group-btn {
+  background: #fff7f7;
+}
+.sch-change-alerts-item--open {
+  border-color: #d1d5db;
+}
+.sch-change-alerts-group-btn {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  padding: 14px 16px;
+  border: none;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.sch-change-alerts-group-summary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sch-change-alerts-group-main {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  line-height: 1.45;
+}
+.sch-change-alerts-date-range {
+  font-weight: 800;
+}
+.sch-change-alerts-group-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.sch-change-alerts-reason {
+  font-size: 0.85rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+.sch-change-alerts-row--reason {
+  margin-top: 4px;
+}
+.sch-change-alerts-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.sch-change-alerts-chevron {
+  color: #9ca3af;
+  transition: transform 0.2s ease;
+}
+.sch-change-alerts-chevron--open {
+  transform: rotate(180deg);
+}
+.sch-change-alerts-group-body {
+  border-top: 0.5px solid var(--sch-beige-border);
+  background: #fafaf9;
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sch-change-alerts-detail-item {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fff;
+  border: 0.5px solid #e8ecee;
+}
+.sch-change-alerts-detail-item-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.sch-change-alerts-detail-date {
+  font-weight: 700;
+  color: #374151;
 }
 .sch-change-alerts-item-btn {
   width: 100%;

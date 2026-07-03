@@ -38,12 +38,12 @@ export async function bulkUpsertPayrollSlotsWithNotifications(items) {
   return results;
 }
 
-export async function createManualExtraEntryWithNotification(payload, { institutionName } = {}) {
+export async function createManualExtraEntryWithNotification(payload, { institutionName, changeReason } = {}) {
   const entry = await upsertPayrollSlot(payload);
   if (shouldNotifyExtraAdded(payload)) {
     try {
       await createScheduleChangeNotification(
-        buildExtraAddedNotificationRow(payload, { institutionName }),
+        buildExtraAddedNotificationRow(payload, { institutionName, changeReason }),
       );
     } catch (err) {
       console.error("extra added notification failed:", err);

@@ -34,6 +34,9 @@ import {
   createManualExtraEntryWithNotification,
   upsertPayrollSlotWithNotification,
 } from "./payrollSaveWithNotification.js";
+import ChangeReasonField from "./ChangeReasonField.jsx";
+import { resolveChangeReason, validateChangeReason } from "./changeReasonOptions.js";
+import { shouldNotifyScheduleChange } from "./scheduleChangeNotifications.js";
 import { estimateTeacherPayByEntry } from "./settlement.js";
 import {
   ENTRY_STATUS,
@@ -101,6 +104,8 @@ export default function PayrollTeacherView({
   const [noteSaving, setNoteSaving] = useState(false);
   const [customEdit, setCustomEdit] = useState(null);
   const [extraEdit, setExtraEdit] = useState(null);
+  const [bulkSkipModal, setBulkSkipModal] = useState(false);
+  const [bulkSkipReason, setBulkSkipReason] = useState({ preset: "", custom: "" });
   const detailRef = useRef(null);
   const [extraForm, setExtraForm] = useState({
     class_date: todayStr,
@@ -108,6 +113,8 @@ export default function PayrollTeacherView({
     pay_type: "방과후",
     minutes: 40,
     note: "",
+    changeReasonPreset: "",
+    changeReasonCustom: "",
   });
 
   const year = monthBase.getFullYear();
@@ -283,7 +290,7 @@ export default function PayrollTeacherView({
     };
   };
 
-  const bulkSavePlanned = async (plannedList, { status, minutesFor }) => {
+  const bulkSavePlanned = async (plannedList, { status, minutesFor, changeReason }) => {
     const targets = filterUnlocked(plannedList.filter(p => isSlotUnconfirmed(entries, p)));
     if (!targets.length) {
       alert("확정할 수업이 없습니다. (이미 확정·수정·수업 안 함 처리됨)");
@@ -303,6 +310,7 @@ export default function PayrollTeacherView({
           minutes: minutesFor ? minutesFor(p) : p.scheduledMinutes,
           note: status === ENTRY_STATUS.skipped ? null : undefined,
         }),
+        handlingExtra: changeReason ? { changeReason } : {},
       }));
       await bulkUpsertPayrollSlotsWithNotifications(payloads);
       setCustomEdit(null);
@@ -322,8 +330,26 @@ export default function PayrollTeacherView({
   };
 
   const handleDaySkipAll = () => {
-    if (!confirm("미확인 수업을 모두 '수업 안 함'으로 처리할까요?\n(이미 수정·확정된 수업은 유지됩니다)")) return;
-    bulkSavePlanned(selectedPlanned, { status: ENTRY_STATUS.skipped, minutesFor: () => 0 });
+    const targets = filterUnlocked(selectedPlanned.filter(p => isSlotUnconfirmed(entries, p)));
+    if (!targets.length) {
+      alert("수업 안 함으로 처리할 미확인 수업이 없습니다.");
+      return;
+    }
+    setBulkSkipReason({ preset: "", custom: "" });
+    setBulkSkipModal(true);
+  };
+
+  const handleBulkSkipConfirm = async (e) => {
+    e.preventDefault();
+    const reasonErr = validateChangeReason(bulkSkipReason.preset, bulkSkipReason.custom);
+    if (reasonErr) return alert(reasonErr);
+    const changeReason = resolveChangeReason(bulkSkipReason.preset, bulkSkipReason.custom);
+    setBulkSkipModal(false);
+    await bulkSavePlanned(selectedPlanned, {
+      status: ENTRY_STATUS.skipped,
+      minutesFor: () => 0,
+      changeReason,
+    });
   };
 
   const handleMonthConfirmAll = () => {
@@ -389,8 +415,30 @@ export default function PayrollTeacherView({
       startTime: planned.startTime,
       endTime: planned.endTime,
       note: existing?.note || "",
+      changeReasonPreset: "",
+      changeReasonCustom: "",
     });
   };
+
+  const customEditNeedsReason = useMemo(() => {
+    if (!customEdit) return false;
+    const savePayload = buildPayload(customEdit.planned, {
+      status: ENTRY_STATUS.custom,
+      minutes: Number(customEdit.minutes) || 0,
+      note: customEdit.note,
+    });
+    const timeExtra = {
+      startTime: customEdit.startTime,
+      endTime: customEdit.endTime,
+    };
+    const skipPayload = buildPayload(customEdit.planned, {
+      status: ENTRY_STATUS.skipped,
+      minutes: 0,
+      note: customEdit.note,
+    });
+    return shouldNotifyScheduleChange(customEdit.planned, savePayload, timeExtra)
+      || shouldNotifyScheduleChange(customEdit.planned, skipPayload);
+  }, [customEdit, entries, teacherId]);
 
   const handleCustomSave = async (e) => {
     e.preventDefault();
@@ -400,20 +448,29 @@ export default function PayrollTeacherView({
     }
     const mins = Number(customEdit.minutes);
     if (!mins || mins <= 0) return alert("1분 이상 입력해주세요.");
+    const payload = buildPayload(customEdit.planned, {
+      status: ENTRY_STATUS.custom,
+      minutes: mins,
+      note: customEdit.note,
+    });
+    const handlingExtra = {
+      startTime: customEdit.startTime,
+      endTime: customEdit.endTime,
+    };
+    if (shouldNotifyScheduleChange(customEdit.planned, payload, handlingExtra)) {
+      const reasonErr = validateChangeReason(
+        customEdit.changeReasonPreset,
+        customEdit.changeReasonCustom,
+      );
+      if (reasonErr) return alert(reasonErr);
+      handlingExtra.changeReason = resolveChangeReason(
+        customEdit.changeReasonPreset,
+        customEdit.changeReasonCustom,
+      );
+    }
     setSaving(true);
     try {
-      await upsertPayrollSlotWithNotification(
-        customEdit.planned,
-        buildPayload(customEdit.planned, {
-          status: ENTRY_STATUS.custom,
-          minutes: mins,
-          note: customEdit.note,
-        }),
-        {
-          startTime: customEdit.startTime,
-          endTime: customEdit.endTime,
-        },
-      );
+      await upsertPayrollSlotWithNotification(customEdit.planned, payload, handlingExtra);
       setCustomEdit(null);
       await load();
     } catch (err) {
@@ -428,16 +485,28 @@ export default function PayrollTeacherView({
     if (isLocked(customEdit.planned.institutionId)) {
       return alert("정산 확정된 원은 수정할 수 없습니다.");
     }
+    const payload = buildPayload(customEdit.planned, {
+      status: ENTRY_STATUS.skipped,
+      minutes: 0,
+      note: customEdit.note,
+    });
+    let handlingExtra = {};
+    if (shouldNotifyScheduleChange(customEdit.planned, payload, handlingExtra)) {
+      const reasonErr = validateChangeReason(
+        customEdit.changeReasonPreset,
+        customEdit.changeReasonCustom,
+      );
+      if (reasonErr) return alert(reasonErr);
+      handlingExtra = {
+        changeReason: resolveChangeReason(
+          customEdit.changeReasonPreset,
+          customEdit.changeReasonCustom,
+        ),
+      };
+    }
     setSaving(true);
     try {
-      await upsertPayrollSlotWithNotification(
-        customEdit.planned,
-        buildPayload(customEdit.planned, {
-          status: ENTRY_STATUS.skipped,
-          minutes: 0,
-          note: customEdit.note,
-        }),
-      );
+      await upsertPayrollSlotWithNotification(customEdit.planned, payload, handlingExtra);
       setCustomEdit(null);
       await load();
     } catch (err) {
@@ -467,12 +536,15 @@ export default function PayrollTeacherView({
     e.preventDefault();
     const mins = Number(extraForm.minutes);
     if (!mins || mins <= 0) return alert("1분 이상 입력해주세요.");
+    const reasonErr = validateChangeReason(extraForm.changeReasonPreset, extraForm.changeReasonCustom);
+    if (reasonErr) return alert(reasonErr);
     if (extraForm.institution_id && isLocked(extraForm.institution_id)) {
       return alert("정산 확정된 원은 추가할 수 없습니다.");
     }
     const institutionName = extraForm.institution_id
       ? institutionLegend.find(i => i.id === extraForm.institution_id)?.name
       : "";
+    const changeReason = resolveChangeReason(extraForm.changeReasonPreset, extraForm.changeReasonCustom);
     setSaving(true);
     try {
       await createManualExtraEntryWithNotification({
@@ -483,8 +555,15 @@ export default function PayrollTeacherView({
         minutes: mins,
         entry_status: ENTRY_STATUS.custom,
         note: extraForm.note || null,
-      }, { institutionName });
-      setExtraForm(f => ({ ...f, minutes: 40, note: "", institution_id: "" }));
+      }, { institutionName, changeReason });
+      setExtraForm(f => ({
+        ...f,
+        minutes: 40,
+        note: "",
+        institution_id: "",
+        changeReasonPreset: "",
+        changeReasonCustom: "",
+      }));
       await load();
     } catch (err) {
       alert("저장 실패: " + err.message);
@@ -937,6 +1016,12 @@ export default function PayrollTeacherView({
                 <input type="number" className="sch-input" min={1} value={extraForm.minutes}
                   onChange={e => setExtraForm(f => ({ ...f, minutes: e.target.value }))}/>
               </label>
+              <ChangeReasonField
+                preset={extraForm.changeReasonPreset}
+                customText={extraForm.changeReasonCustom}
+                onPresetChange={preset => setExtraForm(f => ({ ...f, changeReasonPreset: preset }))}
+                onCustomChange={text => setExtraForm(f => ({ ...f, changeReasonCustom: text }))}
+              />
               <button type="submit" className="sch-btn sch-btn--primary sch-btn--block" disabled={saving}>추가</button>
             </form>
           </details>
@@ -1080,6 +1165,14 @@ export default function PayrollTeacherView({
                   }}/>
               </label>
             </div>
+            {customEditNeedsReason ? (
+              <ChangeReasonField
+                preset={customEdit.changeReasonPreset}
+                customText={customEdit.changeReasonCustom}
+                onPresetChange={preset => setCustomEdit(c => ({ ...c, changeReasonPreset: preset }))}
+                onCustomChange={text => setCustomEdit(c => ({ ...c, changeReasonCustom: text }))}
+              />
+            ) : null}
             <label className="sch-field">
               <span>메모 (선택)</span>
               <input type="text" className="sch-input" value={customEdit.note}
@@ -1090,6 +1183,40 @@ export default function PayrollTeacherView({
               <button type="button" className="sch-btn sch-btn--ghost" disabled={saving}
                 onClick={handleSlotSkip}>이 수업 안 함</button>
               <button type="button" className="sch-btn sch-btn--ghost" onClick={() => setCustomEdit(null)}>취소</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {bulkSkipModal ? (
+        <div className="sch-modal-overlay" onClick={() => setBulkSkipModal(false)}>
+          <form
+            className="sch-modal sch-form"
+            onClick={e => e.stopPropagation()}
+            onSubmit={handleBulkSkipConfirm}
+          >
+            <h3>이 날 수업 안 함</h3>
+            <p className="sch-muted">
+              미확인 수업을 모두 &apos;수업 안 함&apos;으로 처리합니다.
+              이미 수정·확정된 수업은 유지됩니다.
+            </p>
+            <ChangeReasonField
+              preset={bulkSkipReason.preset}
+              customText={bulkSkipReason.custom}
+              onPresetChange={preset => setBulkSkipReason(r => ({ ...r, preset }))}
+              onCustomChange={text => setBulkSkipReason(r => ({ ...r, custom: text }))}
+            />
+            <div className="sch-form-actions sch-form-actions--stack">
+              <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
+                수업 안 함 처리
+              </button>
+              <button
+                type="button"
+                className="sch-btn sch-btn--ghost"
+                onClick={() => setBulkSkipModal(false)}
+              >
+                취소
+              </button>
             </div>
           </form>
         </div>

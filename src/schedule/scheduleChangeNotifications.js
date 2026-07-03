@@ -57,6 +57,7 @@ export function shouldNotifyScheduleChange(planned, payload, handlingExtra = {})
 }
 
 export function buildScheduleChangeNotificationRow(planned, payload, handlingExtra = {}) {
+  const changeReason = handlingExtra.changeReason?.trim() || null;
   return {
     teacher_id: payload.teacher_id,
     institution_id: payload.institution_id || null,
@@ -71,6 +72,7 @@ export function buildScheduleChangeNotificationRow(planned, payload, handlingExt
       minutes: payload.minutes,
       ...handlingExtra,
     }),
+    change_reason: changeReason,
   };
 }
 
@@ -108,7 +110,7 @@ export function shouldNotifyExtraAdded(payload) {
   return Number(payload.minutes) > 0;
 }
 
-export function buildExtraAddedNotificationRow(payload, { institutionName } = {}) {
+export function buildExtraAddedNotificationRow(payload, { institutionName, changeReason } = {}) {
   return {
     teacher_id: payload.teacher_id,
     institution_id: payload.institution_id || null,
@@ -124,5 +126,6 @@ export function buildExtraAddedNotificationRow(payload, { institutionName } = {}
       institutionName,
       institutionId: payload.institution_id,
     }),
+    change_reason: changeReason?.trim() || null,
   };
 }

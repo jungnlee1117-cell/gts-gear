@@ -1090,6 +1090,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "my-rental-status") return <svg {...s} viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
   if (id === "my-reservations") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>;
   if (id === "english-script") return <svg {...s} viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></svg>;
+  if (id === "video-resources") return <svg {...s} viewBox="0 0 24 24"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 9l5-3v12l-5-3"/></svg>;
   if (id === "rental-manage") return <svg {...s} viewBox="0 0 24 24"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/><path d="M21 12H3"/></svg>;
   if (id === "my-gear-rotation") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l3 2"/></svg>;
   if (id === "gear-rotation-manage") return <svg {...s} viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg>;
@@ -1183,6 +1184,7 @@ function buildSidebarNav(me) {
     { type: "item", id: "qr-scan", label: "QR 스캔", glyph: "qr-scan" },
     { type: "item", id: "rental-return", label: "대여 반납신청", glyph: "rental-return" },
     { type: "item", id: "my-reservations", label: "내 예약 현황", glyph: "my-reservations" },
+    { type: "item", id: "video-resources", label: "영상자료실", glyph: "video-resources" },
     { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
   ];
 }
@@ -7864,7 +7866,8 @@ function AuthenticatedRoutes({ me, session, logout }) {
         element={(
           <PeResourcesApp
             me={me}
-            onBack={() => navigate("/")}
+            onBack={() => navigate(isGearTeacher(me) ? "/gear" : "/")}
+            onGoMain={() => navigate("/")}
             onNavigate={path => navigate(path)}
           />
         )}
@@ -8352,6 +8355,10 @@ function EquipmentApp({ onBack, me, session }) {
   const setPage = useCallback((nextPage, meta = {}, { replace = false } = {}) => {
     if (nextPage === "english-script") {
       navigate("/english-script");
+      return;
+    }
+    if (nextPage === "video-resources") {
+      navigate("/pe-resources?category=videos");
       return;
     }
     navigate(buildGearAppUrl(nextPage, { ...meta, me }), { replace });

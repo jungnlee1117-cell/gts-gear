@@ -703,6 +703,44 @@ export async function bulkUpsertPayrollSlots(items) {
   return results;
 }
 
+async function enrichScheduleChangeNotifications(rows) {
+  if (!rows?.length) return [];
+  const teacherIds = [...new Set(rows.map(r => r.teacher_id).filter(Boolean))];
+  const instIds = [...new Set(rows.map(r => r.institution_id).filter(Boolean))];
+  const teachersById = new Map();
+  const instById = new Map();
+
+  if (teacherIds.length) {
+    const { data, error } = await scheduleSupabase
+      .from("teachers")
+      .select("id, name")
+      .in("id", teacherIds);
+    if (error) throw error;
+    (data || []).forEach(t => teachersById.set(t.id, t));
+  }
+  if (instIds.length) {
+    const { data, error } = await scheduleSupabase
+      .from("institutions")
+      .select("id, name")
+      .in("id", instIds);
+    if (error) throw error;
+    (data || []).forEach(i => instById.set(i.id, i));
+  }
+
+  return rows.map(row => ({
+    ...row,
+    teachers: teachersById.get(row.teacher_id) || null,
+    institutions: row.institution_id ? instById.get(row.institution_id) || null : null,
+  }));
+}
+
+async function insertScheduleChangeNotificationRow(row) {
+  const { error } = await scheduleSupabase
+    .from("schedule_change_notifications")
+    .insert(row);
+  if (error) throw error;
+}
+
 export async function createScheduleChangeNotification(row) {
   const core = {
     teacher_id: row.teacher_id,
@@ -716,42 +754,41 @@ export async function createScheduleChangeNotification(row) {
   const extended = { ...core };
   if (row.pay_type) extended.pay_type = row.pay_type;
   if (row.home_visit_pattern_id) extended.home_visit_pattern_id = row.home_visit_pattern_id;
+  if (row.change_reason) extended.change_reason = row.change_reason;
 
-  let { data, error } = await scheduleSupabase
-    .from("schedule_change_notifications")
-    .insert(extended)
-    .select()
-    .single();
+  try {
+    await insertScheduleChangeNotificationRow(extended);
+    return extended;
+  } catch (error) {
+    const msg = error.message || "";
+    if (/change_reason/.test(msg) && row.change_reason) {
+      const withoutReason = { ...extended };
+      delete withoutReason.change_reason;
+      try {
+        await insertScheduleChangeNotificationRow(withoutReason);
+        return withoutReason;
+      } catch (_) { /* 다른 폴백 시도 */ }
+    }
+    // patch 13 미적용 DB: pay_type / home_visit_pattern_id 컬럼 없을 때 핵심 필드만 재시도
+    if (/pay_type|home_visit_pattern_id/.test(msg)) {
+      await insertScheduleChangeNotificationRow(core);
+      return core;
+    }
 
-  // patch 13 미적용 DB: pay_type / home_visit_pattern_id 컬럼 없을 때 핵심 필드만 재시도
-  if (error && /pay_type|home_visit_pattern_id/.test(error.message || "")) {
-    const retry = await scheduleSupabase
-      .from("schedule_change_notifications")
-      .insert(core)
-      .select()
-      .single();
-    if (retry.error) throw retry.error;
-    return retry.data;
-  }
-
-  // patch 15 미적용 DB: extra_added change_type 불가 시 custom으로 폴백
-  if (error && row.change_type === "extra_added") {
-    const fallback = await scheduleSupabase
-      .from("schedule_change_notifications")
-      .insert({
+    // patch 15 미적용 DB: extra_added change_type 불가 시 custom으로 폴백
+    if (row.change_type === "extra_added") {
+      const fallback = {
         ...core,
         change_type: "custom",
         original_schedule: row.original_schedule,
         actual_handling: `스케줄 외 추가: ${row.actual_handling}`,
-      })
-      .select()
-      .single();
-    if (fallback.error) throw fallback.error;
-    return fallback.data;
-  }
+      };
+      await insertScheduleChangeNotificationRow(fallback);
+      return fallback;
+    }
 
-  if (error) throw error;
-  return data;
+    throw error;
+  }
 }
 
 export async function fetchScheduleChangeNotifications({
@@ -762,7 +799,7 @@ export async function fetchScheduleChangeNotifications({
 } = {}) {
   let q = scheduleSupabase
     .from("schedule_change_notifications")
-    .select("*, teachers(id, name), institutions(id, name)")
+    .select("*")
     .order("class_date", { ascending: false })
     .order("created_at", { ascending: false });
 
@@ -778,7 +815,7 @@ export async function fetchScheduleChangeNotifications({
 
   const { data, error } = await q;
   if (error) throw error;
-  return data || [];
+  return enrichScheduleChangeNotifications(data || []);
 }
 
 export async function countScheduleChangeNotifications({ yearMonth } = {}) {

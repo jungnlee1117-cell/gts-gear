@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
+import PlatformMainButton from "./PlatformMainButton.jsx";
 import {
   Users, Trophy, Languages, ClipboardList, PartyPopper,
   Baby, GraduationCap, Video, ChevronLeft, Search, X, Upload, Download,
@@ -889,18 +890,20 @@ function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTa
   );
 }
 
-export default function PeResourcesApp({ me, onBack, onNavigate }) {
+export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   const location = useLocation();
+  const isVideoOnlyUser = !PE_ADMIN(me);
   const directCategoryId = useMemo(
     () => new URLSearchParams(location.search).get("category"),
     [location.search],
   );
-  const isDirectCategory = Boolean(directCategoryId);
+  const effectiveCategoryId = directCategoryId || (isVideoOnlyUser ? "videos" : null);
+  const isDirectCategory = Boolean(effectiveCategoryId);
 
   const [view, setView] = useState(() => (isDirectCategory ? "list" : "hub"));
   const [category, setCategory] = useState(() => {
-    if (!directCategoryId) return null;
-    return DEFAULT_PE_CATEGORIES.find(c => c.id === directCategoryId) || null;
+    if (!effectiveCategoryId) return null;
+    return DEFAULT_PE_CATEGORIES.find(c => c.id === effectiveCategoryId) || null;
   });
   const [search, setSearch] = useState("");
   const [listSearch, setListSearch] = useState("");
@@ -928,13 +931,13 @@ export default function PeResourcesApp({ me, onBack, onNavigate }) {
   useEffect(() => { loadAll(); }, []);
 
   useEffect(() => {
-    if (!directCategoryId || !categories.length) return;
-    const cat = categories.find(c => c.id === directCategoryId);
+    if (!effectiveCategoryId || !categories.length) return;
+    const cat = categories.find(c => c.id === effectiveCategoryId);
     if (cat) {
       setCategory(cat);
       setView("list");
     }
-  }, [directCategoryId, categories]);
+  }, [effectiveCategoryId, categories]);
 
   const resourceCounts = useMemo(() => {
     const m = {};
@@ -943,6 +946,7 @@ export default function PeResourcesApp({ me, onBack, onNavigate }) {
   }, [resources]);
 
   const goCategory = (cat) => {
+    if (isVideoOnlyUser && cat.id !== "videos") return;
     const isEnglishPe = cat.id === "english-pe" || (cat.title || "").includes("영어체육");
     if (isEnglishPe) {
       onNavigate?.("/english-script?picker=1");
@@ -954,7 +958,13 @@ export default function PeResourcesApp({ me, onBack, onNavigate }) {
   };
 
   const goSearch = (q) => {
-    setCategory(null);
+    if (isVideoOnlyUser) {
+      const videosCat = categories.find(c => c.id === "videos")
+        || DEFAULT_PE_CATEGORIES.find(c => c.id === "videos");
+      setCategory(videosCat || null);
+    } else {
+      setCategory(null);
+    }
     setListSearch(q);
     setView("list");
   };
@@ -972,13 +982,21 @@ export default function PeResourcesApp({ me, onBack, onNavigate }) {
     ? categories.find(c => c.id === category.id) || category
     : null;
 
+  const showMainNav = isVideoOnlyUser || isDirectCategory;
+  const goMain = onGoMain || onBack;
+
   return (
     <div className="pe-resources-app">
       <header className="pe-res-header">
         <div className="pe-res-header-left">
-          {view === "list" ? (
+          {showMainNav ? (
+            <PlatformMainButton
+              onClick={goMain}
+              className="pe-res-header-main-btn platform-main-btn--light"
+            />
+          ) : view === "list" ? (
             <button type="button" className="pe-res-back-btn pe-res-back-btn-header" onClick={handleListBack}>
-              <ChevronLeft size={18} strokeWidth={2.5}/> {isDirectCategory ? "메인" : "체육자료실"}
+              <ChevronLeft size={18} strokeWidth={2.5}/> 체육자료실
             </button>
           ) : (
             <button type="button" className="pe-res-logo-btn" onClick={onBack}>
