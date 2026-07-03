@@ -437,7 +437,8 @@ export async function sendPushEvent(supabase, event, payload) {
     });
 
     if (error) {
-      logPushError("send-push error", { event, error });
+      console.error("[push] send-push error", JSON.stringify(error));
+      console.error("[push] send-push error context", JSON.stringify({ event, payload }));
       return { ok: false, reason: "invoke_error", error };
     }
 
