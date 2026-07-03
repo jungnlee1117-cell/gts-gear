@@ -10396,10 +10396,6 @@ button.pe-res-resource-youtube-thumb:hover {
   border-radius: 16px;
   border: 1px solid #e8ecee;
   padding: 22px 24px;
-  display: flex;
-  align-items: stretch;
-  gap: 16px;
-  min-height: 180px;
   overflow: hidden;
 }
 .gear-rotation-highlight--current {
@@ -10411,43 +10407,48 @@ button.pe-res-resource-youtube-thumb:hover {
   border-color: #ddd6fe;
 }
 .gear-rotation-highlight--empty {
+  display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 120px;
   background: #f8fafc;
   color: #9ca3af;
   font-size: 13px;
 }
-.gear-rotation-highlight__body {
-  flex: 1;
-  min-width: 0;
+.gear-rotation-highlight__content {
   display: flex;
   flex-direction: column;
+  gap: 16px;
 }
-.gear-rotation-highlight__photo {
+.gear-rotation-highlight__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.gear-rotation-equipment-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+.gear-rotation-equipment-images--single {
+  grid-template-columns: 1fr;
+  max-width: 220px;
+}
+.gear-rotation-equipment-image-card {
   position: relative;
-  width: 120px;
-  height: 120px;
-  flex-shrink: 0;
-  border-radius: 14px;
+  width: 100%;
+  aspect-ratio: 1 / 1;
   overflow: hidden;
+  border-radius: 16px;
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.06);
-  align-self: center;
 }
-.gear-rotation-highlight__photos {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-  align-self: center;
-}
-.gear-rotation-highlight__photos--2 .gear-rotation-highlight__photo {
-  width: 100px;
-  height: 100px;
-}
-.gear-rotation-row__thumbs {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
+.gear-rotation-equipment-image-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .gear-rotation-photo-label {
   position: absolute;
@@ -10462,16 +10463,6 @@ button.pe-res-resource-youtube-thumb:hover {
   color: #fff;
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
   pointer-events: none;
-}
-.gear-rotation-row__thumb {
-  position: relative;
-  width: 64px;
-  height: 64px;
-  flex-shrink: 0;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
 }
 .gear-rotation-highlight__period {
   margin: 0 0 10px;
@@ -10510,10 +10501,9 @@ button.pe-res-resource-youtube-thumb:hover {
   line-height: 1.5;
 }
 .gear-rotation-highlight__cta {
-  margin-top: auto;
-  padding-top: 16px;
   width: 100%;
-  max-width: 280px;
+  max-width: none;
+  margin-top: 0;
   border: none;
   border-radius: 12px;
   padding: 12px 16px;
@@ -10529,13 +10519,26 @@ button.pe-res-resource-youtube-thumb:hover {
   background: #047857;
 }
 .gear-rotation-highlight__actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+  margin-top: 0;
+  padding-top: 0;
+}
+.gear-rotation-highlight__actions--single {
+  grid-template-columns: 1fr;
+}
+@media (max-width: 480px) {
+  .gear-rotation-highlight__actions:not(.gear-rotation-highlight__actions--single) {
+    grid-template-columns: 1fr;
+  }
+  .gear-rotation-equipment-images--single {
+    max-width: none;
+  }
 }
 .gear-rotation-highlight__link {
+  width: 100%;
   border: 1px solid #d1d5db;
   border-radius: 10px;
   padding: 10px 14px;
@@ -10545,9 +10548,19 @@ button.pe-res-resource-youtube-thumb:hover {
   font-weight: 700;
   cursor: pointer;
   font-family: inherit;
+  text-align: center;
 }
 .gear-rotation-highlight__link:hover {
   background: #f9fafb;
+}
+@media (max-width: 768px) {
+  .gear-rotation-highlight {
+    padding: 18px 16px;
+  }
+
+  .gear-rotation-list-section {
+    padding: 16px;
+  }
 }
 .gear-rotation-highlight__rented-tag,
 .gear-rotation-highlight__rented-summary {
@@ -10715,10 +10728,6 @@ button.pe-res-resource-youtube-thumb:hover {
   gap: 0;
 }
 .gear-rotation-row {
-  display: grid;
-  grid-template-columns: minmax(72px, 88px) 1fr auto;
-  gap: 12px 16px;
-  align-items: center;
   padding: 16px 0;
   border-top: 1px solid #f1f5f9;
 }
@@ -10726,17 +10735,21 @@ button.pe-res-resource-youtube-thumb:hover {
   border-top: none;
   padding-top: 4px;
 }
-@media (max-width: 700px) {
-  .gear-rotation-row {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
+.gear-rotation-row__content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.gear-rotation-row__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 .gear-rotation-row__dates {
   font-size: 13px;
   font-weight: 800;
   color: #059669;
-  white-space: nowrap;
 }
 .gear-rotation-row__dates-sub {
   font-size: 11px;
@@ -10744,28 +10757,25 @@ button.pe-res-resource-youtube-thumb:hover {
   color: #6b7280;
   margin-top: 2px;
 }
-.gear-rotation-row__main {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-.gear-rotation-row__info {
-  flex: 1;
-  min-width: 0;
-}
 .gear-rotation-row__title-row {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 4px;
+  margin-top: 4px;
 }
 .gear-rotation-row__title {
   margin: 0;
   font-size: 15px;
   font-weight: 800;
   color: #111827;
+  line-height: 1.35;
+}
+.gear-rotation-row__sub {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.45;
 }
 .gear-rotation-row__meta {
   margin: 0;
@@ -10773,19 +10783,15 @@ button.pe-res-resource-youtube-thumb:hover {
   color: #9ca3af;
   line-height: 1.45;
 }
-.gear-rotation-row__side {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
+.gear-rotation-row__actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  width: 100%;
 }
-@media (max-width: 700px) {
-  .gear-rotation-row__side {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-  }
+.gear-rotation-row__rented-hint--inline {
+  display: block;
+  margin: 0;
 }
 .gear-rotation-status {
   display: inline-block;
@@ -10819,8 +10825,22 @@ button.pe-res-resource-youtube-thumb:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.gear-rotation-row__link:hover {
+.gear-rotation-row__link--btn {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: #fff;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  text-align: center;
+}
+.gear-rotation-row__link:hover,
+.gear-rotation-row__link--btn:hover {
   color: #059669;
+  background: #f9fafb;
 }
 
 .gear-rotation-expand {

@@ -152,26 +152,15 @@ function SchoolYearTimeline({ months, viewMonth, todayMonth, onSelect }) {
   );
 }
 
-function GearPhotoGroup({ entries, variant = "highlight" }) {
+function GearPhotoGroup({ entries }) {
   if (!entries.length) return null;
 
-  if (variant === "row") {
-    return (
-      <div className="gear-rotation-row__thumbs">
-        {entries.map(({ item, label, name }) => (
-          <div key={`${label}-${name}`} className="gear-rotation-row__thumb">
-            {label && <span className="gear-rotation-photo-label">{label}</span>}
-            <GearPhoto item={item} alt={name} />
-          </div>
-        ))}
-      </div>
-    );
-  }
+  const countMod = entries.length === 1 ? "single" : "multi";
 
   return (
-    <div className={`gear-rotation-highlight__photos gear-rotation-highlight__photos--${entries.length}`}>
+    <div className={`gear-rotation-equipment-images gear-rotation-equipment-images--${countMod}`}>
       {entries.map(({ item, label, name }) => (
-        <div key={`${label}-${name}`} className="gear-rotation-highlight__photo">
+        <div key={`${label}-${name}`} className="gear-rotation-equipment-image-card">
           {label && <span className="gear-rotation-photo-label">{label}</span>}
           <GearPhoto item={item} alt={name} />
         </div>
@@ -240,35 +229,38 @@ function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, le
 
   return (
     <article className={`gear-rotation-highlight gear-rotation-highlight--${variant}${photoEntries.length ? " gear-rotation-highlight--has-photo" : ""}`}>
-      <div className="gear-rotation-highlight__body">
-        <p className="gear-rotation-highlight__period">
-          {label}
-          {dateRange ? <span>{dateRange}</span> : null}
-        </p>
-        <div className="gear-rotation-highlight__name-row">
-          <h3 className="gear-rotation-highlight__name">{gear.displayName}</h3>
-          <span className={`gear-rotation-type-badge gear-rotation-type-badge--${typeBadge.tone}`}>
-            {typeBadge.label}
-          </span>
+      <div className="gear-rotation-highlight__content">
+        <div className="gear-rotation-highlight__text">
+          <p className="gear-rotation-highlight__period">
+            {label}
+            {dateRange ? <span>{dateRange}</span> : null}
+          </p>
+          <div className="gear-rotation-highlight__name-row">
+            <h3 className="gear-rotation-highlight__name">{gear.displayName}</h3>
+            <span className={`gear-rotation-type-badge gear-rotation-type-badge--${typeBadge.tone}`}>
+              {typeBadge.label}
+            </span>
+          </div>
+          {!gear.merged && gear.parts?.map(p => {
+            const item = resolveItemRecord(items, p.name);
+            const rented = item?.id && heldIds?.has(item.id);
+            return (
+              <p key={p.label} className="gear-rotation-highlight__sub">
+                {p.label}: {p.name}
+                {rented ? <span className="gear-rotation-highlight__rented-tag"> · 대여 중</span> : null}
+              </p>
+            );
+          })}
+          {rentedCount > 0 ? (
+            <p className="gear-rotation-highlight__rented-summary">대여 중 {rentedCount}종</p>
+          ) : null}
+          {gear.simple_activity && (
+            <p className="gear-rotation-highlight__activity">{gear.simple_activity}</p>
+          )}
+          <LessonPlanPanel plan={lessonPlan} />
         </div>
-        {!gear.merged && gear.parts?.map(p => {
-          const item = resolveItemRecord(items, p.name);
-          const rented = item?.id && heldIds?.has(item.id);
-          return (
-            <p key={p.label} className="gear-rotation-highlight__sub">
-              {p.label}: {p.name}
-              {rented ? <span className="gear-rotation-highlight__rented-tag"> · 대여 중</span> : null}
-            </p>
-          );
-        })}
-        {rentedCount > 0 ? (
-          <p className="gear-rotation-highlight__rented-summary">대여 중 {rentedCount}종</p>
-        ) : null}
-        {gear.simple_activity && (
-          <p className="gear-rotation-highlight__activity">{gear.simple_activity}</p>
-        )}
-        <LessonPlanPanel plan={lessonPlan} />
-        <div className="gear-rotation-highlight__actions">
+        <GearPhotoGroup entries={photoEntries} />
+        <div className={`gear-rotation-highlight__actions${variant === "current" ? "" : " gear-rotation-highlight__actions--single"}`}>
           {variant === "current" ? (
             <button type="button" className="gear-rotation-highlight__cta" onClick={() => onRent(gear)}>
               이 교구 대여 신청 →
@@ -279,7 +271,6 @@ function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, le
           </button>
         </div>
       </div>
-      <GearPhotoGroup entries={photoEntries} variant="highlight" />
     </article>
   );
 }
@@ -288,9 +279,6 @@ function MonthGearRow({ row, items, status, heldIds, lessonPlans, aliases, viewM
   const typeBadge = gearTypeBadge(row.gear);
   const activityLine = row.gear.simple_activity
     || (row.gear.simpleActivities?.length ? row.gear.simpleActivities.join(" / ") : null);
-  const institutionLine = row.gear.parts?.length
-    ? row.gear.parts.map(p => p.label).join(" · ")
-    : null;
   const photoEntries = useMemo(
     () => resolveGearPhotoEntries(row.gear, items),
     [row.gear, items],
@@ -313,44 +301,51 @@ function MonthGearRow({ row, items, status, heldIds, lessonPlans, aliases, viewM
 
   return (
     <article className="gear-rotation-row">
-      <div className="gear-rotation-row__dates">
-        {row.weekLabel ? (
-          <>
-            <div>{row.weekLabel}</div>
-            {row.dateRange ? <div className="gear-rotation-row__dates-sub">{row.dateRange}</div> : null}
-          </>
-        ) : (row.dateRange || `${row.weekNumber}주차`)}
-      </div>
-      <div className="gear-rotation-row__main">
-        <GearPhotoGroup entries={photoEntries} variant="row" />
-        <div className="gear-rotation-row__info">
+      <div className="gear-rotation-row__content">
+        <div className="gear-rotation-row__header">
+          <div className="gear-rotation-row__dates">
+            {row.weekLabel ? (
+              <>
+                <div>{row.weekLabel}</div>
+                {row.dateRange ? <div className="gear-rotation-row__dates-sub">{row.dateRange}</div> : null}
+              </>
+            ) : (row.dateRange || `${row.weekNumber}주차`)}
+          </div>
           <div className="gear-rotation-row__title-row">
             <h4 className="gear-rotation-row__title">{row.gear.displayName}</h4>
             <span className={`gear-rotation-type-badge gear-rotation-type-badge--${typeBadge.tone}`}>
               {typeBadge.label}
             </span>
+            <span className={`gear-rotation-status gear-rotation-status--${status.tone}`}>
+              {status.label}
+            </span>
           </div>
+          {!row.gear.merged && row.gear.parts?.map(p => {
+            const item = resolveItemRecord(items, p.name);
+            const rented = item?.id && heldIds.has(item.id);
+            return (
+              <p key={p.label} className="gear-rotation-row__sub">
+                {p.label}: {p.name}
+                {rented ? <span className="gear-rotation-highlight__rented-tag"> · 대여 중</span> : null}
+              </p>
+            );
+          })}
           {activityLine && (
             <p className="gear-rotation-row__meta">활동영역: {activityLine}</p>
           )}
-          {institutionLine && (
-            <p className="gear-rotation-row__meta">대상: {institutionLine}</p>
-          )}
+          {rentedEntries.length > 0 ? (
+            <p className="gear-rotation-row__rented-hint gear-rotation-row__rented-hint--inline">
+              대여 {rentedEntries.length}종
+            </p>
+          ) : null}
           <LessonPlanPanel plan={lessonPlan} />
         </div>
-      </div>
-      <div className="gear-rotation-row__side">
-        <span className={`gear-rotation-status gear-rotation-status--${status.tone}`}>
-          {status.label}
-        </span>
-        {rentedEntries.length > 0 ? (
-          <span className="gear-rotation-row__rented-hint">
-            대여 {rentedEntries.length}종
-          </span>
-        ) : null}
-        <button type="button" className="gear-rotation-row__link" onClick={() => onOpenGear(row.gear)}>
-          상세 보기{entries.length > 1 ? ` (${entries.length})` : ""}
-        </button>
+        <GearPhotoGroup entries={photoEntries} />
+        <div className="gear-rotation-row__actions">
+          <button type="button" className="gear-rotation-row__link gear-rotation-row__link--btn" onClick={() => onOpenGear(row.gear)}>
+            상세 보기{entries.length > 1 ? ` (${entries.length})` : ""}
+          </button>
+        </div>
       </div>
     </article>
   );
