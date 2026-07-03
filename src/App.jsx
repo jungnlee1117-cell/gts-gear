@@ -23,6 +23,8 @@ import SituationManualApp from "./SituationManualApp.jsx";
 import ChildTypeApp from "./ChildTypeApp.jsx";
 import ClassFlowTipsApp from "./ClassFlowTipsApp.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
+import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
+import { formatPushItemNames, sendPushEvent } from "./pushNotifications.js";
 import MyGearRotationPage, { checkRotationRentalConflicts } from "./MyGearRotationPage.jsx";
 import GearRotationManagePage from "./GearRotationManagePage.jsx";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
@@ -7824,6 +7826,7 @@ function AuthenticatedRoutes({ me, session, logout }) {
 
   return (
     <>
+      <PushNotificationPrompt supabase={supabase} teacherId={me?.id}/>
       <RouteTracker/>
       <RestoreRouteAfterLogin/>
       <Routes>
@@ -8571,6 +8574,11 @@ function EquipmentApp({ onBack, me, session }) {
     if(error||!newReq){alert("신청 오류: "+error?.message);return;}
     const {data:newRIs}=await supabase.from("rental_items").insert(ci.map(c=>({request_id:newReq.id,item_id:c.item_id,quantity:c.quantity,due_date:c.due_date||dispatch_end,status:"pending"}))).select();
     setReqs(p=>[newReq,...p]); setRIs(p=>[...p,...(newRIs||[])]); setCart([]);
+    sendPushEvent(supabase, "rental_requested", {
+      teacher_id: me.id,
+      teacher_name: me.name,
+      item_names: formatPushItemNames(ci.map(c => items.find(i => i.id === c.item_id)?.name)),
+    });
     alert("대여 신청이 완료되었습니다.\n관리자 승인 후 대여가 확정됩니다.");
   };
 
@@ -8708,8 +8716,15 @@ function EquipmentApp({ onBack, me, session }) {
     return true;
   };
 
+  const pushItemNamesForRequest = (reqId) => formatPushItemNames(
+    ris
+      .filter(ri => ri.request_id === reqId)
+      .map(ri => items.find(i => i.id === ri.item_id)?.name),
+  );
+
   const approveReq = async (reqId) => {
     if (!canManage(me)) return;
+    const req = reqs.find(r => r.id === reqId);
     const now=new Date().toISOString();
     const { error: reqErr } = await supabase.from("rental_requests").update({status:"approved",approved_by:me.id,approved_at:now}).eq("id",reqId);
     if (reqErr) { alert("승인 오류: " + reqErr.message); return; }
@@ -8717,11 +8732,18 @@ function EquipmentApp({ onBack, me, session }) {
     if (riErr) { alert("교구 항목 승인 오류: " + riErr.message); return; }
     setReqs(p=>p.map(r=>r.id===reqId?{...r,status:"approved",approved_by:me.id,approved_at:now}:r));
     setRIs(p=>p.map(ri=>ri.request_id===reqId&&ri.status==="pending"?{...ri,status:"rented",approved_by:me.id,approved_at:now}:ri));
+    if (req?.teacher_id) {
+      sendPushEvent(supabase, "rental_approved", {
+        teacher_id: req.teacher_id,
+        item_names: pushItemNamesForRequest(reqId),
+      });
+    }
     alert("대여 신청이 승인되었습니다.");
   };
 
   const rejectReq = async (reqId,reason) => {
     if (!canManage(me)) return;
+    const req = reqs.find(r => r.id === reqId);
     const now=new Date().toISOString();
     const { error: reqErr } = await supabase.from("rental_requests").update({status:"rejected",rejected_by:me.id,rejected_at:now,rejection_reason:reason}).eq("id",reqId);
     if (reqErr) { alert("거절 오류: " + reqErr.message); return; }
@@ -8729,6 +8751,13 @@ function EquipmentApp({ onBack, me, session }) {
     if (riErr) { alert("교구 항목 거절 오류: " + riErr.message); return; }
     setReqs(p=>p.map(r=>r.id===reqId?{...r,status:"rejected",rejected_by:me.id,rejected_at:now,rejection_reason:reason}:r));
     setRIs(p=>p.map(ri=>ri.request_id===reqId&&ri.status==="pending"?{...ri,status:"rejected"}:ri));
+    if (req?.teacher_id) {
+      sendPushEvent(supabase, "rental_rejected", {
+        teacher_id: req.teacher_id,
+        item_names: pushItemNamesForRequest(reqId),
+        reason,
+      });
+    }
     alert("대여 신청이 거절되었습니다.");
   };
 
@@ -8832,6 +8861,13 @@ function EquipmentApp({ onBack, me, session }) {
       created.push(data);
     }
     setRets(p => [...created, ...p]);
+
+    const returnItemName = items.find(i => i.id === itemId)?.name;
+    sendPushEvent(supabase, "return_submitted", {
+      teacher_id: me.id,
+      teacher_name: me.name,
+      item_names: formatPushItemNames([returnItemName]),
+    });
 
     const ideaText = (idea || "").trim();
     if (ideaText && itemId) {

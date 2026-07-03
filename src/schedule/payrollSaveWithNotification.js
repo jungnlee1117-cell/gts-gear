@@ -1,8 +1,10 @@
 import {
   bulkUpsertPayrollSlots,
   createScheduleChangeNotification,
+  scheduleSupabase,
   upsertPayrollSlot,
 } from "./api.js";
+import { sendPushEvent } from "../pushNotifications.js";
 import {
   buildExtraAddedNotificationRow,
   buildScheduleChangeNotificationRow,
@@ -10,12 +12,24 @@ import {
   shouldNotifyScheduleChange,
 } from "./scheduleChangeNotifications.js";
 
+async function pushScheduleChangeAlert(planned, payload, { institutionName } = {}) {
+  const inst = institutionName
+    || planned?.institutionName
+    || (payload.institution_id ? "원" : "개인레슨");
+  await sendPushEvent(scheduleSupabase, "schedule_change", {
+    teacher_id: payload.teacher_id,
+    institution_name: inst,
+    class_date: payload.class_date,
+  });
+}
+
 async function notifyIfNeeded(planned, payload, handlingExtra = {}) {
   if (!shouldNotifyScheduleChange(planned, payload, handlingExtra)) return;
   try {
     await createScheduleChangeNotification(
       buildScheduleChangeNotificationRow(planned, payload, handlingExtra),
     );
+    await pushScheduleChangeAlert(planned, payload);
   } catch (err) {
     console.error("schedule change notification failed:", err);
     // 급여 저장은 성공했지만 알림만 실패한 경우 — 콘솔에 원인 노출
@@ -45,6 +59,7 @@ export async function createManualExtraEntryWithNotification(payload, { institut
       await createScheduleChangeNotification(
         buildExtraAddedNotificationRow(payload, { institutionName, changeReason }),
       );
+      await pushScheduleChangeAlert(null, payload, { institutionName });
     } catch (err) {
       console.error("extra added notification failed:", err);
     }
