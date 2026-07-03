@@ -2392,6 +2392,8 @@ function LoginPage() {
     <div className="login-page" style={{
       minHeight:"100vh",
       width:"100%",
+      maxWidth:"100%",
+      overflowX:"hidden",
       background:"#f3f4f6",
       position:"relative",
       overflow:"hidden",
@@ -2426,7 +2428,7 @@ function LoginPage() {
             padding: 32px 20px 64px;
             gap: 32px;
           }
-          .login-brand { max-width: none; text-align: center; }
+          .login-brand { max-width: none; min-width: 0; text-align: center; }
           .login-brand-tagline { font-size: 36px !important; }
           .login-brand-meta { justify-content: center; }
           .login-brand-head { justify-content: center; }
@@ -9273,6 +9275,7 @@ function EquipmentApp({ onBack, me, session }) {
     return (
       <div className="equipment-app equipment-app--desktop" style={{
         display:"flex",minHeight:"100vh",
+        width:"100%",maxWidth:"100%",overflowX:"hidden",
         background:DS.pageBg,
         fontFamily:"'Noto Sans KR','Apple SD Gothic Neo',sans-serif",
       }}>
@@ -9393,10 +9396,12 @@ function EquipmentApp({ onBack, me, session }) {
         <div style={{
           marginLeft:SIDEBAR_W,
           flex:1,
+          minWidth:0,
           padding:"32px 36px",
-          maxWidth:`calc(100vw - ${SIDEBAR_W}px)`,
           overflowY:"auto",
+          overflowX:"hidden",
           minHeight:"100vh",
+          boxSizing:"border-box",
         }}>
           {renderPage()}
         </div>
@@ -9432,6 +9437,7 @@ function EquipmentApp({ onBack, me, session }) {
       width: "100%",
       maxWidth: "100%",
       margin: 0,
+      overflowX: "hidden",
       minHeight: "100vh",
       background: DS.pageBg,
       fontFamily: "'Noto Sans KR','Apple SD Gothic Neo',sans-serif",
