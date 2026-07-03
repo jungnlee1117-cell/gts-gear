@@ -4,10 +4,13 @@ import { BrowserRouter } from 'react-router-dom'
 import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.jsx'
+import { preloadVapidPublicKey } from './pushNotifications.js'
 
 if ('serviceWorker' in navigator) {
   registerSW({ immediate: true })
 }
+
+preloadVapidPublicKey()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

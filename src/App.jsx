@@ -8578,7 +8578,7 @@ function EquipmentApp({ onBack, me, session }) {
       teacher_id: me.id,
       teacher_name: me.name,
       item_names: formatPushItemNames(ci.map(c => items.find(i => i.id === c.item_id)?.name)),
-    });
+    }).catch(() => {});
     alert("대여 신청이 완료되었습니다.\n관리자 승인 후 대여가 확정됩니다.");
   };
 

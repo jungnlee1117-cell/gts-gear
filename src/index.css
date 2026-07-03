@@ -10894,6 +10894,9 @@ button.pe-res-resource-youtube-thumb:hover {
   font-size: 11px !important;
   color: #94a3b8 !important;
 }
+.push-prompt__hint--error {
+  color: #dc2626 !important;
+}
 .push-prompt__actions {
   display: flex;
   flex-direction: column;
