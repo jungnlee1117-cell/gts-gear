@@ -53,6 +53,12 @@ async function getScheduleAdminIds(client) {
   return (data || []).map((row) => row.id);
 }
 
+function maskEndpoint(endpoint: string) {
+  if (!endpoint) return "";
+  if (endpoint.length <= 48) return endpoint;
+  return `${endpoint.slice(0, 48)}…`;
+}
+
 async function resolveNotification(event, payload, userId, adminClient) {
   switch (event) {
     case "rental_approved": {
@@ -125,9 +131,14 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  console.log("[send-push] request received", { method: req.method });
+
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return jsonResponse({ error: "Unauthorized" }, 401);
+    if (!authHeader) {
+      console.log("[send-push] rejected: missing Authorization header");
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -135,7 +146,16 @@ Deno.serve(async (req) => {
     const vapidPrivate = Deno.env.get("VAPID_PRIVATE_KEY") ?? "";
     const vapidSubject = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@gts.kr";
 
+    console.log("[send-push] env check", {
+      hasSupabaseUrl: Boolean(supabaseUrl),
+      hasServiceKey: Boolean(serviceKey),
+      hasVapidPublic: Boolean(vapidPublic),
+      hasVapidPrivate: Boolean(vapidPrivate),
+      vapidSubject,
+    });
+
     if (!vapidPublic || !vapidPrivate) {
+      console.log("[send-push] rejected: VAPID keys not configured");
       return jsonResponse({ error: "VAPID keys not configured" }, 500);
     }
 
@@ -145,28 +165,79 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } },
     );
     const { data: { user }, error: userError } = await userClient.auth.getUser();
-    if (userError || !user) return jsonResponse({ error: "Unauthorized" }, 401);
+    if (userError || !user) {
+      console.log("[send-push] rejected: auth failed", userError?.message || "no user");
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
 
     const adminClient = createClient(supabaseUrl, serviceKey);
     const { event, payload } = await req.json();
 
+    console.log("[send-push] invoke", {
+      event,
+      callerUserId: user.id,
+      payload,
+    });
+
     const resolved = await resolveNotification(event, payload || {}, user.id, adminClient);
     if (resolved.error) {
+      console.log("[send-push] rejected: resolveNotification", {
+        event,
+        error: resolved.error,
+        status: resolved.status,
+      });
       return jsonResponse({ error: resolved.error }, resolved.status || 400);
     }
 
     const teacherIds = [...new Set((resolved.teacherIds || []).filter(Boolean))];
+    console.log("[send-push] resolved recipients", {
+      event,
+      teacherIds,
+      title: resolved.title,
+      body: resolved.body,
+      url: resolved.url,
+    });
+
     if (!teacherIds.length) {
+      console.log("[send-push] no teacherIds — returning sent:0");
       return jsonResponse({ sent: 0, message: "No recipients" });
     }
 
-    const { data: subscriptions } = await adminClient
+    console.log("[send-push] querying push_subscriptions", {
+      teacherIds,
+      teacherCount: teacherIds.length,
+    });
+
+    const { data: subscriptions, error: subError } = await adminClient
       .from("push_subscriptions")
-      .select("id, endpoint, p256dh, auth")
+      .select("id, teacher_id, endpoint, p256dh, auth, created_at")
       .in("teacher_id", teacherIds);
 
+    if (subError) {
+      console.error("[send-push] push_subscriptions query error", {
+        message: subError.message,
+        code: subError.code,
+        details: subError.details,
+        hint: subError.hint,
+      });
+      return jsonResponse({ error: subError.message }, 500);
+    }
+
+    console.log("[send-push] push_subscriptions query result", {
+      count: subscriptions?.length ?? 0,
+      rows: (subscriptions || []).map((sub) => ({
+        id: sub.id,
+        teacher_id: sub.teacher_id,
+        endpoint: maskEndpoint(sub.endpoint),
+        hasP256dh: Boolean(sub.p256dh),
+        hasAuth: Boolean(sub.auth),
+        created_at: sub.created_at,
+      })),
+    });
+
     if (!subscriptions?.length) {
-      return jsonResponse({ sent: 0, message: "No subscriptions" });
+      console.log("[send-push] no subscriptions found for teacherIds", teacherIds);
+      return jsonResponse({ sent: 0, message: "No subscriptions", teacherIds });
     }
 
     webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
@@ -178,12 +249,20 @@ Deno.serve(async (req) => {
       event,
     });
 
+    console.log("[send-push] sending notifications", {
+      subscriptionCount: subscriptions.length,
+      payload: pushPayload,
+    });
+
     let sent = 0;
-    const staleIds = [];
+    const staleIds: string[] = [];
+    const failures: Array<{ id: string; teacher_id?: string; statusCode?: number; message: string }> = [];
 
     await Promise.allSettled(
       subscriptions.map(async (sub) => {
+        const label = { id: sub.id, teacher_id: sub.teacher_id, endpoint: maskEndpoint(sub.endpoint) };
         try {
+          console.log("[send-push] webpush.send start", label);
           await webpush.sendNotification(
             {
               endpoint: sub.endpoint,
@@ -192,23 +271,52 @@ Deno.serve(async (req) => {
             pushPayload,
           );
           sent += 1;
+          console.log("[send-push] webpush.send OK", label);
         } catch (err) {
           const status = err?.statusCode;
+          const message = err?.message || String(err);
+          failures.push({
+            id: sub.id,
+            teacher_id: sub.teacher_id,
+            statusCode: status,
+            message,
+          });
           if (status === 404 || status === 410) {
             staleIds.push(sub.id);
           }
-          console.error("push failed:", sub.id, err?.message || err);
+          console.error("[send-push] webpush.send FAILED", {
+            ...label,
+            statusCode: status,
+            message,
+            body: err?.body,
+          });
         }
       }),
     );
 
     if (staleIds.length) {
-      await adminClient.from("push_subscriptions").delete().in("id", staleIds);
+      console.log("[send-push] deleting stale subscriptions", staleIds);
+      const { error: deleteError } = await adminClient
+        .from("push_subscriptions")
+        .delete()
+        .in("id", staleIds);
+      if (deleteError) {
+        console.error("[send-push] stale subscription delete failed", deleteError.message);
+      }
     }
 
-    return jsonResponse({ sent, total: subscriptions.length });
+    const result = {
+      sent,
+      total: subscriptions.length,
+      failed: failures.length,
+      staleRemoved: staleIds.length,
+      failures,
+    };
+    console.log("[send-push] complete", result);
+
+    return jsonResponse(result);
   } catch (err) {
-    console.error(err);
+    console.error("[send-push] unhandled error", err?.message || err, err);
     return jsonResponse({ error: err?.message || "Internal error" }, 500);
   }
 });

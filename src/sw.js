@@ -1,6 +1,10 @@
 /* eslint-disable no-restricted-globals */
-// 레거시: push 핸들러는 src/sw.js(injectManifest)로 이전됨.
-// 구 SW가 importScripts로 이 파일을 로드해도 푸시가 동작하도록 동일 로직 유지.
+// iOS 16.4+ PWA: push 핸들러는 SW 로드 시 동기 등록 (importScripts 분리 시 iOS에서 누락될 수 있음)
+import { clientsClaim } from 'workbox-core'
+import { ExpirationPlugin } from 'workbox-expiration'
+import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching'
+import { NavigationRoute, registerRoute } from 'workbox-routing'
+import { NetworkFirst } from 'workbox-strategies'
 
 self.addEventListener('push', (event) => {
   event.waitUntil(handlePushEvent(event))
@@ -40,6 +44,7 @@ async function handlePushEvent(event) {
   const body = String(data.body || defaults.body)
   const url = String(data.url || defaults.url)
 
+  // iOS Safari: renotify·requireInteraction 등 미지원 옵션은 showNotification 실패 원인
   const options = {
     body,
     icon: '/pwa-192x192.png',
@@ -86,3 +91,30 @@ async function handleNotificationClick(event) {
     await self.clients.openWindow(targetUrl)
   }
 }
+
+cleanupOutdatedCaches()
+precacheAndRoute(self.__WB_MANIFEST)
+
+self.skipWaiting()
+clientsClaim()
+
+registerRoute(
+  new NavigationRoute(createHandlerBoundToURL('/index.html'), {
+    denylist: [/^\/api/],
+  }),
+)
+
+registerRoute(
+  /^https:\/\/.*\.supabase\.co\/.*/i,
+  new NetworkFirst({
+    cacheName: 'supabase-api',
+    networkTimeoutSeconds: 10,
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 50,
+        maxAgeSeconds: 60 * 60 * 24,
+      }),
+    ],
+  }),
+  'GET',
+)
