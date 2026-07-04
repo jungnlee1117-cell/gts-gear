@@ -22,6 +22,7 @@ import {
 import CalendarEventBadges from "./CalendarEventBadges.jsx";
 import { fmtLocalDate, getMonthGrid } from "./payrollCalendar.js";
 import { isScheduleAdmin } from "./roles.js";
+import { notifyEventScheduled } from "./pushScheduleNotification.js";
 
 const EMPTY_FORM = {
   institution_id: "",
@@ -195,6 +196,7 @@ export default function EventsScheduleView({ me, onBack }) {
     if (end < form.start_date) return alert("종료일은 시작일 이후여야 합니다.");
     setSaving(true);
     try {
+      const isNew = !form.id;
       const payload = {
         institution_id: form.institution_id,
         exception_date: form.start_date,
@@ -205,6 +207,13 @@ export default function EventsScheduleView({ me, onBack }) {
       if (form.id) payload.id = form.id;
 
       await saveScheduleException(payload);
+      if (isNew) {
+        void notifyEventScheduled({
+          institution_id: payload.institution_id,
+          note: payload.note,
+          event_date: payload.exception_date,
+        });
+      }
       setForm(EMPTY_FORM);
       setShowRegisterModal(false);
       setEditingException(null);

@@ -19,6 +19,7 @@ import {
 import InstitutionAssignmentsTab from "./InstitutionAssignmentsTab.jsx";
 import InstitutionBillingTab from "./InstitutionBillingTab.jsx";
 import { formatExceptionNotice } from "./scheduleExceptions.js";
+import { notifyEventScheduled } from "./pushScheduleNotification.js";
 import {
   canViewInstitutionRevenue,
   institutionInManagerScope,
@@ -107,6 +108,11 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
         end_date: exForm.end_date && exForm.end_date !== exForm.start_date ? exForm.end_date : null,
         exception_type: exForm.exception_type,
         note: exForm.note.trim(),
+      });
+      void notifyEventScheduled({
+        institution_id: institutionId,
+        note: exForm.note.trim(),
+        event_date: exForm.start_date,
       });
       setExForm({ start_date: "", end_date: "", note: "", exception_type: "cancelled" });
       await load();

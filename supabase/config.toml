@@ -1,0 +1,9 @@
+# Edge Functions JWT 검증 비활성화
+# - send-push: consultation_requested는 함수 내부에서 인증 없이 처리
+# - 배포 후 반드시 적용 확인: supabase functions deploy send-push
+
+[functions.send-push]
+verify_jwt = false
+
+[functions.vapid-public-key]
+verify_jwt = false

@@ -161,7 +161,7 @@ function GearPhotoGroup({ entries }) {
     <div className={`gear-rotation-equipment-images gear-rotation-equipment-images--${countMod}`}>
       {entries.map(({ item, label, name }) => (
         <div key={`${label}-${name}`} className="gear-rotation-equipment-image-card">
-          {label && <span className="gear-rotation-photo-label">{label}</span>}
+          {label ? <span className="gear-rotation-photo-label">{label}</span> : null}
           <GearPhoto item={item} alt={name} />
         </div>
       ))}
@@ -241,16 +241,6 @@ function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, le
               {typeBadge.label}
             </span>
           </div>
-          {!gear.merged && gear.parts?.map(p => {
-            const item = resolveItemRecord(items, p.name);
-            const rented = item?.id && heldIds?.has(item.id);
-            return (
-              <p key={p.label} className="gear-rotation-highlight__sub">
-                {p.label}: {p.name}
-                {rented ? <span className="gear-rotation-highlight__rented-tag"> · 대여 중</span> : null}
-              </p>
-            );
-          })}
           {rentedCount > 0 ? (
             <p className="gear-rotation-highlight__rented-summary">대여 중 {rentedCount}종</p>
           ) : null}
@@ -320,16 +310,6 @@ function MonthGearRow({ row, items, status, heldIds, lessonPlans, aliases, viewM
               {status.label}
             </span>
           </div>
-          {!row.gear.merged && row.gear.parts?.map(p => {
-            const item = resolveItemRecord(items, p.name);
-            const rented = item?.id && heldIds.has(item.id);
-            return (
-              <p key={p.label} className="gear-rotation-row__sub">
-                {p.label}: {p.name}
-                {rented ? <span className="gear-rotation-highlight__rented-tag"> · 대여 중</span> : null}
-              </p>
-            );
-          })}
           {activityLine && (
             <p className="gear-rotation-row__meta">활동영역: {activityLine}</p>
           )}

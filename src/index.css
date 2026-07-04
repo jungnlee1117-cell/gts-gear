@@ -10456,13 +10456,45 @@ button.pe-res-resource-youtube-thumb:hover {
   right: 0;
   bottom: 0;
   z-index: 1;
-  padding: 3px 6px;
-  font-size: 9px;
+  padding: 4px 6px;
+  font-size: 10px;
   font-weight: 800;
   text-align: center;
   color: #fff;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
   pointer-events: none;
+}
+@media (min-width: 769px) {
+  .gear-rotation-row .gear-rotation-equipment-images {
+    grid-template-columns: repeat(2, 140px);
+    width: auto;
+    max-width: 100%;
+  }
+  .gear-rotation-row .gear-rotation-equipment-images--single {
+    grid-template-columns: 140px;
+    max-width: 140px;
+  }
+  .gear-rotation-row .gear-rotation-equipment-image-card {
+    width: 140px;
+    height: 140px;
+    max-height: 140px;
+    max-width: 140px;
+  }
+  .gear-rotation-highlight .gear-rotation-equipment-images {
+    grid-template-columns: repeat(2, 140px);
+    width: auto;
+    max-width: 100%;
+  }
+  .gear-rotation-highlight .gear-rotation-equipment-images--single {
+    grid-template-columns: 140px;
+    max-width: 140px;
+  }
+  .gear-rotation-highlight .gear-rotation-equipment-image-card {
+    width: 140px;
+    height: 140px;
+    max-height: 140px;
+    max-width: 140px;
+  }
 }
 .gear-rotation-highlight__period {
   margin: 0 0 10px;

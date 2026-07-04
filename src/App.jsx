@@ -39,6 +39,7 @@ import {
 } from "./itemNames.js";
 import { buildCurrentRentals, buildDueReturns } from "./teacherGearStatus.js";
 import { fetchItemIdeas, insertItemIdea, toggleItemIdeaLike } from "./itemIdeas.js";
+import DataExportPage from "./DataExportPage.jsx";
 
 const GEAR_SCAN_KEY = "gts_gear_scan";
 
@@ -251,11 +252,11 @@ async function persistNotice(notice, existing) {
     author_id: notice.author_id,
     author_name: notice.author_name,
   }).select().single();
-  if (!error && data) return [data, ...existing];
+  if (!error && data) return { list: [data, ...existing], savedToDb: true };
   const row = { ...notice, id: notice.id || crypto.randomUUID(), importance: normalizeNoticeImportance(notice.importance) };
   const next = [row, ...existing];
   localStorage.setItem(NOTICES_STORAGE_KEY, JSON.stringify(next));
-  return next;
+  return { list: next, savedToDb: false };
 }
 
 async function updateNoticeRecord(id, patch, existing) {
@@ -1084,6 +1085,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "report") return <svg {...s} viewBox="0 0 24 24"><path d="M5 21V7"/><path d="M12 21V3"/><path d="M19 21V9"/></svg>;
   if (id === "notices") return <svg {...s} viewBox="0 0 24 24"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3z"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
   if (id === "settings") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>;
+  if (id === "data-export") return <svg {...s} viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>;
   if (id === "overdue") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>;
   if (id === "returns-approval") return <svg {...s} viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>;
   if (id === "rental-approval") return <svg {...s} viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/></svg>;
@@ -1149,6 +1151,7 @@ function buildSidebarNav(me) {
       { type: "item", id: "report", label: "리포트", glyph: "report" },
       { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
       { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
+      { type: "item", id: "data-export", label: "데이터 내보내기", glyph: "data-export" },
       { type: "item", id: "settings", label: "설정", glyph: "settings" },
     ];
   }
@@ -1800,6 +1803,7 @@ const PAGE_META = {
   report:             { title: "월간 리포트",  sub: "월별 대여·반납·파손·분실 현황을 분석합니다." },
   notices:            { title: "공지사항",     sub: "공지를 확인하고 관리자는 새 공지를 등록할 수 있습니다." },
   settings:           { title: "설정",         sub: "계정 및 시스템 설정을 관리합니다." },
+  "data-export":      { title: "데이터 내보내기", sub: "교구·대여·급여 데이터를 Excel로 다운로드합니다." },
   "my-rental-status": { title: "내 대여현황",  sub: "대여 중인 교구를 확인하고 교구별 반납 신청을 합니다." },
   "my-reservations":  { title: "내 예약 현황", sub: "교구 예약 상태를 확인하고 승인 전 예약을 취소할 수 있습니다." },
   "reservation-approval": { title: "예약 승인", sub: "선생님의 교구 예약을 검토하고 승인·거절합니다." },
@@ -6015,7 +6019,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   );
 }
 
-function SettingsPage({me,onChangePw,onLogout}) {
+function SettingsPage({me,onChangePw,onLogout,onDataExport}) {
   return (
     <PageShell>
       <PageHeader me={me} subtitle={PAGE_META.settings.sub}/>
@@ -6027,6 +6031,14 @@ function SettingsPage({me,onChangePw,onLogout}) {
           <Btn danger onClick={onLogout}>로그아웃</Btn>
         </div>
       </PanelSection>
+      {onDataExport ? (
+        <PanelSection title="데이터 내보내기">
+          <p style={{ fontSize: 13, color: DS.textSecondary, margin: "0 0 14px", lineHeight: 1.6 }}>
+            교구 현황, 대여 내역, 선생님 급여/정산 데이터를 Excel 파일로 다운로드할 수 있습니다.
+          </p>
+          <Btn onClick={onDataExport}>데이터 내보내기 페이지 열기</Btn>
+        </PanelSection>
+      ) : null}
     </PageShell>
   );
 }
@@ -7867,6 +7879,15 @@ function AuthenticatedRoutes({ me, session, logout }) {
         element={<EquipmentApp onBack={() => navigate("/")} me={me} session={session}/>}
       />
       <Route
+        path="/admin/data-export"
+        element={(
+          <DataExportPage
+            me={me}
+            onBack={() => navigate("/gear?page=settings")}
+          />
+        )}
+      />
+      <Route
         path="/pe-resources"
         element={(
           <PeResourcesApp
@@ -8362,6 +8383,10 @@ function EquipmentApp({ onBack, me, session }) {
       navigate("/english-script");
       return;
     }
+    if (nextPage === "data-export") {
+      navigate("/admin/data-export");
+      return;
+    }
     if (nextPage === "video-resources") {
       navigate("/pe-resources?category=videos");
       return;
@@ -8514,8 +8539,11 @@ function EquipmentApp({ onBack, me, session }) {
       author_name: me.name,
       created_at: new Date().toISOString(),
     };
-    const next = await persistNotice(row, notices);
-    setNotices(next);
+    const { list, savedToDb } = await persistNotice(row, notices);
+    setNotices(list);
+    if (savedToDb) {
+      void sendPushEvent(supabase, "notice_posted", { title: row.title });
+    }
     alert("공지가 등록되었습니다.");
   };
 
@@ -9262,7 +9290,7 @@ function EquipmentApp({ onBack, me, session }) {
             onItemClick={item => openItemDetail(item, "notices")}
           />
         )}
-        {page==="settings"&&<SettingsPage me={me} onChangePw={()=>setShowPwModal(true)} onLogout={logout}/>}
+        {page==="settings"&&<SettingsPage me={me} onChangePw={()=>setShowPwModal(true)} onLogout={logout} onDataExport={superA ? () => navigate("/admin/data-export") : undefined}/>}
         {page==="accounts"&&superA&&<AccountsPage me={me} teachers={teachers} setTeachers={setTeachers} ris={ris} reqs={reqs} items={items}/>}
       </>
     );
