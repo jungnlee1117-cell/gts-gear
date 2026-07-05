@@ -8,6 +8,7 @@ import {
   sumMergedAdditionalPayments,
 } from "./institutionTeacherPay.js";
 import { buildTempTeacherPayrollRows, engagementOverlapsMonth } from "./temporaryTeachers.js";
+import { groupSubstituteLessonsByTempTeacher } from "./substituteLessons.js";
 import {
   computeSettlement,
   estimateTeacherPayByEntry,
@@ -142,6 +143,120 @@ export async function fetchSubstituteAssignmentsForTeacher(teacherId, fromDate, 
     .or(`substitute_end_date.is.null,substitute_end_date.gte.${fromDate}`);
   if (error) throw error;
   return data || [];
+}
+
+async function enrichSubstituteLessons(rows) {
+  if (!rows?.length) return [];
+  const teacherIds = new Set();
+  const tempIds = new Set();
+  const instIds = new Set();
+  for (const row of rows) {
+    if (row.original_teacher_id) teacherIds.add(row.original_teacher_id);
+    if (row.substitute_teacher_id) teacherIds.add(row.substitute_teacher_id);
+    if (row.substitute_temp_teacher_id) tempIds.add(row.substitute_temp_teacher_id);
+    if (row.institution_id) instIds.add(row.institution_id);
+  }
+  const teachersById = new Map();
+  const tempById = new Map();
+  const instById = new Map();
+  if (teacherIds.size) {
+    const { data, error } = await scheduleSupabase
+      .from("teachers")
+      .select("id, name")
+      .in("id", [...teacherIds]);
+    if (error) throw error;
+    (data || []).forEach(t => teachersById.set(t.id, t));
+  }
+  if (tempIds.size) {
+    const { data, error } = await scheduleSupabase
+      .from("temp_teachers")
+      .select("*")
+      .in("id", [...tempIds]);
+    if (error) throw error;
+    (data || []).forEach(t => tempById.set(t.id, t));
+  }
+  if (instIds.size) {
+    const { data, error } = await scheduleSupabase
+      .from("institutions")
+      .select("id, name")
+      .in("id", [...instIds]);
+    if (error) throw error;
+    (data || []).forEach(i => instById.set(i.id, i));
+  }
+  return rows.map(row => ({
+    ...row,
+    original_teacher: teachersById.get(row.original_teacher_id) || null,
+    substitute_teacher: row.substitute_teacher_id
+      ? teachersById.get(row.substitute_teacher_id) || null
+      : null,
+    substitute_temp_teacher: row.substitute_temp_teacher_id
+      ? tempById.get(row.substitute_temp_teacher_id) || null
+      : null,
+    institutions: instById.get(row.institution_id) || null,
+  }));
+}
+
+export async function fetchSubstituteLessons({ fromDate, toDate, teacherId, yearMonth } = {}) {
+  let q = scheduleSupabase
+    .from("substitute_lessons")
+    .select("*")
+    .order("lesson_date", { ascending: true });
+  if (fromDate) q = q.gte("lesson_date", fromDate);
+  if (toDate) q = q.lte("lesson_date", toDate);
+  if (yearMonth) {
+    q = q
+      .gte("lesson_date", yearMonthFirstDay(yearMonth))
+      .lte("lesson_date", yearMonthLastDay(yearMonth));
+  }
+  const { data, error } = await q;
+  if (error) throw error;
+  let rows = data || [];
+  if (teacherId) {
+    rows = rows.filter(r =>
+      r.original_teacher_id === teacherId
+      || r.substitute_teacher_id === teacherId,
+    );
+  }
+  return enrichSubstituteLessons(rows);
+}
+
+export async function insertSubstituteLesson(row) {
+  const { data, error } = await scheduleSupabase
+    .from("substitute_lessons")
+    .insert({
+      ...row,
+      updated_at: new Date().toISOString(),
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  const [enriched] = await enrichSubstituteLessons([data]);
+  return enriched;
+}
+
+export async function updateSubstituteLessonStatus(id, status) {
+  const { data, error } = await scheduleSupabase
+    .from("substitute_lessons")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error) throw error;
+  const [enriched] = await enrichSubstituteLessons([data]);
+  return enriched;
+}
+
+export async function findPayrollEntryBySlot({ teacher_id, class_date, schedule_slot_id }) {
+  if (!teacher_id || !class_date || !schedule_slot_id) return null;
+  const { data, error } = await scheduleSupabase
+    .from("payroll_entries")
+    .select("id")
+    .eq("teacher_id", teacher_id)
+    .eq("class_date", class_date)
+    .eq("schedule_slot_id", schedule_slot_id)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
 }
 
 export async function updateTempTeacher(id, payload) {
@@ -1293,7 +1408,7 @@ export async function loadPayrollDashboard(yearMonth) {
   const monthEnd = yearMonthLastDay(yearMonth);
   const [y, m] = yearMonth.split("-").map(Number);
 
-  const [teachers, entries, rates, institutions, allWeekly, exceptionsRes, teacherNotes, additionalPayments] = await Promise.all([
+  const [teachers, entries, rates, institutions, allWeekly, exceptionsRes, teacherNotes, additionalPayments, substituteLessons] = await Promise.all([
     fetchTeachers(),
     fetchPayrollEntries({ yearMonth }),
     fetchPayRates(),
@@ -1306,6 +1421,7 @@ export async function loadPayrollDashboard(yearMonth) {
       .lte("exception_date", monthEnd),
     fetchTeacherNotes({ fromDate: ym, toDate: monthEnd }),
     fetchAdditionalPayments({ yearMonth }),
+    fetchSubstituteLessons({ yearMonth }),
   ]);
 
   const exceptions = exceptionsRes.data || [];
@@ -1409,6 +1525,51 @@ export async function loadPayrollDashboard(yearMonth) {
     weeklySlots: allWeekly,
     scheduleExceptions: exceptions,
   });
+
+  const tempById = new Map(tempTeacherRows.map(r => [r.tempTeacher.id, r]));
+  const instMap = Object.fromEntries(institutions.map(i => [i.id, i]));
+  for (const [tempId, lessons] of groupSubstituteLessonsByTempTeacher(substituteLessons, yearMonth)) {
+    const extraPay = lessons.reduce((s, l) => s + (Number(l.substitute_pay_amount) || 0), 0);
+    if (extraPay <= 0) continue;
+    if (tempById.has(tempId)) {
+      const row = tempById.get(tempId);
+      row.estimatedPay = Math.round((Number(row.estimatedPay) || 0) + extraPay);
+      row.substituteLessonPay = (Number(row.substituteLessonPay) || 0) + extraPay;
+      row.substituteLessonCount = (Number(row.substituteLessonCount) || 0) + lessons.length;
+    } else {
+      const eng = lessons[0].substitute_temp_teacher;
+      if (!eng) continue;
+      tempTeacherRows.push({
+        isTemporary: true,
+        teacher: { id: `temp:${eng.id}`, name: eng.name },
+        tempTeacher: eng,
+        institution: instMap[eng.institution_id],
+        institutionName: instMap[eng.institution_id]?.name ?? "—",
+        sessionCount: lessons.length,
+        workHours: 0,
+        workDays: 0,
+        totalMinutes: 0,
+        estimatedPay: extraPay,
+        substituteLessonPay: extraPay,
+        substituteLessonCount: lessons.length,
+        payMode: eng.pay_mode,
+        rateAmount: Number(eng.rate_amount) || 0,
+        payType: eng.pay_type || "정규",
+        byType: { 정규: 0, 방과후: 0, 가정방문: 0, 센터: 0, 센터보조: 0 },
+        paySummaryLabel: `대체수업 ${lessons.length}회`,
+        isSubstitute: false,
+        substituteTeacherName: null,
+        substitutePeriod: null,
+        engagementPeriod: "—",
+        settlementLabel: `대체수업 ${lessons.length}회`,
+        inputMissing: false,
+        unconfirmedDays: 0,
+        additionalTotal: 0,
+        additionalPayments: [],
+      });
+    }
+  }
+  tempTeacherRows.sort((a, b) => a.teacher.name.localeCompare(b.teacher.name, "ko"));
 
   return {
     teacherRows,

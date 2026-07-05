@@ -18,6 +18,7 @@ import {
   fetchPayrollEntries,
   fetchScheduleExceptions,
   fetchSubstituteAssignmentsForTeacher,
+  fetchSubstituteLessons,
   fetchTeacherNotes,
   fetchWeeklySchedule,
   upsertTeacherNote,
@@ -43,6 +44,10 @@ import { buildHomeVisitLegend, buildInstitutionLegend } from "./calendarLegend.j
 import { plannedSlotDisplayLabel } from "./payrollCalendar.js";
 import CalendarDayStatusIcon, { calendarDayStatusKind } from "./CalendarDayStatusIcon.jsx";
 import { applySubstituteOverlaysToSchedule } from "./substituteSchedule.js";
+import { applySubstituteLessonsToSchedule, calendarSubstituteBadge } from "./substituteLessons.js";
+import { isScheduleSuperAdmin } from "./managerScope.js";
+import SubstituteLessonModal from "./SubstituteLessonModal.jsx";
+import { cancelSubstituteLesson } from "./substituteLessonService.js";
 
 const TODAY = new Date();
 
@@ -68,6 +73,11 @@ export default function TeacherMonthlyScheduleView({
   const [detailSlot, setDetailSlot] = useState(null);
   const [detailHomeVisit, setDetailHomeVisit] = useState(null);
   const [substituteAssignments, setSubstituteAssignments] = useState([]);
+  const [substituteLessons, setSubstituteLessons] = useState([]);
+  const [substituteModalOpen, setSubstituteModalOpen] = useState(false);
+  const [substitutePlanned, setSubstitutePlanned] = useState(null);
+
+  const superAdmin = isScheduleSuperAdmin(me);
 
   const year = monthBase.getFullYear();
   const month = monthBase.getMonth();
@@ -82,7 +92,7 @@ export default function TeacherMonthlyScheduleView({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [w, hv, insts, ex, notes, ents, subs] = await Promise.all([
+      const [w, hv, insts, ex, notes, ents, subs, subLessons] = await Promise.all([
         fetchWeeklySchedule(null, teacherId),
         fetchHomeVisitPatterns({ teacherId }),
         teacherId === me.id
@@ -94,6 +104,7 @@ export default function TeacherMonthlyScheduleView({
           : Promise.resolve([]),
         fetchPayrollEntries({ teacherId, yearMonth }),
         fetchSubstituteAssignmentsForTeacher(teacherId, rangeFrom, rangeTo),
+        fetchSubstituteLessons({ fromDate: rangeFrom, toDate: rangeTo, teacherId }),
       ]);
       setSlots(w);
       setHomeVisitPatterns(hv);
@@ -110,6 +121,7 @@ export default function TeacherMonthlyScheduleView({
       setTeacherNotes(notes);
       setEntries(ents);
       setSubstituteAssignments(subs);
+      setSubstituteLessons(subLessons);
     } catch (e) {
       console.error(e);
     } finally {
@@ -139,10 +151,18 @@ export default function TeacherMonthlyScheduleView({
     [slots, year, month, teacherExceptions, monthHomeVisitPatterns],
   );
 
-  const displayScheduleByDate = useMemo(
-    () => applySubstituteOverlaysToSchedule(scheduleByDate, substituteAssignments),
-    [scheduleByDate, substituteAssignments],
+  const institutionMap = useMemo(
+    () => Object.fromEntries(assignedInstitutions.map(i => [i.id, i])),
+    [assignedInstitutions],
   );
+
+  const displayScheduleByDate = useMemo(() => {
+    const withTempSubs = applySubstituteOverlaysToSchedule(scheduleByDate, substituteAssignments);
+    return applySubstituteLessonsToSchedule(withTempSubs, substituteLessons, {
+      viewerTeacherId: teacherId,
+      institutionMap,
+    });
+  }, [scheduleByDate, substituteAssignments, substituteLessons, teacherId, institutionMap]);
 
   const homeVisitLegend = useMemo(
     () => buildHomeVisitLegend(monthHomeVisitPatterns),
@@ -208,6 +228,23 @@ export default function TeacherMonthlyScheduleView({
       alert("메모 삭제 실패: " + err.message);
     } finally {
       setNoteSaving(false);
+    }
+  };
+
+  const openSubstituteModal = (planned = null) => {
+    setSubstitutePlanned(planned);
+    setSubstituteModalOpen(true);
+  };
+
+  const handleCancelSubstitute = async (lesson) => {
+    if (!lesson?.id) return;
+    if (!confirm("이 대체수업을 취소할까요? 급여 항목도 되돌립니다.")) return;
+    try {
+      await cancelSubstituteLesson(lesson);
+      setDetailSlot(null);
+      await load();
+    } catch (err) {
+      alert("대체수업 취소 실패: " + err.message);
     }
   };
 
@@ -289,7 +326,10 @@ export default function TeacherMonthlyScheduleView({
                 const holiday = getKoreanHoliday(dateStr);
                 const markers = uniqueInstitutionsForCell(date);
                 const dayEvents = inMonth ? (exceptionsByDate[dateStr] || []) : [];
-                const planned = inMonth ? (scheduleByDate[dateStr] || []) : [];
+                const planned = inMonth ? (displayScheduleByDate[dateStr] || []) : [];
+                const subBadge = inMonth
+                  ? calendarSubstituteBadge(substituteLessons, teacherId, dateStr)
+                  : null;
                 const statusKind = calendarDayStatusKind(planned, entries, { isHoliday: !!holiday });
 
                 return (
@@ -314,6 +354,10 @@ export default function TeacherMonthlyScheduleView({
                     {holiday ? (
                       <span className="sch-cal-holiday-label" title={holiday.name}>
                         {holidayShortLabel(holiday.name)}
+                      </span>
+                    ) : subBadge ? (
+                      <span className={`sch-cal-sub-badge sch-cal-sub-badge--${subBadge.kind}`}>
+                        {subBadge.label}
                       </span>
                     ) : dayEvents.length > 0 ? (
                       <CalendarEventBadges events={dayEvents} maxVisible={2} compact/>
@@ -358,6 +402,15 @@ export default function TeacherMonthlyScheduleView({
             <h3 className="sch-cal-detail-title">
               {selectedDate.getMonth() + 1}월 {selectedDate.getDate()}일 ({DAY_LABELS[selectedDow]})
             </h3>
+            {superAdmin && !selectedHoliday ? (
+              <button
+                type="button"
+                className="sch-btn sch-btn--primary sch-btn--sm sch-cal-sub-register-btn"
+                onClick={() => openSubstituteModal(selectedPlanned[0] || null)}
+              >
+                대체수업 등록
+              </button>
+            ) : null}
             {selectedDayExceptions.length > 0 ? (
               <ul className="sch-month-notices-list sch-month-notices-list--inline">
                 {selectedDayExceptions.map(ex => (
@@ -389,13 +442,15 @@ export default function TeacherMonthlyScheduleView({
                         className={[
                           "sch-cal-detail-item",
                           planned.isSubstituteCovered && "sch-cal-detail-item--substitute",
+                          planned.isSubstituteCancelled && "sch-cal-detail-item--cancelled",
+                          planned.isSubstituteCover && "sch-cal-detail-item--substitute-cover",
                         ].filter(Boolean).join(" ")}
                         onClick={() => {
                           if (isHome) {
                             setDetailHomeVisit(planned);
                             setDetailSlot(null);
                           } else {
-                            setDetailSlot(planned.slot);
+                            setDetailSlot({ ...planned.slot, planned });
                             setDetailHomeVisit(null);
                           }
                         }}
@@ -450,16 +505,65 @@ export default function TeacherMonthlyScheduleView({
             <p className="sch-muted">
               {resolveInstitutionSlotPayType(detailSlot)} · {detailSlot.start_time?.slice(0, 5)}–{detailSlot.end_time?.slice(0, 5)}
             </p>
+            {detailSlot.planned?.isSubstituteCancelled ? (
+              <p className="sch-sub-status sch-sub-status--cancelled">휴강 🔴 — 대체수업 등록됨</p>
+            ) : null}
+            {detailSlot.planned?.isSubstituteCover ? (
+              <p className="sch-sub-status sch-sub-status--cover">대체수업 🟡</p>
+            ) : null}
             {detailSlot.institutions?.address ? (
               <p><MapPin size={14}/> {detailSlot.institutions.address}</p>
             ) : null}
             {detailSlot.institutions?.parking_info ? (
               <p><Car size={14}/> {detailSlot.institutions.parking_info}</p>
             ) : null}
-            <button type="button" className="sch-btn sch-btn--primary" onClick={() => setDetailSlot(null)}>닫기</button>
+            <div className="sch-form-actions">
+              {superAdmin && detailSlot.planned?.substituteLesson ? (
+                <button
+                  type="button"
+                  className="sch-btn sch-btn--danger"
+                  onClick={() => handleCancelSubstitute(detailSlot.planned.substituteLesson)}
+                >
+                  대체수업 취소
+                </button>
+              ) : null}
+              {superAdmin && !detailSlot.planned?.isSubstituteCancelled ? (
+                <button
+                  type="button"
+                  className="sch-btn sch-btn--primary"
+                  onClick={() => {
+                    openSubstituteModal(detailSlot.planned || {
+                      slot: detailSlot,
+                      institutionId: detailSlot.institution_id,
+                      institutionName: detailSlot.institutions?.name,
+                      payType: resolveInstitutionSlotPayType(detailSlot),
+                      startTime: detailSlot.start_time?.slice(0, 5),
+                      endTime: detailSlot.end_time?.slice(0, 5),
+                      scheduledMinutes: 0,
+                      dateStr: selectedDateStr,
+                    });
+                    setDetailSlot(null);
+                  }}
+                >
+                  대체수업 등록
+                </button>
+              ) : null}
+              <button type="button" className="sch-btn sch-btn--ghost" onClick={() => setDetailSlot(null)}>닫기</button>
+            </div>
           </div>
         </div>
       ) : null}
+
+      <SubstituteLessonModal
+        open={substituteModalOpen}
+        onClose={() => setSubstituteModalOpen(false)}
+        me={me}
+        planned={substitutePlanned}
+        originalTeacherId={teacherId}
+        originalTeacherName={targetTeacherName || me?.name}
+        lessonDate={selectedDateStr}
+        onSaved={load}
+      />
     </div>
   );
 }

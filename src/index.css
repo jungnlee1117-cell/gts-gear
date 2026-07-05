@@ -7717,6 +7717,7 @@ button.pe-res-resource-youtube-thumb:hover {
   display: inline-flex; align-items: center; gap: 6px;
 }
 .sch-btn--primary { background: #4d7c59; border-color: #4d7c59; color: #fff; }
+.sch-btn--danger { background: #fef2f2; border-color: #fecaca; color: #dc2626; }
 .sch-btn--ghost { background: #f8fafc; }
 .sch-btn--block { width: 100%; justify-content: center; }
 
@@ -7744,6 +7745,43 @@ button.pe-res-resource-youtube-thumb:hover {
 .sch-field--checkbox input { width: auto; }
 .sch-view-desc { margin: 0 0 16px; font-size: 13px; }
 .sch-cal-detail-item--substitute .sch-cal-detail-inst { color: #0369a1; font-weight: 600; }
+.sch-cal-detail-item--cancelled .sch-cal-detail-inst { color: #dc2626; font-weight: 600; }
+.sch-cal-detail-item--substitute-cover .sch-cal-detail-inst { color: #ca8a04; font-weight: 600; }
+.sch-cal-sub-badge {
+  display: block;
+  font-size: 9px;
+  line-height: 1.2;
+  font-weight: 700;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sch-cal-sub-badge--cancelled { color: #dc2626; }
+.sch-cal-sub-badge--cover { color: #ca8a04; }
+.sch-cal-sub-register-btn { margin-bottom: 10px; }
+.sch-sub-status { font-size: 13px; font-weight: 700; margin: 8px 0; }
+.sch-sub-status--cancelled { color: #dc2626; }
+.sch-sub-status--cover { color: #ca8a04; }
+.sch-modal--wide { max-width: 480px; width: 100%; }
+.sch-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.sch-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.sch-tab--active { background: #f1f5f9; border-color: #94a3b8; font-weight: 700; }
+.sch-inline-form--bordered {
+  padding: 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  margin-bottom: 12px;
+}
 .sch-payroll-slot-row--substitute .sch-payroll-slot-inst { color: #0369a1; font-weight: 600; }
 .sch-weekly-class-card-substitute { margin: 4px 0 0; font-size: 11px; font-weight: 600; color: #0369a1; line-height: 1.35; }
 .sch-btn--icon { padding: 6px 8px; min-width: auto; }

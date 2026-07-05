@@ -331,6 +331,15 @@ async function runReturnDueReminders(adminClient, vapid) {
   return jsonResponse(summary);
 }
 
+async function isScheduleSuperAdmin(client, userId) {
+  const { data } = await client
+    .from("teachers")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle();
+  return data?.role === "superadmin";
+}
+
 async function resolveNotification(event, payload, userId, adminClient) {
   switch (event) {
     case "rental_approved": {
@@ -416,6 +425,21 @@ async function resolveNotification(event, payload, userId, adminClient) {
         teacherIds,
         title: "행사 일정",
         body: `새 행사 일정: ${eventName}${dateLabel ? ` ${dateLabel}` : ""}`,
+        url: "/schedule",
+      };
+    }
+    case "substitute_lesson": {
+      if (!(await isScheduleSuperAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      const body = String(payload.body || "").trim();
+      if (!body || !payload.teacher_id) {
+        return { error: "teacher_id and body required", status: 400 };
+      }
+      return {
+        teacherIds: [payload.teacher_id],
+        title: "대체수업",
+        body,
         url: "/schedule",
       };
     }
