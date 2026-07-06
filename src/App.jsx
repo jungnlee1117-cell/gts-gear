@@ -1189,7 +1189,7 @@ function buildSidebarNav(me) {
     { type: "item", id: "qr-scan", label: "QR 스캔", glyph: "qr-scan" },
     { type: "item", id: "rental-return", label: "대여 반납신청", glyph: "rental-return" },
     { type: "item", id: "my-reservations", label: "내 예약 현황", glyph: "my-reservations" },
-    { type: "item", id: "video-resources", label: "영상자료실", glyph: "video-resources" },
+    { type: "item", id: "video-resources", label: "영상·음원 자료실", glyph: "video-resources" },
     { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
   ];
 }
@@ -8127,10 +8127,10 @@ const HUB_MODULES = [
   },
   {
     id: "videos",
-    title: "영상자료실",
-    desc: "수업·교구·행사 영상을 바로 검색하고 재생하세요.",
+    title: "영상·음원 자료실",
+    desc: "영상과 음원을 한곳에서 검색하고 재생하세요.",
     theme: "blue",
-    features: ["수업 영상", "교구 활용 영상", "행사 영상", "영어체육 영상"],
+    features: ["유튜브·영상", "MP3/WAV 음원", "재생 플레이어", "태그 검색"],
     Icon: HubIconVideo,
     wide: false,
     ready: true,

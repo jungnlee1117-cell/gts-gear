@@ -19,6 +19,7 @@ import {
   fetchScheduleExceptions,
   fetchSubstituteAssignmentsForTeacher,
   fetchSubstituteLessons,
+  fetchOneoffLessons,
   fetchTeacherNotes,
   fetchWeeklySchedule,
   upsertTeacherNote,
@@ -46,8 +47,16 @@ import CalendarDayStatusIcon, { calendarDayStatusKind } from "./CalendarDayStatu
 import { applySubstituteOverlaysToSchedule } from "./substituteSchedule.js";
 import { applySubstituteLessonsToSchedule, calendarSubstituteBadge } from "./substituteLessons.js";
 import { isScheduleSuperAdmin } from "./managerScope.js";
+import { isScheduleAdmin } from "./roles.js";
 import SubstituteLessonModal from "./SubstituteLessonModal.jsx";
 import { cancelSubstituteLesson } from "./substituteLessonService.js";
+import OneoffLessonModal from "./OneoffLessonModal.jsx";
+import { deleteOneoffLessonRecord } from "./oneoffLessonService.js";
+import {
+  hasOneoffLessonOnDate,
+  mergeOneoffLessonsIntoSchedule,
+  ONEOFF_LESSON_COLOR,
+} from "./oneoffLessons.js";
 
 const TODAY = new Date();
 
@@ -76,8 +85,13 @@ export default function TeacherMonthlyScheduleView({
   const [substituteLessons, setSubstituteLessons] = useState([]);
   const [substituteModalOpen, setSubstituteModalOpen] = useState(false);
   const [substitutePlanned, setSubstitutePlanned] = useState(null);
+  const [oneoffLessons, setOneoffLessons] = useState([]);
+  const [oneoffModalOpen, setOneoffModalOpen] = useState(false);
+  const [editingOneoffLesson, setEditingOneoffLesson] = useState(null);
+  const [detailOneoff, setDetailOneoff] = useState(null);
 
   const superAdmin = isScheduleSuperAdmin(me);
+  const canManageSchedule = isScheduleAdmin(me);
 
   const year = monthBase.getFullYear();
   const month = monthBase.getMonth();
@@ -92,7 +106,7 @@ export default function TeacherMonthlyScheduleView({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [w, hv, insts, ex, notes, ents, subs, subLessons] = await Promise.all([
+      const [w, hv, insts, ex, notes, ents, subs, subLessons, oneoffs] = await Promise.all([
         fetchWeeklySchedule(null, teacherId),
         fetchHomeVisitPatterns({ teacherId }),
         teacherId === me.id
@@ -105,6 +119,7 @@ export default function TeacherMonthlyScheduleView({
         fetchPayrollEntries({ teacherId, yearMonth }),
         fetchSubstituteAssignmentsForTeacher(teacherId, rangeFrom, rangeTo),
         fetchSubstituteLessons({ fromDate: rangeFrom, toDate: rangeTo, teacherId }),
+        fetchOneoffLessons({ fromDate: rangeFrom, toDate: rangeTo, teacherId }),
       ]);
       setSlots(w);
       setHomeVisitPatterns(hv);
@@ -122,6 +137,7 @@ export default function TeacherMonthlyScheduleView({
       setEntries(ents);
       setSubstituteAssignments(subs);
       setSubstituteLessons(subLessons);
+      setOneoffLessons(oneoffs);
     } catch (e) {
       console.error(e);
     } finally {
@@ -158,11 +174,12 @@ export default function TeacherMonthlyScheduleView({
 
   const displayScheduleByDate = useMemo(() => {
     const withTempSubs = applySubstituteOverlaysToSchedule(scheduleByDate, substituteAssignments);
-    return applySubstituteLessonsToSchedule(withTempSubs, substituteLessons, {
+    const withSubstitutes = applySubstituteLessonsToSchedule(withTempSubs, substituteLessons, {
       viewerTeacherId: teacherId,
       institutionMap,
     });
-  }, [scheduleByDate, substituteAssignments, substituteLessons, teacherId, institutionMap]);
+    return mergeOneoffLessonsIntoSchedule(withSubstitutes, oneoffLessons, { teacherId });
+  }, [scheduleByDate, substituteAssignments, substituteLessons, oneoffLessons, teacherId, institutionMap]);
 
   const homeVisitLegend = useMemo(
     () => buildHomeVisitLegend(monthHomeVisitPatterns),
@@ -231,6 +248,30 @@ export default function TeacherMonthlyScheduleView({
     }
   };
 
+  const openOneoffModal = (lesson = null) => {
+    setEditingOneoffLesson(lesson);
+    setOneoffModalOpen(true);
+  };
+
+  const handleDeleteOneoff = async (lesson) => {
+    if (!lesson?.id) return;
+    if (!confirm("이 일회성 수업을 삭제할까요?")) return;
+    try {
+      await deleteOneoffLessonRecord(lesson);
+      setDetailOneoff(null);
+      await load();
+    } catch (err) {
+      alert("일회성 수업 삭제 실패: " + err.message);
+    }
+  };
+
+  const handleCalendarDateSelect = (date, { inMonth, holiday }) => {
+    setSelectedDate(new Date(date));
+    if (canManageSchedule && inMonth && !holiday) {
+      openOneoffModal(null);
+    }
+  };
+
   const openSubstituteModal = (planned = null) => {
     setSubstitutePlanned(planned);
     setSubstituteModalOpen(true);
@@ -287,8 +328,14 @@ export default function TeacherMonthlyScheduleView({
         </button>
       </div>
 
-      {institutionLegend.length > 0 || homeVisitLegend.length > 0 ? (
+      {institutionLegend.length > 0 || homeVisitLegend.length > 0 || oneoffLessons.length > 0 ? (
         <div className="sch-cal-legend">
+          {oneoffLessons.length > 0 ? (
+            <span className="sch-cal-legend-item">
+              <span className="sch-cal-dot sch-cal-dot--oneoff"/>
+              일회성 수업
+            </span>
+          ) : null}
           {institutionLegend.map(({ id, name, color }) => (
             <span key={id} className="sch-cal-legend-item">
               <span className="sch-cal-dot" style={{ background: color }}/>
@@ -330,6 +377,7 @@ export default function TeacherMonthlyScheduleView({
                 const subBadge = inMonth
                   ? calendarSubstituteBadge(substituteLessons, teacherId, dateStr)
                   : null;
+                const hasOneoff = inMonth && hasOneoffLessonOnDate(oneoffLessons, dateStr);
                 const statusKind = calendarDayStatusKind(planned, entries, { isHoliday: !!holiday });
 
                 return (
@@ -345,7 +393,7 @@ export default function TeacherMonthlyScheduleView({
                       holiday && "sch-cal-cell--holiday",
                       dayEvents.length > 0 && "sch-cal-cell--has-events",
                     ].filter(Boolean).join(" ")}
-                    onClick={() => setSelectedDate(new Date(date))}
+                    onClick={() => handleCalendarDateSelect(date, { inMonth, holiday })}
                     aria-label={`${date.getMonth() + 1}월 ${date.getDate()}일${holiday ? ` ${holiday.name}` : ""}${statusKind === "unconfirmed" ? " 미확인" : statusKind === "confirmed" ? " 등록완료" : ""}`}
                     aria-selected={isSelected}
                   >
@@ -358,6 +406,10 @@ export default function TeacherMonthlyScheduleView({
                     ) : subBadge ? (
                       <span className={`sch-cal-sub-badge sch-cal-sub-badge--${subBadge.kind}`}>
                         {subBadge.label}
+                      </span>
+                    ) : hasOneoff ? (
+                      <span className="sch-cal-dots">
+                        <span className="sch-cal-dot sch-cal-dot--oneoff" title="일회성 수업"/>
                       </span>
                     ) : dayEvents.length > 0 ? (
                       <CalendarEventBadges events={dayEvents} maxVisible={2} compact/>
@@ -402,6 +454,15 @@ export default function TeacherMonthlyScheduleView({
             <h3 className="sch-cal-detail-title">
               {selectedDate.getMonth() + 1}월 {selectedDate.getDate()}일 ({DAY_LABELS[selectedDow]})
             </h3>
+            {canManageSchedule && !selectedHoliday ? (
+              <button
+                type="button"
+                className="sch-btn sch-btn--primary sch-btn--sm sch-cal-sub-register-btn"
+                onClick={() => openOneoffModal(null)}
+              >
+                일회성 수업 등록
+              </button>
+            ) : null}
             {superAdmin && !selectedHoliday ? (
               <button
                 type="button"
@@ -432,11 +493,17 @@ export default function TeacherMonthlyScheduleView({
               <ul className="sch-cal-detail-list">
                 {selectedPlanned.map(planned => {
                   const isHome = isHomeVisitPlanned(planned);
-                  const color = isHome
-                    ? homeVisitColor(planned.patternId)
-                    : institutionColor(planned.institutionId);
+                  const isOneoff = planned.isOneoffLesson;
+                  const color = isOneoff
+                    ? ONEOFF_LESSON_COLOR
+                    : isHome
+                      ? homeVisitColor(planned.patternId)
+                      : institutionColor(planned.institutionId);
+                  const itemKey = isOneoff
+                    ? `oneoff-${planned.oneoffLesson.id}`
+                    : `${planned.source}-${planned.slot.id}-${planned.dateStr}`;
                   return (
-                    <li key={`${planned.source}-${planned.slot.id}-${planned.dateStr}`}>
+                    <li key={itemKey}>
                       <button
                         type="button"
                         className={[
@@ -444,14 +511,21 @@ export default function TeacherMonthlyScheduleView({
                           planned.isSubstituteCovered && "sch-cal-detail-item--substitute",
                           planned.isSubstituteCancelled && "sch-cal-detail-item--cancelled",
                           planned.isSubstituteCover && "sch-cal-detail-item--substitute-cover",
+                          isOneoff && "sch-cal-detail-item--oneoff",
                         ].filter(Boolean).join(" ")}
                         onClick={() => {
-                          if (isHome) {
+                          if (isOneoff) {
+                            setDetailOneoff(planned.oneoffLesson);
+                            setDetailSlot(null);
+                            setDetailHomeVisit(null);
+                          } else if (isHome) {
                             setDetailHomeVisit(planned);
                             setDetailSlot(null);
+                            setDetailOneoff(null);
                           } else {
                             setDetailSlot({ ...planned.slot, planned });
                             setDetailHomeVisit(null);
+                            setDetailOneoff(null);
                           }
                         }}
                       >
@@ -494,6 +568,47 @@ export default function TeacherMonthlyScheduleView({
               <p><MapPin size={14}/> {detailHomeVisit.location}</p>
             ) : null}
             <button type="button" className="sch-btn sch-btn--primary" onClick={() => setDetailHomeVisit(null)}>닫기</button>
+          </div>
+        </div>
+      ) : null}
+
+      {detailOneoff ? (
+        <div className="sch-modal-overlay" onClick={() => setDetailOneoff(null)}>
+          <div className="sch-modal" onClick={e => e.stopPropagation()}>
+            <h3>{detailOneoff.institutions?.name || "일회성 수업"}</h3>
+            <p className="sch-muted">
+              {String(detailOneoff.start_time || "").slice(0, 5)}–{String(detailOneoff.end_time || "").slice(0, 5)}
+              {detailOneoff.link_payroll ? " · 급여 반영" : ""}
+            </p>
+            <p className="sch-sub-status sch-sub-status--oneoff">일회성 수업</p>
+            {detailOneoff.memo ? <p>{detailOneoff.memo}</p> : null}
+            {detailOneoff.pay_amount != null ? (
+              <p className="sch-muted">수업료 {Number(detailOneoff.pay_amount).toLocaleString()}원</p>
+            ) : null}
+            <div className="sch-form-actions">
+              {canManageSchedule ? (
+                <>
+                  <button
+                    type="button"
+                    className="sch-btn sch-btn--primary"
+                    onClick={() => {
+                      openOneoffModal(detailOneoff);
+                      setDetailOneoff(null);
+                    }}
+                  >
+                    수정
+                  </button>
+                  <button
+                    type="button"
+                    className="sch-btn sch-btn--danger"
+                    onClick={() => handleDeleteOneoff(detailOneoff)}
+                  >
+                    삭제
+                  </button>
+                </>
+              ) : null}
+              <button type="button" className="sch-btn sch-btn--ghost" onClick={() => setDetailOneoff(null)}>닫기</button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -553,6 +668,20 @@ export default function TeacherMonthlyScheduleView({
           </div>
         </div>
       ) : null}
+
+      <OneoffLessonModal
+        open={oneoffModalOpen}
+        onClose={() => {
+          setOneoffModalOpen(false);
+          setEditingOneoffLesson(null);
+        }}
+        me={me}
+        teacherId={teacherId}
+        teacherName={targetTeacherName || me?.name}
+        lessonDate={selectedDateStr}
+        editingLesson={editingOneoffLesson}
+        onSaved={load}
+      />
 
       <SubstituteLessonModal
         open={substituteModalOpen}

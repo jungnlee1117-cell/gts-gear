@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
 import PlatformMainButton from "./PlatformMainButton.jsx";
+import PeMediaLibrary from "./peMedia/PeMediaLibrary.jsx";
 import {
   Users, Trophy, Languages, ClipboardList, PartyPopper,
   Baby, GraduationCap, Video, ChevronLeft, Search, X, Upload, Download,
@@ -36,9 +37,9 @@ const DEFAULT_PE_CATEGORIES = [
   { id: "teacher-ed", num: 7, title: "교사 교육 자료", color: "#14b8a6", bg: "#f0fdfa",
     items: ["신입교사 교육", "안전 교육", "수업 운영", "교구 교육", "기관 안내"],
     subs: ["신입교사", "안전", "수업운영", "교구", "기관"], icon: "grad" },
-  { id: "videos", num: 8, title: "영상 자료실", color: "#0ea5e9", bg: "#f0f9ff",
-    items: ["수업 영상", "교구 활용 영상", "행사 영상", "영어체육 영상", "교육 콘텐츠"],
-    subs: ["수업", "교구", "행사", "영어체육", "교육"], icon: "video" },
+  { id: "videos", num: 8, title: "영상·음원 자료실", color: "#0ea5e9", bg: "#f0f9ff",
+    items: ["수업 영상", "유튜브 링크", "음원(MP3/WAV)", "영어체육 BGM"],
+    subs: ["수업", "교구", "행사", "영어체육", "음원"], icon: "video" },
 ];
 
 const CATEGORY_ICONS = {
@@ -942,6 +943,9 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   const resourceCounts = useMemo(() => {
     const m = {};
     resources.forEach(r => { m[r.category_id] = (m[r.category_id] || 0) + 1; });
+    m.videos = resources.filter(r =>
+      r.file_type === "video" || r.file_type === "youtube" || r.file_type === "audio",
+    ).length;
     return m;
   }, [resources]);
 
@@ -1022,6 +1026,13 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
             onGoCategory={goCategory}
             me={me}
             onManageCategories={() => setShowCatManage(true)}
+          />
+        ) : activeCategory?.id === "videos" ? (
+          <PeMediaLibrary
+            me={me}
+            resources={resources}
+            loading={loading}
+            onRefresh={loadAll}
           />
         ) : (
           <ResourceListPage

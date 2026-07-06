@@ -9,6 +9,7 @@ import {
 } from "./institutionTeacherPay.js";
 import { buildTempTeacherPayrollRows, engagementOverlapsMonth } from "./temporaryTeachers.js";
 import { groupSubstituteLessonsByTempTeacher } from "./substituteLessons.js";
+import { sumOneoffCustomPayAdjustments } from "./oneoffLessons.js";
 import {
   computeSettlement,
   estimateTeacherPayByEntry,
@@ -257,6 +258,72 @@ export async function findPayrollEntryBySlot({ teacher_id, class_date, schedule_
     .maybeSingle();
   if (error) throw error;
   return data;
+}
+
+async function enrichOneoffLessons(rows) {
+  if (!rows?.length) return [];
+  const instIds = [...new Set(rows.map(r => r.institution_id).filter(Boolean))];
+  const instById = new Map();
+  if (instIds.length) {
+    const { data, error } = await scheduleSupabase
+      .from("institutions")
+      .select("id, name")
+      .in("id", instIds);
+    if (error) throw error;
+    (data || []).forEach(i => instById.set(i.id, i));
+  }
+  return rows.map(row => ({
+    ...row,
+    institutions: instById.get(row.institution_id) || null,
+  }));
+}
+
+export async function fetchOneoffLessons({ fromDate, toDate, teacherId, yearMonth } = {}) {
+  let q = scheduleSupabase
+    .from("oneoff_lessons")
+    .select("*")
+    .order("lesson_date", { ascending: true })
+    .order("start_time", { ascending: true });
+  if (fromDate) q = q.gte("lesson_date", fromDate);
+  if (toDate) q = q.lte("lesson_date", toDate);
+  if (yearMonth) {
+    q = q
+      .gte("lesson_date", yearMonthFirstDay(yearMonth))
+      .lte("lesson_date", yearMonthLastDay(yearMonth));
+  }
+  if (teacherId) q = q.eq("teacher_id", teacherId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return enrichOneoffLessons(data || []);
+}
+
+export async function insertOneoffLesson(row) {
+  const { data, error } = await scheduleSupabase
+    .from("oneoff_lessons")
+    .insert({
+      ...row,
+      updated_at: new Date().toISOString(),
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  const [enriched] = await enrichOneoffLessons([data]);
+  return enriched;
+}
+
+export async function updateOneoffLesson(id, patch) {
+  const { data, error } = await scheduleSupabase
+    .from("oneoff_lessons")
+    .update({
+      ...patch,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error) throw error;
+  const [enriched] = await enrichOneoffLessons([data]);
+  return enriched;
 }
 
 export async function updateTempTeacher(id, payload) {
@@ -1408,7 +1475,7 @@ export async function loadPayrollDashboard(yearMonth) {
   const monthEnd = yearMonthLastDay(yearMonth);
   const [y, m] = yearMonth.split("-").map(Number);
 
-  const [teachers, entries, rates, institutions, allWeekly, exceptionsRes, teacherNotes, additionalPayments, substituteLessons] = await Promise.all([
+  const [teachers, entries, rates, institutions, allWeekly, exceptionsRes, teacherNotes, additionalPayments, substituteLessons, oneoffLessons] = await Promise.all([
     fetchTeachers(),
     fetchPayrollEntries({ yearMonth }),
     fetchPayRates(),
@@ -1422,6 +1489,7 @@ export async function loadPayrollDashboard(yearMonth) {
     fetchTeacherNotes({ fromDate: ym, toDate: monthEnd }),
     fetchAdditionalPayments({ yearMonth }),
     fetchSubstituteLessons({ yearMonth }),
+    fetchOneoffLessons({ yearMonth }),
   ]);
 
   const exceptions = exceptionsRes.data || [];
@@ -1443,10 +1511,13 @@ export async function loadPayrollDashboard(yearMonth) {
         mine.filter(e => e.minutes > 0),
         rates,
       );
+      const teacherOneoff = oneoffLessons.filter(l => l.teacher_id === t.id);
+      const oneoffPayAdj = sumOneoffCustomPayAdjustments(mine, teacherOneoff, rates);
+      const adjustedLessonPay = lessonPay + oneoffPayAdj;
       const teacherAdditional = additionalPayments.filter(p => p.teacher_id === t.id);
       const additionalTotal = sumMergedAdditionalPayments(teacherAdditional);
       const estimatedPay = resolveTeacherMonthlyGross(
-        t.id, yearMonth, lessonPay, teacherAdditional, t.name,
+        t.id, yearMonth, adjustedLessonPay, teacherAdditional, t.name,
       );
       const lastEntry = mine[0];
       const teacherInstIds = new Set(
@@ -1469,7 +1540,7 @@ export async function loadPayrollDashboard(yearMonth) {
         teacher: t,
         byType,
         totalMinutes: Object.values(byType).reduce((s, n) => s + n, 0),
-        lessonPay,
+        lessonPay: adjustedLessonPay,
         additionalPayments: teacherAdditional,
         additionalTotal,
         estimatedPay,
