@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, Music, Pause, Pencil, Play, Trash2, Upload } from "lucide-react";
-import { PE_ADMIN, isAudioMediaResource, pickNextTrackIndex } from "./peMediaUtils.js";
+import { Download, MoreVertical, Pause, Pencil, Play, Trash2, Upload } from "lucide-react";
+import { PE_ADMIN, formatAudioDisplayTitle, formatDuration, isAudioMediaResource } from "./peMediaUtils.js";
 import { deleteMediaResource } from "./peMediaApi.js";
 import { downloadAudioTrack, downloadAudioTracks } from "./peMediaDownload.js";
 import AudioPlayer from "./AudioPlayer.jsx";
+import PlaylistDrawer from "./PlaylistDrawer.jsx";
 import AudioUploadModal from "./AudioUploadModal.jsx";
 import AudioEditModal from "./AudioEditModal.jsx";
 
@@ -16,6 +17,9 @@ export default function AudioMediaTab({ me, resources, loading, onRefresh, searc
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState("");
   const [playing, setPlaying] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [menuTrackId, setMenuTrackId] = useState(null);
+  const [durationById, setDurationById] = useState({});
   const admin = PE_ADMIN(me);
 
   const tracks = useMemo(() => {
@@ -31,7 +35,6 @@ export default function AudioMediaTab({ me, resources, loading, onRefresh, searc
   }, [resources, search]);
 
   const playerTracks = playlistTracks ?? tracks;
-  const isPlaylistMode = playlistTracks !== null;
   const trackSelected = currentIndex !== null;
   const playerIndex = trackSelected && playerTracks.length
     ? Math.min(currentIndex, playerTracks.length - 1)
@@ -44,12 +47,6 @@ export default function AudioMediaTab({ me, resources, loading, onRefresh, searc
       setPlaying(false);
     }
   }, [playerTracks.length, currentIndex]);
-
-  const nextListTrack = useMemo(() => {
-    if (!trackSelected || !playing || playerTracks.length <= 1) return null;
-    const nextIdx = pickNextTrackIndex(playerIndex, playerTracks.length, { repeatMode: "all" });
-    return nextIdx != null ? playerTracks[nextIdx] : null;
-  }, [trackSelected, playing, playerTracks, playerIndex]);
 
   const selectedTracks = useMemo(() => {
     const byId = Object.fromEntries(tracks.map(track => [track.id, track]));
@@ -78,6 +75,7 @@ export default function AudioMediaTab({ me, resources, loading, onRefresh, searc
     setPlaylistTracks([...selectedTracks]);
     setCurrentIndex(0);
     setPlaying(true);
+    setDrawerOpen(false);
   };
 
   const handleDownloadOne = async (track) => {
@@ -136,33 +134,59 @@ export default function AudioMediaTab({ me, resources, loading, onRefresh, searc
     setPlaying(true);
   };
 
+  const handleJumpTo = (idx) => {
+    setCurrentIndex(idx);
+    setPlaying(true);
+  };
+
+  const handleClearPlaylist = () => {
+    setPlaylistTracks(null);
+    setCurrentIndex(null);
+    setPlaying(false);
+    setDrawerOpen(false);
+  };
+
+  const handleDurationUpdate = (trackId, dur) => {
+    setDurationById(prev => {
+      if (prev[trackId] === dur) return prev;
+      return { ...prev, [trackId]: dur };
+    });
+  };
+
   return (
-    <div className={`pe-media-tab pe-media-tab--audio${isPlaylistMode ? " pe-media-tab--playlist" : ""}`}>
-      <div className="pe-media-tab-header">
-        <p className="pe-media-tab-desc">MP3/WAV 음원을 재생·다운로드할 수 있습니다.</p>
-        <div className="pe-media-tab-header-actions">
-          {tracks.length > 0 ? (
-            <>
-              <button
-                type="button"
-                className="pe-media-audio-bulk-play-btn"
-                disabled={selectedTracks.length === 0}
-                onClick={handlePlaySelected}
-              >
-                <Play size={16}/>
-                선택 재생 ({selectedTracks.length})
-              </button>
-              <button
-                type="button"
-                className="pe-media-audio-bulk-download-btn"
-                disabled={downloading || selectedTracks.length === 0}
-                onClick={handleDownloadSelected}
-              >
-                <Download size={16}/>
-                선택 다운로드 ({selectedTracks.length})
-              </button>
-            </>
-          ) : null}
+    <div className={`pe-media-tab pe-media-tab--audio${trackSelected ? " pe-media-tab--player-visible" : ""}${drawerOpen ? " pe-media-tab--drawer-open" : ""}`}>
+      <div className="pe-audio-toolbar">
+        <div className="pe-audio-toolbar-left">
+          <label className="pe-audio-select-all">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              disabled={downloading || tracks.length === 0}
+              onChange={toggleSelectAll}
+            />
+            전체 선택
+          </label>
+          <span className="pe-audio-select-count">{selectedTracks.length}곡 선택됨</span>
+        </div>
+        <div className="pe-audio-toolbar-right">
+          <button
+            type="button"
+            className="pe-audio-btn pe-audio-btn--play"
+            disabled={selectedTracks.length === 0}
+            onClick={handlePlaySelected}
+          >
+            <Play size={15}/>
+            선택 재생 ({selectedTracks.length})
+          </button>
+          <button
+            type="button"
+            className="pe-audio-btn pe-audio-btn--download"
+            disabled={downloading || selectedTracks.length === 0}
+            onClick={handleDownloadSelected}
+          >
+            <Download size={15}/>
+            선택 다운로드 ({selectedTracks.length})
+          </button>
           {admin ? (
             <button type="button" className="pe-res-upload-btn" onClick={() => setShowUpload(true)}>
               <Upload size={16}/> 음원 업로드
@@ -172,7 +196,7 @@ export default function AudioMediaTab({ me, resources, loading, onRefresh, searc
       </div>
 
       {downloadProgress ? (
-        <p className="pe-media-audio-download-progress" aria-live="polite">{downloadProgress}</p>
+        <p className="pe-audio-download-progress" aria-live="polite">{downloadProgress}</p>
       ) : null}
 
       {loading ? (
@@ -181,96 +205,101 @@ export default function AudioMediaTab({ me, resources, loading, onRefresh, searc
         <div className="pe-res-empty pe-res-empty-box">등록된 음원이 없습니다</div>
       ) : (
         <>
-          <div className="pe-media-audio-toolbar">
-            <label className="pe-media-audio-select-all">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                disabled={downloading}
-                onChange={toggleSelectAll}
-              />
-              전체 선택
-            </label>
-            <span className="pe-media-audio-select-count">{selectedTracks.length}곡 선택됨</span>
-          </div>
-          <ul className="pe-media-audio-list">
+          <ul className="pe-audio-track-list">
             {tracks.map((track, idx) => {
               const isPlaying = playing && currentTrack?.id === track.id;
+              const displayTitle = formatAudioDisplayTitle(track.title);
+              const dur = durationById[track.id];
+              const menuOpen = menuTrackId === track.id;
               return (
-              <li
-                key={track.id}
-                className={`pe-media-audio-item${isPlaying ? " pe-media-audio-item--active" : ""}${selectedIdSet.has(track.id) ? " pe-media-audio-item--selected" : ""}`}
-              >
-                <label className="pe-media-audio-check" aria-label={`${track.title} 선택`}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIdSet.has(track.id)}
-                    disabled={downloading}
-                    onChange={() => toggleSelect(track.id)}
-                  />
-                </label>
-                <span className={`pe-media-audio-num${isPlaying ? " pe-media-audio-num--active" : ""}`} aria-hidden>
-                  {idx + 1}
-                </span>
-                <button
-                  type="button"
-                  className="pe-media-audio-play-hit"
-                  onClick={() => handlePlayTrack(idx)}
-                  aria-label={`${track.title} 재생`}
+                <li
+                  key={track.id}
+                  className={[
+                    "pe-audio-track-row",
+                    selectedIdSet.has(track.id) && "pe-audio-track-row--selected",
+                    isPlaying && "pe-audio-track-row--playing",
+                  ].filter(Boolean).join(" ")}
                 >
-                  <div className="pe-media-audio-art">
+                  <label className="pe-audio-track-check" aria-label={`${displayTitle} 선택`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIdSet.has(track.id)}
+                      disabled={downloading}
+                      onChange={() => toggleSelect(track.id)}
+                    />
+                  </label>
+                  <span className={`pe-audio-track-num${isPlaying ? " pe-audio-track-num--playing" : ""}`}>{idx + 1}</span>
+                  <div className="pe-audio-track-thumb">
                     {track.cover_url ? (
                       <img src={track.cover_url} alt=""/>
                     ) : (
-                      <Music size={20} aria-hidden/>
+                      <span aria-hidden>♪</span>
                     )}
                   </div>
-                  <div className="pe-media-audio-meta">
-                    <div className="pe-media-audio-title">{track.title}</div>
-                    {isPlaying && nextListTrack ? (
-                      <div className="pe-media-audio-next">다음 곡: {nextListTrack.title}</div>
-                    ) : null}
-                    <div className="pe-media-audio-tags">
-                      {(track.tags || []).map(t => (
-                        <span key={t} className="pe-res-meta-tag">{t}</span>
-                      ))}
+                  <button
+                    type="button"
+                    className="pe-audio-track-title-btn"
+                    onClick={() => handlePlayTrack(idx)}
+                  >
+                    {displayTitle}
+                  </button>
+                  <span className="pe-audio-track-duration">{dur ? formatDuration(dur) : "--:--"}</span>
+                  <div className="pe-audio-track-actions">
+                    <button
+                      type="button"
+                      className="pe-audio-icon-btn"
+                      onClick={() => handlePlayTrack(idx)}
+                      aria-label={isPlaying ? `${displayTitle} 일시정지` : `${displayTitle} 재생`}
+                    >
+                      {isPlaying ? <Pause size={15}/> : <Play size={15}/>}
+                    </button>
+                    <button
+                      type="button"
+                      className="pe-audio-icon-btn"
+                      disabled={downloading}
+                      onClick={() => handleDownloadOne(track)}
+                      aria-label={`${displayTitle} 다운로드`}
+                    >
+                      <Download size={15}/>
+                    </button>
+                    <div className="pe-audio-track-menu-wrap">
+                      <button
+                        type="button"
+                        className="pe-audio-icon-btn"
+                        onClick={() => setMenuTrackId(menuOpen ? null : track.id)}
+                        aria-label={`${displayTitle} 더보기`}
+                        aria-expanded={menuOpen}
+                      >
+                        <MoreVertical size={15}/>
+                      </button>
+                      {menuOpen ? (
+                        <>
+                          <button type="button" className="pe-audio-menu-scrim" onClick={() => setMenuTrackId(null)} aria-label="메뉴 닫기"/>
+                          <div className="pe-audio-menu" role="menu">
+                            {admin ? (
+                              <>
+                                <button type="button" role="menuitem" onClick={() => { setEditTarget(track); setMenuTrackId(null); }}>
+                                  <Pencil size={14}/> 수정
+                                </button>
+                                <button type="button" role="menuitem" className="pe-audio-menu-item--danger" onClick={() => { handleDelete(track); setMenuTrackId(null); }}>
+                                  <Trash2 size={14}/> 삭제
+                                </button>
+                              </>
+                            ) : (
+                              <button type="button" role="menuitem" onClick={() => { handleDownloadOne(track); setMenuTrackId(null); }}>
+                                <Download size={14}/> 다운로드
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      ) : null}
                     </div>
                   </div>
-                </button>
-                <div className="pe-media-audio-actions">
-                  <button
-                    type="button"
-                    className="pe-res-action-btn pe-res-action-preview"
-                    onClick={() => handlePlayTrack(idx)}
-                    aria-label={isPlaying ? `${track.title} 일시정지` : `${track.title} 재생`}
-                    title={isPlaying ? "일시정지" : "재생"}
-                  >
-                    {isPlaying ? <Pause size={15}/> : <Play size={15}/>}
-                  </button>
-                  <button
-                    type="button"
-                    className="pe-res-action-btn pe-res-action-download"
-                    disabled={downloading}
-                    onClick={() => handleDownloadOne(track)}
-                    aria-label={`${track.title} 다운로드`}
-                    title="다운로드"
-                  >
-                    <Download size={15}/>
-                  </button>
-                  {admin ? (
-                    <>
-                      <button type="button" className="pe-res-action-btn pe-res-action-edit" onClick={() => setEditTarget(track)}>
-                        <Pencil size={14}/>
-                      </button>
-                      <button type="button" className="pe-res-action-btn pe-res-action-delete" onClick={() => handleDelete(track)}>
-                        <Trash2 size={14}/>
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-              </li>
-            );})}
+                </li>
+              );
+            })}
           </ul>
+          <p className="pe-audio-list-footer">{tracks.length}곡 중 {selectedTracks.length}곡 선택됨</p>
         </>
       )}
 
@@ -281,8 +310,20 @@ export default function AudioMediaTab({ me, resources, loading, onRefresh, searc
         playing={playing}
         onPlayingChange={setPlaying}
         trackSelected={trackSelected}
-        showPlaylist={isPlaylistMode}
-        playlistLabel={isPlaylistMode ? `선택 재생 목록 (${playerTracks.length}곡)` : null}
+        drawerOpen={drawerOpen}
+        onToggleDrawer={() => setDrawerOpen(o => !o)}
+        onDurationUpdate={handleDurationUpdate}
+      />
+
+      <PlaylistDrawer
+        open={drawerOpen && trackSelected}
+        onClose={() => setDrawerOpen(false)}
+        tracks={playerTracks}
+        currentIndex={playerIndex}
+        playing={playing}
+        onJumpTo={handleJumpTo}
+        onClear={handleClearPlaylist}
+        durationById={durationById}
       />
 
       {showUpload ? (

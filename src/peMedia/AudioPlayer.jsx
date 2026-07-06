@@ -1,27 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronDown, Pause, Play, SkipBack, SkipForward, Shuffle, Repeat, Repeat1, Volume2,
+  ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume2,
 } from "lucide-react";
-import { formatDuration, pickNextTrackIndex } from "./peMediaUtils.js";
+import { formatAudioDisplayTitle, formatDuration, pickNextTrackIndex } from "./peMediaUtils.js";
 
 export default function AudioPlayer({
   tracks = [],
   currentIndex,
   onIndexChange,
-  coverUrl,
-  title,
-  tags = [],
   playing: playingProp,
   onPlayingChange,
-  trackSelected = true,
-  showPlaylist = false,
-  playlistLabel = null,
+  trackSelected = false,
+  drawerOpen = false,
+  onToggleDrawer,
+  onDurationUpdate,
 }) {
   const audioRef = useRef(null);
   const [playingInternal, setPlayingInternal] = useState(false);
   const playing = playingProp ?? playingInternal;
   const setPlaying = onPlayingChange ?? setPlayingInternal;
-  const [expanded, setExpanded] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState("off");
   const [progress, setProgress] = useState(0);
@@ -54,8 +51,7 @@ export default function AudioPlayer({
     setPlaying(true);
   }, [tracks.length, onIndexChange, setPlaying]);
 
-  const playPrev = (e) => {
-    e?.stopPropagation?.();
+  const playPrev = () => {
     if (!tracks.length) return;
     if (audioRef.current && audioRef.current.currentTime > 3) {
       audioRef.current.currentTime = 0;
@@ -64,8 +60,7 @@ export default function AudioPlayer({
     playAt(currentIndex - 1);
   };
 
-  const playNext = useCallback((e) => {
-    e?.stopPropagation?.();
+  const playNext = useCallback(() => {
     if (!tracks.length || !trackSelected) return;
     if (repeatMode === "one") {
       if (audioRef.current) {
@@ -107,17 +102,7 @@ export default function AudioPlayer({
     setDuration(0);
   }, [currentIndex, src]);
 
-  useEffect(() => {
-    if (!expanded) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [expanded]);
-
-  const togglePlay = (e) => {
-    e?.stopPropagation?.();
+  const togglePlay = () => {
     if (!src || !trackSelected) return;
     setPlaying(p => !p);
   };
@@ -126,7 +111,9 @@ export default function AudioPlayer({
     const el = audioRef.current;
     if (!el) return;
     setProgress(el.currentTime);
-    setDuration(el.duration || 0);
+    const d = el.duration || 0;
+    setDuration(d);
+    if (current?.id && d > 0) onDurationUpdate?.(current.id, d);
   };
 
   const onSeek = (e) => {
@@ -138,35 +125,15 @@ export default function AudioPlayer({
     setProgress(el.currentTime);
   };
 
-  const jumpToTrack = (index) => {
-    if (!tracks.length) return;
-    onIndexChange(index);
-    setPlaying(true);
-  };
-
-  const displayCover = coverUrl || current?.cover_url;
-  const displayTitle = title || current?.title || "재생할 곡을 선택하세요";
-  const displayTags = tags.length ? tags : (current?.tags || []);
+  const displayCover = current?.cover_url;
+  const displayTitle = formatAudioDisplayTitle(current?.title) || "재생할 곡을 선택하세요";
+  const nextTitle = nextTrack ? formatAudioDisplayTitle(nextTrack.title) : null;
   const showTrackNo = trackSelected && tracks.length > 0;
-  const stopProp = (e) => e.stopPropagation();
+
+  if (!trackSelected) return null;
 
   return (
-    <div
-      className={[
-        "pe-media-player",
-        expanded && "pe-media-player--expanded",
-        showPlaylist && "pe-media-player--with-playlist",
-      ].filter(Boolean).join(" ")}
-    >
-      {expanded ? (
-        <button
-          type="button"
-          className="pe-media-player-backdrop"
-          onClick={() => setExpanded(false)}
-          aria-label="플레이어 접기"
-        />
-      ) : null}
-
+    <div className={`pe-audio-bottom-player${drawerOpen ? " pe-audio-bottom-player--drawer-open" : ""}`}>
       <audio
         ref={audioRef}
         src={src || undefined}
@@ -175,146 +142,65 @@ export default function AudioPlayer({
         onEnded={playNext}
       />
 
-      <div
-        className="pe-media-player-mini"
-        onClick={() => setExpanded(true)}
-        onKeyDown={e => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setExpanded(true);
-          }
-        }}
-        role="button"
-        tabIndex={0}
-        aria-label="플레이어 펼치기"
-      >
-        <p className="pe-media-player-mini-title">{displayTitle}</p>
-        <div className="pe-media-player-mini-actions" onClick={stopProp}>
-          <button
-            type="button"
-            className="pe-media-player-mini-btn pe-media-player-mini-btn--play"
-            onClick={togglePlay}
-            aria-label={playing ? "일시정지" : "재생"}
-          >
-            {playing ? <Pause size={20}/> : <Play size={20}/>}
-          </button>
-          <button
-            type="button"
-            className="pe-media-player-mini-btn"
-            onClick={playNext}
-            aria-label="다음 곡"
-          >
-            <SkipForward size={20}/>
-          </button>
-        </div>
-      </div>
-
-      <div className="pe-media-player-panel">
-        <button
-          type="button"
-          className="pe-media-player-collapse"
-          onClick={() => setExpanded(false)}
-          aria-label="플레이어 접기"
-        >
-          <ChevronDown size={20}/>
-        </button>
-
-        <div className="pe-media-player-compact">
-          <div className="pe-media-player-art">
+      <div className="pe-audio-bottom-player-inner">
+        <div className="pe-audio-bottom-left">
+          <div className="pe-audio-bottom-art">
             {displayCover ? (
-              <img src={displayCover} alt="" className="pe-media-player-art-img"/>
+              <img src={displayCover} alt=""/>
             ) : (
-              <div className="pe-media-player-art-placeholder" aria-hidden>♪</div>
+              <span className="pe-audio-bottom-art-fallback" aria-hidden>♪</span>
             )}
           </div>
-
-          <div className="pe-media-player-info">
-            <div className="pe-media-player-title">{displayTitle}</div>
-            {nextTrack ? (
-              <div className="pe-media-player-next">
-                다음 곡: <span>{nextTrack.title}</span>
-              </div>
+          <div className="pe-audio-bottom-meta">
+            <div className="pe-audio-bottom-title">{displayTitle}</div>
+            {nextTitle ? (
+              <div className="pe-audio-bottom-sub">{nextTitle}</div>
             ) : null}
-            <div className="pe-media-player-progress pe-media-player-progress--inline" onClick={onSeek} role="slider" aria-valuemin={0} aria-valuemax={duration || 0} aria-valuenow={progress}>
-              <div
-                className="pe-media-player-progress-fill"
-                style={{ width: duration ? `${(progress / duration) * 100}%` : "0%" }}
-              />
-            </div>
-            <div className="pe-media-player-times pe-media-player-times--inline">
-              <span>{formatDuration(progress)}</span>
-              <span>{formatDuration(duration)}</span>
-            </div>
-          </div>
-
-          <div className="pe-media-player-controls pe-media-player-controls--compact">
-            <button type="button" className="pe-media-player-btn" onClick={playPrev} aria-label="이전 곡">
-              <SkipBack size={18}/>
-            </button>
-            <button type="button" className="pe-media-player-btn pe-media-player-btn--play" onClick={togglePlay} aria-label={playing ? "일시정지" : "재생"}>
-              {playing ? <Pause size={22}/> : <Play size={22}/>}
-            </button>
-            <button type="button" className="pe-media-player-btn" onClick={playNext} aria-label="다음 곡">
-              <SkipForward size={18}/>
-            </button>
+            {showTrackNo ? (
+              <div className="pe-audio-bottom-seq">{currentIndex + 1} / {tracks.length}</div>
+            ) : null}
           </div>
         </div>
 
-        <div className="pe-media-player-expanded-only">
-          <div className="pe-media-player-progress pe-media-player-progress--stacked" onClick={onSeek} role="slider" aria-valuemin={0} aria-valuemax={duration || 0} aria-valuenow={progress}>
-            <div
-              className="pe-media-player-progress-fill"
-              style={{ width: duration ? `${(progress / duration) * 100}%` : "0%" }}
-            />
-          </div>
-          <div className="pe-media-player-times pe-media-player-times--stacked">
-            <span>{formatDuration(progress)}</span>
-            <span>{formatDuration(duration)}</span>
-          </div>
-
-          {displayTags.length > 0 ? (
-            <div className="pe-media-player-tags">
-              {displayTags.map(t => (
-                <span key={t} className="pe-media-player-tag">{t}</span>
-              ))}
-            </div>
-          ) : null}
-
-          {showTrackNo ? (
-            <div className="pe-media-player-track-no">
-              {currentIndex + 1} / {tracks.length}
-            </div>
-          ) : null}
-
-          <div className="pe-media-player-controls pe-media-player-controls--full">
+        <div className="pe-audio-bottom-center">
+          <div className="pe-audio-bottom-controls">
             <button
               type="button"
-              className={`pe-media-player-btn pe-media-player-btn--ghost${shuffle ? " active" : ""}`}
+              className={`pe-audio-ctrl-btn${shuffle ? " pe-audio-ctrl-btn--active" : ""}`}
               onClick={() => setShuffle(s => !s)}
               aria-label="셔플"
             >
-              <Shuffle size={18}/>
+              <Shuffle size={17}/>
             </button>
-            <button type="button" className="pe-media-player-btn" onClick={playPrev} aria-label="이전 곡">
-              <SkipBack size={22}/>
+            <button type="button" className="pe-audio-ctrl-btn" onClick={playPrev} aria-label="이전 곡">
+              <SkipBack size={20}/>
             </button>
-            <button type="button" className="pe-media-player-btn pe-media-player-btn--play" onClick={togglePlay} aria-label={playing ? "일시정지" : "재생"}>
-              {playing ? <Pause size={26}/> : <Play size={26}/>}
+            <button type="button" className="pe-audio-ctrl-btn pe-audio-ctrl-btn--play" onClick={togglePlay} aria-label={playing ? "일시정지" : "재생"}>
+              {playing ? <Pause size={22}/> : <Play size={22}/>}
             </button>
-            <button type="button" className="pe-media-player-btn" onClick={playNext} aria-label="다음 곡">
-              <SkipForward size={22}/>
+            <button type="button" className="pe-audio-ctrl-btn" onClick={playNext} aria-label="다음 곡">
+              <SkipForward size={20}/>
             </button>
             <button
               type="button"
-              className={`pe-media-player-btn pe-media-player-btn--ghost${repeatMode !== "off" ? " active" : ""}`}
+              className={`pe-audio-ctrl-btn${repeatMode !== "off" ? " pe-audio-ctrl-btn--active" : ""}`}
               onClick={cycleRepeat}
               aria-label="반복"
             >
-              {repeatMode === "one" ? <Repeat1 size={18}/> : <Repeat size={18}/>}
+              {repeatMode === "one" ? <Repeat1 size={17}/> : <Repeat size={17}/>}
             </button>
           </div>
+          <div className="pe-audio-bottom-progress-row">
+            <span className="pe-audio-bottom-time">{formatDuration(progress)}</span>
+            <div className="pe-audio-bottom-progress" onClick={onSeek} role="slider" aria-valuemin={0} aria-valuemax={duration || 0} aria-valuenow={progress}>
+              <div className="pe-audio-bottom-progress-fill" style={{ width: duration ? `${(progress / duration) * 100}%` : "0%" }}/>
+            </div>
+            <span className="pe-audio-bottom-time">{formatDuration(duration)}</span>
+          </div>
+        </div>
 
-          <div className="pe-media-player-volume">
+        <div className="pe-audio-bottom-right">
+          <div className="pe-audio-bottom-volume">
             <Volume2 size={16} aria-hidden/>
             <input
               type="range"
@@ -326,32 +212,17 @@ export default function AudioPlayer({
               aria-label="볼륨"
             />
           </div>
+          <button
+            type="button"
+            className={`pe-audio-playlist-toggle${drawerOpen ? " pe-audio-playlist-toggle--active" : ""}`}
+            onClick={onToggleDrawer}
+            aria-label="재생 목록"
+            aria-expanded={drawerOpen}
+          >
+            <ListMusic size={16}/>
+            <span>{tracks.length}곡</span>
+          </button>
         </div>
-
-        {showPlaylist && tracks.length > 0 ? (
-          <div className="pe-media-player-playlist">
-            <div className="pe-media-player-playlist-head">
-              {playlistLabel || `재생 목록 (${tracks.length}곡)`}
-            </div>
-            <ol className="pe-media-player-playlist-list">
-              {tracks.map((track, idx) => (
-                <li key={track.id}>
-                  <button
-                    type="button"
-                    className={`pe-media-player-playlist-item${idx === currentIndex ? " pe-media-player-playlist-item--active" : ""}${idx === currentIndex && playing ? " pe-media-player-playlist-item--playing" : ""}`}
-                    onClick={() => jumpToTrack(idx)}
-                  >
-                    <span className="pe-media-player-playlist-num">{idx + 1}</span>
-                    <span className="pe-media-player-playlist-title">{track.title}</span>
-                    {idx === currentIndex && playing ? (
-                      <span className="pe-media-player-playlist-now" aria-hidden>재생 중</span>
-                    ) : null}
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </div>
-        ) : null}
       </div>
     </div>
   );

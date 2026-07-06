@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
 import PlatformMainButton from "./PlatformMainButton.jsx";
 import PeMediaLibrary from "./peMedia/PeMediaLibrary.jsx";
 import {
   Users, Trophy, Languages, ClipboardList, PartyPopper,
-  Baby, GraduationCap, Video, ChevronLeft, Search, X, Upload, Download,
+  Baby, GraduationCap, Video, Music, ChevronLeft, Search, X, Upload, Download,
   Pencil, Trash2, Eye, Settings, Plus, ExternalLink,
 } from "lucide-react";
 
@@ -15,6 +15,22 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
 const PE_ADMIN = (u) => u?.role === "superadmin" || u?.role === "admin";
 const PE_SUPER = (u) => u?.role === "superadmin";
+
+/** 선생님 허브에 노출되는 3개 카테고리 (영상·음원·영어 대본) */
+const TEACHER_HUB_CATEGORIES = [
+  { id: "video-media", num: 1, title: "영상 자료", color: "#0ea5e9", bg: "#f0f9ff",
+    items: ["수업 영상", "유튜브 링크"], subs: [], icon: "video", mediaTab: "video", status: "active" },
+  { id: "audio-media", num: 2, title: "음원 자료", color: "#22c55e", bg: "#ecfdf5",
+    items: ["MP3/WAV 음원", "영어체육 BGM"], subs: [], icon: "audio", mediaTab: "audio", status: "active" },
+  { id: "english-script", num: 3, title: "영어 대본", color: "#8b5cf6", bg: "#f5f3ff",
+    items: ["교구별 3단계 대본", "상황별 대처", "수업 흐름 팁"], subs: [], icon: "abc",
+    externalPath: "/english-script", status: "active" },
+];
+
+/** 관리자 허브에서 당분간 비활성(준비 중) 처리할 카테고리 */
+const PE_COMING_SOON_IDS = new Set([
+  "age-program", "sports", "english-pe", "lesson-plan", "events", "child-dev", "teacher-ed",
+]);
 
 const QUICK_TAGS = ["4세 균형", "축구", "영어체육", "점프활동", "공놀이", "밸런스"];
 
@@ -44,8 +60,19 @@ const DEFAULT_PE_CATEGORIES = [
 
 const CATEGORY_ICONS = {
   users: Users, ball: Trophy, abc: Languages, clipboard: ClipboardList,
-  party: PartyPopper, smile: Baby, grad: GraduationCap, video: Video,
+  party: PartyPopper, smile: Baby, grad: GraduationCap, video: Video, audio: Music,
 };
+
+function withCategoryStatus(cat) {
+  if (cat.id === "videos") return { ...cat, status: "active" };
+  if (PE_COMING_SOON_IDS.has(cat.id)) return { ...cat, status: "coming-soon" };
+  return { ...cat, status: cat.status || "active" };
+}
+
+function hubCategoriesForUser(allCategories, me) {
+  if (PE_ADMIN(me)) return allCategories.map(withCategoryStatus);
+  return TEACHER_HUB_CATEGORIES;
+}
 
 const ICON_OPTIONS = [
   { value: "users", label: "사용자" },
@@ -830,12 +857,22 @@ function peTagBtn(active, color) {
 }
 
 function CategoryCard({ cat, resourceCount, onGo }) {
+  const comingSoon = cat.status === "coming-soon";
+  const subCount = cat.subs?.length || 0;
+  const itemCount = cat.items?.length || 0;
   return (
-    <div className="pe-res-card" style={{ "--card-accent": cat.color, "--card-bg": cat.bg }}
-      onClick={() => onGo(cat)} role="button" tabIndex={0}
-      onKeyDown={e => (e.key === "Enter" || e.key === " ") && onGo(cat)}>
+    <div
+      className={`pe-res-card${comingSoon ? " pe-res-card--soon" : ""}`}
+      style={{ "--card-accent": cat.color, "--card-bg": cat.bg }}
+      onClick={() => !comingSoon && onGo(cat)}
+      role="button"
+      tabIndex={comingSoon ? -1 : 0}
+      aria-disabled={comingSoon || undefined}
+      onKeyDown={e => !comingSoon && (e.key === "Enter" || e.key === " ") && onGo(cat)}
+    >
+      {comingSoon ? <span className="pe-res-card-soon-badge">준비 중</span> : null}
       <div className="pe-res-card-stats">
-        <span>{cat.subs.length}개 카테고리</span>
+        {subCount > 0 ? <span>{subCount}개 카테고리</span> : itemCount > 0 ? <span>{itemCount}개 항목</span> : null}
         <span>총 {resourceCount}개 자료</span>
       </div>
       <div className="pe-res-card-head">
@@ -869,6 +906,7 @@ function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTa
             )}
           </div>
         </div>
+        {PE_ADMIN(me) ? (
         <div className="pe-res-search-section">
           <div className="pe-res-search">
             <Search size={18} strokeWidth={2} color="#94a3b8"/>
@@ -881,6 +919,7 @@ function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTa
             ))}
           </div>
         </div>
+        ) : null}
       </div>
       <div className="pe-res-grid">
         {categories.map(cat => (
@@ -893,18 +932,16 @@ function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTa
 
 export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   const location = useLocation();
-  const isVideoOnlyUser = !PE_ADMIN(me);
-  const directCategoryId = useMemo(
-    () => new URLSearchParams(location.search).get("category"),
-    [location.search],
-  );
-  const effectiveCategoryId = directCategoryId || (isVideoOnlyUser ? "videos" : null);
-  const isDirectCategory = Boolean(effectiveCategoryId);
+  const navigate = useNavigate();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const directCategoryId = searchParams.get("category");
+  const isDirectCategory = Boolean(directCategoryId);
+  const deepLinkRef = useRef(isDirectCategory);
 
   const [view, setView] = useState(() => (isDirectCategory ? "list" : "hub"));
   const [category, setCategory] = useState(() => {
-    if (!effectiveCategoryId) return null;
-    return DEFAULT_PE_CATEGORIES.find(c => c.id === effectiveCategoryId) || null;
+    if (!directCategoryId) return null;
+    return DEFAULT_PE_CATEGORIES.find(c => c.id === directCategoryId) || null;
   });
   const [search, setSearch] = useState("");
   const [listSearch, setListSearch] = useState("");
@@ -932,13 +969,18 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   useEffect(() => { loadAll(); }, []);
 
   useEffect(() => {
-    if (!effectiveCategoryId || !categories.length) return;
-    const cat = categories.find(c => c.id === effectiveCategoryId);
+    if (!directCategoryId || !categories.length) return;
+    const cat = categories.find(c => c.id === directCategoryId);
     if (cat) {
       setCategory(cat);
       setView("list");
     }
-  }, [effectiveCategoryId, categories]);
+  }, [directCategoryId, categories]);
+
+  const hubCategories = useMemo(
+    () => hubCategoriesForUser(categories, me),
+    [categories, me?.role],
+  );
 
   const resourceCounts = useMemo(() => {
     const m = {};
@@ -946,23 +988,41 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
     m.videos = resources.filter(r =>
       r.file_type === "video" || r.file_type === "youtube" || r.file_type === "audio",
     ).length;
+    m["video-media"] = resources.filter(r =>
+      r.file_type === "video" || r.file_type === "youtube",
+    ).length;
+    m["audio-media"] = resources.filter(r => r.file_type === "audio").length;
     return m;
   }, [resources]);
 
   const goCategory = (cat) => {
-    if (isVideoOnlyUser && cat.id !== "videos") return;
-    const isEnglishPe = cat.id === "english-pe" || (cat.title || "").includes("영어체육");
-    if (isEnglishPe) {
-      onNavigate?.("/english-script?picker=1");
+    if (cat.status === "coming-soon") return;
+    if (cat.externalPath) {
+      (onNavigate || navigate)(cat.externalPath);
+      return;
+    }
+    if (cat.id === "video-media" || cat.id === "audio-media") {
+      const videosCat = categories.find(c => c.id === "videos")
+        || DEFAULT_PE_CATEGORIES.find(c => c.id === "videos");
+      setCategory(videosCat || null);
+      setListSearch("");
+      setView("list");
+      const tab = cat.mediaTab === "audio" ? "&tab=audio" : "";
+      navigate(`/pe-resources?category=videos${tab}`);
+      return;
+    }
+    if (cat.id === "english-pe" || (cat.title || "").includes("영어체육")) {
+      (onNavigate || navigate)("/english-script");
       return;
     }
     setCategory(cat);
     setListSearch("");
     setView("list");
+    navigate(`/pe-resources?category=${encodeURIComponent(cat.id)}`);
   };
 
   const goSearch = (q) => {
-    if (isVideoOnlyUser) {
+    if (!PE_ADMIN(me)) {
       const videosCat = categories.find(c => c.id === "videos")
         || DEFAULT_PE_CATEGORIES.find(c => c.id === "videos");
       setCategory(videosCat || null);
@@ -971,12 +1031,15 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
     }
     setListSearch(q);
     setView("list");
+    if (!PE_ADMIN(me)) {
+      navigate("/pe-resources?category=videos");
+    }
   };
 
   const goHub = () => { setView("hub"); setCategory(null); };
 
   const handleListBack = () => {
-    if (isDirectCategory) onBack?.();
+    if (deepLinkRef.current) onBack?.();
     else goHub();
   };
 
@@ -986,26 +1049,21 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
     ? categories.find(c => c.id === category.id) || category
     : null;
 
-  const showMainNav = isVideoOnlyUser || isDirectCategory;
   const goMain = onGoMain || onBack;
 
   return (
     <div className="pe-resources-app">
       <header className="pe-res-header">
         <div className="pe-res-header-left">
-          {showMainNav ? (
-            <PlatformMainButton
-              onClick={goMain}
-              className="pe-res-header-main-btn platform-main-btn--light"
-            />
-          ) : view === "list" ? (
+          {view === "list" ? (
             <button type="button" className="pe-res-back-btn pe-res-back-btn-header" onClick={handleListBack}>
               <ChevronLeft size={18} strokeWidth={2.5}/> 체육자료실
             </button>
           ) : (
-            <button type="button" className="pe-res-logo-btn" onClick={onBack}>
-              <GtsPlatformLogo/>
-            </button>
+            <PlatformMainButton
+              onClick={goMain}
+              className="pe-res-header-main-btn platform-main-btn--light"
+            />
           )}
         </div>
         <div className="pe-res-user">
@@ -1017,7 +1075,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
       <main className="pe-res-main">
         {view === "hub" ? (
           <HubView
-            categories={categories}
+            categories={hubCategories}
             resourceCounts={resourceCounts}
             search={search}
             setSearch={setSearch}

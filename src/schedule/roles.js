@@ -7,9 +7,10 @@ export function filterScheduleMenu(me) {
   const admin = isScheduleAdmin(me);
   const superAdmin = isScheduleSuperAdmin(me);
 
+  const scheduleTitle = admin ? "선생님 시간표" : "내 시간표";
+
   return [
-    { id: "teacher-monthly", title: "선생님 월별 일정", desc: "선생님별 월별 수업 달력 · 행사", color: "#a855f7", roles: "all" },
-    { id: "institution-schedule", title: "선생님 시간표", desc: "선생님별 주간 시간표 (월~금)", color: "#8b5cf6", roles: "all" },
+    { id: "institution-schedule", title: scheduleTitle, desc: admin ? "주간·월간 수업 일정" : "주간·월간 수업 일정", color: "#8b5cf6", roles: "all" },
     { id: "home-visit", title: "선생님 방문수업 일정", desc: "매주 반복 방문수업 등록·조회", color: "#6366f1", roles: "all" },
     { id: "events", title: "행사 일정", desc: "전체 원 행사·휴원 안내", color: "#ec4899", roles: "all" },
     {

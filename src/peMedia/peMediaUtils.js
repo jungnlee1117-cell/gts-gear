@@ -74,6 +74,18 @@ export function getStoragePath(fileUrl) {
   return null;
 }
 
+export function formatAudioDisplayTitle(title) {
+  if (!title) return "";
+  let text = String(title).trim();
+  const decorPattern = /^[\s\uFE0F]*(?:🎵|🎶|♪|♫|🎧|🎼|🔊|🎤)+[\s]*/u;
+  let prev;
+  do {
+    prev = text;
+    text = text.replace(decorPattern, "").trim();
+  } while (text !== prev);
+  return text || String(title).trim();
+}
+
 export function pickNextTrackIndex(currentIndex, total, { shuffle = false, repeatMode = "off", shufflePlayed } = {}) {
   if (total <= 0) return null;
   if (repeatMode === "one") return currentIndex;

@@ -57,6 +57,7 @@ import {
   mergeOneoffLessonsIntoSchedule,
   ONEOFF_LESSON_COLOR,
 } from "./oneoffLessons.js";
+import { useScheduleAuthReady } from "./ScheduleAuthContext.jsx";
 
 const TODAY = new Date();
 
@@ -67,8 +68,9 @@ export default function TeacherMonthlyScheduleView({
   targetTeacherName = null,
   embedded = false,
 }) {
-  const teacherId = targetTeacherId || me.id;
+  const teacherId = targetTeacherId || me?.id;
   const canEditNotes = teacherId === me.id;
+  const scheduleAuthReady = useScheduleAuthReady();
   const [monthBase, setMonthBase] = useState(() => new Date(TODAY.getFullYear(), TODAY.getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => new Date(TODAY));
   const [slots, setSlots] = useState([]);
@@ -104,9 +106,10 @@ export default function TeacherMonthlyScheduleView({
   const rangeTo = fmtLocalDate(gridCells[gridCells.length - 1].date);
 
   const load = useCallback(async () => {
+    if (!teacherId || !scheduleAuthReady) return;
     setLoading(true);
     try {
-      const [w, hv, insts, ex, notes, ents, subs, subLessons, oneoffs] = await Promise.all([
+      const settled = await Promise.allSettled([
         fetchWeeklySchedule(null, teacherId),
         fetchHomeVisitPatterns({ teacherId }),
         teacherId === me.id
@@ -121,6 +124,34 @@ export default function TeacherMonthlyScheduleView({
         fetchSubstituteLessons({ fromDate: rangeFrom, toDate: rangeTo, teacherId }),
         fetchOneoffLessons({ fromDate: rangeFrom, toDate: rangeTo, teacherId }),
       ]);
+      const labels = [
+        "weeklySchedule",
+        "homeVisitPatterns",
+        "institutions",
+        "exceptions",
+        "teacherNotes",
+        "payrollEntries",
+        "substituteAssignments",
+        "substituteLessons",
+        "oneoffLessons",
+      ];
+      const val = (i, fallback = []) => {
+        const r = settled[i];
+        if (r.status === "fulfilled") return r.value;
+        console.error(`Monthly schedule fetch ${labels[i]} failed:`, r.reason);
+        return fallback;
+      };
+
+      const w = val(0);
+      const hv = val(1);
+      const insts = val(2);
+      const ex = val(3);
+      const notes = val(4);
+      const ents = val(5);
+      const subs = val(6);
+      const subLessons = val(7);
+      const oneoffs = val(8);
+
       setSlots(w);
       setHomeVisitPatterns(hv);
       if (teacherId === me.id) {
@@ -138,14 +169,18 @@ export default function TeacherMonthlyScheduleView({
       setSubstituteAssignments(subs);
       setSubstituteLessons(subLessons);
       setOneoffLessons(oneoffs);
-    } catch (e) {
-      console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [teacherId, me.id, rangeFrom, rangeTo, yearMonth, canEditNotes]);
+  }, [teacherId, scheduleAuthReady, me.id, rangeFrom, rangeTo, yearMonth, canEditNotes]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!teacherId || !scheduleAuthReady) {
+      if (!teacherId) setLoading(false);
+      return;
+    }
+    load();
+  }, [load, teacherId, scheduleAuthReady]);
 
   const monthHomeVisitPatterns = useMemo(
     () => patternsForCalendarMonth(homeVisitPatterns, rangeFrom, rangeTo),
@@ -315,6 +350,7 @@ export default function TeacherMonthlyScheduleView({
         </p>
       ) : null}
 
+      <section className="sch-monthly-calendar-block" aria-label="월별 달력">
       <div className="sch-month-nav">
         <button type="button" className="sch-btn sch-btn--ghost" onClick={() => shiftMonth(-1)} aria-label="이전 달">
           ←
@@ -357,16 +393,17 @@ export default function TeacherMonthlyScheduleView({
         </p>
       ) : null}
 
-      {loading ? <p className="sch-muted">불러오는 중...</p> : (
-        <>
-          <div className="sch-cal-grid" role="grid" aria-label={`${monthLabel} 일정`}>
-            <div className="sch-cal-head-row" role="row">
-              {DAY_LABELS.map(label => (
-                <div key={label} className="sch-cal-head-cell" role="columnheader">{label}</div>
-              ))}
-            </div>
-            <div className="sch-cal-body">
-              {gridCells.map(({ date, inMonth }) => {
+      {loading ? (
+        <p className="sch-muted">달력을 불러오는 중...</p>
+      ) : (
+        <div className="sch-cal-grid" role="grid" aria-label={`${monthLabel} 일정`}>
+          <div className="sch-cal-head-row" role="row">
+            {DAY_LABELS.map(label => (
+              <div key={label} className="sch-cal-head-cell" role="columnheader">{label}</div>
+            ))}
+          </div>
+          <div className="sch-cal-body">
+            {gridCells.map(({ date, inMonth }) => {
                 const dateStr = fmtLocalDate(date);
                 const isToday = isSameDay(date, TODAY);
                 const isSelected = isSameDay(date, selectedDate);
@@ -435,9 +472,13 @@ export default function TeacherMonthlyScheduleView({
                   </button>
                 );
               })}
-            </div>
           </div>
+        </div>
+      )}
+      </section>
 
+      {loading ? null : (
+        <>
           <MonthExceptionNotice exceptions={teacherExceptions} year={year} month={month}/>
 
           {canEditNotes ? (

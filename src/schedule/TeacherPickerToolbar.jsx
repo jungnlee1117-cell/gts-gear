@@ -7,7 +7,15 @@ export function useTeacherPicker(me) {
   const admin = isScheduleAdmin(me);
   const [teachers, setTeachers] = useState([]);
   const [teacherSearch, setTeacherSearch] = useState("");
-  const [selectedTeacherId, setSelectedTeacherId] = useState(admin ? "" : me.id);
+  const [selectedTeacherId, setSelectedTeacherId] = useState(() => (
+    admin ? "" : (me?.id || "")
+  ));
+
+  useEffect(() => {
+    if (!admin && me?.id) {
+      setSelectedTeacherId(me.id);
+    }
+  }, [admin, me?.id]);
 
   useEffect(() => {
     if (!admin) return;
@@ -48,7 +56,7 @@ export function useTeacherPicker(me) {
     [teachers, selectedTeacherId],
   );
 
-  const activeTeacherId = admin ? selectedTeacherId : me.id;
+  const activeTeacherId = admin ? selectedTeacherId : (me?.id || "");
 
   return {
     admin,

@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import ScheduleHub from "./schedule/ScheduleHub.jsx";
 import ScheduleSidebar from "./ScheduleSidebar.jsx";
 import PlatformMainButton from "./PlatformMainButton.jsx";
-import TeacherMonthlySchedulePage from "./schedule/TeacherMonthlySchedulePage.jsx";
-import TeacherWeeklyScheduleView from "./schedule/TeacherWeeklyScheduleView.jsx";
+import TeacherSchedulePage from "./schedule/TeacherSchedulePage.jsx";
 import PayrollTeacherView from "./schedule/PayrollTeacherView.jsx";
 import PayrollAdminView from "./schedule/PayrollAdminView.jsx";
 import InstitutionListView from "./schedule/InstitutionListView.jsx";
@@ -15,6 +15,8 @@ import ScheduleChangeAlertsView from "./schedule/ScheduleChangeAlertsView.jsx";
 import MonthlySettlementView from "./schedule/MonthlySettlementView.jsx";
 import TemporaryTeachersView from "./schedule/TemporaryTeachersView.jsx";
 import TeacherPayRatesView from "./schedule/TeacherPayRatesView.jsx";
+import { ScheduleAuthContext } from "./schedule/ScheduleAuthContext.jsx";
+import { syncScheduleAuthSession, scheduleSupabase } from "./schedule/api.js";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { isScheduleSuperAdmin } from "./schedule/managerScope.js";
 
@@ -27,10 +29,69 @@ function ScheduleAccessDenied({ message, onBack }) {
   );
 }
 
-export default function ScheduleApp({ me, onBack }) {
+const SCHEDULE_VIEWS = new Set([
+  "hub", "teacher-monthly", "institution-schedule", "home-visit", "events",
+  "change-alerts", "payroll", "settlement", "temporary-teachers", "pay-rates",
+  "institutions", "institution-bulk-revenue", "institution-detail",
+]);
+
+function defaultScheduleView(admin) {
+  return admin ? "hub" : "institution-schedule";
+}
+
+export default function ScheduleApp({ me, session, onBack }) {
   const admin = isScheduleAdmin(me);
-  const [view, setView] = useState(() => (admin ? "hub" : "payroll"));
+  const [scheduleAuthReady, setScheduleAuthReady] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const viewParam = searchParams.get("view");
+  const [view, setViewState] = useState(() => {
+    if (viewParam && SCHEDULE_VIEWS.has(viewParam)) return viewParam;
+    return defaultScheduleView(admin);
+  });
   const [detailId, setDetailId] = useState(null);
+
+  const setView = useCallback((next) => {
+    setViewState(next);
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev);
+      const defaultView = defaultScheduleView(admin);
+      if (!next || next === defaultView) params.delete("view");
+      else params.set("view", next);
+      return params;
+    }, { replace: true });
+  }, [admin, setSearchParams]);
+
+  useEffect(() => {
+    if (!viewParam) return;
+    if (SCHEDULE_VIEWS.has(viewParam) && viewParam !== view) {
+      setViewState(viewParam);
+    }
+  }, [viewParam, view]);
+
+  useEffect(() => {
+    if (!session?.access_token) {
+      setScheduleAuthReady(false);
+      return;
+    }
+    let cancelled = false;
+    syncScheduleAuthSession(session)
+      .then(() => { if (!cancelled) setScheduleAuthReady(true); })
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) setScheduleAuthReady(false);
+      });
+    return () => { cancelled = true; };
+  }, [session?.access_token, session?.refresh_token]);
+
+  useEffect(() => {
+    const { data: { subscription } } = scheduleSupabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (nextSession?.access_token) return;
+      if (session?.access_token) {
+        syncScheduleAuthSession(session).catch(console.error);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [session?.access_token, session?.refresh_token]);
 
   const goHub = () => {
     if (admin) {
@@ -50,9 +111,14 @@ export default function ScheduleApp({ me, onBack }) {
   const renderView = () => {
     switch (view) {
       case "teacher-monthly":
-        return <TeacherMonthlySchedulePage me={me} onBack={goHub}/>;
       case "institution-schedule":
-        return <TeacherWeeklyScheduleView me={me} onBack={goHub}/>;
+        return (
+          <TeacherSchedulePage
+            me={me}
+            onBack={goHub}
+            initialTab={view === "teacher-monthly" ? "monthly" : "weekly"}
+          />
+        );
       case "home-visit":
         return <HomeVisitScheduleView me={me} onBack={goHub}/>;
       case "events":
@@ -161,7 +227,9 @@ export default function ScheduleApp({ me, onBack }) {
           </div>
         </header>
         <main className="sch-main">
-          {renderView()}
+          <ScheduleAuthContext.Provider value={scheduleAuthReady}>
+            {renderView()}
+          </ScheduleAuthContext.Provider>
         </main>
       </div>
     </div>

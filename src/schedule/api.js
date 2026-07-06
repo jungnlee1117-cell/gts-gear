@@ -27,6 +27,66 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 export const scheduleSupabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
+/** App.jsx 세션과 schedule 클라이언트 동기화 (RLS 인증 보장) */
+export async function syncScheduleAuthSession(session) {
+  if (!session?.access_token || !session?.refresh_token) return;
+  const { error } = await scheduleSupabase.auth.setSession({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+  });
+  if (error) throw error;
+}
+
+/** patch_28 미적용 DB 등 — 테이블/뷰 없음(PGRST205) */
+function isSchemaMissingError(error) {
+  if (!error) return false;
+  if (error.code === "PGRST205") return true;
+  return /could not find the table|relation .* does not exist/i.test(error.message || "");
+}
+
+async function enrichWeeklySlotsWithInstitutions(slots) {
+  if (!slots?.length) return slots;
+
+  const missingIds = [...new Set(
+    slots
+      .filter(s => s.institution_id && !s.institutions?.name)
+      .map(s => s.institution_id),
+  )];
+  if (!missingIds.length) return slots;
+
+  const nameById = new Map();
+  for (const slot of slots) {
+    if (slot.institution_id && slot.institutions?.name) {
+      nameById.set(slot.institution_id, slot.institutions);
+    }
+  }
+
+  const { data: adminInsts, error: adminErr } = await scheduleSupabase
+    .from("institutions")
+    .select("id, name, address, parking_info")
+    .in("id", missingIds);
+  if (!adminErr) {
+    for (const inst of adminInsts || []) nameById.set(inst.id, inst);
+  }
+
+  const stillMissing = missingIds.filter(id => !nameById.has(id));
+  if (stillMissing.length) {
+    const { data: assigned, error: rpcErr } = await scheduleSupabase
+      .rpc("get_teacher_assigned_institutions");
+    if (!rpcErr) {
+      for (const inst of assigned || []) {
+        if (stillMissing.includes(inst.id)) nameById.set(inst.id, inst);
+      }
+    }
+  }
+
+  return slots.map(slot => {
+    if (slot.institutions?.name || !slot.institution_id) return slot;
+    const inst = nameById.get(slot.institution_id);
+    return inst ? { ...slot, institutions: inst } : slot;
+  });
+}
+
 export async function fetchTeachers() {
   const { data, error } = await scheduleSupabase
     .from("teachers")
@@ -293,7 +353,10 @@ export async function fetchOneoffLessons({ fromDate, toDate, teacherId, yearMont
   }
   if (teacherId) q = q.eq("teacher_id", teacherId);
   const { data, error } = await q;
-  if (error) throw error;
+  if (error) {
+    if (isSchemaMissingError(error)) return [];
+    throw error;
+  }
   return enrichOneoffLessons(data || []);
 }
 
@@ -444,7 +507,9 @@ export async function fetchWeeklySchedule(institutionId, teacherId) {
   if (teacherId) q = q.eq("teacher_id", teacherId);
   const { data, error } = await q;
   if (error) throw error;
-  return data || [];
+  const slots = data || [];
+  if (!teacherId) return slots;
+  return enrichWeeklySlotsWithInstitutions(slots);
 }
 
 export async function saveWeeklySlot(payload) {

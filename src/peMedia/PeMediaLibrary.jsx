@@ -29,7 +29,7 @@ export default function PeMediaLibrary({ me, resources, loading, onRefresh }) {
   );
 
   return (
-    <div className="pe-media-library">
+    <div className={`pe-media-library${tab === "audio" ? " pe-media-library--audio" : ""}`}>
       <div className="pe-media-library-head">
         <div>
           <h1 className="pe-res-list-title">영상 · 음원 자료실</h1>

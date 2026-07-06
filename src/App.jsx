@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, useNavigate, useLocation, Navigate } from "react-router-dom";
 import {
   saveLastRoute,
   markRestoreAfterLogin,
@@ -28,9 +28,10 @@ import { formatPushItemNames, sendPushEvent } from "./pushNotifications.js";
 import MyGearRotationPage, { checkRotationRentalConflicts } from "./MyGearRotationPage.jsx";
 import GearRotationManagePage from "./GearRotationManagePage.jsx";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
-import GearInstitutionEventsSection from "./GearInstitutionEventsSection.jsx";
-import NoticesFeedCard from "./NoticesFeedCard.jsx";
+import UnifiedNoticesFeed from "./UnifiedNoticesFeed.jsx";
+import { loadUnifiedNoticeFeed } from "./unifiedNotices.js";
 import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin } from "./authRoles.js";
+import { isScheduleAdmin } from "./schedule/roles.js";
 import { shouldForcePasswordChange } from "./authPolicy.js";
 import {
   DUPLICATE_ITEM_NAME_MESSAGE,
@@ -1094,6 +1095,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "my-rental-status") return <svg {...s} viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
   if (id === "my-reservations") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>;
   if (id === "english-script") return <svg {...s} viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></svg>;
+  if (id === "pe-resources") return <svg {...s} viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 4 3 6 3s6-1 6-3v-5"/></svg>;
   if (id === "video-resources") return <svg {...s} viewBox="0 0 24 24"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 9l5-3v12l-5-3"/></svg>;
   if (id === "rental-manage") return <svg {...s} viewBox="0 0 24 24"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/><path d="M21 12H3"/></svg>;
   if (id === "my-gear-rotation") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l3 2"/></svg>;
@@ -1189,8 +1191,7 @@ function buildSidebarNav(me) {
     { type: "item", id: "qr-scan", label: "QR 스캔", glyph: "qr-scan" },
     { type: "item", id: "rental-return", label: "대여 반납신청", glyph: "rental-return" },
     { type: "item", id: "my-reservations", label: "내 예약 현황", glyph: "my-reservations" },
-    { type: "item", id: "video-resources", label: "영상·음원 자료실", glyph: "video-resources" },
-    { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
+    { type: "item", id: "pe-resources", label: "교육 · 자료실", glyph: "pe-resources" },
   ];
 }
 
@@ -5934,6 +5935,21 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   const [saving, setSaving] = useState(false);
   const [editNotice, setEditNotice] = useState(null);
   const [viewNotice, setViewNotice] = useState(null);
+  const [feedItems, setFeedItems] = useState([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFeedLoading(true);
+    loadUnifiedNoticeFeed(fetchNotices)
+      .then((items) => {
+        if (!cancelled) setFeedItems(items || []);
+      })
+      .finally(() => {
+        if (!cancelled) setFeedLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [notices]);
 
   const handleAdd = async () => {
     if (!title.trim()) return alert("제목을 입력하세요");
@@ -5945,7 +5961,6 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
     setSaving(false);
   };
 
-  const sorted = [...(notices || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const alertCount = canManage ? 0 : buildDueReturns(buildCurrentRentals(me, reqs || [], ris || [], items || [], rets || [])).length;
 
   return (
@@ -5975,14 +5990,15 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         </PanelSection>
       )}
 
-      <div className="notices-hub-top">
-        <GearInstitutionEventsSection />
-        <NoticesFeedCard
-          notices={sorted}
-          onSelect={setViewNotice}
+      <div className="notices-hub-top notices-hub-top--unified">
+        <UnifiedNoticesFeed
+          items={feedItems}
+          loading={feedLoading}
+          previewCount={8}
+          onSelectNotice={setViewNotice}
           canManage={canManage}
-          onEdit={setEditNotice}
-          onDelete={onDelete}
+          onEditNotice={setEditNotice}
+          onDeleteNotice={onDelete}
         />
       </div>
 
@@ -7755,11 +7771,9 @@ function ItemReturnModal({ group, onSubmit, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════
 const HUB_APP_ROUTES = {
   edu: "/gear",
-  videos: "/pe-resources?category=videos",
   pe: "/pe-resources",
-  english: "/english-script",
+  payroll: "/schedule?view=payroll",
   schedule: "/schedule",
-  growth: "/growth",
 };
 
 function goBackOr(navigate, fallback) {
@@ -7858,6 +7872,7 @@ function AuthenticatedRoutes({ me, session, logout }) {
           />
         )}
       />
+      <Route path="/video-resources" element={<Navigate to="/pe-resources?category=videos" replace/>}/>
       <Route
         path="/child-types"
         element={<ChildTypeApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
@@ -7903,6 +7918,7 @@ function AuthenticatedRoutes({ me, session, logout }) {
         element={(
           <ScheduleApp
             me={me}
+            session={session}
             onBack={() => navigate("/")}
           />
         )}
@@ -7918,6 +7934,10 @@ function AuthenticatedRoutes({ me, session, logout }) {
             me={me}
             onLogout={logout}
             onSelect={id => {
+              if (id === "schedule") {
+                navigate("/schedule?view=institution-schedule");
+                return;
+              }
               const path = HUB_APP_ROUTES[id];
               if (path) navigate(path);
             }}
@@ -8074,6 +8094,27 @@ function HubIconBook({ color }) {
   );
 }
 
+function HubIconGraduation({ color }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" aria-hidden>
+      <path d="M22 10v6"/>
+      <path d="M2 10l10-5 10 5-10 5z"/>
+      <path d="M6 12v5c0 2 4 3 6 3s6-1 6-3v-5"/>
+    </svg>
+  );
+}
+
+function HubIconPayroll({ color }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" aria-hidden>
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M12 7v10"/>
+      <path d="M9.5 9.5h3a2 2 0 1 1 0 4h-3"/>
+      <path d="M12 15.5v1"/>
+    </svg>
+  );
+}
+
 function HubIconVideo({ color }) {
   return (
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" aria-hidden>
@@ -8111,6 +8152,24 @@ const HUB_THEMES = {
     cardBorder: "rgba(13, 148, 136, 0.1)",
     btnVariant: "outline",
   },
+  amber: {
+    color: "#f59e0b",
+    colorDark: "#d97706",
+    iconBg: "#fffbeb",
+    iconBorder: "#fde68a",
+    cardBg: "#fffdf5",
+    cardBorder: "rgba(245, 158, 11, 0.12)",
+    btnVariant: "solid",
+  },
+  purple: {
+    color: "#8b5cf6",
+    colorDark: "#7c3aed",
+    iconBg: "#f5f3ff",
+    iconBorder: "#ddd6fe",
+    cardBg: "#faf8ff",
+    cardBorder: "rgba(139, 92, 246, 0.12)",
+    btnVariant: "solid",
+  },
 };
 
 const HUB_MODULES = [
@@ -8119,78 +8178,92 @@ const HUB_MODULES = [
     title: "교구 시스템",
     desc: "교구 대여부터 반납, 재고 관리까지 체계적으로 관리하세요.",
     theme: "green",
-    features: ["교구 대여 신청", "반납 관리", "재고 현황", "파손·수리 관리", "교구 사용 설명서"],
+    features: ["교구 대여 신청", "반납 관리", "재고 현황", "파손·수리 관리"],
     Icon: HubIconCube,
-    wide: false,
+    btnLabel: "시스템 바로가기 →",
+    mobileStatus: "대여 · 반납 · 재고",
     ready: true,
     appRoute: "edu",
   },
   {
-    id: "videos",
-    title: "영상·음원 자료실",
-    desc: "영상과 음원을 한곳에서 검색하고 재생하세요.",
+    id: "pe",
+    title: "교육",
+    desc: "수업 준비에 필요한 자료를 한곳에서 확인하세요.",
     theme: "blue",
-    features: ["유튜브·영상", "MP3/WAV 음원", "재생 플레이어", "태그 검색"],
-    Icon: HubIconVideo,
-    wide: false,
+    features: ["영상 자료", "음원 자료", "영어 대본"],
+    Icon: HubIconGraduation,
+    btnLabel: "자료실 바로가기 →",
+    mobileStatus: "영상 · 음원 · 영어대본",
     ready: true,
-    appRoute: "videos",
+    appRoute: "pe",
   },
   {
-    id: "english",
-    title: "영어 대본 프로그램",
-    desc: "교구별 영어 수업 대본과 현장 활용 가이드를 바로 확인하세요.",
-    theme: "blue",
-    features: ["교구별 3단계 대본", "상황별 대처", "수업 흐름 팁", "발음 팁", "아이 유형 가이드"],
-    Icon: HubIconBook,
-    wide: false,
+    id: "payroll",
+    title: "급여",
+    desc: "급여 내역과 명세서를 확인하세요.",
+    theme: "amber",
+    features: ["월별 급여", "수업 시간", "정산 내역"],
+    Icon: HubIconPayroll,
+    btnLabel: "시스템 바로가기 →",
+    mobileStatus: "급여 내역 · 명세서",
     ready: true,
-    appRoute: "english",
+    appRoute: "payroll",
   },
   {
     id: "schedule",
-    title: "스케줄 관리",
-    desc: "선생님 일정과 수업 일정을 한눈에 관리하세요.",
-    theme: "teal",
-    features: ["선생님 월별 일정", "선생님 시간표", "급여/정산", "원 관리"],
+    title: "스케줄",
+    desc: "월별 수업 일정을 한눈에 관리하세요.",
+    theme: "purple",
+    mobileTheme: "teal",
+    features: ["월별 일정", "주간 시간표", "수업 일정"],
     Icon: HubIconCalendar,
-    wide: false,
+    btnLabel: "시스템 바로가기 →",
+    mobileStatus: "월별 · 주간 일정",
     ready: true,
     appRoute: "schedule",
   },
-  {
-    id: "resources",
-    title: "체육자료실",
-    desc: "수업 준비에 필요한 프로그램·자료를 검색하고 다운로드하세요.",
-    theme: "teal",
-    btnVariant: "solid",
-    features: ["연령별 프로그램", "스포츠 종목 자료", "영어체육 자료", "수업 계획안", "영상 자료"],
-    Icon: HubIconBook,
-    wide: true,
-    ready: true,
-    appRoute: "pe",
-    adminOnly: true,
-  },
 ];
 
-function isHubFullAccess(me) {
-  const role = me?.role;
-  return role === "admin" || role === "superadmin";
+function hubModuleTheme(mod, mobile = false) {
+  const key = mobile && mod.mobileTheme ? mod.mobileTheme : mod.theme;
+  return HUB_THEMES[key] || HUB_THEMES.blue;
 }
 
-function getVisibleHubModules(me) {
-  if (isHubFullAccess(me)) return HUB_MODULES;
-  return HUB_MODULES.filter(mod => !mod.adminOnly);
+function HubModuleCardMobile({ mod, onEnter }) {
+  const { Icon } = mod;
+  const theme = hubModuleTheme(mod, true);
+  const enter = () => onEnter(mod);
+  return (
+    <button
+      type="button"
+      className="hub-card-compact"
+      onClick={enter}
+      style={{
+        "--hub-accent": theme.color,
+        "--hub-icon-bg": theme.iconBg,
+        "--hub-icon-border": theme.iconBorder,
+        "--hub-card-bg": theme.cardBg,
+        "--hub-card-border": theme.cardBorder,
+      }}
+    >
+      <ChevronRight size={18} strokeWidth={2.25} className="hub-card-compact__chev" aria-hidden/>
+      <div className="hub-card-compact__icon" aria-hidden>
+        <Icon color={theme.color}/>
+      </div>
+      <div className="hub-card-compact__title">{mod.title}</div>
+      <div className="hub-card-compact__status">{mod.mobileStatus}</div>
+    </button>
+  );
 }
 
 function HubModuleCard({ mod, onEnter }) {
   const { Icon } = mod;
-  const theme = HUB_THEMES[mod.theme] || HUB_THEMES.blue;
+  const theme = hubModuleTheme(mod, false);
   const btnVariant = mod.btnVariant || theme.btnVariant;
   const enter = () => onEnter(mod);
   return (
     <div
-      className={`hub-card${mod.wide ? " hub-card--wide" : ""}${btnVariant === "outline" ? " hub-card--outline-btn" : ""}`}
+      className={`hub-card hub-card--desktop${btnVariant === "outline" ? " hub-card--outline-btn" : ""}`}
       role="button"
       tabIndex={0}
       onClick={enter}
@@ -8214,7 +8287,7 @@ function HubModuleCard({ mod, onEnter }) {
         <div className="hub-card__title">{mod.title}</div>
         <div className="hub-card__desc">{mod.desc}</div>
         <div className="hub-card__divider" aria-hidden/>
-        <div className={`hub-card__features${mod.wide ? " hub-card__features--grid" : ""}`}>
+        <div className="hub-card__features">
           {mod.features.map(t => (
             <div key={t} className="hub-card__feature">
               <span className="hub-card__feature-dot" aria-hidden/>
@@ -8229,7 +8302,7 @@ function HubModuleCard({ mod, onEnter }) {
           className="hub-card__btn"
           onClick={(e) => { e.stopPropagation(); enter(); }}
         >
-          시스템 바로가기 →
+          {mod.btnLabel || "시스템 바로가기 →"}
         </button>
       </div>
     </div>
@@ -8237,8 +8310,23 @@ function HubModuleCard({ mod, onEnter }) {
 }
 
 function HubPage({ me, onSelect, onLogout }) {
-  const visibleModules = useMemo(() => getVisibleHubModules(me), [me?.role]);
-  const isTeacherHub = me?.role === "teacher";
+  const navigate = useNavigate();
+  const [feedItems, setFeedItems] = useState([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [viewNotice, setViewNotice] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFeedLoading(true);
+    loadUnifiedNoticeFeed(fetchNotices)
+      .then((items) => {
+        if (!cancelled) setFeedItems(items || []);
+      })
+      .finally(() => {
+        if (!cancelled) setFeedLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleEnter = (mod) => {
     if (mod.ready && mod.appRoute) {
@@ -8267,18 +8355,45 @@ function HubPage({ me, onSelect, onLogout }) {
         <div className="hub-hero">
           <h1 className="hub-hero__title">안녕하세요, {me.name}님! 👋</h1>
           <p className="hub-hero__desc">
-            {isTeacherHub
-              ? "권한에 따라 이용 가능한 시스템만 표시됩니다. 하나의 계정으로 모든 GTS 서비스를 이용할 수 있습니다."
+            {me?.role === "teacher"
+              ? "오늘도 좋은 하루 보내세요."
               : "하나의 계정으로 모든 GTS 서비스를 이용할 수 있습니다."}
           </p>
         </div>
 
-        <div className={`hub-modules${isTeacherHub ? " hub-modules--teacher" : " hub-modules--admin"}`}>
-          {visibleModules.map(mod => (
-            <HubModuleCard key={mod.id} mod={mod} onEnter={handleEnter}/>
+        <div className="hub-modules hub-modules--core">
+          {HUB_MODULES.map(mod => (
+            <div key={mod.id} className="hub-module-cell">
+              <HubModuleCard mod={mod} onEnter={handleEnter}/>
+              <HubModuleCardMobile mod={mod} onEnter={handleEnter}/>
+            </div>
           ))}
         </div>
+
+        <div className="hub-notices-section">
+          <UnifiedNoticesFeed
+            items={feedItems}
+            loading={feedLoading}
+            previewCount={5}
+            compact
+            onSelectNotice={setViewNotice}
+            onViewAll={() => navigate("/gear?page=notices")}
+          />
+        </div>
       </main>
+
+      {viewNotice ? (
+        <NoticeDetailModal
+          notice={viewNotice}
+          onClose={() => setViewNotice(null)}
+          canManage={false}
+          onEdit={() => {
+            setViewNotice(null);
+            navigate("/gear?page=notices");
+          }}
+          onDelete={() => {}}
+        />
+      ) : null}
 
       <footer className="hub-footer">
         <div className="hub-footer__line">GTS 통합 플랫폼 · © 2025 GTS. All rights reserved.</div>
@@ -8389,6 +8504,10 @@ function EquipmentApp({ onBack, me, session }) {
     }
     if (nextPage === "video-resources") {
       navigate("/pe-resources?category=videos");
+      return;
+    }
+    if (nextPage === "pe-resources") {
+      navigate("/pe-resources");
       return;
     }
     navigate(buildGearAppUrl(nextPage, { ...meta, me }), { replace });

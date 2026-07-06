@@ -9,7 +9,7 @@ const peInp = {
   fontSize: 14, marginBottom: 0, fontFamily: "inherit", boxSizing: "border-box",
 };
 const pePrimaryBtn = {
-  padding: "13px 20px", borderRadius: 10, border: "none", background: "#8b5cf6",
+  padding: "13px 20px", borderRadius: 10, border: "none", background: "#22c55e",
   color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit",
 };
 

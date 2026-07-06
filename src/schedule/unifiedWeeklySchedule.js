@@ -89,7 +89,7 @@ export function institutionSlotToWeeklyItem(slot, studentCountByInstitution = {}
   return {
     id: `inst-${slot.id}`,
     source: "institution",
-    day_of_week: slot.day_of_week,
+    day_of_week: Number(slot.day_of_week),
     start_time: slot.start_time,
     end_time: slot.end_time,
     name: slot.institutions?.name || "원",
@@ -106,7 +106,7 @@ export function homeVisitPatternToWeeklyItem(pattern) {
   return {
     id: `hv-${pattern.id}`,
     source: "home_visit",
-    day_of_week: pattern.day_of_week,
+    day_of_week: Number(pattern.day_of_week),
     start_time: pattern.start_time,
     end_time: pattern.end_time,
     name: pattern.student_name?.trim() || "가정방문",
@@ -138,7 +138,10 @@ export function groupWeeklyItemsByDay(items) {
   const map = {};
   for (const dow of WEEK_DISPLAY_ORDER) map[dow] = [];
   for (const item of items) {
-    if (map[item.day_of_week]) map[item.day_of_week].push(item);
+    const dow = Number(item.day_of_week);
+    if (Number.isInteger(dow) && dow in map) {
+      map[dow].push(item);
+    }
   }
   for (const dow of WEEK_DISPLAY_ORDER) {
     map[dow] = [...map[dow]].sort(compareByStartTime);

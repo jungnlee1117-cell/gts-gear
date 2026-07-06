@@ -27,8 +27,7 @@ export default function ScheduleHub({ me, onSelect }) {
       </div>
       <div className="sch-grid">
         {items.map(item => {
-          const Icon = ICONS[item.id === "teacher-monthly" ? "calendar"
-            : item.id === "institution-schedule" ? "building"
+          const Icon = ICONS[item.id === "institution-schedule" ? "building"
             : item.id === "home-visit" ? "user"
             : item.id === "events" ? "party"
             : item.id === "payroll" ? "wallet"

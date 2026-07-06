@@ -17,7 +17,7 @@ const ICONS = {
 
 export default function ScheduleSidebar({ me, view, onGoMain, onSelect, onGoHub }) {
   const items = filterScheduleMenu(me);
-  const hubViews = new Set(["hub", ...items.map(item => item.id)]);
+  const hubViews = new Set(["hub", "teacher-monthly", ...items.map(item => item.id)]);
 
   return (
     <aside className="sch-sidebar">
@@ -40,7 +40,8 @@ export default function ScheduleSidebar({ me, view, onGoMain, onSelect, onGoHub 
       <nav className="sch-sidebar__nav" aria-label="스케줄 메뉴">
         {items.map(item => {
           const Icon = ICONS[item.id] || Calendar;
-          const isActive = view === item.id;
+          const isActive = view === item.id
+            || (item.id === "institution-schedule" && view === "teacher-monthly");
           return (
             <button
               key={item.id}

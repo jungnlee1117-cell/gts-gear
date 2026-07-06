@@ -1,16 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ChevronLeft } from "lucide-react";
-import {
-  fetchHomeVisitPatterns,
-  fetchMonthlyContracts,
-  fetchSubstituteAssignmentsForTeacher,
-  fetchWeeklySchedule,
-} from "./api.js";
-import { yearMonthKey, yearMonthLastDay } from "./constants.js";
 import UnifiedWeeklyScheduleGrid from "./UnifiedWeeklyScheduleGrid.jsx";
-import { buildUnifiedWeeklyItems, mapStudentCountsByInstitution } from "./unifiedWeeklySchedule.js";
-import { enrichWeeklyItemsWithSubstitutes } from "./substituteSchedule.js";
 import TeacherPickerToolbar, { useTeacherPicker } from "./TeacherPickerToolbar.jsx";
+import { useTeacherWeeklySchedule } from "./useTeacherWeeklySchedule.js";
+import { buildUnifiedWeeklyItems } from "./unifiedWeeklySchedule.js";
+import { enrichWeeklyItemsWithSubstitutes } from "./substituteSchedule.js";
+import { ONEOFF_LABEL_PREFIX } from "./payrollCalendar.js";
 
 export default function TeacherWeeklyScheduleView({ me, onBack }) {
   const picker = useTeacherPicker(me);
@@ -27,54 +22,21 @@ export default function TeacherWeeklyScheduleView({ me, onBack }) {
     handleTeacherSearchKeyDown,
   } = picker;
 
-  const [institutionSlots, setInstitutionSlots] = useState([]);
-  const [homeVisitPatterns, setHomeVisitPatterns] = useState([]);
-  const [monthlyContracts, setMonthlyContracts] = useState([]);
-  const [substituteAssignments, setSubstituteAssignments] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const yearMonth = yearMonthKey();
-
-  useEffect(() => {
-    fetchMonthlyContracts()
-      .then(setMonthlyContracts)
-      .catch(console.error);
-  }, []);
-
-  useEffect(() => {
-    if (!activeTeacherId) {
-      setInstitutionSlots([]);
-      setHomeVisitPatterns([]);
-      setSubstituteAssignments([]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    const monthEnd = yearMonthLastDay(yearMonth);
-    Promise.all([
-      fetchWeeklySchedule(null, activeTeacherId),
-      fetchHomeVisitPatterns({ teacherId: activeTeacherId, status: "active" }),
-      fetchSubstituteAssignmentsForTeacher(activeTeacherId, `${yearMonth}-01`, monthEnd),
-    ])
-      .then(([slots, patterns, subs]) => {
-        setInstitutionSlots(slots);
-        setHomeVisitPatterns(patterns);
-        setSubstituteAssignments(subs);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [activeTeacherId, yearMonth]);
-
-  const studentCountByInstitution = useMemo(
-    () => mapStudentCountsByInstitution(monthlyContracts, yearMonth),
-    [monthlyContracts, yearMonth],
-  );
+  const {
+    institutionSlots,
+    homeVisitPatterns,
+    substituteAssignments,
+    loading,
+    error,
+  } = useTeacherWeeklySchedule(activeTeacherId);
 
   const weeklyItems = useMemo(() => {
-    const items = buildUnifiedWeeklyItems(institutionSlots, homeVisitPatterns, studentCountByInstitution);
-    return enrichWeeklyItemsWithSubstitutes(items, substituteAssignments);
-  }, [institutionSlots, homeVisitPatterns, studentCountByInstitution, substituteAssignments]);
+    const recurringSlots = institutionSlots.filter(
+      slot => !String(slot?.label || "").startsWith(ONEOFF_LABEL_PREFIX),
+    );
+    const built = buildUnifiedWeeklyItems(recurringSlots, homeVisitPatterns);
+    return enrichWeeklyItemsWithSubstitutes(built, substituteAssignments);
+  }, [institutionSlots, homeVisitPatterns, substituteAssignments]);
 
   return (
     <div className="sch-view sch-unified-schedule-view">
@@ -82,11 +44,11 @@ export default function TeacherWeeklyScheduleView({ me, onBack }) {
         <button type="button" className="sch-back-btn" onClick={onBack}>
           <ChevronLeft size={18}/> 스케줄 관리
         </button>
-        <h2 className="sch-view-title">선생님 시간표</h2>
+        <h2 className="sch-view-title">{admin ? "선생님 시간표" : "내 주간 시간표"}</h2>
         <p className="sch-muted">
           {admin
-            ? "선생님별 주간 시간표 — 월~금 · 모든 원 · 가정방문 · 센터"
-            : "내 주간 시간표 — 월~금"}
+            ? "선생님별 주간 시간표 — 월~일 · 모든 원 · 가정방문 · 센터"
+            : "매주 반복 수업 일정 — 월~일"}
         </p>
       </header>
 
@@ -108,15 +70,22 @@ export default function TeacherWeeklyScheduleView({ me, onBack }) {
         </p>
       ) : null}
 
-      {loading ? (
-        <p className="sch-muted">불러오는 중...</p>
-      ) : !activeTeacherId ? (
+      {!activeTeacherId ? (
         <p className="sch-muted sch-unified-empty-prompt">선생님을 선택하면 주간 시간표가 표시됩니다.</p>
+      ) : loading ? (
+        <p className="sch-muted">주간 시간표를 불러오는 중...</p>
       ) : (
-        <UnifiedWeeklyScheduleGrid
-          items={weeklyItems}
-          emptyLabel="이번 주 등록된 수업이 없습니다."
-        />
+        <>
+          {error ? (
+            <p className="sch-muted sch-my-weekly-error" role="alert">
+              주간 시간표를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+            </p>
+          ) : null}
+          <UnifiedWeeklyScheduleGrid
+            items={weeklyItems}
+            emptyLabel="등록된 주간 시간표가 없습니다."
+          />
+        </>
       )}
     </div>
   );
