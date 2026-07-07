@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { formatTeacherNoteDate, formatTeacherNoteLine, noteByDate, notesForMonth } from "./teacherNotes.js";
+import {
+  formatTeacherNoteDate,
+  formatTeacherNoteLine,
+  noteByDate,
+  normalizeNoteDate,
+  notesForMonth,
+} from "./teacherNotes.js";
 
 export function TeacherNoteDayEditor({
   noteDate,
@@ -65,7 +71,16 @@ export function TeacherNoteDayEditor({
   );
 }
 
-export function TeacherNotesMonthList({ notes, year, month, onSelectDate, selectedDateStr }) {
+export function TeacherNotesMonthList({
+  notes,
+  year,
+  month,
+  onSelectDate,
+  onEdit,
+  onDelete,
+  selectedDateStr,
+  editable = false,
+}) {
   const items = useMemo(() => notesForMonth(notes, year, month), [notes, year, month]);
   if (!items.length) return null;
 
@@ -73,21 +88,44 @@ export function TeacherNotesMonthList({ notes, year, month, onSelectDate, select
     <section className="sch-teacher-notes-month" aria-label="이번 달 개인 메모">
       <h3 className="sch-teacher-notes-title">내 메모</h3>
       <ul className="sch-teacher-notes-list">
-        {items.map(note => (
-          <li key={note.id}>
-            <button
-              type="button"
-              className={[
-                "sch-teacher-notes-item",
-                selectedDateStr === note.note_date && "sch-teacher-notes-item--active",
-              ].filter(Boolean).join(" ")}
-              onClick={() => onSelectDate?.(note.note_date)}
-            >
-              <span className="sch-teacher-notes-date">{formatTeacherNoteDate(note.note_date)}</span>
-              <span className="sch-teacher-notes-content">{note.content}</span>
-            </button>
-          </li>
-        ))}
+        {items.map(note => {
+          const dateKey = normalizeNoteDate(note.note_date);
+          return (
+            <li key={note.id} className="sch-teacher-notes-row">
+              <button
+                type="button"
+                className={[
+                  "sch-teacher-notes-item",
+                  selectedDateStr === dateKey && "sch-teacher-notes-item--active",
+                ].filter(Boolean).join(" ")}
+                onClick={() => onSelectDate?.(dateKey)}
+              >
+                <span className="sch-teacher-notes-date">{formatTeacherNoteDate(dateKey)}</span>
+                <span className="sch-teacher-notes-content">{note.content}</span>
+              </button>
+              {editable ? (
+                <div className="sch-teacher-notes-actions">
+                  <button
+                    type="button"
+                    className="sch-teacher-notes-action sch-teacher-notes-action--edit"
+                    aria-label={`${formatTeacherNoteDate(dateKey)} 메모 수정`}
+                    onClick={() => onEdit?.(note)}
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    type="button"
+                    className="sch-teacher-notes-action sch-teacher-notes-action--delete"
+                    aria-label={`${formatTeacherNoteDate(dateKey)} 메모 삭제`}
+                    onClick={() => onDelete?.(note.id)}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

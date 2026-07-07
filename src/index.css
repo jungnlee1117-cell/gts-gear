@@ -187,6 +187,16 @@ body {
   padding: 40px 40px 32px;
 }
 
+.hub-main-inner {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hub-notices-section--aside {
+  display: none;
+}
+
 .hub-hero {
   margin-bottom: 32px;
 }
@@ -366,6 +376,101 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
   max-width: 100%;
+}
+
+/* lg+ 데스크톱 분할 레이아웃용 컴팩트 시스템 카드 (모바일·태블릿 미사용) */
+.hub-card-lg {
+  display: none;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 20px 18px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--hub-card-border);
+  background: var(--hub-card-bg);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.03),
+    0 4px 14px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  overflow: hidden;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.hub-card-lg:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--hub-accent) 18%, transparent);
+  box-shadow:
+    0 2px 4px rgba(15, 23, 42, 0.04),
+    0 10px 24px rgba(15, 23, 42, 0.07);
+}
+
+.hub-card-lg__chev {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  color: #94a3b8;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.hub-card-lg__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--hub-icon-bg);
+  border: 1px solid var(--hub-icon-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.hub-card-lg__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.hub-card-lg__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  padding-right: 20px;
+}
+
+.hub-card-lg__title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.hub-card-lg__desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.hub-card-lg__status {
+  margin-top: auto;
+  padding-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--hub-accent);
+  line-height: 1.4;
 }
 
 .hub-notices-section {
@@ -660,10 +765,95 @@ body {
     display: none !important;
   }
 
-  .hub-notices-section {
+  .hub-notices-section--below {
     max-width: 880px;
     margin-left: auto;
     margin-right: auto;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1023px) {
+  .hub-card--desktop {
+    display: flex !important;
+  }
+
+  .hub-card-lg {
+    display: none !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hub-main {
+    max-width: 1240px;
+    padding-left: 36px;
+    padding-right: 36px;
+  }
+
+  .hub-main-inner {
+    display: grid;
+    grid-template-columns: 43fr 57fr;
+    grid-template-areas:
+      "hero hero"
+      "notices modules";
+    gap: 20px 24px;
+    align-items: stretch;
+  }
+
+  .hub-hero {
+    grid-area: hero;
+    margin-bottom: 4px;
+  }
+
+  .hub-notices-section--below {
+    display: none;
+  }
+
+  .hub-notices-section--aside {
+    display: block;
+    grid-area: notices;
+    margin-top: 0;
+    min-width: 0;
+    align-self: stretch;
+  }
+
+  .hub-notices-section--aside .hub-panel-card--unified {
+    height: 100%;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .hub-notices-section--aside .hub-feed-list--unified {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .hub-modules--core {
+    grid-area: modules;
+    max-width: none;
+    margin: 0;
+    align-self: stretch;
+    grid-auto-rows: 1fr;
+  }
+
+  .hub-modules--core .hub-module-cell[data-module-id="edu"] { order: 1; }
+  .hub-modules--core .hub-module-cell[data-module-id="schedule"] { order: 2; }
+  .hub-modules--core .hub-module-cell[data-module-id="pe"] { order: 3; }
+  .hub-modules--core .hub-module-cell[data-module-id="payroll"] { order: 4; }
+
+  .hub-modules--core .hub-card--desktop {
+    display: none !important;
+  }
+
+  .hub-modules--core .hub-card-lg {
+    display: flex !important;
+    flex: 1;
+  }
+
+  .hub-modules--core .hub-module-cell {
+    display: flex;
+    min-height: 0;
   }
 }
 
@@ -8959,6 +9149,23 @@ button.pe-res-resource-youtube-thumb:hover {
 }
 .sch-teacher-notes-list {
   list-style: none; margin: 0; padding: 0; display: grid; gap: 8px;
+}
+.sch-teacher-notes-row {
+  display: flex; align-items: stretch; gap: 6px;
+}
+.sch-teacher-notes-row .sch-teacher-notes-item { flex: 1; min-width: 0; }
+.sch-teacher-notes-actions {
+  display: flex; flex-direction: column; justify-content: center; gap: 4px; flex-shrink: 0;
+}
+.sch-teacher-notes-action {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0;
+  border: 1px solid #e2e8f0; border-radius: 8px;
+  background: #fff; cursor: pointer; font-size: 16px; line-height: 1;
+}
+.sch-teacher-notes-action:hover { background: #f1f5f9; }
+.sch-teacher-notes-action--delete:hover {
+  background: #fef2f2; border-color: #fecaca;
 }
 .sch-teacher-notes-item {
   display: flex; flex-wrap: wrap; gap: 6px 10px; width: 100%; text-align: left;

@@ -1139,22 +1139,27 @@ export async function deletePayrollEntry(id) {
 }
 
 export async function fetchTeacherNotes({ teacherId, fromDate, toDate } = {}) {
-  let q = scheduleSupabase
-    .from("teacher_notes")
-    .select("*, teachers(id, name)")
-    .order("note_date", { ascending: true });
-  if (teacherId) q = q.eq("teacher_id", teacherId);
-  if (fromDate) q = q.gte("note_date", fromDate);
-  if (toDate) q = q.lte("note_date", toDate);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
+  const buildQuery = (select) => {
+    let q = scheduleSupabase.from("teacher_notes").select(select);
+    if (teacherId) q = q.eq("teacher_id", teacherId);
+    if (fromDate) q = q.gte("note_date", fromDate);
+    if (toDate) q = q.lte("note_date", toDate);
+    return q.order("note_date", { ascending: true });
+  };
+
+  const { data, error } = await buildQuery("*, teachers(id, name)");
+  if (!error) return data || [];
+
+  // teachers embed 실패 시 본인 메모 조회만이라도 되도록 fallback
+  const { data: plain, error: plainError } = await buildQuery("*");
+  if (plainError) throw plainError;
+  return plain || [];
 }
 
 export async function upsertTeacherNote({ id, teacher_id, note_date, content }) {
   const row = {
     teacher_id,
-    note_date,
+    note_date: String(note_date).slice(0, 10),
     content: content.trim(),
     updated_at: new Date().toISOString(),
   };
@@ -1254,7 +1259,10 @@ export async function fetchAdditionalPaymentRequests({ teacherId, yearMonth, sta
   if (yearMonth) q = q.eq("year_month", yearMonthFirstDay(yearMonth));
   if (status) q = q.eq("status", status);
   const { data, error } = await q;
-  if (error) throw error;
+  if (error) {
+    if (isSchemaMissingError(error)) return [];
+    throw error;
+  }
   return data || [];
 }
 
@@ -1271,7 +1279,12 @@ export async function insertAdditionalPaymentRequest({ teacher_id, year_month, a
     })
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    if (isSchemaMissingError(error)) {
+      throw new Error("추가 급여 신청 기능이 아직 준비되지 않았습니다. 관리자에게 문의해 주세요.");
+    }
+    throw error;
+  }
   return data;
 }
 

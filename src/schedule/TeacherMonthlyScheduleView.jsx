@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, MapPin, Car } from "lucide-react";
 import {
   DAY_LABELS,
@@ -33,7 +33,7 @@ import {
   buildExceptionsByDateMap,
   filterExceptionsForInstitutions,
 } from "./scheduleExceptions.js";
-import { noteByDate } from "./teacherNotes.js";
+import { mergeTeacherNote, normalizeNoteDate, noteByDate } from "./teacherNotes.js";
 import {
   getKoreanHoliday,
   hasHolidayDataForYear,
@@ -69,7 +69,7 @@ export default function TeacherMonthlyScheduleView({
   embedded = false,
 }) {
   const teacherId = targetTeacherId || me?.id;
-  const canEditNotes = teacherId === me.id;
+  const canEditNotes = Boolean(me?.id) && String(teacherId) === String(me.id);
   const scheduleAuthReady = useScheduleAuthReady();
   const [monthBase, setMonthBase] = useState(() => new Date(TODAY.getFullYear(), TODAY.getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => new Date(TODAY));
@@ -91,6 +91,7 @@ export default function TeacherMonthlyScheduleView({
   const [oneoffModalOpen, setOneoffModalOpen] = useState(false);
   const [editingOneoffLesson, setEditingOneoffLesson] = useState(null);
   const [detailOneoff, setDetailOneoff] = useState(null);
+  const noteEditorRef = useRef(null);
 
   const superAdmin = isScheduleSuperAdmin(me);
   const canManageSchedule = isScheduleAdmin(me);
@@ -105,6 +106,16 @@ export default function TeacherMonthlyScheduleView({
   const rangeFrom = fmtLocalDate(gridCells[0].date);
   const rangeTo = fmtLocalDate(gridCells[gridCells.length - 1].date);
 
+  const reloadTeacherNotes = useCallback(async () => {
+    if (!teacherId || !scheduleAuthReady) return;
+    try {
+      const notes = await fetchTeacherNotes({ teacherId, fromDate: rangeFrom, toDate: rangeTo });
+      setTeacherNotes(notes);
+    } catch (err) {
+      console.error("teacher notes reload failed:", err);
+    }
+  }, [teacherId, scheduleAuthReady, rangeFrom, rangeTo]);
+
   const load = useCallback(async () => {
     if (!teacherId || !scheduleAuthReady) return;
     setLoading(true);
@@ -116,9 +127,7 @@ export default function TeacherMonthlyScheduleView({
           ? fetchInstitutions({ teacherScope: true })
           : Promise.resolve([]),
         fetchScheduleExceptions(null, rangeFrom, rangeTo),
-        canEditNotes
-          ? fetchTeacherNotes({ teacherId, fromDate: rangeFrom, toDate: rangeTo })
-          : Promise.resolve([]),
+        fetchTeacherNotes({ teacherId, fromDate: rangeFrom, toDate: rangeTo }),
         fetchPayrollEntries({ teacherId, yearMonth }),
         fetchSubstituteAssignmentsForTeacher(teacherId, rangeFrom, rangeTo),
         fetchSubstituteLessons({ fromDate: rangeFrom, toDate: rangeTo, teacherId }),
@@ -172,7 +181,7 @@ export default function TeacherMonthlyScheduleView({
     } finally {
       setLoading(false);
     }
-  }, [teacherId, scheduleAuthReady, me.id, rangeFrom, rangeTo, yearMonth, canEditNotes]);
+  }, [teacherId, scheduleAuthReady, me.id, rangeFrom, rangeTo, yearMonth]);
 
   useEffect(() => {
     if (!teacherId || !scheduleAuthReady) {
@@ -260,8 +269,14 @@ export default function TeacherMonthlyScheduleView({
     if (!canEditNotes) return;
     setNoteSaving(true);
     try {
-      await upsertTeacherNote({ id, teacher_id: me.id, note_date, content });
-      await load();
+      const saved = await upsertTeacherNote({
+        id,
+        teacher_id: teacherId,
+        note_date,
+        content,
+      });
+      setTeacherNotes(prev => mergeTeacherNote(prev, saved));
+      await reloadTeacherNotes();
     } catch (err) {
       alert("메모 저장 실패: " + err.message);
     } finally {
@@ -275,7 +290,8 @@ export default function TeacherMonthlyScheduleView({
     setNoteSaving(true);
     try {
       await deleteTeacherNote(id);
-      await load();
+      setTeacherNotes(prev => prev.filter(n => n.id !== id));
+      await reloadTeacherNotes();
     } catch (err) {
       alert("메모 삭제 실패: " + err.message);
     } finally {
@@ -327,6 +343,13 @@ export default function TeacherMonthlyScheduleView({
   const handleNoteDateSelect = (dateStr) => {
     const [y, m, d] = dateStr.split("-").map(Number);
     setSelectedDate(new Date(y, m - 1, d));
+  };
+
+  const handleNoteEdit = (note) => {
+    handleNoteDateSelect(normalizeNoteDate(note.note_date));
+    requestAnimationFrame(() => {
+      noteEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
   };
 
   const uniqueInstitutionsForCell = (date) => {
@@ -488,6 +511,9 @@ export default function TeacherMonthlyScheduleView({
               month={month}
               selectedDateStr={selectedDateStr}
               onSelectDate={handleNoteDateSelect}
+              onEdit={handleNoteEdit}
+              onDelete={handleNoteDelete}
+              editable
             />
           ) : null}
 
@@ -586,14 +612,16 @@ export default function TeacherMonthlyScheduleView({
                 })}
               </ul>
             ) : null}
-            <TeacherNoteDayEditor
-              noteDate={selectedDateStr}
-              note={selectedNote}
-              onSave={handleNoteSave}
-              onDelete={handleNoteDelete}
-              saving={noteSaving}
-              readOnly={!canEditNotes}
-            />
+            <div ref={noteEditorRef}>
+              <TeacherNoteDayEditor
+                noteDate={selectedDateStr}
+                note={selectedNote}
+                onSave={handleNoteSave}
+                onDelete={handleNoteDelete}
+                saving={noteSaving}
+                readOnly={!canEditNotes}
+              />
+            </div>
           </section>
         </>
       )}

@@ -8256,6 +8256,36 @@ function HubModuleCardMobile({ mod, onEnter }) {
   );
 }
 
+function HubModuleCardLg({ mod, onEnter }) {
+  const { Icon } = mod;
+  const theme = hubModuleTheme(mod, false);
+  const enter = () => onEnter(mod);
+  return (
+    <button
+      type="button"
+      className="hub-card-lg"
+      onClick={enter}
+      style={{
+        "--hub-accent": theme.color,
+        "--hub-icon-bg": theme.iconBg,
+        "--hub-icon-border": theme.iconBorder,
+        "--hub-card-bg": theme.cardBg,
+        "--hub-card-border": theme.cardBorder,
+      }}
+    >
+      <ChevronRight size={18} strokeWidth={2.25} className="hub-card-lg__chev" aria-hidden/>
+      <div className="hub-card-lg__icon" aria-hidden>
+        <Icon color={theme.color}/>
+      </div>
+      <div className="hub-card-lg__body">
+        <div className="hub-card-lg__title">{mod.title}</div>
+        <div className="hub-card-lg__desc">{mod.desc}</div>
+        <div className="hub-card-lg__status">{mod.mobileStatus}</div>
+      </div>
+    </button>
+  );
+}
+
 function HubModuleCard({ mod, onEnter }) {
   const { Icon } = mod;
   const theme = hubModuleTheme(mod, false);
@@ -8352,33 +8382,47 @@ function HubPage({ me, onSelect, onLogout }) {
       </header>
 
       <main className="hub-main">
-        <div className="hub-hero">
-          <h1 className="hub-hero__title">안녕하세요, {me.name}님! 👋</h1>
-          <p className="hub-hero__desc">
-            {me?.role === "teacher"
-              ? "오늘도 좋은 하루 보내세요."
-              : "하나의 계정으로 모든 GTS 서비스를 이용할 수 있습니다."}
-          </p>
-        </div>
+        <div className="hub-main-inner">
+          <div className="hub-hero">
+            <h1 className="hub-hero__title">안녕하세요, {me.name}님! 👋</h1>
+            <p className="hub-hero__desc">
+              {me?.role === "teacher"
+                ? "오늘도 좋은 하루 보내세요."
+                : "하나의 계정으로 모든 GTS 서비스를 이용할 수 있습니다."}
+            </p>
+          </div>
 
-        <div className="hub-modules hub-modules--core">
-          {HUB_MODULES.map(mod => (
-            <div key={mod.id} className="hub-module-cell">
-              <HubModuleCard mod={mod} onEnter={handleEnter}/>
-              <HubModuleCardMobile mod={mod} onEnter={handleEnter}/>
-            </div>
-          ))}
-        </div>
+          <div className="hub-modules hub-modules--core">
+            {HUB_MODULES.map(mod => (
+              <div key={mod.id} className="hub-module-cell" data-module-id={mod.id}>
+                <HubModuleCard mod={mod} onEnter={handleEnter}/>
+                <HubModuleCardLg mod={mod} onEnter={handleEnter}/>
+                <HubModuleCardMobile mod={mod} onEnter={handleEnter}/>
+              </div>
+            ))}
+          </div>
 
-        <div className="hub-notices-section">
-          <UnifiedNoticesFeed
-            items={feedItems}
-            loading={feedLoading}
-            previewCount={5}
-            compact
-            onSelectNotice={setViewNotice}
-            onViewAll={() => navigate("/gear?page=notices")}
-          />
+          <div className="hub-notices-section hub-notices-section--below">
+            <UnifiedNoticesFeed
+              items={feedItems}
+              loading={feedLoading}
+              previewCount={5}
+              compact
+              onSelectNotice={setViewNotice}
+              onViewAll={() => navigate("/gear?page=notices")}
+            />
+          </div>
+
+          <div className="hub-notices-section hub-notices-section--aside">
+            <UnifiedNoticesFeed
+              items={feedItems}
+              loading={feedLoading}
+              previewCount={7}
+              compact
+              onSelectNotice={setViewNotice}
+              onViewAll={() => navigate("/gear?page=notices")}
+            />
+          </div>
         </div>
       </main>
 

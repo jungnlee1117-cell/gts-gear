@@ -3,7 +3,7 @@ import { ChevronLeft, Pencil } from "lucide-react";
 import { DAY_LABELS, PAY_TYPES, formatMinutes, formatWon, grossToNetPay, homeVisitColor, institutionColor, isHomeVisitPlanned, minutesBetween, yearMonthKey } from "./constants.js";
 import PayrollMonthNotices from "./PayrollMonthNotices.jsx";
 import { TeacherNoteDayEditor, TeacherNotesMonthList } from "./TeacherNotesPanel.jsx";
-import { noteByDate } from "./teacherNotes.js";
+import { noteByDate, normalizeNoteDate } from "./teacherNotes.js";
 import {
   findFixedGrossPay,
   findFixedMonthlySalary,
@@ -68,6 +68,7 @@ import PayrollDebugPanel from "./PayrollDebugPanel.jsx";
 import CalendarDayStatusIcon, { calendarDayStatusKind } from "./CalendarDayStatusIcon.jsx";
 import { applySubstituteOverlaysToSchedule } from "./substituteSchedule.js";
 import { isScheduleSuperAdmin } from "./managerScope.js";
+import { useScheduleAuthReady } from "./ScheduleAuthContext.jsx";
 
 const QUICK_MINUTES = [30, 40, 45, 50, 60, 90];
 
@@ -81,6 +82,7 @@ export default function PayrollTeacherView({
   const teacherId = subjectTeacher?.id ?? me.id;
   const teacherName = subjectTeacher?.name ?? me.name;
   const canEditPayroll = !adminInspectMode || isScheduleSuperAdmin(me);
+  const scheduleAuthReady = useScheduleAuthReady();
   const today = new Date();
   const todayStr = fmtLocalDate(today);
   const [yearMonth, setYearMonth] = useState(initialYearMonth ?? yearMonthKey());
@@ -135,6 +137,7 @@ export default function PayrollTeacherView({
   }, [initialYearMonth]);
 
   const load = useCallback(async () => {
+    if (!teacherId || !scheduleAuthReady) return;
     setLoading(true);
     try {
       const [w, hv, insts, ents, ex, notes, adds, rts, fin, subs] = await Promise.all([
@@ -164,9 +167,15 @@ export default function PayrollTeacherView({
     } finally {
       setLoading(false);
     }
-  }, [teacherId, adminInspectMode, yearMonth, rangeFrom, rangeTo]);
+  }, [teacherId, scheduleAuthReady, adminInspectMode, yearMonth, rangeFrom, rangeTo]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!teacherId || !scheduleAuthReady) {
+      if (!teacherId) setLoading(false);
+      return;
+    }
+    load();
+  }, [load, teacherId, scheduleAuthReady]);
 
   const monthHomeVisitPatterns = useMemo(
     () => patternsForCalendarMonth(homeVisitPatterns, rangeFrom, rangeTo),
@@ -403,6 +412,13 @@ export default function PayrollTeacherView({
   const handleNoteDateSelect = (dateStr) => {
     const [y, m, d] = dateStr.split("-").map(Number);
     setSelectedDate(new Date(y, m - 1, d));
+  };
+
+  const handleNoteEdit = (note) => {
+    handleNoteDateSelect(normalizeNoteDate(note.note_date));
+    requestAnimationFrame(() => {
+      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
 
   const openCustom = (planned) => {
@@ -799,6 +815,9 @@ export default function PayrollTeacherView({
               month={month}
               selectedDateStr={selectedDateStr}
               onSelectDate={handleNoteDateSelect}
+              onEdit={handleNoteEdit}
+              onDelete={handleNoteDelete}
+              editable={canEditPayroll}
             />
           ) : null}
 

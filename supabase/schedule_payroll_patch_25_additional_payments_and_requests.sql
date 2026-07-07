@@ -5,6 +5,65 @@
 --   id, teacher_id, year_month, amount, reason, created_by
 
 -- ============================================
+-- RLS 헬퍼 (patch 16 미적용 DB 호환 — patch 27 등으로 superadmin만 있는 경우)
+-- ============================================
+CREATE OR REPLACE FUNCTION public.is_schedule_superadmin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.teachers t
+    WHERE t.id = auth.uid() AND t.role = 'superadmin'
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_schedule_regional_manager()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.teachers t
+    WHERE t.id = auth.uid() AND t.role = 'admin'
+  ) AND NOT public.is_schedule_superadmin();
+$$;
+
+CREATE OR REPLACE FUNCTION public.manages_institution(p_institution_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.is_schedule_superadmin()
+    OR EXISTS (
+      SELECT 1 FROM public.institutions i
+      WHERE i.id = p_institution_id AND i.manager_id = auth.uid()
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.teacher_at_managed_institution(p_teacher_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.is_schedule_superadmin()
+    OR EXISTS (
+      SELECT 1 FROM public.institution_teacher_assignments a
+      WHERE a.teacher_id = p_teacher_id
+        AND a.is_active = true
+        AND public.manages_institution(a.institution_id)
+    );
+$$;
+
+-- ============================================
 -- additional_payment_requests (강사 신청 → 슈퍼관리자 승인)
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.additional_payment_requests (
@@ -52,18 +111,21 @@ BEGIN
         WITH CHECK (public.is_schedule_superadmin())
     $policy$;
 
-    EXECUTE $policy$
-      CREATE POLICY "additional_payments_regional_manager" ON public.additional_payments
-        FOR ALL TO authenticated
-        USING (
-          public.is_schedule_regional_manager()
-          AND public.teacher_at_managed_institution(teacher_id)
-        )
-        WITH CHECK (
-          public.is_schedule_regional_manager()
-          AND public.teacher_at_managed_institution(teacher_id)
-        )
-    $policy$;
+    IF to_regprocedure('public.is_schedule_regional_manager()') IS NOT NULL
+       AND to_regprocedure('public.teacher_at_managed_institution(uuid)') IS NOT NULL THEN
+      EXECUTE $policy$
+        CREATE POLICY "additional_payments_regional_manager" ON public.additional_payments
+          FOR ALL TO authenticated
+          USING (
+            public.is_schedule_regional_manager()
+            AND public.teacher_at_managed_institution(teacher_id)
+          )
+          WITH CHECK (
+            public.is_schedule_regional_manager()
+            AND public.teacher_at_managed_institution(teacher_id)
+          )
+      $policy$;
+    END IF;
   ELSE
     EXECUTE $policy$
       CREATE POLICY "additional_payments_admin_all" ON public.additional_payments
