@@ -22,6 +22,7 @@ import EnglishScriptApp from "./EnglishScriptApp.jsx";
 import SituationManualApp from "./SituationManualApp.jsx";
 import ChildTypeApp from "./ChildTypeApp.jsx";
 import ClassFlowTipsApp from "./ClassFlowTipsApp.jsx";
+import LessonScriptBuilderApp from "./LessonScriptBuilderApp.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
 import { formatPushItemNames, sendPushEvent } from "./pushNotifications.js";
@@ -7884,6 +7885,10 @@ function AuthenticatedRoutes({ me, session, logout }) {
       <Route
         path="/class-flow-tips"
         element={<ClassFlowTipsApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
+      />
+      <Route
+        path="/lesson-script-builder"
+        element={<LessonScriptBuilderApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
       />
       <Route
         path="/pronunciation-tips"

@@ -2932,6 +2932,515 @@ button.pe-res-resource-youtube-thumb:hover {
   box-sizing: border-box;
 }
 
+/* ── 수업 대본 만들기 ── */
+.lsb-main-wrap .eng-program-main {
+  padding: 0;
+}
+
+.lsb-page {
+  padding: 24px 28px 48px;
+  box-sizing: border-box;
+}
+
+.lsb-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.lsb-header__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.03em;
+}
+
+.lsb-header__desc {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.55;
+}
+
+.lsb-header__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lsb-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.lsb-selectors {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.lsb-step {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 18px 18px 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.lsb-step__head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.lsb-step__num {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #f5f3ff;
+  color: #7c3aed;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.lsb-step__title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.lsb-step__desc {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.lsb-step__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.lsb-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 88px;
+  padding: 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.lsb-card:hover {
+  border-color: #c4b5fd;
+  background: #fff;
+}
+
+.lsb-card--selected {
+  border-color: #8b5cf6;
+  background: #faf5ff;
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.15);
+}
+
+.lsb-card__check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: #7c3aed;
+}
+
+.lsb-card__badge {
+  font-size: 10px;
+  font-weight: 800;
+  color: #7c3aed;
+  background: #ede9fe;
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+
+.lsb-card__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
+  padding-right: 18px;
+}
+
+.lsb-card__desc {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.lsb-level-row {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.lsb-level-btn {
+  padding: 6px 12px;
+  border-radius: 99px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.lsb-level-btn.active {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
+}
+
+.lsb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 4px 0 8px;
+}
+
+.lsb-title-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.lsb-title-field span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.lsb-input {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.lsb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: none;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.lsb-btn--sm { padding: 6px 12px; font-size: 12px; }
+
+.lsb-btn--primary {
+  background: #7c3aed;
+  color: #fff;
+}
+
+.lsb-btn--primary:hover { background: #6d28d9; }
+
+.lsb-btn--secondary {
+  background: #fff;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+}
+
+.lsb-btn--secondary:hover { background: #f8fafc; }
+
+.lsb-btn--ghost {
+  background: #fff;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.lsb-muted {
+  margin: 0;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.lsb-preview {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
+}
+
+.lsb-preview__head {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.lsb-preview__head h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.lsb-preview-section {
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+.lsb-preview-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.lsb-preview-section__title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #7c3aed;
+}
+
+.lsb-preview-section__sub {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.lsb-preview-part {
+  margin-bottom: 12px;
+}
+
+.lsb-preview-part:last-child { margin-bottom: 0; }
+
+.lsb-preview-part__label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.lsb-preview-part__text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "Noto Sans KR", sans-serif;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #0f172a;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid #f1f5f9;
+}
+
+.lsb-saved-panel {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+}
+
+.lsb-saved-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.lsb-saved-panel__head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.lsb-saved-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.lsb-saved-item {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.lsb-saved-item__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.lsb-saved-item__main strong {
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.lsb-saved-item__main span {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.lsb-saved-item__delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff;
+  color: #dc2626;
+  cursor: pointer;
+}
+
+.print-only { display: none; }
+
+.lsb-print-area {
+  padding: 24mm 18mm;
+  color: #0f172a;
+  font-family: "Noto Sans KR", sans-serif;
+}
+
+.lsb-print-header {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #7c3aed;
+}
+
+.lsb-print-header h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.lsb-print-header p {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+@media (max-width: 1024px) {
+  .lsb-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .lsb-preview {
+    position: static;
+    max-height: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .lsb-page {
+    padding: 16px 14px 88px;
+  }
+
+  .lsb-header__title {
+    font-size: 20px;
+  }
+
+  .lsb-step__cards {
+    grid-template-columns: 1fr;
+  }
+
+  .lsb-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lsb-btn { justify-content: center; }
+}
+
+@media print {
+  .no-print,
+  .eng-program-sidebar,
+  .eng-program-mobile-bar,
+  .eng-program-bottom-nav,
+  .eng-program-sidebar-backdrop {
+    display: none !important;
+  }
+
+  .eng-program-layout,
+  .eng-program-main,
+  .lsb-main-wrap {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .lsb-print-area {
+    padding: 12mm 10mm;
+  }
+
+  .lsb-preview-part__text {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 11pt;
+  }
+
+  .lsb-preview-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
 /* 모바일 상단 바 + 햄버거 */
 .eng-program-mobile-bar {
   display: none;

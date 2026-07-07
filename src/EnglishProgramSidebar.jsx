@@ -1,4 +1,4 @@
-import { ChevronLeft, BookOpen, ShieldCheck, Lightbulb, User, Mic, Star } from "lucide-react";
+import { ChevronLeft, BookOpen, ShieldCheck, Lightbulb, User, Mic, Star, Layers } from "lucide-react";
 import { useMemo } from "react";
 import PlatformMainButton from "./PlatformMainButton.jsx";
 import { situations } from "./situationData.js";
@@ -12,6 +12,7 @@ const VETERAN_TIPS_COUNT = flowTipsActivities.filter(a => a.cat === "veteran").l
 
 export const PROGRAM_SIDEBAR_MENU = [
   { id: "gear-scripts", icon: BookOpen, label: "교구 대본", nav: "gear-scripts" },
+  { id: "lesson-script-builder", icon: Layers, label: "수업 대본 만들기", nav: "lesson-script-builder" },
   { id: "situations", icon: ShieldCheck, label: "상황별 대처", count: situations.length, nav: "situations" },
   { id: "flow-tips", icon: Lightbulb, label: "수업 흐름 팁", count: flowTipsActivities.length, nav: "flow-tips" },
   { id: "pronunciation", icon: Mic, label: "발음 팁", count: PRONUNCIATION_TIPS.length, nav: "pronunciation" },
@@ -21,6 +22,7 @@ export const PROGRAM_SIDEBAR_MENU = [
 
 const NAV_PATHS = {
   "gear-scripts": "/english-script",
+  "lesson-script-builder": "/lesson-script-builder",
   situations: "/situation-manual",
   "flow-tips": "/class-flow-tips",
   pronunciation: "/pronunciation-tips",

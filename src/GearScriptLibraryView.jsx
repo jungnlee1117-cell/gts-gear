@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   BookOpen, Search, Plus, SlidersHorizontal, Clock, MoreVertical,
   ChevronLeft, ChevronRight, Loader2,
@@ -185,6 +186,7 @@ function GearLibraryPagination({ page, totalPages, onChange }) {
 }
 
 export default function GearScriptLibraryView({ onBack, onGoMain, onSelect, onNavigate, me }) {
+  const navigate = useNavigate();
   const { items, loading, error } = useGearItems();
   const [catFilter, setCatFilter] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -288,7 +290,7 @@ export default function GearScriptLibraryView({ onBack, onGoMain, onSelect, onNa
           <button
             type="button"
             className="eng-lib-header__create"
-            onClick={() => alert("새 대본 등록은 관리자에게 문의해 주세요.")}
+            onClick={() => navigate("/lesson-script-builder")}
           >
             <Plus size={16} strokeWidth={2.5}/>
             새 대본 만들기
