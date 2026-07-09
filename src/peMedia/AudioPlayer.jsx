@@ -3,6 +3,7 @@ import {
   ListMusic, Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume2,
 } from "lucide-react";
 import { formatAudioDisplayTitle, formatDuration, pickNextTrackIndex } from "./peMediaUtils.js";
+import { prepareBackgroundAudioElement, usePeAudioMediaSession } from "./usePeAudioMediaSession.js";
 
 export default function AudioPlayer({
   tracks = [],
@@ -25,9 +26,12 @@ export default function AudioPlayer({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.85);
   const shufflePlayedRef = useRef(new Set());
+  const advancingRef = useRef(false);
 
   const current = trackSelected ? (tracks[currentIndex] || null) : null;
   const src = current?.file_url || "";
+  const displayCover = current?.cover_url;
+  const displayTitle = formatAudioDisplayTitle(current?.title) || "재생할 곡을 선택하세요";
 
   const nextIndex = useMemo(() => {
     if (!trackSelected || !tracks.length) return null;
@@ -51,21 +55,22 @@ export default function AudioPlayer({
     setPlaying(true);
   }, [tracks.length, onIndexChange, setPlaying]);
 
-  const playPrev = () => {
+  const playPrev = useCallback(() => {
     if (!tracks.length) return;
     if (audioRef.current && audioRef.current.currentTime > 3) {
       audioRef.current.currentTime = 0;
       return;
     }
     playAt(currentIndex - 1);
-  };
+  }, [tracks.length, currentIndex, playAt]);
 
-  const playNext = useCallback(() => {
+  const playNext = useCallback((fromEnded = false) => {
     if (!tracks.length || !trackSelected) return;
     if (repeatMode === "one") {
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(() => {});
+      const el = audioRef.current;
+      if (el) {
+        el.currentTime = 0;
+        el.play().catch(() => setPlaying(false));
       }
       return;
     }
@@ -79,8 +84,53 @@ export default function AudioPlayer({
       return;
     }
     if (shuffle) shufflePlayedRef.current.add(next);
-    playAt(next);
-  }, [tracks.length, trackSelected, currentIndex, shuffle, repeatMode, playAt, setPlaying]);
+
+    const nextTrack = tracks[next];
+    const nextSrc = nextTrack?.file_url || "";
+    if (fromEnded && audioRef.current && nextSrc) {
+      const el = audioRef.current;
+      advancingRef.current = true;
+      el.src = nextSrc;
+      el.load();
+      el.play()
+        .catch(() => setPlaying(false))
+        .finally(() => {
+          advancingRef.current = false;
+        });
+    }
+
+    onIndexChange(next);
+    setPlaying(true);
+  }, [tracks, trackSelected, currentIndex, shuffle, repeatMode, onIndexChange, setPlaying]);
+
+  const handleEnded = useCallback(() => {
+    playNext(true);
+  }, [playNext]);
+
+  usePeAudioMediaSession({
+    enabled: trackSelected && Boolean(current),
+    title: displayTitle,
+    coverUrl: displayCover,
+    playing,
+    progress,
+    duration,
+    onPlay: () => setPlaying(true),
+    onPause: () => setPlaying(false),
+    onPrevious: playPrev,
+    onNext: () => playNext(false),
+  });
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      const el = audioRef.current;
+      if (!document.hidden || !playing || !el || !src) return;
+      if (el.paused) {
+        el.play().catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [playing, src]);
 
   useEffect(() => {
     shufflePlayedRef.current = new Set([currentIndex]);
@@ -89,6 +139,7 @@ export default function AudioPlayer({
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
+    prepareBackgroundAudioElement(el);
     el.volume = volume;
     if (playing && src) {
       el.play().catch(() => setPlaying(false));
@@ -125,8 +176,6 @@ export default function AudioPlayer({
     setProgress(el.currentTime);
   };
 
-  const displayCover = current?.cover_url;
-  const displayTitle = formatAudioDisplayTitle(current?.title) || "재생할 곡을 선택하세요";
   const nextTitle = nextTrack ? formatAudioDisplayTitle(nextTrack.title) : null;
   const showTrackNo = trackSelected && tracks.length > 0;
 
@@ -137,9 +186,16 @@ export default function AudioPlayer({
       <audio
         ref={audioRef}
         src={src || undefined}
+        playsInline
+        preload="auto"
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={onTimeUpdate}
-        onEnded={playNext}
+        onEnded={handleEnded}
+        onPlay={() => setPlaying(true)}
+        onPause={() => {
+          if (advancingRef.current || audioRef.current?.ended) return;
+          setPlaying(false);
+        }}
       />
 
       <div className="pe-audio-bottom-player-inner">
@@ -178,7 +234,7 @@ export default function AudioPlayer({
             <button type="button" className="pe-audio-ctrl-btn pe-audio-ctrl-btn--play" onClick={togglePlay} aria-label={playing ? "일시정지" : "재생"}>
               {playing ? <Pause size={22}/> : <Play size={22}/>}
             </button>
-            <button type="button" className="pe-audio-ctrl-btn" onClick={playNext} aria-label="다음 곡">
+            <button type="button" className="pe-audio-ctrl-btn" onClick={() => playNext(false)} aria-label="다음 곡">
               <SkipForward size={20}/>
             </button>
             <button
