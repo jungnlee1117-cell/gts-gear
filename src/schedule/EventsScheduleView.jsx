@@ -289,14 +289,27 @@ export default function EventsScheduleView({ me, onBack }) {
                         </td>
                         <td>{formatExceptionNotice(ex)}</td>
                         <td>{EXCEPTION_LABELS[ex.exception_type] || ex.exception_type}</td>
-                        <td>{ex.note || "—"}</td>
+                        <td>
+                          {ex.note || "—"}
+                          {ex.event_location ? (
+                            <span className="sch-muted" style={{ display: "block", fontSize: 12 }}>
+                              📍 {ex.event_location}
+                            </span>
+                          ) : null}
+                          {ex.notice_id ? (
+                            <span className="sch-badge sch-badge--muted" style={{ display: "inline-block", marginTop: 4 }}>
+                              공지 연동
+                            </span>
+                          ) : null}
+                        </td>
                         {admin ? (
                           <td>
                             <div className="sch-events-row-actions">
                               <button
                                 type="button"
                                 className="sch-btn sch-btn--ghost sch-btn--sm"
-                                disabled={saving}
+                                disabled={saving || !!ex.notice_id}
+                                title={ex.notice_id ? "공지사항에서 수정하세요" : "수정"}
                                 onClick={() => openEdit(ex)}
                                 aria-label="수정"
                               >
@@ -305,7 +318,8 @@ export default function EventsScheduleView({ me, onBack }) {
                               <button
                                 type="button"
                                 className="sch-btn sch-btn--ghost sch-btn--sm"
-                                disabled={saving}
+                                disabled={saving || !!ex.notice_id}
+                                title={ex.notice_id ? "공지사항에서 삭제하세요" : "삭제"}
                                 onClick={() => handleDelete(ex.id)}
                                 aria-label="삭제"
                               >

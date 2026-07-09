@@ -23,6 +23,7 @@ import SituationManualApp from "./SituationManualApp.jsx";
 import ChildTypeApp from "./ChildTypeApp.jsx";
 import ClassFlowTipsApp from "./ClassFlowTipsApp.jsx";
 import LessonScriptBuilderApp from "./LessonScriptBuilderApp.jsx";
+import LessonScriptDataAdminPage from "./LessonScriptDataAdminPage.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
 import { formatPushItemNames, sendPushEvent } from "./pushNotifications.js";
@@ -31,7 +32,16 @@ import GearRotationManagePage from "./GearRotationManagePage.jsx";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
 import UnifiedNoticesFeed from "./UnifiedNoticesFeed.jsx";
 import { loadUnifiedNoticeFeed } from "./unifiedNotices.js";
+import {
+  NOTICE_KIND_OPTIONS,
+  deleteNoticeEventSchedule,
+  formatEventSummary,
+  kindToNoticeFields,
+  noticeToKind,
+  syncNoticeEventSchedule,
+} from "./noticeEventSync.js";
 import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin } from "./authRoles.js";
+import { useMediaQuery } from "./useMediaQuery.js";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { shouldForcePasswordChange } from "./authPolicy.js";
 import {
@@ -247,18 +257,36 @@ async function fetchNotices() {
 }
 
 async function persistNotice(notice, existing) {
-  const { data, error } = await supabase.from("notices").insert({
+  const row = {
     title: notice.title,
     body: notice.body,
     importance: normalizeNoticeImportance(notice.importance),
+    notice_type: notice.notice_type || "general",
+    event_date: notice.event_date || null,
+    event_time: notice.event_time || null,
+    event_location: notice.event_location || null,
+    schedule_exception_ids: notice.schedule_exception_ids || [],
     author_id: notice.author_id,
     author_name: notice.author_name,
-  }).select().single();
-  if (!error && data) return { list: [data, ...existing], savedToDb: true };
-  const row = { ...notice, id: notice.id || crypto.randomUUID(), importance: normalizeNoticeImportance(notice.importance) };
-  const next = [row, ...existing];
+  };
+  const { data, error } = await supabase.from("notices").insert(row).select().single();
+  if (!error && data) {
+    if (data.notice_type === "event") {
+      try {
+        const ids = await syncNoticeEventSchedule(data);
+        const refreshed = { ...data, schedule_exception_ids: ids };
+        return { list: [refreshed, ...existing], savedToDb: true, notice: refreshed };
+      } catch (syncErr) {
+        await supabase.from("notices").delete().eq("id", data.id);
+        throw syncErr;
+      }
+    }
+    return { list: [data, ...existing], savedToDb: true, notice: data };
+  }
+  const fallback = { ...notice, id: notice.id || crypto.randomUUID(), importance: normalizeNoticeImportance(notice.importance) };
+  const next = [fallback, ...existing];
   localStorage.setItem(NOTICES_STORAGE_KEY, JSON.stringify(next));
-  return { list: next, savedToDb: false };
+  return { list: next, savedToDb: false, notice: fallback };
 }
 
 async function updateNoticeRecord(id, patch, existing) {
@@ -266,6 +294,11 @@ async function updateNoticeRecord(id, patch, existing) {
     title: patch.title,
     body: patch.body ?? "",
     importance: normalizeNoticeImportance(patch.importance),
+    notice_type: patch.notice_type || "general",
+    event_date: patch.event_date || null,
+    event_time: patch.event_time || null,
+    event_location: patch.event_location || null,
+    schedule_exception_ids: patch.schedule_exception_ids || [],
     updated_at: new Date().toISOString(),
   };
   const { data, error } = await supabase.from("notices").update(payload).eq("id", id).select().single();
@@ -278,6 +311,10 @@ async function updateNoticeRecord(id, patch, existing) {
 }
 
 async function removeNotice(id, existing) {
+  const target = existing.find(n => n.id === id);
+  if (target?.notice_type === "event") {
+    try { await deleteNoticeEventSchedule(target); } catch { /* ignore */ }
+  }
   const { error } = await supabase.from("notices").delete().eq("id", id);
   if (!error) return existing.filter(n => n.id !== id);
   const next = existing.filter(n => n.id !== id);
@@ -5827,7 +5864,22 @@ function StatsPage({me,items,ris,reqs,teachers}) {
   );
 }
 
-function NoticeImportanceBadge({ importance }) {
+function NoticeImportanceBadge({ importance, noticeType }) {
+  if (noticeType === "event") {
+    return (
+      <span style={{
+        display: "inline-block",
+        padding: "2px 8px",
+        borderRadius: 99,
+        fontSize: 10,
+        fontWeight: 700,
+        background: "#fce7f3",
+        color: "#be185d",
+      }}>
+        행사
+      </span>
+    );
+  }
   const key = normalizeNoticeImportance(importance);
   const cfg = NOTICE_IMPORTANCE[key];
   return (
@@ -5845,20 +5897,80 @@ function NoticeImportanceBadge({ importance }) {
   );
 }
 
+function NoticeFormFields({
+  title, setTitle,
+  body, setBody,
+  kind, setKind,
+  eventDate, setEventDate,
+  eventTime, setEventTime,
+  eventLocation, setEventLocation,
+}) {
+  return (
+    <>
+      <Inp2 label="제목 *" value={title} onChange={e => setTitle(e.target.value)} placeholder="공지 제목"/>
+      <Txa2 label="내용" value={body} onChange={e => setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
+      <div className="notice-form-kind">
+        <label style={lbl}>공지 유형 *</label>
+        <select
+          className="notice-form-kind__select"
+          value={kind}
+          onChange={e => setKind(e.target.value)}
+        >
+          {NOTICE_KIND_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+      <NoticeEventFields
+        kind={kind}
+        eventDate={eventDate}
+        setEventDate={setEventDate}
+        eventTime={eventTime}
+        setEventTime={setEventTime}
+        eventLocation={eventLocation}
+        setEventLocation={setEventLocation}
+      />
+    </>
+  );
+}
+
+function NoticeEventFields({ kind, eventDate, setEventDate, eventTime, setEventTime, eventLocation, setEventLocation }) {
+  if (kind !== "event") return null;
+  return (
+    <div className="notice-event-fields">
+      <div className="notice-event-fields__title">행사 일정</div>
+      <div className="notice-event-fields__grid">
+        <Inp2 label="행사 날짜 *" type="date" value={eventDate} onChange={e => setEventDate(e.target.value)}/>
+        <Inp2 label="행사 시간" value={eventTime} onChange={e => setEventTime(e.target.value)} placeholder="예: 14:00 또는 14:00-16:00"/>
+      </div>
+      <Inp2 label="행사 장소 (선택)" value={eventLocation} onChange={e => setEventLocation(e.target.value)} placeholder="예: GTS 본사, ○○유치원"/>
+      <p className="notice-event-fields__hint">
+        저장 시 스케줄 관리 → 행사 일정에도 전체 원 기준으로 자동 등록됩니다.
+      </p>
+    </div>
+  );
+}
+
 function NoticeDetailModal({ notice, onClose, canManage, onEdit, onDelete }) {
   if (!notice) return null;
   const isImportant = normalizeNoticeImportance(notice.importance) === "important";
+  const eventSummary = formatEventSummary(notice);
 
   return (
     <Modal title={notice.title} onClose={onClose}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-        <NoticeImportanceBadge importance={notice.importance} />
+        <NoticeImportanceBadge importance={notice.importance} noticeType={notice.notice_type}/>
         <span style={{ fontSize: 12, color: DS.textMuted }}>
           {fmt(notice.created_at)}
           {notice.author_name ? ` · ${notice.author_name}` : ""}
           {notice.updated_at && notice.updated_at !== notice.created_at ? ` · 수정 ${fmt(notice.updated_at)}` : ""}
         </span>
       </div>
+      {eventSummary ? (
+        <p style={{ margin: "0 0 12px", fontSize: 13, color: "#be185d", fontWeight: 600 }}>
+          📅 {eventSummary}
+        </p>
+      ) : null}
       <div style={{
         fontSize: 14,
         color: isImportant ? "#991b1b" : DS.textSecondary,
@@ -5886,23 +5998,31 @@ function NoticeDetailModal({ notice, onClose, canManage, onEdit, onDelete }) {
 function NoticeEditModal({ notice, onClose, onSave }) {
   const [title, setTitle] = useState(notice?.title || "");
   const [body, setBody] = useState(notice?.body || "");
-  const [importance, setImportance] = useState(normalizeNoticeImportance(notice?.importance));
+  const [kind, setKind] = useState(noticeToKind(notice));
+  const [eventDate, setEventDate] = useState(notice?.event_date || "");
+  const [eventTime, setEventTime] = useState(notice?.event_time || "");
+  const [eventLocation, setEventLocation] = useState(notice?.event_location || "");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setTitle(notice?.title || "");
     setBody(notice?.body || "");
-    setImportance(normalizeNoticeImportance(notice?.importance));
+    setKind(noticeToKind(notice));
+    setEventDate(notice?.event_date || "");
+    setEventTime(notice?.event_time || "");
+    setEventLocation(notice?.event_location || "");
   }, [notice]);
 
   const submit = async () => {
     if (!title.trim()) return alert("제목을 입력하세요");
+    if (kind === "event" && !eventDate) return alert("행사 날짜를 입력하세요");
     setSaving(true);
+    const fields = kindToNoticeFields(kind, { event_date: eventDate, event_time: eventTime, event_location: eventLocation });
     const ok = await onSave({
       id: notice.id,
       title: title.trim(),
       body: body.trim(),
-      importance,
+      ...fields,
     });
     setSaving(false);
     if (ok) onClose();
@@ -5910,19 +6030,20 @@ function NoticeEditModal({ notice, onClose, onSave }) {
 
   return (
     <Modal title="공지 수정" onClose={onClose}>
-      <Inp2 label="제목 *" value={title} onChange={e => setTitle(e.target.value)} placeholder="공지 제목"/>
-      <Txa2 label="내용" value={body} onChange={e => setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
-      <div style={{ marginBottom: 14 }}>
-        <label style={lbl}>분류 *</label>
-        <select
-          value={importance}
-          onChange={e => setImportance(e.target.value)}
-          style={{ ...inp, padding: "10px 12px", fontSize: 14 }}
-        >
-          <option value="normal">일반</option>
-          <option value="important">공고</option>
-        </select>
-      </div>
+      <NoticeFormFields
+        title={title}
+        setTitle={setTitle}
+        body={body}
+        setBody={setBody}
+        kind={kind}
+        setKind={setKind}
+        eventDate={eventDate}
+        setEventDate={setEventDate}
+        eventTime={eventTime}
+        setEventTime={setEventTime}
+        eventLocation={eventLocation}
+        setEventLocation={setEventLocation}
+      />
       <Btn full onClick={submit} disabled={saving}>{saving ? "저장 중..." : "저장"}</Btn>
     </Modal>
   );
@@ -5930,14 +6051,28 @@ function NoticeEditModal({ notice, onClose, onSave }) {
 
 function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris, rets, setPage, onItemClick }) {
   const canManage = isGearPlatformAdmin(me);
+  const isMobile = useMediaQuery("(max-width: 767px)");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [importance, setImportance] = useState("normal");
+  const [kind, setKind] = useState("normal");
+  const [eventDate, setEventDate] = useState("");
+  const [eventTime, setEventTime] = useState("");
+  const [eventLocation, setEventLocation] = useState("");
   const [saving, setSaving] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
   const [editNotice, setEditNotice] = useState(null);
   const [viewNotice, setViewNotice] = useState(null);
   const [feedItems, setFeedItems] = useState([]);
   const [feedLoading, setFeedLoading] = useState(true);
+
+  const resetComposeForm = useCallback(() => {
+    setTitle("");
+    setBody("");
+    setKind("normal");
+    setEventDate("");
+    setEventTime("");
+    setEventLocation("");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -5954,12 +6089,18 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
 
   const handleAdd = async () => {
     if (!title.trim()) return alert("제목을 입력하세요");
+    if (kind === "event" && !eventDate) return alert("행사 날짜를 입력하세요");
     setSaving(true);
-    await onAdd({ title: title.trim(), body: body.trim(), importance });
-    setTitle("");
-    setBody("");
-    setImportance("normal");
-    setSaving(false);
+    try {
+      const fields = kindToNoticeFields(kind, { event_date: eventDate, event_time: eventTime, event_location: eventLocation });
+      await onAdd({ title: title.trim(), body: body.trim(), ...fields });
+      resetComposeForm();
+      setComposeOpen(false);
+    } catch (err) {
+      alert(err?.message || "등록에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const alertCount = canManage ? 0 : buildDueReturns(buildCurrentRentals(me, reqs || [], ris || [], items || [], rets || [])).length;
@@ -5972,24 +6113,51 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         alertCount={alertCount}
       />
 
-      {canManage && (
+      {canManage && isMobile ? (
+        <div className="notice-compose-mobile-bar">
+          <Btn full onClick={() => setComposeOpen(true)}>공지 작성</Btn>
+        </div>
+      ) : null}
+
+      {canManage && !isMobile ? (
         <PanelSection title="공지 작성">
-          <Inp2 label="제목 *" value={title} onChange={e => setTitle(e.target.value)} placeholder="공지 제목"/>
-          <Txa2 label="내용" value={body} onChange={e => setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
-          <div style={{ marginBottom: 14 }}>
-            <label style={lbl}>분류 *</label>
-            <select
-              value={importance}
-              onChange={e => setImportance(e.target.value)}
-              style={{ ...inp, padding: "10px 12px", fontSize: 14 }}
-            >
-              <option value="normal">일반</option>
-              <option value="important">공고</option>
-            </select>
-          </div>
+          <NoticeFormFields
+            title={title}
+            setTitle={setTitle}
+            body={body}
+            setBody={setBody}
+            kind={kind}
+            setKind={setKind}
+            eventDate={eventDate}
+            setEventDate={setEventDate}
+            eventTime={eventTime}
+            setEventTime={setEventTime}
+            eventLocation={eventLocation}
+            setEventLocation={setEventLocation}
+          />
           <Btn full onClick={handleAdd} disabled={saving}>{saving ? "등록 중..." : "공지 등록"}</Btn>
         </PanelSection>
-      )}
+      ) : null}
+
+      {canManage && composeOpen ? (
+        <Modal title="공지 작성" onClose={() => setComposeOpen(false)}>
+          <NoticeFormFields
+            title={title}
+            setTitle={setTitle}
+            body={body}
+            setBody={setBody}
+            kind={kind}
+            setKind={setKind}
+            eventDate={eventDate}
+            setEventDate={setEventDate}
+            eventTime={eventTime}
+            setEventTime={setEventTime}
+            eventLocation={eventLocation}
+            setEventLocation={setEventLocation}
+          />
+          <Btn full onClick={handleAdd} disabled={saving}>{saving ? "등록 중..." : "공지 등록"}</Btn>
+        </Modal>
+      ) : null}
 
       <div className="notices-hub-top notices-hub-top--unified">
         <UnifiedNoticesFeed
@@ -7888,7 +8056,16 @@ function AuthenticatedRoutes({ me, session, logout }) {
       />
       <Route
         path="/lesson-script-builder"
-        element={<LessonScriptBuilderApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
+        element={<LessonScriptBuilderApp me={me} onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
+      />
+      <Route
+        path="/admin/lesson-script-data"
+        element={(
+          <LessonScriptDataAdminPage
+            me={me}
+            onBack={() => goBackOr(navigate, "/lesson-script-builder")}
+          />
+        )}
       />
       <Route
         path="/pronunciation-tips"
@@ -8698,11 +8875,15 @@ function EquipmentApp({ onBack, me, session }) {
     }
   }, [dataLoading, items]);
 
-  const addNotice = async ({ title, body, importance = "normal" }) => {
+  const addNotice = async (payload) => {
     const row = {
-      title,
-      body: body || "",
-      importance,
+      title: payload.title,
+      body: payload.body || "",
+      importance: payload.importance || "normal",
+      notice_type: payload.notice_type || "general",
+      event_date: payload.event_date || null,
+      event_time: payload.event_time || null,
+      event_location: payload.event_location || null,
       author_id: me.id,
       author_name: me.name,
       created_at: new Date().toISOString(),
@@ -8712,7 +8893,7 @@ function EquipmentApp({ onBack, me, session }) {
     if (savedToDb) {
       void sendPushEvent(supabase, "notice_posted", { title: row.title });
     }
-    alert("공지가 등록되었습니다.");
+    alert(row.notice_type === "event" ? "행사 공지와 일정이 등록되었습니다." : "공지가 등록되었습니다.");
   };
 
   const refreshNotices = async () => {
@@ -8720,12 +8901,19 @@ function EquipmentApp({ onBack, me, session }) {
     setNotices(noticeList);
   };
 
-  const updateNotice = async ({ id, title, body, importance }) => {
+  const updateNotice = async ({ id, title, body, importance, notice_type, event_date, event_time, event_location }) => {
+    const existing = notices.find(n => n.id === id);
     const payload = {
       title,
       body: body || "",
       importance: normalizeNoticeImportance(importance),
+      notice_type: notice_type || "general",
+      event_date: event_date || null,
+      event_time: event_time || null,
+      event_location: event_location || null,
+      schedule_exception_ids: existing?.schedule_exception_ids || [],
     };
+
     const { error } = await supabase.from("notices").update({
       ...payload,
       updated_at: new Date().toISOString(),
@@ -8738,12 +8926,31 @@ function EquipmentApp({ onBack, me, session }) {
       return true;
     }
 
+    let updated = { ...existing, ...payload, id };
+    try {
+      if (payload.notice_type === "event") {
+        const ids = await syncNoticeEventSchedule(updated);
+        updated = { ...updated, schedule_exception_ids: ids };
+      } else if (existing?.notice_type === "event") {
+        await deleteNoticeEventSchedule(existing);
+        updated = { ...updated, schedule_exception_ids: [] };
+        await supabase.from("notices").update({ schedule_exception_ids: [] }).eq("id", id);
+      }
+    } catch (syncErr) {
+      alert(syncErr?.message || "행사 일정 동기화에 실패했습니다.");
+      return false;
+    }
+
     await refreshNotices();
-    alert("공지가 수정되었습니다.");
+    alert(payload.notice_type === "event" ? "공지와 행사 일정이 수정되었습니다." : "공지가 수정되었습니다.");
     return true;
   };
 
   const deleteNotice = async (id) => {
+    const target = notices.find(n => n.id === id);
+    if (target?.notice_type === "event") {
+      try { await deleteNoticeEventSchedule(target); } catch { /* ignore */ }
+    }
     const next = await removeNotice(id, notices);
     setNotices(next);
     await refreshNotices();

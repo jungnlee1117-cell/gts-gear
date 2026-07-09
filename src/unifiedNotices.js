@@ -77,6 +77,7 @@ function formatExceptionSubtitle(ex) {
 }
 
 function classifyNotice(notice) {
+  if (notice.notice_type === "event") return "event";
   const title = notice.title || "";
   const body = notice.body || "";
   const text = `${title} ${body}`;
@@ -121,6 +122,7 @@ export function noticeToFeedItem(notice) {
     type,
     title: notice.title || "공지",
     subtitle: subtitle || (notice.author_name ? `${notice.author_name} · 공지` : "공지"),
+    eventDate: notice.notice_type === "event" ? notice.event_date : undefined,
     createdAt: notice.created_at,
     pinned: notice.importance === "important",
     raw: notice,
@@ -183,9 +185,18 @@ export function sortUnifiedFeedItems(items, now = new Date()) {
 
 /** @param {object[]} notices @param {object[]} exceptions */
 export function buildUnifiedFeed(notices = [], exceptions = [], now = new Date()) {
+  const linkedExceptionIds = new Set();
+  for (const notice of notices) {
+    if (notice.notice_type === "event" && notice.schedule_exception_ids?.length) {
+      notice.schedule_exception_ids.forEach(id => linkedExceptionIds.add(id));
+    }
+  }
+  const standaloneExceptions = (exceptions || []).filter(
+    ex => !ex.notice_id && !linkedExceptionIds.has(ex.id),
+  );
   const items = [
     ...notices.map(noticeToFeedItem),
-    ...exceptions.map(exceptionToFeedItem),
+    ...standaloneExceptions.map(exceptionToFeedItem),
   ];
   return sortUnifiedFeedItems(items, now);
 }

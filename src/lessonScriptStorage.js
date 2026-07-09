@@ -1,31 +1,26 @@
+import {
+  deleteSavedLessonFromSupabase,
+  getSavedLessonFromSupabase,
+  listSavedLessonsFromSupabase,
+  mapSavedLessonRow,
+  saveLessonToSupabase,
+} from "./lessonScriptSavedLessonsApi.js";
+import { isLessonScriptSupabaseConfigured } from "./lessonScriptSupabase.js";
+import { readLocalSavedLessons } from "./lessonScriptDataStorage.js";
+
 const STORAGE_KEY = "gts_lesson_scripts_v1";
 
-function readAll() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+function readAllLocal() {
+  return readLocalSavedLessons();
 }
 
-function writeAll(rows) {
+function writeAllLocal(rows) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
 }
 
-export function listSavedLessonScripts() {
-  return readAll().sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
-}
-
-export function getSavedLessonScript(id) {
-  return readAll().find(row => row.id === id) ?? null;
-}
-
-export function saveLessonScript(payload) {
+function saveLessonScriptLocal(payload) {
   const now = new Date().toISOString();
-  const rows = readAll();
+  const rows = readAllLocal();
   const existingIdx = payload.id ? rows.findIndex(r => r.id === payload.id) : -1;
 
   const row = {
@@ -36,6 +31,10 @@ export function saveLessonScript(payload) {
     gearId: payload.gearId || null,
     gameId: payload.gameId || null,
     levelId: payload.levelId || "foundation",
+    difficultyId: payload.difficultyId || "medium",
+    customTexts: payload.customTexts || {},
+    safetyOverrides: payload.safetyOverrides || {},
+    recommendMeta: payload.recommendMeta || null,
     fullText: payload.fullText || "",
     sections: payload.sections || [],
     createdAt: existingIdx >= 0 ? rows[existingIdx].createdAt : now,
@@ -45,10 +44,62 @@ export function saveLessonScript(payload) {
   if (existingIdx >= 0) rows[existingIdx] = row;
   else rows.unshift(row);
 
-  writeAll(rows);
+  writeAllLocal(rows);
   return row;
 }
 
-export function deleteSavedLessonScript(id) {
-  writeAll(readAll().filter(r => r.id !== id));
+/** @param {string} [userId] */
+export async function listSavedLessonScripts(userId) {
+  if (isLessonScriptSupabaseConfigured() && userId) {
+    try {
+      return await listSavedLessonsFromSupabase();
+    } catch {
+      // fallback
+    }
+  }
+  return readAllLocal().sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 }
+
+export async function getSavedLessonScript(id, userId) {
+  if (isLessonScriptSupabaseConfigured() && userId) {
+    try {
+      const row = await getSavedLessonFromSupabase(id);
+      if (row) return row;
+    } catch {
+      // fallback
+    }
+  }
+  return readAllLocal().find(row => row.id === id) ?? null;
+}
+
+/** @param {object} payload @param {string} [userId] */
+export async function saveLessonScript(payload, userId) {
+  if (!userId) {
+    return saveLessonScriptLocal(payload);
+  }
+
+  if (isLessonScriptSupabaseConfigured()) {
+    try {
+      return await saveLessonToSupabase(payload, userId);
+    } catch {
+      // fallback
+    }
+  }
+
+  return saveLessonScriptLocal(payload);
+}
+
+/** @param {string} id @param {string} [userId] */
+export async function deleteSavedLessonScript(id, userId) {
+  if (isLessonScriptSupabaseConfigured() && userId) {
+    try {
+      await deleteSavedLessonFromSupabase(id);
+      return;
+    } catch {
+      // fallback
+    }
+  }
+  writeAllLocal(readAllLocal().filter(r => r.id !== id));
+}
+
+export { mapSavedLessonRow };
