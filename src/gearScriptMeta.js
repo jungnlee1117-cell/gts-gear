@@ -33,6 +33,7 @@ export const ITEM_CATEGORIES = {
   STACK: { label: "쌓기", color: "#8b5cf6" },
   TARGET: { label: "표적교구", color: "#0d9488" },
   ETC: { label: "기타교구", color: "#7c3aed" },
+  EVENT: { label: "이벤트", color: "#ec4899" },
 };
 
 export const GEAR_CATALOG = [

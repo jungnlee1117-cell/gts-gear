@@ -17,6 +17,8 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
+import { useGearCategories } from "./GearCategoriesContext.jsx";
+
 const TARGET_TYPES = ["유치원", "어린이집"];
 const WEEKS = [1, 2, 3, 4, 5];
 
@@ -38,9 +40,10 @@ const card = {
   boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
 };
 
-const CAT_OPTIONS = [
+const CAT_OPTIONS_FALLBACK = [
   ["AIR", "에어교구"], ["BALL", "공류"], ["BAL", "밸런스"], ["SPORT", "스포츠"],
-  ["TOOL", "도구류"], ["MAT", "매트/기구"], ["GROUP", "단체놀이"], ["ETC", "기타교구"],
+  ["TOOL", "도구류"], ["DIG", "디지털"], ["MAT", "매트/기구"], ["GROUP", "단체놀이"],
+  ["STACK", "쌓기"], ["TARGET", "표적교구"], ["ETC", "기타교구"], ["EVENT", "이벤트"],
 ];
 
 function guessCategory(name) {
@@ -62,6 +65,10 @@ function nextItemCode(category, items) {
 }
 
 function QuickRegisterModal({ itemName, items, onSave, onClose }) {
+  const { categories } = useGearCategories();
+  const catOptions = categories.length
+    ? categories.map(c => [c.id, c.label])
+    : CAT_OPTIONS_FALLBACK;
   const [category, setCategory] = useState(() => guessCategory(itemName));
   const [quantity, setQuantity] = useState(1);
   const [saving, setSaving] = useState(false);
@@ -102,7 +109,7 @@ function QuickRegisterModal({ itemName, items, onSave, onClose }) {
           width: "100%", boxSizing: "border-box", marginBottom: 12, padding: "10px 12px",
           borderRadius: 10, border: "1px solid #e5e7eb",
         }}>
-          {CAT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          {catOptions.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
         <label style={{ fontSize: 12, fontWeight: 700, color: DS.textMuted }}>코드 (자동)</label>
         <input value={code} readOnly style={{

@@ -1,16 +1,4 @@
-const CAT = {
-  AIR: "에어교구",
-  BALL: "공류",
-  BAL: "밸런스",
-  SPORT: "스포츠",
-  TOOL: "도구류",
-  DIG: "디지털",
-  MAT: "매트/기구",
-  GROUP: "단체놀이",
-  STACK: "쌓기",
-  TARGET: "표적교구",
-  ETC: "기타교구",
-};
+import { getCategoryMeta } from "../gearCategoryData.js";
 
 const RENTAL_STATUS = {
   pending: "대여신청",
@@ -24,14 +12,8 @@ const RENTAL_STATUS = {
   cancelled: "취소됨",
 };
 
-function normalizeCategoryKey(cat) {
-  if (cat === "SPC") return "ETC";
-  return cat;
-}
-
 export function categoryLabel(cat) {
-  const key = normalizeCategoryKey(cat);
-  return CAT[key] || key || "-";
+  return getCategoryMeta(cat).label;
 }
 
 export function rentalStatusLabel(status) {

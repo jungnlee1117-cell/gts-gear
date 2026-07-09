@@ -29,6 +29,13 @@ import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
 import { formatPushItemNames, sendPushEvent } from "./pushNotifications.js";
 import MyGearRotationPage, { checkRotationRentalConflicts } from "./MyGearRotationPage.jsx";
 import GearRotationManagePage from "./GearRotationManagePage.jsx";
+import GearCategoryManagePage from "./GearCategoryManagePage.jsx";
+import { GearCategoriesProvider, useGearCategories } from "./GearCategoriesContext.jsx";
+import {
+  categoryMatchesFilter,
+  getCategoryMeta,
+  normalizeCategoryKey,
+} from "./gearCategoryData.js";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
 import UnifiedNoticesFeed from "./UnifiedNoticesFeed.jsx";
 import { loadUnifiedNoticeFeed } from "./unifiedNotices.js";
@@ -64,40 +71,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 // ═══════════════════════════════════════════════════════════════════════
 // 상수
 // ═══════════════════════════════════════════════════════════════════════
-const CAT = {
-  AIR:    { label:"에어교구",  color:"#0891b2", icon:"🎈" },
-  BALL:   { label:"공류",      color:"#ea580c", icon:"⚽" },
-  BAL:    { label:"밸런스",    color:"#059669", icon:"⚖️" },
-  SPORT:  { label:"스포츠",    color:"#2563eb", icon:"🏅" },
-  TOOL:   { label:"도구류",    color:"#7c3aed", icon:"🧰" },
-  DIG:    { label:"디지털",    color:"#db2777", icon:"💡" },
-  MAT:    { label:"매트/기구", color:"#65a30d", icon:"🟩" },
-  GROUP:  { label:"단체놀이",  color:"#d97706", icon:"👥" },
-  STACK:  { label:"쌓기",      color:"#8b5cf6", icon:"🏗️" },
-  TARGET: { label:"표적교구",  color:"#0d9488", icon:"🎯" },
-  ETC:    { label:"기타교구",  color:"#7c3aed", icon:"⭐" },
-};
-
-/** CAT 객체 키 목록 (카테고리 탭·필터·통계) */
-const CAT_KEYS = Object.keys(CAT);
-
-/** DB 레거시 카테고리 → 현재 카테고리 키 (SPC → ETC) */
-function normalizeCategoryKey(cat) {
-  if (cat === "SPC") return "ETC";
-  return cat;
-}
-
-function categoryMatchesFilter(itemCategory, filterKey) {
-  return normalizeCategoryKey(itemCategory) === filterKey;
-}
-
-function getCategoryMeta(cat) {
-  const key = normalizeCategoryKey(cat);
-  if (CAT[key]) return CAT[key];
-  if (cat === "BLOCK") return { label: "블록(구)", color: "#94a3b8", icon: "📦" };
-  return { label: cat || "-", color: "#94a3b8", icon: "?" };
-}
-
 const BRANCHES = ["사무실","엘리트코어","삼성점","한남점","나비에로"];
 
 const DEFAULT_PHOTO_POSITION = "50% 50%";
@@ -154,7 +127,8 @@ function GearItemImg({ item, alt, style }) {
 }
 
 function CategoryIconFallback({ category, size = 80 }) {
-  const meta = getCategoryMeta(category);
+  const { categoryMap } = useGearCategories();
+  const meta = getCategoryMeta(category, categoryMap);
   return (
     <span
       role="img"
@@ -1172,6 +1146,7 @@ function buildSidebarNav(me) {
         children: [
           { id: "items", label: "전체교구" },
           { id: "items-register", label: "교구등록" },
+          { id: "gear-categories", label: "카테고리 관리" },
           { id: "gear-rotation-manage", label: "순환 교구 관리" },
           { id: "items-qr", label: "QR관리" },
         ],
@@ -1202,6 +1177,7 @@ function buildSidebarNav(me) {
       { type: "item", id: "my-gear-rotation", label: "이번 달 내 교구", glyph: "my-gear-rotation" },
       { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
       { type: "item", id: "items", label: "교구관리", glyph: "items" },
+      { type: "item", id: "gear-categories", label: "카테고리 관리", glyph: "items" },
       { type: "item", id: "gear-rotation-manage", label: "순환 교구 관리", glyph: "gear-rotation-manage" },
       {
         type: "group", id: "rental", label: "대여관리", glyph: "rental-manage",
@@ -1824,6 +1800,7 @@ const PAGE_META = {
   dashboard:          { title: "대시보드",     sub: "오늘도 안정적이고 효율적인 자산 관리를 시작해보세요." },
   "my-gear-rotation":   { title: "이번 달 내 교구", sub: "이번 주 교구와 월별 순환 교구를 확인합니다." },
   "gear-rotation-manage": { title: "순환 교구 관리", sub: "알파벳별 주차 교구 목록을 수정합니다." },
+  "gear-categories":      { title: "카테고리 관리", sub: "교구 카테고리를 추가·수정·삭제하고 순서를 변경합니다." },
   "rental-status":    { title: "대여현황",     sub: "선생님별 대여·반납 현황을 한눈에 확인하세요." },
   items:              { title: "전체교구",     sub: "교구 재고를 조회하고 관리합니다." },
   "items-browse":     { title: "교구 둘러보기", sub: "카테고리별 교구 사진과 대여 가능 수량을 확인합니다." },
@@ -2094,7 +2071,8 @@ function RoleBadge({ role, isItemAdmin: itemAdmin }) {
 }
 
 function CatTag({cat}) {
-  const m = getCategoryMeta(cat);
+  const { categoryMap } = useGearCategories();
+  const m = getCategoryMeta(cat, categoryMap);
   return (
     <span style={{
       display:"inline-block",
@@ -3123,9 +3101,9 @@ function ActivityPhotosUploader({ itemCode, photos, onChange }) {
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 추가/편집 폼
 // ═══════════════════════════════════════════════════════════════════════
-function itemToFormState(item) {
+function itemToFormState(item, categoryKeys, categoryMap) {
   const normalized = normalizeCategoryKey(item?.category);
-  const defaultCat = CAT[normalized] ? normalized : CAT_KEYS[0];
+  const defaultCat = categoryMap[normalized] ? normalized : categoryKeys[0];
   return {
     code: item?.code || "",
     name: item?.name || "",
@@ -3146,12 +3124,13 @@ function itemToFormState(item) {
 }
 
 function ItemForm({item, items, onSave, onClose}) {
+  const { categoryMap, categoryKeys } = useGearCategories();
   const isNew = !item?.id;
   const isEdit = Boolean(item?.id);
-  const [f, setF] = useState(() => itemToFormState(item));
+  const [f, setF] = useState(() => itemToFormState(item, categoryKeys, categoryMap));
   const initialRef = useRef({
     id: item?.id,
-    category: itemToFormState(item).category,
+    category: itemToFormState(item, categoryKeys, categoryMap).category,
     code: (item?.code || "").trim(),
   });
   const set = (k,v) => setF(p=>({...p,[k]:v}));
@@ -3244,7 +3223,7 @@ function ItemForm({item, items, onSave, onClose}) {
     onClose();
   };
 
-  const catLabel = getCategoryMeta(f.category).label;
+  const catLabel = getCategoryMeta(f.category, categoryMap).label;
 
   return (
     <Modal title={item?"교구 편집":"교구 추가"} onClose={onClose}>
@@ -3260,8 +3239,8 @@ function ItemForm({item, items, onSave, onClose}) {
         <div style={{fontSize:12,fontWeight:600,color:DS.textSecondary,marginBottom:10}}>카테고리 · 교구 코드</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
           <Sel2 label="카테고리 *" value={f.category} onChange={e=>onCategoryChange(e.target.value)}>
-            {CAT_KEYS.map(c => (
-              <option key={c} value={c}>{CAT[c].label} ({c})</option>
+            {categoryKeys.map(c => (
+              <option key={c} value={c}>{categoryMap[c]?.label || c} ({c})</option>
             ))}
           </Sel2>
           <Inp2
@@ -3655,6 +3634,7 @@ function AccountsPage({me, teachers, setTeachers, ris, reqs, items}) {
 // 대시보드 — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
 function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,onReject,onApproveRet,onDamage,onLoss,onApproveReservation,onRejectReservation}) {
+  const { categoryMap, categoryKeys } = useGearCategories();
   const admin = isItemAdmin(me);
   const [activePanel,setActivePanel]=useState(null);
   const [rejectId,setRejectId]=useState(null);
@@ -3691,13 +3671,13 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
     return {...t,held};
   }).filter(t=>t.held.length>0);
 
-  const catStats = useMemo(() => CAT_KEYS.map(key => {
+  const catStats = useMemo(() => categoryKeys.map(key => {
     const catItems = items.filter(i => categoryMatchesFilter(i.category, key));
     const total = catItems.reduce((s, i) => s + i.total_quantity, 0);
     const rented = catItems.reduce((s, i) => s + rentedQty(i.id, ris), 0);
     const avail = catItems.reduce((s, i) => s + availQty(i, ris, rets), 0);
-    return { key, label: CAT[key].label, color: CAT[key].color, count: catItems.length, total, rented, avail };
-  }).filter(c => c.count > 0), [items, ris]);
+    return { key, label: categoryMap[key]?.label || key, color: categoryMap[key]?.color || "#94a3b8", count: catItems.length, total, rented, avail };
+  }).filter(c => c.count > 0), [items, ris, rets, categoryKeys, categoryMap]);
 
   const branchStats = useMemo(() => {
     const branches = [...new Set([...BRANCHES, ...items.map(i => i.branch).filter(Boolean)])];
@@ -4038,7 +4018,8 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 목록 — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
-function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reservations,onDetail,onSaveItem,onDeleteItem,onSubmitReservation,onCancelReservation,openAddOnMount=false}) {
+function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reservations,onDetail,onSaveItem,onDeleteItem,onSubmitReservation,onCancelReservation,openAddOnMount=false,setPage}) {
+  const { categoryMap, categoryKeys } = useGearCategories();
   const [q,setQ]=useState("");const[catF,setCatF]=useState("ALL");const[brF,setBrF]=useState("ALL");
   const[avOnly,setAvOnly]=useState(false);const[sortBy,setSortBy]=useState("code");
   const[editItem,setEditItem]=useState(null);const[addOpen,setAddOpen]=useState(false);
@@ -4048,7 +4029,7 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
   useEffect(() => {
     if (openAddOnMount && canManage(me)) setAddOpen(true);
   }, [openAddOnMount, me]);
-  const cats = CAT_KEYS;
+  const cats = categoryKeys;
   const list=useMemo(()=>{
     let r=items;
     if(catF!=="ALL")r=r.filter(i=>categoryMatchesFilter(i.category,catF));
@@ -4086,7 +4067,14 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
       <PageHeader
         me={me}
         subtitle={PAGE_META.items.sub}
-        actions={canManage(me)?<Btn sm onClick={()=>setAddOpen(true)}>교구 추가</Btn>:null}
+        actions={canManage(me) ? (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {openAddOnMount && setPage ? (
+              <Btn sm ghost onClick={() => setPage("gear-categories")}>카테고리 관리</Btn>
+            ) : null}
+            <Btn sm onClick={()=>setAddOpen(true)}>교구 추가</Btn>
+          </div>
+        ) : null}
       />
 
       <div style={{
@@ -4116,7 +4104,7 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
           fontWeight:catF==="ALL"?700:500,fontSize:12,cursor:"pointer",flexShrink:0,
           marginBottom:-1,
         }}>전체</button>
-        {cats.map(c=>{const m=CAT[c];return(
+        {cats.map(c=>{const m=categoryMap[c]||{label:c,color:"#94a3b8"};return(
           <button key={c} onClick={()=>setCatF(c)} style={{
             padding:"10px 14px",border:"none",borderBottom:catF===c?`2px solid ${DS.primary}`:"2px solid transparent",
             background:"transparent",whiteSpace:"nowrap",
@@ -4302,6 +4290,7 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
 }
 
 function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservations, teachers, onDetail, onOpenCart, onSubmitReservation, onCancelReservation, onSaveItem }) {
+  const { categoryMap, categoryKeys } = useGearCategories();
   const [q, setQ] = useState("");
   const [catF, setCatF] = useState("ALL");
   const [brF, setBrF] = useState("ALL");
@@ -4319,7 +4308,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
     if (q.trim()) {
       const lq = q.trim().toLowerCase();
       r = r.filter(i => {
-        const catMeta = getCategoryMeta(i.category);
+        const catMeta = getCategoryMeta(i.category, categoryMap);
         return (
           i.name.toLowerCase().includes(lq) ||
           (i.alias || "").toLowerCase().includes(lq) ||
@@ -4336,7 +4325,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
       });
     }
     return r.sort((a, b) => a.name.localeCompare(b.name, "ko"));
-  }, [items, catF, brF, availF, q, ris, rets]);
+  }, [items, catF, brF, availF, q, ris, rets, categoryMap]);
 
   const inCart = id => cart.some(c => c.item_id === id);
   const pendingRes = itemId => getTeacherPendingReservation(reservations, me.id, itemId);
@@ -4440,8 +4429,8 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
         >
           전체
         </button>
-        {Object.keys(CAT).map(c => {
-          const m = CAT[c];
+        {categoryKeys.map(c => {
+          const m = categoryMap[c] || { label: c, color: "#94a3b8" };
           return (
             <button
               key={c}
@@ -6792,6 +6781,7 @@ function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDeta
 }
 
 function ItemsQrPage({ me, items }) {
+  const { categoryMap, categoryKeys } = useGearCategories();
   const canManageItems = isItemAdmin(me);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [catF, setCatF] = useState("ALL");
@@ -6837,7 +6827,7 @@ function ItemsQrPage({ me, items }) {
 
   const printHeaderLabel = printFilter === "ALL"
     ? "GTS 교구 QR 코드"
-    : `GTS 교구 QR 코드 — ${getCategoryMeta(printFilter).label}`;
+    : `GTS 교구 QR 코드 — ${getCategoryMeta(printFilter, categoryMap).label}`;
 
   return (
     <PageShell>
@@ -6849,7 +6839,7 @@ function ItemsQrPage({ me, items }) {
             <Btn sm ghost onClick={printAll} disabled={!items.length}>전체 QR 출력</Btn>
             {catF !== "ALL" && (
               <Btn sm ghost onClick={() => printCategory(catF)} disabled={!filtered.length}>
-                {getCategoryMeta(catF).label} QR 전체 인쇄
+                {getCategoryMeta(catF, categoryMap).label} QR 전체 인쇄
               </Btn>
             )}
             {canManageItems && (
@@ -6882,8 +6872,8 @@ function ItemsQrPage({ me, items }) {
         >
           전체
         </button>
-        {CAT_KEYS.map(c => {
-          const m = CAT[c];
+        {categoryKeys.map(c => {
+          const m = categoryMap[c] || { label: c, color: "#94a3b8" };
           const count = items.filter(i => categoryMatchesFilter(i.category, c)).length;
           if (!count) return null;
           return (
@@ -9515,7 +9505,7 @@ function EquipmentApp({ onBack, me, session }) {
         />
       );
     }
-    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","gear-rotation-manage","stats","report","settings","rental-manage","reservation-approval"].includes(page)) {
+    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","gear-rotation-manage","gear-categories","stats","report","settings","rental-manage","reservation-approval"].includes(page)) {
       return (
         <PageShell>
           <div style={{textAlign:"center",padding:"70px 20px"}}>
@@ -9540,7 +9530,7 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} onForceReturn={forceReturnRentalItem}/>}
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} initialFilter="overdue" onForceReturn={forceReturnRentalItem}/>}
         {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items")} onSaveItem={saveItem} onDeleteItem={deleteItem} onSubmitReservation={submitReservation} onCancelReservation={cancelReservation}/>}
-        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items-register")} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount/>}
+        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items-register")} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount setPage={setPage}/>}
         {page==="items-browse"&&(
           <ItemsBrowsePage
             me={me}
@@ -9581,6 +9571,12 @@ function EquipmentApp({ onBack, me, session }) {
             PageHeader={PageHeader}
             PageShell={PageShell}
           />
+        )}
+        {page==="gear-categories"&&isItemAdmin(me)&&(
+          <PageShell>
+            <PageHeader me={me} subtitle={PAGE_META["gear-categories"].sub}/>
+            <GearCategoryManagePage me={me} items={items}/>
+          </PageShell>
         )}
         {page==="items-qr"&&isItemAdmin(me)&&<ItemsQrPage me={me} items={items}/>}
         {page==="qr-scan"&&(
@@ -9676,6 +9672,7 @@ function EquipmentApp({ onBack, me, session }) {
     const SIDEBAR_W = 256;
     const sb = DARK_SB;
     return (
+      <GearCategoriesProvider>
       <div className="equipment-app equipment-app--desktop" style={{
         display:"flex",minHeight:"100vh",
         width:"100%",maxWidth:"100%",overflowX:"hidden",
@@ -9813,6 +9810,7 @@ function EquipmentApp({ onBack, me, session }) {
         {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
         {showPwModal&&<ChangePwModal email={session.user.email} onClose={()=>setShowPwModal(false)}/>}
       </div>
+      </GearCategoriesProvider>
     );
   }
 
@@ -9836,6 +9834,7 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   return (
+    <GearCategoriesProvider>
     <div className="equipment-app equipment-app--mobile" style={{
       width: "100%",
       maxWidth: "100%",
@@ -10112,5 +10111,6 @@ function EquipmentApp({ onBack, me, session }) {
       {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
       {showPwModal&&<ChangePwModal email={session.user.email} onClose={()=>setShowPwModal(false)}/>}
     </div>
+    </GearCategoriesProvider>
   );
 }
