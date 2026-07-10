@@ -695,7 +695,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                   ) : null}
                 </div>
                 <div className="sch-table-wrap sch-admin-table-wrap">
-                  <table className="sch-table sch-admin-table">
+                  <table className="sch-table sch-admin-table sch-admin-table--institutions">
                     <thead>
                       <tr>
                         <th>원</th>
