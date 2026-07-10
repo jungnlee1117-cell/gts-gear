@@ -15,7 +15,29 @@ function entriesForTeacher(entries, teacherId) {
   return (entries || []).filter(e => e.teacher_id === teacherId);
 }
 
-/** 원별 강사료 — 고정급 (기관별 추가수당은 additional_payments DB, 원별 breakdown 미연동) */
+/** additional_payments → 기관별 breakdown 매핑 (reason + 기관명 패턴) */
+export const INSTITUTION_ADDITIONAL_PAYMENT_RULES = [
+  {
+    institutionPattern: /수지폴리\s*본관/,
+    teacherName: "김종현",
+    reasonPattern: /추가금액|수지폴리/,
+    label: "추가금액",
+  },
+  {
+    institutionPattern: /프랜시스파커/,
+    teacherName: "윤한경",
+    reasonPattern: /프랜시스파커/,
+    label: "추가수당",
+  },
+  {
+    institutionPattern: /관악\s*slp/i,
+    teacherName: "윤한경",
+    reasonPattern: /관악/i,
+    label: "추가수당",
+  },
+];
+
+/** 원별 강사료 — 고정급 */
 export const INSTITUTION_INSTRUCTOR_RULES = [
   {
     institutionPattern: /광교폴리/,
@@ -73,6 +95,44 @@ export function sumMergedAdditionalPayments(payments) {
   return (payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
 }
 
+function paymentMatchesInstitutionRule(payment, rule, teacherId) {
+  if (!payment || payment.teacher_id !== teacherId) return false;
+  const reason = String(payment.reason || "");
+  return rule.reasonPattern.test(reason);
+}
+
+/** 원·강사·사유 규칙에 맞는 additional_payments → breakdown 항목 */
+export function resolveInstitutionAdditionalAllowances({
+  institution,
+  teachers,
+  additionalPayments,
+}) {
+  const breakdown = [];
+  const matchedPaymentIds = new Set();
+
+  for (const rule of INSTITUTION_ADDITIONAL_PAYMENT_RULES) {
+    if (!matchInstitutionName(institution?.name, rule.institutionPattern)) continue;
+    const teacher = teacherByName(teachers, rule.teacherName);
+    if (!teacher) continue;
+
+    for (const payment of additionalPayments || []) {
+      if (matchedPaymentIds.has(payment.id)) continue;
+      if (!paymentMatchesInstitutionRule(payment, rule, teacher.id)) continue;
+      matchedPaymentIds.add(payment.id);
+      breakdown.push({
+        teacherName: rule.teacherName,
+        label: payment.reason || rule.label,
+        amount: Math.round(Number(payment.amount) || 0),
+        kind: "allowance",
+        superAdminOnly: false,
+        paymentId: payment.id,
+      });
+    }
+  }
+
+  return breakdown;
+}
+
 export function supplementaryInstructorPayAtInstitution({
   institution,
   entries,
@@ -101,6 +161,7 @@ export function computeInstitutionInstructorCost({
   rates,
   teachers,
   yearMonth,
+  additionalPayments = [],
   temporaryEngagements = [],
   weeklySlots = [],
   scheduleExceptions = [],
@@ -193,7 +254,13 @@ export function computeInstitutionInstructorCost({
     });
   }
 
-  const allowanceTotal = 0;
+  const allowanceBreakdown = resolveInstitutionAdditionalAllowances({
+    institution,
+    teachers,
+    additionalPayments,
+  });
+  breakdown.push(...allowanceBreakdown);
+  const allowanceTotal = allowanceBreakdown.reduce((s, b) => s + b.amount, 0);
 
   const temporaryCost = yearMonth
     ? computeTemporaryInstructorCostForInstitution({

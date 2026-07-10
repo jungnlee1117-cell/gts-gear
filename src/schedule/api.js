@@ -1383,12 +1383,14 @@ export async function computeAndSaveSettlement(institution, yearMonth, payrollEn
   });
 
   const manualInstructorCost = Number(contract?.external_instructor_cost) || 0;
+  const additionalPayments = await fetchAdditionalPayments({ yearMonth });
   const costDetail = computeInstitutionInstructorCost({
     institution,
     entries: payrollEntries,
     rates,
     teachers,
     yearMonth,
+    additionalPayments,
     temporaryEngagements,
     weeklySlots: allWeekly,
     scheduleExceptions,
@@ -1469,6 +1471,7 @@ async function buildInstitutionDashboardRow(
   temporaryEngagements = [],
   weeklySlots = [],
   scheduleExceptions = [],
+  additionalPayments = [],
 ) {
   const [sessionCounts, sessionRates] = await Promise.all([
     fetchMonthlySessionCounts(institution.id, yearMonth),
@@ -1491,6 +1494,7 @@ async function buildInstitutionDashboardRow(
     rates,
     teachers,
     yearMonth,
+    additionalPayments,
     temporaryEngagements,
     weeklySlots,
     scheduleExceptions,
@@ -1657,6 +1661,7 @@ export async function loadPayrollDashboard(yearMonth) {
         temporaryEngagements,
         allWeekly,
         exceptions,
+        additionalPayments,
       ),
     ),
   );
