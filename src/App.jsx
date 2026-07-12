@@ -3101,9 +3101,11 @@ function ActivityPhotosUploader({ itemCode, photos, onChange }) {
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 추가/편집 폼
 // ═══════════════════════════════════════════════════════════════════════
-function itemToFormState(item, categoryKeys, categoryMap) {
+function itemToFormState(item, categoryKeys = [], categoryMap = {}) {
   const normalized = normalizeCategoryKey(item?.category);
-  const defaultCat = categoryMap[normalized] ? normalized : categoryKeys[0];
+  const map = categoryMap || {};
+  const keys = categoryKeys || [];
+  const defaultCat = (normalized && map[normalized]) ? normalized : (keys[0] || normalized || "");
   return {
     code: item?.code || "",
     name: item?.name || "",
@@ -3138,7 +3140,7 @@ function ItemForm({item, items, onSave, onClose}) {
   const [autoCode,setAutoCode] = useState(isNew && !item?.code);
 
   useEffect(() => {
-    const next = itemToFormState(item);
+    const next = itemToFormState(item, categoryKeys, categoryMap);
     setF(next);
     setAutoCode(!item?.id && !item?.code);
     initialRef.current = {
@@ -3146,7 +3148,8 @@ function ItemForm({item, items, onSave, onClose}) {
       category: next.category,
       code: (item?.code || "").trim(),
     };
-  }, [item?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id, categoryKeys, categoryMap]);
 
   const qrItem = useMemo(
     () => ({ id: item?.id, code: f.code.trim() }),
