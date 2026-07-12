@@ -980,6 +980,62 @@ function getDueAlerts(ris, reqs, items, teachers) {
     .sort((a, b) => a.d - b.d);
 }
 
+// ── 대여 연장 (반납 임박/연체 교구) ─────────────────────────────
+/** 연장 가능 최대 횟수 (한도 도달 시 연장 불가) */
+const MAX_RENTAL_EXTENSIONS = 5;
+
+/** 연장 기간 선택지 */
+const EXTENSION_PERIOD_OPTIONS = [
+  { weeks: 1, label: "1주" },
+  { weeks: 2, label: "2주" },
+];
+
+function extensionCountOf(ri) {
+  return Number(ri?.extension_count || 0);
+}
+
+function toLocalYMD(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** 현재 반납예정일 기준으로 weeks 만큼 연장한 새 날짜(YYYY-MM-DD).
+ *  연체된 경우 오늘 기준으로, 미래인 경우 기존 예정일 기준으로 연장. */
+function computeExtendedDueDate(currentDue, weeks) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const base = currentDue ? new Date(currentDue) : today;
+  if (Number.isNaN(base.getTime())) return null;
+  const from = base > today ? base : today;
+  const next = new Date(from);
+  next.setDate(next.getDate() + weeks * 7);
+  return toLocalYMD(next);
+}
+
+/** 로그인 강사가 보유 중이면서 반납 기한이 임박(D-3 이내)하거나 지난 교구 목록 */
+function getExtensionCandidates(me, reqs, ris, items, rets) {
+  const groups = buildTeacherHoldingsByItem(me, reqs, ris, items, rets);
+  const out = [];
+  for (const g of groups) {
+    for (const line of g.lines) {
+      const d = dday(line.due_date);
+      if (d === null || d > 3) continue;
+      out.push({
+        ri: line.ri,
+        itemName: g.item?.name || iname(line.ri.item_id, items),
+        location: line.req?.dispatch_location || "-",
+        due_date: line.due_date,
+        dday: d,
+        held: line.held,
+        extCount: extensionCountOf(line.ri),
+      });
+    }
+  }
+  return out.sort((a, b) => a.dday - b.dday);
+}
+
 const SC = {
   pending:          {l:"대여신청",  bg:"#fef3c7",c:"#d97706"},
   approved:         {l:"승인됨",    bg:"#dbeafe",c:"#2563eb"},
@@ -7664,6 +7720,109 @@ function ReservationModal({ item, onClose, onSubmit }) {
   );
 }
 
+function ExtensionPromptModal({ candidates, maxExtensions, onConfirm, onSkip, onClose }) {
+  const selectable = candidates.filter(c => c.extCount < maxExtensions);
+  const [selected, setSelected] = useState(() => new Set(selectable.map(c => c.ri.id)));
+  const [weeks, setWeeks] = useState(1);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = (id) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const handleConfirm = async () => {
+    if (!selected.size) { await handleSkip(); return; }
+    setBusy(true);
+    try { await onConfirm([...selected], weeks); }
+    finally { setBusy(false); }
+  };
+
+  const handleSkip = async () => {
+    setBusy(true);
+    try { await onSkip(); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Modal title="반납하지 않은 교구가 있어요" onClose={busy ? undefined : onClose} dismissible={!busy}>
+      <div style={{ padding: "0 20px 20px" }}>
+        <p style={{ fontSize: 14, color: DS.textSecondary, lineHeight: 1.5, margin: "0 0 14px" }}>
+          아직 반납하지 않은 교구 중 반납 기한이 임박했거나 지난 교구가 있어요.
+          새 교구를 신청하기 전에 연장하시겠어요?
+        </p>
+        <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+          {candidates.map(c => {
+            const dd = ddayTag(c.due_date);
+            const atMax = c.extCount >= maxExtensions;
+            const checked = selected.has(c.ri.id);
+            return (
+              <label key={c.ri.id} style={{
+                display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px",
+                border: `1px solid ${checked ? DS.primary : DS.inputBorder}`, borderRadius: 10,
+                background: atMax ? "#f8fafc" : "#fff",
+                opacity: atMax ? 0.6 : 1, cursor: atMax ? "not-allowed" : "pointer",
+              }}>
+                <input
+                  type="checkbox"
+                  style={{ marginTop: 3 }}
+                  disabled={atMax || busy}
+                  checked={checked}
+                  onChange={() => toggle(c.ri.id)}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: DS.textPrimary }}>
+                    {c.itemName} <span style={{ fontWeight: 500, color: DS.textSecondary }}>×{c.held}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 2 }}>
+                    {c.location} · 반납예정 {c.due_date || "-"}
+                    {dd ? " · " : ""}
+                    {dd && <span style={{ color: dd.color, fontWeight: 700 }}>{dd.text}</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: atMax ? "#dc2626" : DS.textMuted, marginTop: 2 }}>
+                    연장 {c.extCount}/{maxExtensions}{atMax ? " · 한도 도달" : ""}
+                  </div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: DS.textSecondary, marginBottom: 8 }}>연장 기간</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {EXTENSION_PERIOD_OPTIONS.map(opt => (
+              <button
+                key={opt.weeks}
+                type="button"
+                onClick={() => setWeeks(opt.weeks)}
+                disabled={busy}
+                style={{
+                  flex: 1, padding: "10px 0", borderRadius: 10, fontSize: 14, fontWeight: 700,
+                  cursor: busy ? "default" : "pointer",
+                  border: `1px solid ${weeks === opt.weeks ? DS.primary : DS.inputBorder}`,
+                  background: weeks === opt.weeks ? DS.primary : "#fff",
+                  color: weeks === opt.weeks ? "#fff" : DS.textPrimary,
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 8 }}>
+          <Btn full onClick={handleConfirm} disabled={busy}>
+            {busy ? "처리 중..." : `연장 + 새 교구 신청${selected.size ? ` (${selected.size}개 연장)` : ""}`}
+          </Btn>
+          <Btn full ghost onClick={handleSkip} disabled={busy}>
+            연장 없이 새 교구만 신청
+          </Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
   const initialDates = useMemo(() => defaultRentalDates(), []);
   const[f,setF]=useState(()=>({
@@ -8702,6 +8861,7 @@ function EquipmentApp({ onBack, me, session }) {
   const [dataLoading,setDataLoading]= useState(false);
   const [cart,       setCart]       = useState([]);
   const [showCart,   setShowCart]   = useState(false);
+  const [extPrompt,  setExtPrompt]  = useState(null);
   const [detailItem, setDetailItem] = useState(null);
   const [detailBackPage, setDetailBackPage] = useState("items");
   const [scanRentItem,setScanRentItem]= useState(null);
@@ -8954,7 +9114,7 @@ function EquipmentApp({ onBack, me, session }) {
     await supabase.auth.signOut();
   };
 
-  const submitRent = async ({dispatch_location,dispatch_start,dispatch_end,memo,items:ci}) => {
+  const doSubmitRent = async ({dispatch_location,dispatch_start,dispatch_end,memo,items:ci}) => {
     const conflicts = await checkRotationRentalConflicts(supabase, {
       me, cartItems: ci, items, dispatch_start, dispatch_end, teachers,
     });
@@ -8978,6 +9138,47 @@ function EquipmentApp({ onBack, me, session }) {
       item_names: formatPushItemNames(ci.map(c => items.find(i => i.id === c.item_id)?.name)),
     }).catch(() => {});
     alert("대여 신청이 완료되었습니다.\n관리자 승인 후 대여가 확정됩니다.");
+  };
+
+  /** 선택한 보유 교구의 반납예정일을 weeks 만큼 연장 + 관리자 알림 */
+  const extendRentalItems = async (riIds, weeks) => {
+    const extended = [];
+    for (const riId of riIds) {
+      const ri = ris.find(r => r.id === riId);
+      if (!ri || extensionCountOf(ri) >= MAX_RENTAL_EXTENSIONS) continue;
+      const newDue = computeExtendedDueDate(ri.due_date, weeks);
+      if (!newDue) continue;
+      const { data, error } = await supabase.from("rental_items")
+        .update({
+          due_date: newDue,
+          extension_count: extensionCountOf(ri) + 1,
+          last_extended_at: new Date().toISOString(),
+        })
+        .eq("id", ri.id)
+        .select()
+        .single();
+      if (error) { alert("연장 오류: " + error.message); continue; }
+      if (data) extended.push(data);
+    }
+    if (extended.length) {
+      setRIs(prev => prev.map(r => extended.find(u => u.id === r.id) || r));
+      sendPushEvent(supabase, "rental_extended", {
+        teacher_id: me.id,
+        teacher_name: me.name,
+        weeks,
+        item_names: formatPushItemNames(extended.map(u => items.find(i => i.id === u.item_id)?.name)),
+      }).catch(() => {});
+    }
+    return extended.length;
+  };
+
+  const submitRent = async (payload) => {
+    const candidates = getExtensionCandidates(me, reqs, ris, items, rets);
+    if (candidates.length) {
+      setExtPrompt({ payload, candidates });
+      return;
+    }
+    await doSubmitRent(payload);
   };
 
   const submitReservation = async ({ item_id, location, start_date, end_date, quantity }) => {
@@ -9810,6 +10011,25 @@ function EquipmentApp({ onBack, me, session }) {
         </div>
 
         {showCart&&<CartModal cart={cart} setCart={setCart} items={items} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
+        {extPrompt&&(
+          <ExtensionPromptModal
+            candidates={extPrompt.candidates}
+            maxExtensions={MAX_RENTAL_EXTENSIONS}
+            onConfirm={async (riIds, weeks) => {
+              const n = await extendRentalItems(riIds, weeks);
+              const payload = extPrompt.payload;
+              setExtPrompt(null);
+              await doSubmitRent(payload);
+              if (n) alert(`${n}개 교구를 ${weeks}주 연장 신청했습니다.`);
+            }}
+            onSkip={async () => {
+              const payload = extPrompt.payload;
+              setExtPrompt(null);
+              await doSubmitRent(payload);
+            }}
+            onClose={() => setExtPrompt(null)}
+          />
+        )}
         {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
         {showPwModal&&<ChangePwModal email={session.user.email} onClose={()=>setShowPwModal(false)}/>}
       </div>
@@ -10111,6 +10331,25 @@ function EquipmentApp({ onBack, me, session }) {
       </nav>
 
       {showCart&&<CartModal cart={cart} setCart={setCart} items={items} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
+      {extPrompt&&(
+        <ExtensionPromptModal
+          candidates={extPrompt.candidates}
+          maxExtensions={MAX_RENTAL_EXTENSIONS}
+          onConfirm={async (riIds, weeks) => {
+            const n = await extendRentalItems(riIds, weeks);
+            const payload = extPrompt.payload;
+            setExtPrompt(null);
+            await doSubmitRent(payload);
+            if (n) alert(`${n}개 교구를 ${weeks}주 연장 신청했습니다.`);
+          }}
+          onSkip={async () => {
+            const payload = extPrompt.payload;
+            setExtPrompt(null);
+            await doSubmitRent(payload);
+          }}
+          onClose={() => setExtPrompt(null)}
+        />
+      )}
       {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
       {showPwModal&&<ChangePwModal email={session.user.email} onClose={()=>setShowPwModal(false)}/>}
     </div>

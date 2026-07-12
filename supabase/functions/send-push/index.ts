@@ -387,6 +387,19 @@ async function resolveNotification(event, payload, userId, adminClient) {
         url: "/gear",
       };
     }
+    case "rental_extended": {
+      if (userId !== payload.teacher_id) {
+        return { error: "Forbidden", status: 403 };
+      }
+      const weeks = Number(payload.weeks) || 0;
+      const weekLabel = weeks ? ` ${weeks}주` : "";
+      return {
+        teacherIds: await getItemAdminIds(adminClient),
+        title: "대여 연장 신청",
+        body: `${payload.teacher_name} 선생님이 ${formatItemList(payload.item_names)} 교구 대여를${weekLabel} 연장 신청했습니다`,
+        url: "/gear",
+      };
+    }
     case "schedule_change": {
       if (userId !== payload.teacher_id) {
         return { error: "Forbidden", status: 403 };
