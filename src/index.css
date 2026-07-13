@@ -13670,6 +13670,9 @@ button.pe-res-resource-youtube-thumb:hover {
   .admin-todo-add > input:first-child {
     grid-column: 1 / -1;
   }
+  .admin-todo-add > :last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 640px) {

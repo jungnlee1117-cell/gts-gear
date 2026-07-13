@@ -9,12 +9,16 @@ CREATE TABLE IF NOT EXISTS public.admin_todos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   content text NOT NULL CHECK (char_length(trim(content)) > 0),
   assignee_id uuid REFERENCES public.teachers(id) ON DELETE SET NULL,
-  due_date date,
+  start_date date,
+  due_date date,           -- 기간 종료일 (D-day 기준)
   is_completed boolean NOT NULL DEFAULT false,
   completed_at timestamptz,
   created_by uuid REFERENCES public.teachers(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- 기존 테이블 대응: 기간 시작일 컬럼 추가
+ALTER TABLE public.admin_todos ADD COLUMN IF NOT EXISTS start_date date;
 
 CREATE INDEX IF NOT EXISTS idx_admin_todos_open
   ON public.admin_todos (is_completed, created_at DESC);

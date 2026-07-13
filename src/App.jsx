@@ -6374,6 +6374,7 @@ function NoticeEditModal({ notice, onClose, onSave }) {
 function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd, onToggle, onDelete, hideAuto = false }) {
   const [content, setContent] = useState("");
   const [assignee, setAssignee] = useState("all");
+  const [start, setStart] = useState("");
   const [due, setDue] = useState("");
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState("todo");
@@ -6409,11 +6410,19 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   const submit = async () => {
     const c = content.trim();
     if (!c) return;
+    if (start && due && due < start) { alert("종료일이 시작일보다 빠릅니다."); return; }
     setSaving(true);
     try {
-      await onAdd({ content: c, assignee_id: assignee==="all" ? null : assignee, due_date: due || null });
-      setContent(""); setDue(""); setAssignee("all");
+      await onAdd({ content: c, assignee_id: assignee==="all" ? null : assignee, start_date: start || null, due_date: due || null });
+      setContent(""); setStart(""); setDue(""); setAssignee("all");
     } finally { setSaving(false); }
+  };
+
+  const periodText = (t) => {
+    if (t.start_date && t.due_date) return `${fmtShort(t.start_date)} ~ ${fmtShort(t.due_date)}`;
+    if (t.due_date) return `~ ${fmtShort(t.due_date)}`;
+    if (t.start_date) return `${fmtShort(t.start_date)} ~`;
+    return null;
   };
 
   const openTodos = visibleTodos.filter(t => !t.is_completed);
@@ -6428,19 +6437,26 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   const renderTodoRow = (t) => {
     const dd = t.due_date ? ddayTag(t.due_date) : null;
     const done = t.is_completed;
+    const expired = !done && t.due_date && dday(t.due_date) < 0;
     const who = t.assignee_id ? assigneeName(t.assignee_id) : "전체";
+    const period = periodText(t);
     return (
       <div key={t.id} className="admin-todo-row" style={{
         display:"flex", alignItems:"center", gap:12,
-        padding:"12px 16px", borderRadius:12, border:"1px solid #eef2f6", borderLeft:`4px solid ${done?DS.primary:"#cbd5e1"}`,
+        padding:"12px 16px", borderRadius:12, border:"1px solid #eef2f6", borderLeft:`4px solid ${done?DS.primary:(expired?"#dc2626":"#cbd5e1")}`,
         background:"#fff", transition:"background .15s",
       }}>
         <input type="checkbox" checked={done} onChange={e=>onToggle(t.id, e.target.checked)} style={{ width:18, height:18, cursor:"pointer", accentColor:DS.primary, flexShrink:0 }}/>
         <div style={{ flex:1, minWidth:0, opacity:done?0.5:1 }}>
           <div style={{ fontSize:14, fontWeight:600, color:"#111827", textDecoration:done?"line-through":"none" }}>{t.content}</div>
-          <div style={{ fontSize:12, color:DS.textMuted, marginTop:2 }}>담당: {who || "전체"}</div>
+          <div style={{ fontSize:12, color:DS.textMuted, marginTop:2 }}>
+            담당: {who || "전체"}
+            {period && <span style={{ marginLeft:8, color:DS.textSecondary, fontWeight:600 }}>· {period}</span>}
+          </div>
         </div>
-        {dd && <span style={{ fontSize:12, fontWeight:800, color:dd.color, flexShrink:0 }}>{dd.text}</span>}
+        {!done && (expired
+          ? <span style={{ fontSize:11, fontWeight:800, color:"#dc2626", background:"#fef2f2", border:"1px solid #fecaca", borderRadius:99, padding:"2px 9px", flexShrink:0 }}>만료</span>
+          : dd && <span style={{ fontSize:12, fontWeight:800, color:dd.color, flexShrink:0 }}>{dd.text}</span>)}
         <button type="button" onClick={()=>onDelete(t.id)} aria-label="삭제" style={{
           width:28, height:28, borderRadius:8, border:"1px solid #e8ecee", background:"#fff",
           color:DS.textMuted, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
@@ -6506,7 +6522,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
           )}
 
           {/* 할 일 추가 */}
-          <div className="admin-todo-add" style={{ display:"grid", gridTemplateColumns:"1fr 130px 150px auto", gap:8, alignItems:"center" }}>
+          <div className="admin-todo-add" style={{ display:"grid", gridTemplateColumns:"1fr 120px 132px 132px auto", gap:8, alignItems:"center" }}>
             <input
               value={content}
               onChange={e=>setContent(e.target.value)}
@@ -6518,7 +6534,8 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
               <option value="all">전체</option>
               {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
-            <input type="date" value={due} onChange={e=>setDue(e.target.value)} style={{ ...inputStyle, cursor:"pointer" }}/>
+            <input type="date" value={start} max={due || undefined} onChange={e=>setStart(e.target.value)} title="시작일" style={{ ...inputStyle, cursor:"pointer" }}/>
+            <input type="date" value={due} min={start || undefined} onChange={e=>setDue(e.target.value)} title="종료일" style={{ ...inputStyle, cursor:"pointer" }}/>
             <Btn onClick={submit} disabled={saving || !content.trim()}>{saving ? "추가 중..." : "추가"}</Btn>
           </div>
         </div>
@@ -9161,10 +9178,11 @@ function HubPage({ me, onSelect, onLogout }) {
     return () => { cancelled = true; };
   }, [showTodo]);
 
-  const addTodo = async ({ content, assignee_id, due_date }) => {
+  const addTodo = async ({ content, assignee_id, start_date, due_date }) => {
     const row = {
       content: content.trim(),
       assignee_id: assignee_id || null,
+      start_date: start_date || null,
       due_date: due_date || null,
       is_completed: false,
       created_by: me.id,
@@ -9583,10 +9601,11 @@ function EquipmentApp({ onBack, me, session }) {
     setNotices(noticeList);
   };
 
-  const addAdminTodo = async ({ content, assignee_id, due_date }) => {
+  const addAdminTodo = async ({ content, assignee_id, start_date, due_date }) => {
     const row = {
       content: content.trim(),
       assignee_id: assignee_id || null,
+      start_date: start_date || null,
       due_date: due_date || null,
       is_completed: false,
       created_by: me.id,
