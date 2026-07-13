@@ -456,6 +456,34 @@ async function resolveNotification(event, payload, userId, adminClient) {
         url: "/schedule",
       };
     }
+    case "task_assigned": {
+      if (!(await isItemAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      const title = String(payload.title || "").trim() || "새 업무";
+      const teacherIds = payload.assignee_id
+        ? [payload.assignee_id]
+        : await getItemAdminIds(adminClient);
+      return {
+        teacherIds,
+        title: "새 업무 배정",
+        body: `새 업무가 배정됐습니다: ${title}`,
+        url: "/gear",
+      };
+    }
+    case "task_item_completed": {
+      if (!(await isItemAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      const actor = String(payload.actor_name || "").trim() || "담당자";
+      const item = String(payload.item_text || "").trim() || "항목";
+      return {
+        teacherIds: await getSuperAdminIds(adminClient),
+        title: "업무 완료",
+        body: `${actor}님이 ${item}을(를) 완료했습니다`,
+        url: "/gear",
+      };
+    }
     case "consultation_requested": {
       return resolveConsultationRequested(adminClient, payload);
     }

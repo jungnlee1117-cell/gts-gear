@@ -4032,7 +4032,7 @@ function TeacherHoldingsModal({ teacher, items, reqs, me, onForceReturn, onClose
   );
 }
 
-function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,onReject,onApproveRet,onDamage,onLoss,onApproveReservation,onRejectReservation,setPage,onForceReturn,adminTodos,onAddTodo,onToggleTodo,onDeleteTodo}) {
+function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,onReject,onApproveRet,onDamage,onLoss,onApproveReservation,onRejectReservation,setPage,onForceReturn,adminTodos,onAddTodo,onToggleTodo,onDeleteTodo,onUpdateTodo}) {
   const { categoryMap, categoryKeys } = useGearCategories();
   const admin = isItemAdmin(me);
   const [activePanel,setActivePanel]=useState(null);
@@ -4276,6 +4276,7 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
               onAdd={onAddTodo}
               onToggle={onToggleTodo}
               onDelete={onDeleteTodo}
+              onUpdate={onUpdateTodo}
               hideAuto
             />
           )}
@@ -6371,13 +6372,114 @@ function NoticeEditModal({ notice, onClose, onSave }) {
   );
 }
 
-function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd, onToggle, onDelete, hideAuto = false }) {
+function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemComplete }) {
+  const [expanded, setExpanded] = useState(false);
+  const [subText, setSubText] = useState("");
+
+  const checklist = Array.isArray(todo.checklist) ? todo.checklist : [];
+  const total = checklist.length;
+  const doneN = checklist.filter(c => c.done).length;
+  const pct = total ? Math.round((doneN / total) * 100) : 0;
+
+  const done = todo.is_completed;
+  const priority = todo.priority || "normal";
+  const dd = todo.due_date ? ddayTag(todo.due_date) : null;
+  const expired = !done && todo.due_date && dday(todo.due_date) < 0;
+
+  const commit = (next) => onUpdate && onUpdate(todo.id, { checklist: next });
+  const toggleChild = (cid, val) => {
+    commit(checklist.map(c => c.id === cid ? { ...c, done: val } : c));
+    if (val) {
+      const it = checklist.find(c => c.id === cid);
+      if (it && !it.done) onItemComplete && onItemComplete(it.text);
+    }
+  };
+  const deleteChild = (cid) => commit(checklist.filter(c => c.id !== cid));
+  const addChild = () => {
+    const txt = subText.trim();
+    if (!txt) return;
+    const item = { id: (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`), text: txt, done: false };
+    commit([...checklist, item]);
+    setSubText("");
+  };
+
+  const delBtnStyle = {
+    width:28, height:28, borderRadius:8, border:"1px solid #e8ecee", background:"#fff",
+    color:DS.textMuted, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+  };
+
+  return (
+    <div style={{
+      border:"1px solid #eef2f6", borderLeft:`4px solid ${done?DS.primary:(expired?"#dc2626":"#cbd5e1")}`,
+      borderRadius:12, background:"#fff", overflow:"hidden",
+    }}>
+      <div className="admin-todo-row" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", transition:"background .15s" }}>
+        <input type="checkbox" checked={done} onChange={e=>onToggle(todo.id, e.target.checked)} style={{ width:18, height:18, cursor:"pointer", accentColor:DS.primary, flexShrink:0 }}/>
+        <button type="button" onClick={()=>setExpanded(v=>!v)} style={{ flex:1, minWidth:0, textAlign:"left", background:"transparent", border:"none", cursor:"pointer", fontFamily:"inherit", padding:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, opacity:done?0.5:1 }}>
+            {priority==="urgent" && <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"#dc2626", borderRadius:99, padding:"2px 8px", flexShrink:0 }}>🔴 긴급</span>}
+            {priority==="low" && <span style={{ fontSize:11, fontWeight:700, color:"#64748b", background:"#f1f5f9", borderRadius:99, padding:"2px 8px", flexShrink:0 }}>낮음</span>}
+            <span style={{ fontSize:14, fontWeight:600, color:"#111827", textDecoration:done?"line-through":"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>{todo.content}</span>
+            {total>0 && <span style={{ fontSize:12, fontWeight:800, color:pct===100?DS.primary:DS.textSecondary, flexShrink:0 }}>{doneN}/{total}</span>}
+          </div>
+          <div style={{ fontSize:12, color:DS.textMuted, marginTop:2 }}>
+            담당: {who || "전체"}{period && <span style={{ marginLeft:8, color:DS.textSecondary, fontWeight:600 }}>· {period}</span>}
+          </div>
+          {total>0 && (
+            <div style={{ height:5, background:"#eef2f6", borderRadius:99, overflow:"hidden", marginTop:8 }}>
+              <div style={{ width:`${pct}%`, height:"100%", background:DS.primary, borderRadius:99, transition:"width .3s ease" }}/>
+            </div>
+          )}
+        </button>
+        {!done && (expired
+          ? <span style={{ fontSize:11, fontWeight:800, color:"#dc2626", background:"#fef2f2", border:"1px solid #fecaca", borderRadius:99, padding:"2px 9px", flexShrink:0 }}>만료</span>
+          : dd && <span style={{ fontSize:12, fontWeight:800, color:dd.color, flexShrink:0 }}>{dd.text}</span>)}
+        <button type="button" onClick={()=>setExpanded(v=>!v)} aria-label={expanded?"접기":"펼치기"} style={delBtnStyle}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ transform:expanded?"rotate(90deg)":"rotate(0deg)", transition:"transform .2s ease" }}><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button type="button" onClick={()=>onDelete(todo.id)} aria-label="삭제" style={delBtnStyle}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="admin-todo-sub" style={{ padding:"2px 16px 12px 46px", display:"flex", flexDirection:"column", gap:6 }}>
+          {checklist.map(ci => (
+            <div key={ci.id} style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <input type="checkbox" checked={!!ci.done} onChange={e=>toggleChild(ci.id, e.target.checked)} style={{ width:16, height:16, cursor:"pointer", accentColor:DS.primary, flexShrink:0 }}/>
+              <span style={{ flex:1, minWidth:0, fontSize:13, color:"#374151", textDecoration:ci.done?"line-through":"none", opacity:ci.done?0.5:1 }}>{ci.text}</span>
+              <button type="button" onClick={()=>deleteChild(ci.id)} aria-label="하위 항목 삭제" style={{ width:24, height:24, borderRadius:7, border:"none", background:"transparent", color:DS.textMuted, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+          ))}
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:2 }}>
+            <input
+              value={subText}
+              onChange={e=>setSubText(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter") addChild(); }}
+              placeholder="+ 하위 항목 추가..."
+              style={{ flex:1, minWidth:0, padding:"7px 10px", borderRadius:8, border:"1px solid #e8ecee", fontSize:13, outline:"none", fontFamily:"inherit", background:"#fff", color:DS.textPrimary }}
+            />
+            <Btn sm onClick={addChild} disabled={!subText.trim()}>추가</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd, onToggle, onDelete, onUpdate, hideAuto = false }) {
   const [content, setContent] = useState("");
   const [assignee, setAssignee] = useState("all");
+  const [priority, setPriority] = useState("normal");
   const [start, setStart] = useState("");
   const [due, setDue] = useState("");
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState("todo");
+  const [composing, setComposing] = useState(false);
+  const [draftItems, setDraftItems] = useState([]);
+  const [subDraft, setSubDraft] = useState("");
 
   const overdueN = useMemo(() => (ris || []).filter(r => ["rented","partial_returned"].includes(r.status) && dday(r.due_date)!==null && dday(r.due_date)<0).length, [ris]);
   const pendingN = useMemo(() => (reqs || []).filter(r => r.status==="pending").length, [reqs]);
@@ -6407,15 +6509,45 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   );
   const assigneeName = (id) => (teachers || []).find(t => t.id===id)?.name || null;
 
+  const resetCompose = () => {
+    setContent(""); setStart(""); setDue(""); setAssignee("all"); setPriority("normal");
+    setDraftItems([]); setSubDraft(""); setComposing(false);
+  };
+
+  const startCompose = () => {
+    if (!content.trim()) return;
+    setComposing(true);
+  };
+
+  const addDraftItem = () => {
+    const txt = subDraft.trim();
+    if (!txt) return;
+    setDraftItems(prev => [...prev, { id: (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`), text: txt }]);
+    setSubDraft("");
+  };
+
+  const removeDraftItem = (id) => setDraftItems(prev => prev.filter(it => it.id !== id));
+
   const submit = async () => {
     const c = content.trim();
     if (!c) return;
     if (start && due && due < start) { alert("종료일이 시작일보다 빠릅니다."); return; }
     setSaving(true);
     try {
-      await onAdd({ content: c, assignee_id: assignee==="all" ? null : assignee, start_date: start || null, due_date: due || null });
-      setContent(""); setStart(""); setDue(""); setAssignee("all");
+      await onAdd({
+        content: c,
+        assignee_id: assignee==="all" ? null : assignee,
+        priority,
+        start_date: start || null,
+        due_date: due || null,
+        checklist: draftItems.map(it => ({ id: it.id, text: it.text, done: false })),
+      });
+      resetCompose();
     } finally { setSaving(false); }
+  };
+
+  const notifyItemComplete = (text) => {
+    void sendPushEvent(supabase, "task_item_completed", { actor_name: me?.name || "관리자", item_text: text });
   };
 
   const periodText = (t) => {
@@ -6425,7 +6557,10 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
     return null;
   };
 
-  const openTodos = visibleTodos.filter(t => !t.is_completed);
+  const priRank = { urgent: 0, normal: 1, low: 2 };
+  const openTodos = visibleTodos.filter(t => !t.is_completed)
+    .slice()
+    .sort((a, b) => (priRank[a.priority] ?? 1) - (priRank[b.priority] ?? 1));
   const doneTodos = visibleTodos.filter(t => t.is_completed);
   const todoTabEmpty = autoItems.length===0 && openTodos.length===0;
 
@@ -6434,38 +6569,18 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
     fontSize:13, outline:"none", fontFamily:"inherit", background:"#fff", color:DS.textPrimary, boxSizing:"border-box",
   };
 
-  const renderTodoRow = (t) => {
-    const dd = t.due_date ? ddayTag(t.due_date) : null;
-    const done = t.is_completed;
-    const expired = !done && t.due_date && dday(t.due_date) < 0;
-    const who = t.assignee_id ? assigneeName(t.assignee_id) : "전체";
-    const period = periodText(t);
-    return (
-      <div key={t.id} className="admin-todo-row" style={{
-        display:"flex", alignItems:"center", gap:12,
-        padding:"12px 16px", borderRadius:12, border:"1px solid #eef2f6", borderLeft:`4px solid ${done?DS.primary:(expired?"#dc2626":"#cbd5e1")}`,
-        background:"#fff", transition:"background .15s",
-      }}>
-        <input type="checkbox" checked={done} onChange={e=>onToggle(t.id, e.target.checked)} style={{ width:18, height:18, cursor:"pointer", accentColor:DS.primary, flexShrink:0 }}/>
-        <div style={{ flex:1, minWidth:0, opacity:done?0.5:1 }}>
-          <div style={{ fontSize:14, fontWeight:600, color:"#111827", textDecoration:done?"line-through":"none" }}>{t.content}</div>
-          <div style={{ fontSize:12, color:DS.textMuted, marginTop:2 }}>
-            담당: {who || "전체"}
-            {period && <span style={{ marginLeft:8, color:DS.textSecondary, fontWeight:600 }}>· {period}</span>}
-          </div>
-        </div>
-        {!done && (expired
-          ? <span style={{ fontSize:11, fontWeight:800, color:"#dc2626", background:"#fef2f2", border:"1px solid #fecaca", borderRadius:99, padding:"2px 9px", flexShrink:0 }}>만료</span>
-          : dd && <span style={{ fontSize:12, fontWeight:800, color:dd.color, flexShrink:0 }}>{dd.text}</span>)}
-        <button type="button" onClick={()=>onDelete(t.id)} aria-label="삭제" style={{
-          width:28, height:28, borderRadius:8, border:"1px solid #e8ecee", background:"#fff",
-          color:DS.textMuted, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
-        }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-        </button>
-      </div>
-    );
-  };
+  const renderTodoRow = (t) => (
+    <AdminTodoRow
+      key={t.id}
+      todo={t}
+      who={t.assignee_id ? assigneeName(t.assignee_id) : "전체"}
+      period={periodText(t)}
+      onToggle={onToggle}
+      onDelete={onDelete}
+      onUpdate={onUpdate}
+      onItemComplete={notifyItemComplete}
+    />
+  );
 
   const tabBtnStyle = (active) => ({
     padding:"7px 14px", borderRadius:9, border:"none", cursor:"pointer", fontFamily:"inherit",
@@ -6522,21 +6637,58 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
           )}
 
           {/* 할 일 추가 */}
-          <div className="admin-todo-add" style={{ display:"grid", gridTemplateColumns:"1fr 120px 132px 132px auto", gap:8, alignItems:"center" }}>
+          <div className="admin-todo-add" style={{ display:"flex", flexDirection:"column", gap:8 }}>
             <input
               value={content}
               onChange={e=>setContent(e.target.value)}
-              onKeyDown={e=>{ if(e.key==="Enter") submit(); }}
-              placeholder="할 일 추가..."
-              style={inputStyle}
+              onKeyDown={e=>{ if(e.key==="Enter" && !composing) startCompose(); }}
+              placeholder="할 일 제목 입력..."
+              style={{ ...inputStyle, width:"100%" }}
             />
-            <select value={assignee} onChange={e=>setAssignee(e.target.value)} style={{ ...inputStyle, cursor:"pointer" }}>
-              <option value="all">전체</option>
-              {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-            <input type="date" value={start} max={due || undefined} onChange={e=>setStart(e.target.value)} title="시작일" style={{ ...inputStyle, cursor:"pointer" }}/>
-            <input type="date" value={due} min={start || undefined} onChange={e=>setDue(e.target.value)} title="종료일" style={{ ...inputStyle, cursor:"pointer" }}/>
-            <Btn onClick={submit} disabled={saving || !content.trim()}>{saving ? "추가 중..." : "추가"}</Btn>
+            <div className="admin-todo-add-controls" style={{ display:"flex", flexWrap:"wrap", gap:8, alignItems:"center" }}>
+              <select value={priority} onChange={e=>setPriority(e.target.value)} title="우선순위" style={{ ...inputStyle, cursor:"pointer", flex:"1 1 108px" }}>
+                <option value="normal">일반</option>
+                <option value="urgent">🔴 긴급</option>
+                <option value="low">낮음</option>
+              </select>
+              <select value={assignee} onChange={e=>setAssignee(e.target.value)} title="담당자" style={{ ...inputStyle, cursor:"pointer", flex:"1 1 120px" }}>
+                <option value="all">담당: 전체</option>
+                {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <input type="date" value={start} max={due || undefined} onChange={e=>setStart(e.target.value)} title="시작일" style={{ ...inputStyle, cursor:"pointer", flex:"1 1 130px" }}/>
+              <input type="date" value={due} min={start || undefined} onChange={e=>setDue(e.target.value)} title="종료일" style={{ ...inputStyle, cursor:"pointer", flex:"1 1 130px" }}/>
+              {!composing && <Btn onClick={startCompose} disabled={!content.trim()}>추가</Btn>}
+            </div>
+
+            {composing && (
+              <div className="admin-todo-compose" style={{ border:"1px dashed #d7dee6", borderRadius:12, padding:14, background:"#fafbfc", display:"flex", flexDirection:"column", gap:8 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:DS.textSecondary }}>하위 항목 <span style={{ fontWeight:600, color:DS.textMuted }}>(선택)</span></div>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <input
+                    value={subDraft}
+                    onChange={e=>setSubDraft(e.target.value)}
+                    onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addDraftItem(); } }}
+                    placeholder="+ 항목 추가..."
+                    autoFocus
+                    style={{ ...inputStyle, flex:1, minWidth:0 }}
+                  />
+                  <Btn sm onClick={addDraftItem} disabled={!subDraft.trim()}>+</Btn>
+                </div>
+                {draftItems.map(it => (
+                  <div key={it.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"4px 2px" }}>
+                    <input type="checkbox" disabled checked={false} readOnly style={{ width:16, height:16, accentColor:DS.primary, flexShrink:0 }}/>
+                    <span style={{ flex:1, minWidth:0, fontSize:13, color:"#374151" }}>{it.text}</span>
+                    <button type="button" onClick={()=>removeDraftItem(it.id)} aria-label="항목 삭제" style={{ width:24, height:24, borderRadius:7, border:"none", background:"transparent", color:DS.textMuted, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                ))}
+                <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:4 }}>
+                  <Btn ghost onClick={resetCompose} disabled={saving}>취소</Btn>
+                  <Btn onClick={submit} disabled={saving || !content.trim()}>{saving ? "저장 중..." : "저장"}</Btn>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -6556,7 +6708,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   );
 }
 
-function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris, rets, setPage, onItemClick, teachers, adminTodos, onAddTodo, onToggleTodo, onDeleteTodo }) {
+function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris, rets, setPage, onItemClick, teachers, adminTodos, onAddTodo, onToggleTodo, onDeleteTodo, onUpdateTodo }) {
   const canManage = isGearPlatformAdmin(me);
   const isMobile = useMediaQuery("(max-width: 767px)");
   const [title, setTitle] = useState("");
@@ -6690,6 +6842,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
           onAdd={onAddTodo}
           onToggle={onToggleTodo}
           onDelete={onDeleteTodo}
+          onUpdate={onUpdateTodo}
         />
       )}
 
@@ -9178,12 +9331,14 @@ function HubPage({ me, onSelect, onLogout }) {
     return () => { cancelled = true; };
   }, [showTodo]);
 
-  const addTodo = async ({ content, assignee_id, start_date, due_date }) => {
+  const addTodo = async ({ content, assignee_id, priority, start_date, due_date, checklist }) => {
     const row = {
       content: content.trim(),
       assignee_id: assignee_id || null,
+      priority: priority || "normal",
       start_date: start_date || null,
       due_date: due_date || null,
+      checklist: Array.isArray(checklist) ? checklist : [],
       is_completed: false,
       created_by: me.id,
       created_at: new Date().toISOString(),
@@ -9191,6 +9346,9 @@ function HubPage({ me, onSelect, onLogout }) {
     const { data, error } = await supabase.from("admin_todos").insert(row).select().single();
     if (error) { alert(error.message || "할 일 추가에 실패했습니다."); return; }
     setTodos(prev => [data, ...prev]);
+    if (assignee_id) {
+      void sendPushEvent(supabase, "task_assigned", { assignee_id, title: row.content });
+    }
   };
 
   const toggleTodo = async (id, isCompleted) => {
@@ -9204,6 +9362,12 @@ function HubPage({ me, onSelect, onLogout }) {
     setTodos(prev => prev.filter(t => t.id !== id));
     const { error } = await supabase.from("admin_todos").delete().eq("id", id);
     if (error) alert(error.message || "삭제에 실패했습니다.");
+  };
+
+  const updateTodo = async (id, patch) => {
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
+    const { error } = await supabase.from("admin_todos").update(patch).eq("id", id);
+    if (error) alert(error.message || "수정에 실패했습니다.");
   };
 
   const handleEnter = (mod) => {
@@ -9285,6 +9449,7 @@ function HubPage({ me, onSelect, onLogout }) {
                 onAdd={addTodo}
                 onToggle={toggleTodo}
                 onDelete={deleteTodo}
+                onUpdate={updateTodo}
               />
             </div>
           )}
@@ -9601,12 +9766,14 @@ function EquipmentApp({ onBack, me, session }) {
     setNotices(noticeList);
   };
 
-  const addAdminTodo = async ({ content, assignee_id, start_date, due_date }) => {
+  const addAdminTodo = async ({ content, assignee_id, priority, start_date, due_date, checklist }) => {
     const row = {
       content: content.trim(),
       assignee_id: assignee_id || null,
+      priority: priority || "normal",
       start_date: start_date || null,
       due_date: due_date || null,
+      checklist: Array.isArray(checklist) ? checklist : [],
       is_completed: false,
       created_by: me.id,
       created_at: new Date().toISOString(),
@@ -9614,6 +9781,9 @@ function EquipmentApp({ onBack, me, session }) {
     const { data, error } = await supabase.from("admin_todos").insert(row).select().single();
     if (error) { alert(error.message || "할 일 추가에 실패했습니다."); return; }
     setAdminTodos(prev => [data, ...prev]);
+    if (assignee_id) {
+      void sendPushEvent(supabase, "task_assigned", { assignee_id, title: row.content });
+    }
   };
 
   const toggleAdminTodo = async (id, isCompleted) => {
@@ -9627,6 +9797,12 @@ function EquipmentApp({ onBack, me, session }) {
     setAdminTodos(prev => prev.filter(t => t.id !== id));
     const { error } = await supabase.from("admin_todos").delete().eq("id", id);
     if (error) { alert(error.message || "삭제에 실패했습니다."); refreshAdminTodos(); }
+  };
+
+  const updateAdminTodo = async (id, patch) => {
+    setAdminTodos(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
+    const { error } = await supabase.from("admin_todos").update(patch).eq("id", id);
+    if (error) { alert(error.message || "수정에 실패했습니다."); refreshAdminTodos(); }
   };
 
   const refreshAdminTodos = async () => {
@@ -10292,6 +10468,7 @@ function EquipmentApp({ onBack, me, session }) {
           onAddTodo={addAdminTodo}
           onToggleTodo={toggleAdminTodo}
           onDeleteTodo={deleteAdminTodo}
+          onUpdateTodo={updateAdminTodo}
         />
       );
     }
@@ -10316,7 +10493,7 @@ function EquipmentApp({ onBack, me, session }) {
 
     return (
       <>
-        {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} reservations={reservations} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss} onApproveReservation={approveReservation} onRejectReservation={rejectReservation} setPage={setPage} onForceReturn={forceReturnRentalItem} adminTodos={adminTodos} onAddTodo={addAdminTodo} onToggleTodo={toggleAdminTodo} onDeleteTodo={deleteAdminTodo}/>}
+        {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} reservations={reservations} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss} onApproveReservation={approveReservation} onRejectReservation={rejectReservation} setPage={setPage} onForceReturn={forceReturnRentalItem} adminTodos={adminTodos} onAddTodo={addAdminTodo} onToggleTodo={toggleAdminTodo} onDeleteTodo={deleteAdminTodo} onUpdateTodo={updateAdminTodo}/>}
         {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} onForceReturn={forceReturnRentalItem}/>}
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} initialFilter="overdue" onForceReturn={forceReturnRentalItem}/>}
         {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items")} onSaveItem={saveItem} onDeleteItem={deleteItem} onSubmitReservation={submitReservation} onCancelReservation={cancelReservation}/>}
@@ -10454,6 +10631,7 @@ function EquipmentApp({ onBack, me, session }) {
             onAddTodo={addAdminTodo}
             onToggleTodo={toggleAdminTodo}
             onDeleteTodo={deleteAdminTodo}
+            onUpdateTodo={updateAdminTodo}
           />
         )}
         {page==="settings"&&<SettingsPage me={me} onChangePw={()=>setShowPwModal(true)} onLogout={logout} onDataExport={superA ? () => navigate("/admin/data-export") : undefined}/>}

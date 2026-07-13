@@ -13663,15 +13663,20 @@ button.pe-res-resource-youtube-thumb:hover {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+.admin-todo-sub,
+.admin-todo-compose {
+  animation: adminTodoSlide .22s ease;
+  transform-origin: top;
+}
+
+@keyframes adminTodoSlide {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 @media (max-width: 640px) {
-  .admin-todo-add {
-    grid-template-columns: 1fr 1fr !important;
-  }
-  .admin-todo-add > input:first-child {
-    grid-column: 1 / -1;
-  }
-  .admin-todo-add > :last-child {
-    grid-column: 1 / -1;
+  .admin-todo-add-controls > * {
+    flex: 1 1 100% !important;
   }
 }
 
