@@ -6372,7 +6372,7 @@ function NoticeEditModal({ notice, onClose, onSave }) {
   );
 }
 
-function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemComplete }) {
+function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemComplete, readOnly = false }) {
   const [expanded, setExpanded] = useState(false);
   const [subText, setSubText] = useState("");
 
@@ -6414,7 +6414,7 @@ function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemC
       borderRadius:12, background:"#fff", overflow:"hidden",
     }}>
       <div className="admin-todo-row" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", transition:"background .15s" }}>
-        <input type="checkbox" checked={done} onChange={e=>onToggle(todo.id, e.target.checked)} style={{ width:18, height:18, cursor:"pointer", accentColor:DS.primary, flexShrink:0 }}/>
+        <input type="checkbox" checked={done} disabled={readOnly} onChange={e=>!readOnly && onToggle(todo.id, e.target.checked)} style={{ width:18, height:18, cursor:readOnly?"default":"pointer", accentColor:DS.primary, flexShrink:0 }}/>
         <button type="button" onClick={()=>setExpanded(v=>!v)} style={{ flex:1, minWidth:0, textAlign:"left", background:"transparent", border:"none", cursor:"pointer", fontFamily:"inherit", padding:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, opacity:done?0.5:1 }}>
             {priority==="urgent" && <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"#dc2626", borderRadius:99, padding:"2px 8px", flexShrink:0 }}>🔴 긴급</span>}
@@ -6437,39 +6437,48 @@ function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemC
         <button type="button" onClick={()=>setExpanded(v=>!v)} aria-label={expanded?"접기":"펼치기"} style={delBtnStyle}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ transform:expanded?"rotate(90deg)":"rotate(0deg)", transition:"transform .2s ease" }}><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button type="button" onClick={()=>onDelete(todo.id)} aria-label="삭제" style={delBtnStyle}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-        </button>
+        {!readOnly && (
+          <button type="button" onClick={()=>onDelete(todo.id)} aria-label="삭제" style={delBtnStyle}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        )}
       </div>
 
       {expanded && (
         <div className="admin-todo-sub" style={{ padding:"2px 16px 12px 46px", display:"flex", flexDirection:"column", gap:6 }}>
+          {checklist.length===0 && readOnly && (
+            <div style={{ fontSize:12, color:DS.textMuted, padding:"2px 0" }}>하위 항목이 없습니다</div>
+          )}
           {checklist.map(ci => (
             <div key={ci.id} style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <input type="checkbox" checked={!!ci.done} onChange={e=>toggleChild(ci.id, e.target.checked)} style={{ width:16, height:16, cursor:"pointer", accentColor:DS.primary, flexShrink:0 }}/>
+              <input type="checkbox" checked={!!ci.done} disabled={readOnly} onChange={e=>!readOnly && toggleChild(ci.id, e.target.checked)} style={{ width:16, height:16, cursor:readOnly?"default":"pointer", accentColor:DS.primary, flexShrink:0 }}/>
               <span style={{ flex:1, minWidth:0, fontSize:13, color:"#374151", textDecoration:ci.done?"line-through":"none", opacity:ci.done?0.5:1 }}>{ci.text}</span>
-              <button type="button" onClick={()=>deleteChild(ci.id)} aria-label="하위 항목 삭제" style={{ width:24, height:24, borderRadius:7, border:"none", background:"transparent", color:DS.textMuted, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-              </button>
+              {!readOnly && (
+                <button type="button" onClick={()=>deleteChild(ci.id)} aria-label="하위 항목 삭제" style={{ width:24, height:24, borderRadius:7, border:"none", background:"transparent", color:DS.textMuted, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+              )}
             </div>
           ))}
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:2 }}>
-            <input
-              value={subText}
-              onChange={e=>setSubText(e.target.value)}
-              onKeyDown={e=>{ if(e.key==="Enter") addChild(); }}
-              placeholder="+ 하위 항목 추가..."
-              style={{ flex:1, minWidth:0, padding:"7px 10px", borderRadius:8, border:"1px solid #e8ecee", fontSize:13, outline:"none", fontFamily:"inherit", background:"#fff", color:DS.textPrimary }}
-            />
-            <Btn sm onClick={addChild} disabled={!subText.trim()}>추가</Btn>
-          </div>
+          {!readOnly && (
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:2 }}>
+              <input
+                value={subText}
+                onChange={e=>setSubText(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter") addChild(); }}
+                placeholder="+ 하위 항목 추가..."
+                style={{ flex:1, minWidth:0, padding:"7px 10px", borderRadius:8, border:"1px solid #e8ecee", fontSize:13, outline:"none", fontFamily:"inherit", background:"#fff", color:DS.textPrimary }}
+              />
+              <Btn sm onClick={addChild} disabled={!subText.trim()}>추가</Btn>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd, onToggle, onDelete, onUpdate, hideAuto = false }) {
+function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd, onToggle, onDelete, onUpdate, hideAuto = false, readOnly = false }) {
   const [content, setContent] = useState("");
   const [assignee, setAssignee] = useState("all");
   const [priority, setPriority] = useState("normal");
@@ -6579,6 +6588,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
       onDelete={onDelete}
       onUpdate={onUpdate}
       onItemComplete={notifyItemComplete}
+      readOnly={readOnly}
     />
   );
 
@@ -6637,6 +6647,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
           )}
 
           {/* 할 일 추가 */}
+          {!readOnly && (
           <div className="admin-todo-add" style={{ display:"flex", flexDirection:"column", gap:8 }}>
             <input
               value={content}
@@ -6690,6 +6701,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
               </div>
             )}
           </div>
+          )}
         </div>
       ) : (
         <div key="done" className="admin-todo-fade">
@@ -9450,6 +9462,7 @@ function HubPage({ me, onSelect, onLogout }) {
                 onToggle={toggleTodo}
                 onDelete={deleteTodo}
                 onUpdate={updateTodo}
+                readOnly
               />
             </div>
           )}

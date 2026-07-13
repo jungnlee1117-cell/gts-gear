@@ -57,3 +57,9 @@ CREATE POLICY "admin_todos_admin_all" ON public.admin_todos
         AND (t.role IN ('admin', 'superadmin') OR t.is_item_admin = true)
     )
   );
+
+-- ============================================
+-- 3) PostgREST 스키마 캐시 갱신
+--    (새 컬럼이 API 스키마 캐시에 즉시 반영되도록)
+-- ============================================
+NOTIFY pgrst, 'reload schema';
