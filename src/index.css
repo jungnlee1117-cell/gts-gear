@@ -197,6 +197,10 @@ body {
   display: none;
 }
 
+.hub-todo-section {
+  margin-top: 20px;
+}
+
 .hub-hero {
   margin-bottom: 32px;
 }
@@ -770,6 +774,13 @@ body {
     margin-left: auto;
     margin-right: auto;
   }
+
+  .hub-todo-section {
+    max-width: 880px;
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+  }
 }
 
 @media (min-width: 901px) and (max-width: 1023px) {
@@ -794,9 +805,19 @@ body {
     grid-template-columns: 43fr 57fr;
     grid-template-areas:
       "hero hero"
-      "notices modules";
+      "notices modules"
+      "todo todo";
     gap: 20px 24px;
     align-items: stretch;
+  }
+
+  .hub-todo-section {
+    grid-area: todo;
+    margin-top: 0;
+    max-width: none;
+    width: auto;
+    margin-left: 0;
+    margin-right: 0;
   }
 
   .hub-hero {
@@ -13598,6 +13619,62 @@ button.pe-res-resource-youtube-thumb:hover {
 
   .eng-landing-stats-panel {
     max-width: none;
+  }
+}
+
+/* ── 대시보드 리뉴얼 ── */
+.dash-task-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  border-color: #d7dde1;
+}
+
+.dash-action-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.07);
+  border-color: #d7dde1;
+}
+
+.dash-teacher-card:hover {
+  background: #f8fafc;
+  border-color: #eef2f6;
+}
+
+@media (max-width: 900px) {
+  .dash-two-col {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+.teacher-row:hover {
+  background: #f8fafc;
+}
+
+.admin-todo-row:hover {
+  background: #f8fafc;
+}
+
+.admin-todo-fade {
+  animation: adminTodoFade .22s ease;
+}
+
+@keyframes adminTodoFade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 640px) {
+  .admin-todo-add {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .admin-todo-add > input:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .teacher-summary-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
   }
 }
 
