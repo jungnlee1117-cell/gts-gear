@@ -436,8 +436,7 @@ export default function UnifiedNoticesFeed({
                 <div className={`admin-notice-table-head${manage ? " admin-notice-table-head--manage" : ""}`}>
                   <span>중요도</span>
                   <span>제목</span>
-                  <span>작성자</span>
-                  <span>등록일</span>
+                  <span>작성 정보</span>
                   <span>{manage ? "관리" : ""}</span>
                 </div>
                 {tableRows.map(item => (
@@ -454,8 +453,10 @@ export default function UnifiedNoticesFeed({
                       {item.pinned ? <span className="admin-notice-pin" aria-hidden>📌</span> : null}
                       {item.title}
                     </span>
-                    <span className="admin-notice-table-row__meta">{noticeAuthor(item)}</span>
-                    <span className="admin-notice-table-row__meta">{fmtDateWeekday(item.createdAt)}</span>
+                    <div className="admin-notice-table-row__metas">
+                      <span className="admin-notice-table-row__meta">{noticeAuthor(item)}</span>
+                      <span className="admin-notice-table-row__meta">{fmtDateWeekday(item.createdAt)}</span>
+                    </div>
                     {showRowActions(item) ? (
                       <span className="admin-notice-table-row__actions" onClick={(e) => e.stopPropagation()}>
                         <ManageActions

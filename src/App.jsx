@@ -51,6 +51,7 @@ import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin } from ".
 import { useMediaQuery } from "./useMediaQuery.js";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { shouldForcePasswordChange } from "./authPolicy.js";
+import { ddayKst, formatYmdShort, formatYmdWeekday, toKstDateOnly } from "./kstDate.js";
 import {
   DUPLICATE_ITEM_NAME_MESSAGE,
   findItemNameConflict,
@@ -196,7 +197,15 @@ const ROLE_CFG = {
 const canManage    = (u) => isItemAdmin(u) && u?.active !== false;
 const canEditItems = (u) => isItemAdmin(u);
 // ═══════════════════════════════════════════════════════════════════════
-const fmt   = d => d ? new Date(d).toLocaleDateString("ko-KR") : "-";
+const fmt   = d => {
+  if (!d) return "-";
+  const only = toKstDateOnly(d);
+  if (only && String(d).trim().length <= 10) {
+    const [y, m, day] = only.split("-");
+    return `${Number(y)}.${Number(m)}.${Number(day)}`;
+  }
+  return new Date(d).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" });
+};
 const fmtdt = d => d ? new Date(d).toLocaleString("ko-KR") : "-";
 const WEEK_MS = 7 * 86400000;
 
@@ -304,8 +313,7 @@ async function fetchTeachers() {
 }
 
 function dday(due) {
-  if (!due) return null;
-  return Math.floor((new Date(due) - new Date()) / 86400000);
+  return ddayKst(due);
 }
 function ddayTag(due) {
   const d = dday(due);
@@ -355,20 +363,12 @@ function reservationDisplayStatus(res) {
 
 function fmtShort(d) {
   if (!d) return "-";
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return "-";
-  return `${dt.getMonth() + 1}/${dt.getDate()}`;
+  return formatYmdShort(d);
 }
 
 function fmtDateWeekday(d) {
   if (!d) return "-";
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return "-";
-  const days = ["일", "월", "화", "수", "목", "금", "토"];
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, "0");
-  const day = String(dt.getDate()).padStart(2, "0");
-  return `${y}.${m}.${day} (${days[dt.getDay()]})`;
+  return formatYmdWeekday(d);
 }
 
 function assigneeAvatarColor(name) {
@@ -1300,10 +1300,10 @@ function buildMobileBottomNav(me) {
   const admin = isItemAdmin(me) && !superA;
   if (superA || admin) {
     return [
+      { id: "notices", label: "공지", glyph: "notices" },
       { id: "dashboard", label: "대시보드", glyph: "dashboard" },
       { id: "items", label: "전체교구", glyph: "items" },
       { id: "rental-manage", label: "대여관리", glyph: "rental-manage" },
-      { id: "returns-approval", label: "반납관리", glyph: "returns-approval" },
       { id: "more", label: "더보기", glyph: "more" },
     ];
   }
@@ -2233,44 +2233,20 @@ function Modal({title,onClose,children,noPad,dismissible=true,center=false}) {
   }, []);
   const handleBackdrop = dismissible && onClose ? onClose : undefined;
   return (
-    <div style={{
-      position:"fixed",inset:0,
-      background:"rgba(15,23,42,0.5)",
-      backdropFilter:"blur(4px)",
-      zIndex:999,
-      display:"flex",
-      alignItems: center ? "center" : "flex-end",
-      justifyContent:"center",
-      padding: center ? 16 : 0,
-    }} onClick={handleBackdrop}>
-      <div style={{
-        position: center ? "fixed" : "relative",
-        top: center ? "50%" : undefined,
-        left: center ? "50%" : undefined,
-        transform: center ? "translate(-50%, -50%)" : undefined,
-        background:"#fff",
-        borderRadius: center ? 16 : "16px 16px 0 0",
-        width: center ? "min(96vw, 560px)" : "100%",
-        maxWidth:560,
-        maxHeight:"93vh",
-        overflow:"auto",
-        padding:noPad?"0":"24px 20px 40px",
-        boxShadow: center ? "0 24px 60px rgba(0,0,0,0.22)" : "0 -8px 40px rgba(0,0,0,0.15)",
-      }} onClick={e=>e.stopPropagation()}>
+    <div
+      className={`app-modal-backdrop${center ? " app-modal-backdrop--center" : ""}`}
+      onClick={handleBackdrop}
+    >
+      <div
+        className={`app-modal-sheet${center ? " app-modal-sheet--center" : ""}`}
+        style={{ padding: noPad ? 0 : undefined }}
+        onClick={e => e.stopPropagation()}
+      >
         {!noPad && (
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-            <div style={{fontSize:17,fontWeight:800,color:DS.textPrimary}}>{title}</div>
+          <div className="app-modal-sheet__head">
+            <div className="app-modal-sheet__title">{title}</div>
             {dismissible && onClose ? (
-            <button onClick={onClose} style={{
-              background:"#f1f5f9",
-              border:"none",
-              borderRadius:10,
-              padding:"7px 12px",
-              cursor:"pointer",
-              fontSize:14,
-              fontWeight:700,
-              color:DS.textSecondary,
-            }}>닫기</button>
+              <button type="button" className="app-modal-sheet__close" onClick={onClose}>닫기</button>
             ) : null}
           </div>
         )}
@@ -6582,8 +6558,8 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
         content: c,
         assignee_id: assignee==="all" ? null : assignee,
         priority: priority === "urgent" ? "urgent" : priority === "important" ? "important" : "normal",
-        start_date: start || null,
-        due_date: due || null,
+        start_date: toKstDateOnly(start),
+        due_date: toKstDateOnly(due),
         checklist: draftItems.map(it => ({ id: it.id, text: it.text, done: false })),
       });
       resetCompose();
@@ -6693,10 +6669,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
           <div className="admin-todo-table-head">
             <span>우선순위</span>
             <span>할 일 제목</span>
-            <span>담당자</span>
-            <span>마감일</span>
-            <span>진행상태</span>
-            <span>등록일</span>
+            <span>상세</span>
             <span aria-hidden/>
           </div>
           {shownTodos.map(t => {
@@ -6716,17 +6689,19 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
                       <span className="admin-todo-check-count">📄 {doneN}/{checklist.length}</span>
                     )}
                   </button>
-                  <span className="admin-todo-assignee">
-                    <span className="admin-todo-avatar" style={{ background: assigneeAvatarColor(who) }}>{(who || "?")[0]}</span>
-                    {who}
-                  </span>
-                  <span className={`admin-todo-due${overdue ? " is-overdue" : ""}`}>
-                    {t.due_date ? fmtDateWeekday(t.due_date) : "-"}
-                  </span>
-                  <span className={`admin-todo-status ${t.is_completed ? "is-done" : "is-active"}`}>
-                    {t.is_completed ? "완료" : "진행 중"}
-                  </span>
-                  <span className="admin-todo-created">{fmtDateWeekday(t.created_at)}</span>
+                  <div className="admin-todo-table-row__metas">
+                    <span className="admin-todo-assignee">
+                      <span className="admin-todo-avatar" style={{ background: assigneeAvatarColor(who) }}>{(who || "?")[0]}</span>
+                      {who}
+                    </span>
+                    <span className={`admin-todo-due${overdue ? " is-overdue" : ""}`}>
+                      {t.due_date ? fmtDateWeekday(t.due_date) : "-"}
+                    </span>
+                    <span className={`admin-todo-status ${t.is_completed ? "is-done" : "is-active"}`}>
+                      {t.is_completed ? "완료" : "진행 중"}
+                    </span>
+                    <span className="admin-todo-created">{fmtDateWeekday(t.created_at)}</span>
+                  </div>
                   <div className="admin-todo-more-wrap">
                     <button type="button" className="admin-todo-more-btn" aria-label="더보기" onClick={(e) => { e.stopPropagation(); setMenuId(menuId === t.id ? null : t.id); }}>⋮</button>
                     {menuId === t.id && (
@@ -6789,7 +6764,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
             <div className="admin-todo-add-controls" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
               <div>
                 <label style={fieldLabel}>우선순위</label>
-                <select value={priority} onChange={e=>setPriority(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%" }}>
+                <select value={priority} onChange={e=>setPriority(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}>
                   <option value="urgent">긴급</option>
                   <option value="important">중요</option>
                   <option value="normal">일반</option>
@@ -6797,18 +6772,18 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
               </div>
               <div>
                 <label style={fieldLabel}>담당자</label>
-                <select value={assignee} onChange={e=>setAssignee(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%" }}>
+                <select value={assignee} onChange={e=>setAssignee(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}>
                   <option value="all">담당: 전체</option>
                   {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               <div>
                 <label style={fieldLabel}>시작일</label>
-                <input type="date" value={start} max={due || undefined} onChange={e=>setStart(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%" }}/>
+                <input type="date" value={start} max={due || undefined} onChange={e=>setStart(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}/>
               </div>
               <div>
                 <label style={fieldLabel}>종료일</label>
-                <input type="date" value={due} min={start || undefined} onChange={e=>setDue(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%" }}/>
+                <input type="date" value={due} min={start || undefined} onChange={e=>setDue(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}/>
               </div>
             </div>
             <div style={fieldLabel}>하위 체크리스트 <span style={{ fontWeight:600, color:DS.textMuted }}>(선택)</span></div>
@@ -9458,8 +9433,8 @@ function HubPage({ me, onSelect, onLogout }) {
       content: content.trim(),
       assignee_id: assignee_id || null,
       priority: priority === "urgent" ? "urgent" : (priority === "important" ? "important" : (priority === "low" ? "low" : "normal")),
-      start_date: start_date || null,
-      due_date: due_date || null,
+      start_date: toKstDateOnly(start_date),
+      due_date: toKstDateOnly(due_date),
       checklist: Array.isArray(checklist) ? checklist : [],
       is_completed: false,
       created_by: me.id,
@@ -9896,8 +9871,8 @@ function EquipmentApp({ onBack, me, session }) {
       content: content.trim(),
       assignee_id: assignee_id || null,
       priority: priority === "urgent" ? "urgent" : (priority === "important" ? "important" : (priority === "low" ? "low" : "normal")),
-      start_date: start_date || null,
-      due_date: due_date || null,
+      start_date: toKstDateOnly(start_date),
+      due_date: toKstDateOnly(due_date),
       checklist: Array.isArray(checklist) ? checklist : [],
       is_completed: false,
       created_by: me.id,

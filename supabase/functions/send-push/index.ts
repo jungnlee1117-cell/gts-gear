@@ -29,7 +29,12 @@ function formatClassDate(dateStr) {
 
 /** KST 기준 N일 후 YYYY-MM-DD (0=오늘, 1=내일) */
 function kstYmd(addDays = 0) {
-  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" });
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
   const today = fmt.format(new Date());
   const [y, m, d] = today.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d + addDays));
