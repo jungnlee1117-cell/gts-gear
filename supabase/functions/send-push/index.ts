@@ -73,6 +73,27 @@ async function getItemAdminIds(client) {
   return (data || []).map((row) => row.id);
 }
 
+/** 할 일 대상: 스케줄 admin + 교구 관리자 */
+async function getTodoAdminIds(client) {
+  const { data } = await client
+    .from("teachers")
+    .select("id")
+    .eq("active", true)
+    .or("role.eq.superadmin,role.eq.admin,is_item_admin.eq.true");
+  return (data || []).map((row) => row.id);
+}
+
+async function canManageTodos(client, userId) {
+  const { data } = await client
+    .from("teachers")
+    .select("role, is_item_admin")
+    .eq("id", userId)
+    .maybeSingle();
+  return data?.role === "superadmin"
+    || data?.role === "admin"
+    || data?.is_item_admin === true;
+}
+
 async function getScheduleAdminIds(client) {
   const { data } = await client
     .from("teachers")
@@ -112,6 +133,7 @@ function consultationBrandLabel(brand) {
 
 const SERVICE_ROLE_EVENTS = new Set([
   "cron_return_due_reminders",
+  "todo_due_today",
 ]);
 
 function extractBearerToken(authHeader: string | null) {
@@ -331,6 +353,77 @@ async function runReturnDueReminders(adminClient, vapid) {
   return jsonResponse(summary);
 }
 
+/** 매일 KST 오늘 마감 할 일 → 담당자 + 슈퍼관리자 푸시 */
+async function runTodoDueTodayReminders(adminClient, vapid) {
+  const dueDate = kstYmd(0);
+  console.log("[send-push] cron todo due today", { dueDate });
+
+  const { data: rows, error } = await adminClient
+    .from("admin_todos")
+    .select("id, content, assignee_id, due_date, is_completed")
+    .eq("is_completed", false)
+    .eq("due_date", dueDate);
+
+  if (error) {
+    console.error("[send-push] admin_todos query failed", error.message);
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  const todos = rows || [];
+  if (!todos.length) {
+    const empty = { dueDate, todos: 0, sent: 0, failed: 0, results: [] };
+    console.log("[send-push] cron todo due today: none", empty);
+    return jsonResponse(empty);
+  }
+
+  const superIds = await getSuperAdminIds(adminClient);
+  const allAdminIds = await getTodoAdminIds(adminClient);
+
+  let totalSent = 0;
+  let totalFailed = 0;
+  const results: Array<{
+    todo_id: string;
+    content: string;
+    recipients: string[];
+    sent: number;
+  }> = [];
+
+  for (const todo of todos) {
+    const recipients = new Set<string>(superIds);
+    if (todo.assignee_id) {
+      recipients.add(todo.assignee_id);
+    } else {
+      for (const id of allAdminIds) recipients.add(id);
+    }
+    const teacherIds = [...recipients].filter(Boolean);
+    const titleText = String(todo.content || "").trim() || "할 일";
+    const result = await deliverPushNotifications(adminClient, vapid, "todo_due_today", {
+      teacherIds,
+      title: "할 일 마감",
+      body: `오늘 마감: ${titleText}`,
+      url: "/gear?page=notices",
+    });
+    totalSent += result.sent;
+    totalFailed += result.failed;
+    results.push({
+      todo_id: todo.id,
+      content: titleText,
+      recipients: teacherIds,
+      sent: result.sent,
+    });
+  }
+
+  const summary = {
+    dueDate,
+    todos: todos.length,
+    sent: totalSent,
+    failed: totalFailed,
+    results,
+  };
+  console.log("[send-push] cron todo due today complete", summary);
+  return jsonResponse(summary);
+}
+
 async function isScheduleSuperAdmin(client, userId) {
   const { data } = await client
     .from("teachers")
@@ -457,31 +550,38 @@ async function resolveNotification(event, payload, userId, adminClient) {
       };
     }
     case "task_assigned": {
-      if (!(await isItemAdmin(adminClient, userId))) {
+      if (!(await canManageTodos(adminClient, userId))) {
         return { error: "Forbidden", status: 403 };
       }
       const title = String(payload.title || "").trim() || "새 업무";
-      const teacherIds = payload.assignee_id
-        ? [payload.assignee_id]
-        : await getItemAdminIds(adminClient);
+      const pri = String(payload.priority || "").trim();
+      const priLabel = pri === "urgent" ? "긴급" : pri === "important" ? "중요" : pri === "normal" ? "일반" : "";
+      let teacherIds = payload.assignee_id
+        ? [String(payload.assignee_id)]
+        : await getTodoAdminIds(adminClient);
+      teacherIds = teacherIds.filter((id) => id && id !== userId);
       return {
         teacherIds,
-        title: "새 업무 배정",
-        body: `새 업무가 배정됐습니다: ${title}`,
-        url: "/gear",
+        title: "새 할 일",
+        body: priLabel
+          ? `[${priLabel}] ${title}`
+          : `새 할 일이 등록됐습니다: ${title}`,
+        url: "/gear?page=notices",
       };
     }
     case "task_item_completed": {
-      if (!(await isItemAdmin(adminClient, userId))) {
+      if (!(await canManageTodos(adminClient, userId))) {
         return { error: "Forbidden", status: 403 };
       }
       const actor = String(payload.actor_name || "").trim() || "담당자";
       const item = String(payload.item_text || "").trim() || "항목";
+      let teacherIds = await getTodoAdminIds(adminClient);
+      teacherIds = teacherIds.filter((id) => id && id !== userId);
       return {
-        teacherIds: await getSuperAdminIds(adminClient),
-        title: "업무 완료",
-        body: `${actor}님이 ${item}을(를) 완료했습니다`,
-        url: "/gear",
+        teacherIds,
+        title: "할 일 진행",
+        body: `${actor}님이 "${item}"을(를) 완료했습니다`,
+        url: "/gear?page=notices",
       };
     }
     case "consultation_requested": {
@@ -548,6 +648,9 @@ Deno.serve(async (req) => {
     if (isServiceRole && SERVICE_ROLE_EVENTS.has(event)) {
       if (event === "cron_return_due_reminders") {
         return await runReturnDueReminders(adminClient, vapid);
+      }
+      if (event === "todo_due_today") {
+        return await runTodoDueTodayReminders(adminClient, vapid);
       }
     }
 

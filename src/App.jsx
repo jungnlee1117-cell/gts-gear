@@ -360,6 +360,25 @@ function fmtShort(d) {
   return `${dt.getMonth() + 1}/${dt.getDate()}`;
 }
 
+function fmtDateWeekday(d) {
+  if (!d) return "-";
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return "-";
+  const days = ["일", "월", "화", "수", "목", "금", "토"];
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const day = String(dt.getDate()).padStart(2, "0");
+  return `${y}.${m}.${day} (${days[dt.getDay()]})`;
+}
+
+function assigneeAvatarColor(name) {
+  const palette = ["#16a34a", "#7c3aed", "#ea580c", "#2563eb", "#db2777", "#0891b2"];
+  let h = 0;
+  const s = String(name || "?");
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
+}
+
 function parseLocalDay(value) {
   if (!value) return null;
   const raw = String(value);
@@ -1194,6 +1213,7 @@ function buildSidebarNav(me) {
 
   if (superA) {
     return [
+      { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
       { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
       { type: "item", id: "my-gear-rotation", label: "이번 달 내 교구", glyph: "my-gear-rotation" },
       { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
@@ -1220,7 +1240,6 @@ function buildSidebarNav(me) {
       { type: "item", id: "accounts", label: "선생님관리", glyph: "accounts" },
       { type: "item", id: "stats", label: "통계", glyph: "stats" },
       { type: "item", id: "report", label: "리포트", glyph: "report" },
-      { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
       { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
       { type: "item", id: "data-export", label: "데이터 내보내기", glyph: "data-export" },
       { type: "item", id: "settings", label: "설정", glyph: "settings" },
@@ -1229,6 +1248,7 @@ function buildSidebarNav(me) {
 
   if (admin) {
     return [
+      { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
       { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
       { type: "item", id: "my-gear-rotation", label: "이번 달 내 교구", glyph: "my-gear-rotation" },
       { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
@@ -1248,7 +1268,6 @@ function buildSidebarNav(me) {
       { type: "item", id: "stats", label: "통계", glyph: "stats" },
       { type: "item", id: "report", label: "리포트", glyph: "report" },
       { type: "item", id: "items-qr", label: "QR관리", glyph: "items-qr" },
-      { type: "item", id: "notices", label: "공지사항", glyph: "notices" },
       { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
     ];
   }
@@ -2206,7 +2225,12 @@ function Txa2({label,...p}) {
   return <Fld label={label}><textarea {...p} style={{...inp,minHeight:72,resize:"vertical",...(p.style||{})}}/></Fld>;
 }
 
-function Modal({title,onClose,children,noPad,dismissible=true}) {
+function Modal({title,onClose,children,noPad,dismissible=true,center=false}) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev || ""; };
+  }, []);
   const handleBackdrop = dismissible && onClose ? onClose : undefined;
   return (
     <div style={{
@@ -2215,18 +2239,23 @@ function Modal({title,onClose,children,noPad,dismissible=true}) {
       backdropFilter:"blur(4px)",
       zIndex:999,
       display:"flex",
-      alignItems:"flex-end",
+      alignItems: center ? "center" : "flex-end",
       justifyContent:"center",
+      padding: center ? 16 : 0,
     }} onClick={handleBackdrop}>
       <div style={{
+        position: center ? "fixed" : "relative",
+        top: center ? "50%" : undefined,
+        left: center ? "50%" : undefined,
+        transform: center ? "translate(-50%, -50%)" : undefined,
         background:"#fff",
-        borderRadius:"16px 16px 0 0",
-        width:"100%",
+        borderRadius: center ? 16 : "16px 16px 0 0",
+        width: center ? "min(96vw, 560px)" : "100%",
         maxWidth:560,
         maxHeight:"93vh",
         overflow:"auto",
         padding:noPad?"0":"24px 20px 40px",
-        boxShadow:"0 -8px 40px rgba(0,0,0,0.15)",
+        boxShadow: center ? "0 24px 60px rgba(0,0,0,0.22)" : "0 -8px 40px rgba(0,0,0,0.15)",
       }} onClick={e=>e.stopPropagation()}>
         {!noPad && (
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
@@ -3884,7 +3913,7 @@ function HoldingsListView({ held, items, reqs, me, onForceReturn, onGoAll }) {
       </div>
 
       {/* 테이블 */}
-      <div style={{ flex:1, overflow:"auto", minHeight:0, padding:"0 24px" }}>
+      <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", minHeight:0, padding:"0 24px", overscrollBehavior:"contain", WebkitOverflowScrolling:"touch" }}>
         <div style={{ display:"grid", gridTemplateColumns:col, gap:12, padding:"10px 12px", fontSize:11, fontWeight:700, color:DS.textMuted, borderBottom:"1px solid #eef2f6", position:"sticky", top:0, background:"#fff", zIndex:1 }}>
           <span>교구명</span>
           <span style={{ textAlign:"right" }}>수량</span>
@@ -3997,14 +4026,24 @@ function TeacherHoldingsModal({ teacher, items, reqs, me, onForceReturn, onClose
     return [...new Set(locs)].slice(0,3).join(" · ");
   }, [teacher, reqs]);
 
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow || "";
+    };
+  }, []);
+
   return (
     <div onClick={onClose} style={{
       position:"fixed", inset:0, background:"rgba(15,23,42,0.5)", backdropFilter:"blur(4px)",
       zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:16,
+      overscrollBehavior:"none",
     }}>
       <div onClick={e=>e.stopPropagation()} className="teacher-holdings-modal" style={{
         background:"#fff", borderRadius:20, width:"min(96vw, 1000px)", maxHeight:"90vh",
         display:"flex", flexDirection:"column", boxShadow:"0 24px 60px rgba(0,0,0,0.22)", overflow:"hidden",
+        overscrollBehavior:"contain",
       }}>
         {/* 헤더 */}
         <div style={{ display:"flex", alignItems:"flex-start", gap:14, padding:"22px 24px 8px", flexShrink:0 }}>
@@ -4024,7 +4063,7 @@ function TeacherHoldingsModal({ teacher, items, reqs, me, onForceReturn, onClose
           </button>
         </div>
 
-        <div style={{ flex:1, minHeight:0, display:"flex" }}>
+        <div style={{ flex:1, minHeight:0, display:"flex", overflow:"hidden" }}>
           <HoldingsListView held={teacher.held} items={items} reqs={reqs} me={me} onForceReturn={onForceReturn} onGoAll={onGoAll}/>
         </div>
       </div>
@@ -6352,7 +6391,7 @@ function NoticeEditModal({ notice, onClose, onSave }) {
   };
 
   return (
-    <Modal title="공지 수정" onClose={onClose}>
+    <Modal title="공지 수정" onClose={onClose} center>
       <NoticeFormFields
         title={title}
         setTitle={setTitle}
@@ -6372,8 +6411,8 @@ function NoticeEditModal({ notice, onClose, onSave }) {
   );
 }
 
-function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemComplete, readOnly = false }) {
-  const [expanded, setExpanded] = useState(false);
+function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemComplete, readOnly = false, forceExpanded = false }) {
+  const [expanded, setExpanded] = useState(forceExpanded);
   const [subText, setSubText] = useState("");
 
   const checklist = Array.isArray(todo.checklist) ? todo.checklist : [];
@@ -6382,7 +6421,7 @@ function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemC
   const pct = total ? Math.round((doneN / total) * 100) : 0;
 
   const done = todo.is_completed;
-  const priority = todo.priority || "normal";
+  const priority = todo.priority === "urgent" ? "urgent" : todo.priority === "important" ? "important" : "normal";
   const dd = todo.due_date ? ddayTag(todo.due_date) : null;
   const expired = !done && todo.due_date && dday(todo.due_date) < 0;
 
@@ -6417,8 +6456,8 @@ function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemC
         <input type="checkbox" checked={done} disabled={readOnly} onChange={e=>!readOnly && onToggle(todo.id, e.target.checked)} style={{ width:18, height:18, cursor:readOnly?"default":"pointer", accentColor:DS.primary, flexShrink:0 }}/>
         <button type="button" onClick={()=>setExpanded(v=>!v)} style={{ flex:1, minWidth:0, textAlign:"left", background:"transparent", border:"none", cursor:"pointer", fontFamily:"inherit", padding:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, opacity:done?0.5:1 }}>
-            {priority==="urgent" && <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"#dc2626", borderRadius:99, padding:"2px 8px", flexShrink:0 }}>🔴 긴급</span>}
-            {priority==="low" && <span style={{ fontSize:11, fontWeight:700, color:"#64748b", background:"#f1f5f9", borderRadius:99, padding:"2px 8px", flexShrink:0 }}>낮음</span>}
+            {priority==="urgent" && <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"#dc2626", borderRadius:99, padding:"2px 8px", flexShrink:0 }}>긴급</span>}
+            {priority==="important" && <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"#ea580c", borderRadius:99, padding:"2px 8px", flexShrink:0 }}>중요</span>}
             <span style={{ fontSize:14, fontWeight:600, color:"#111827", textDecoration:done?"line-through":"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }}>{todo.content}</span>
             {total>0 && <span style={{ fontSize:12, fontWeight:800, color:pct===100?DS.primary:DS.textSecondary, flexShrink:0 }}>{doneN}/{total}</span>}
           </div>
@@ -6485,10 +6524,14 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   const [start, setStart] = useState("");
   const [due, setDue] = useState("");
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState("todo");
+  const [tab, setTab] = useState("all"); // all | active | done
+  const [filterAssignee, setFilterAssignee] = useState("all");
   const [composing, setComposing] = useState(false);
   const [draftItems, setDraftItems] = useState([]);
   const [subDraft, setSubDraft] = useState("");
+  const [visibleCount, setVisibleCount] = useState(6);
+  const [menuId, setMenuId] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
 
   const overdueN = useMemo(() => (ris || []).filter(r => ["rented","partial_returned"].includes(r.status) && dday(r.due_date)!==null && dday(r.due_date)<0).length, [ris]);
   const pendingN = useMemo(() => (reqs || []).filter(r => r.status==="pending").length, [reqs]);
@@ -6510,8 +6553,6 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
     });
   }, [todos]);
 
-  const incompleteCount = autoItems.length + visibleTodos.filter(t => !t.is_completed).length;
-
   const assigneeOptions = useMemo(
     () => (teachers || []).filter(t => isItemAdmin(t) || t.role==="admin"),
     [teachers]
@@ -6523,18 +6564,12 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
     setDraftItems([]); setSubDraft(""); setComposing(false);
   };
 
-  const startCompose = () => {
-    if (!content.trim()) return;
-    setComposing(true);
-  };
-
   const addDraftItem = () => {
     const txt = subDraft.trim();
     if (!txt) return;
     setDraftItems(prev => [...prev, { id: (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`), text: txt }]);
     setSubDraft("");
   };
-
   const removeDraftItem = (id) => setDraftItems(prev => prev.filter(it => it.id !== id));
 
   const submit = async () => {
@@ -6546,7 +6581,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
       await onAdd({
         content: c,
         assignee_id: assignee==="all" ? null : assignee,
-        priority,
+        priority: priority === "urgent" ? "urgent" : priority === "important" ? "important" : "normal",
         start_date: start || null,
         due_date: due || null,
         checklist: draftItems.map(it => ({ id: it.id, text: it.text, done: false })),
@@ -6559,170 +6594,254 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
     void sendPushEvent(supabase, "task_item_completed", { actor_name: me?.name || "관리자", item_text: text });
   };
 
-  const periodText = (t) => {
-    if (t.start_date && t.due_date) return `${fmtShort(t.start_date)} ~ ${fmtShort(t.due_date)}`;
-    if (t.due_date) return `~ ${fmtShort(t.due_date)}`;
-    if (t.start_date) return `${fmtShort(t.start_date)} ~`;
-    return null;
-  };
+  const priRank = { urgent: 0, important: 1, normal: 2, low: 3 };
+  const sortedTodos = useMemo(() => [...visibleTodos].sort((a, b) => {
+    if (!!a.is_completed !== !!b.is_completed) return a.is_completed ? 1 : -1;
+    return (priRank[a.priority] ?? 1) - (priRank[b.priority] ?? 1);
+  }), [visibleTodos]);
 
-  const priRank = { urgent: 0, normal: 1, low: 2 };
-  const openTodos = visibleTodos.filter(t => !t.is_completed)
-    .slice()
-    .sort((a, b) => (priRank[a.priority] ?? 1) - (priRank[b.priority] ?? 1));
-  const doneTodos = visibleTodos.filter(t => t.is_completed);
-  const todoTabEmpty = autoItems.length===0 && openTodos.length===0;
+  const openTodos = sortedTodos.filter(t => !t.is_completed);
+  const doneTodos = sortedTodos.filter(t => t.is_completed);
+  const allCount = autoItems.length + sortedTodos.length;
+  const activeCount = autoItems.length + openTodos.length;
+  const doneCount = doneTodos.length;
+
+  const filteredTodos = useMemo(() => {
+    let list = tab === "active" ? openTodos : tab === "done" ? doneTodos : sortedTodos;
+    if (filterAssignee !== "all") {
+      list = list.filter(t => filterAssignee === "unassigned" ? !t.assignee_id : t.assignee_id === filterAssignee);
+    }
+    return list;
+  }, [tab, openTodos, doneTodos, sortedTodos, filterAssignee]);
+
+  const shownTodos = filteredTodos.slice(0, visibleCount);
+  const hasMore = filteredTodos.length > visibleCount;
+
+  useEffect(() => {
+    if (!composing) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev || ""; };
+  }, [composing]);
 
   const inputStyle = {
     padding:"10px 12px", borderRadius:10, border:"1px solid #e8ecee",
     fontSize:13, outline:"none", fontFamily:"inherit", background:"#fff", color:DS.textPrimary, boxSizing:"border-box",
   };
+  const fieldLabel = { fontSize:12, fontWeight:700, color:DS.textSecondary, marginBottom:6, display:"block" };
 
-  const renderTodoRow = (t) => (
-    <AdminTodoRow
-      key={t.id}
-      todo={t}
-      who={t.assignee_id ? assigneeName(t.assignee_id) : "전체"}
-      period={periodText(t)}
-      onToggle={onToggle}
-      onDelete={onDelete}
-      onUpdate={onUpdate}
-      onItemComplete={notifyItemComplete}
-      readOnly={readOnly}
-    />
-  );
-
-  const tabBtnStyle = (active) => ({
-    padding:"7px 14px", borderRadius:9, border:"none", cursor:"pointer", fontFamily:"inherit",
-    fontSize:13, fontWeight:700, background:active?"#fff":"transparent", color:active?DS.textPrimary:DS.textSecondary,
-    boxShadow:active?"0 1px 2px rgba(15,23,42,.08)":"none", transition:"all .18s", display:"inline-flex", alignItems:"center", gap:6,
-  });
-  const tabCount = (n, active) => (
-    <span style={{ background:active?DS.primary:"#e2e8f0", color:active?"#fff":DS.textSecondary, borderRadius:99, fontSize:11, fontWeight:800, padding:"1px 7px", minWidth:18, textAlign:"center" }}>{n}</span>
-  );
+  const priMeta = (p) => {
+    if (p === "urgent") return { label: "긴급", cls: "is-urgent" };
+    if (p === "important") return { label: "중요", cls: "is-important" };
+    if (p === "low") return { label: "낮음", cls: "is-low" };
+    return { label: "일반", cls: "is-normal" };
+  };
 
   return (
-    <PanelSection
-      title={
-        <span style={{ display:"inline-flex", alignItems:"center", gap:8 }}>
-          할 일
-          {incompleteCount>0 && (
-            <span style={{ background:DS.primary, color:"#fff", borderRadius:99, fontSize:12, fontWeight:800, padding:"2px 9px", minWidth:20, textAlign:"center" }}>{incompleteCount}</span>
-          )}
-        </span>
-      }
-    >
-      <div style={{ display:"inline-flex", gap:4, background:"#f1f5f9", padding:4, borderRadius:11, marginBottom:16 }}>
-        <button type="button" onClick={()=>setTab("todo")} style={tabBtnStyle(tab==="todo")}>
-          할 일 {incompleteCount>0 && tabCount(incompleteCount, tab==="todo")}
-        </button>
-        <button type="button" onClick={()=>setTab("done")} style={tabBtnStyle(tab==="done")}>
-          완료 {doneTodos.length>0 && tabCount(doneTodos.length, tab==="done")}
-        </button>
+    <div className="admin-todo-table-card">
+      <div className="admin-todo-table-card__head">
+        <div className="admin-todo-table-card__title-row">
+          <span className="admin-todo-table-card__icon" aria-hidden>✓</span>
+          <h2 className="admin-todo-table-card__title">할 일</h2>
+          {allCount > 0 && <span className="admin-todo-table-card__count">{allCount}</span>}
+        </div>
+        <div className="admin-todo-table-card__toolbar">
+          <div className="admin-todo-tabs">
+            {[
+              { id: "all", label: "전체", n: allCount, tone: "green" },
+              { id: "active", label: "진행 중", n: activeCount, tone: "blue" },
+              { id: "done", label: "완료", n: doneCount, tone: "gray" },
+            ].map(t => (
+              <button key={t.id} type="button" className={`admin-todo-tab admin-todo-tab--${t.tone}${tab===t.id?" is-active":""}`} onClick={() => { setTab(t.id); setVisibleCount(6); }}>
+                {t.label} <span>{t.n}</span>
+              </button>
+            ))}
+          </div>
+          <div className="admin-todo-table-card__right">
+            <select value={filterAssignee} onChange={e => { setFilterAssignee(e.target.value); setVisibleCount(6); }} className="admin-todo-assignee-filter">
+              <option value="all">전체 담당자</option>
+              <option value="unassigned">담당: 전체</option>
+              {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            {!readOnly && (
+              <button type="button" className="admin-todo-add-btn" onClick={() => setComposing(true)}>+ 할 일 추가</button>
+            )}
+          </div>
+        </div>
       </div>
 
-      {tab==="todo" ? (
-        <div key="todo" className="admin-todo-fade">
-          {todoTabEmpty ? (
-            <div style={{ textAlign:"center", padding:"28px 16px", color:DS.textSecondary, fontSize:14, fontWeight:600 }}>
-              처리할 업무가 없습니다 ✅
-            </div>
-          ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
-              {autoItems.map(a => (
-                <button key={a.key} type="button" onClick={()=>setPage(a.page)} className="admin-todo-row" style={{
-                  display:"flex", alignItems:"center", gap:12, width:"100%", textAlign:"left",
-                  padding:"14px 16px", borderRadius:12, border:"1px solid #eef2f6", borderLeft:`4px solid ${a.color}`,
-                  background:a.bg, cursor:"pointer", fontFamily:"inherit", transition:"background .15s",
-                }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:14, fontWeight:700, color:"#111827" }}>{a.label}</div>
-                    <div style={{ fontSize:12, color:DS.textSecondary, marginTop:2 }}>{a.sub}</div>
-                  </div>
-                  <span style={{ color:"#cbd5e1", fontSize:18 }}>›</span>
-                </button>
-              ))}
-              {openTodos.map(renderTodoRow)}
-            </div>
-          )}
+      {tab !== "done" && autoItems.length > 0 && filterAssignee === "all" && (
+        <div className="admin-todo-auto-list">
+          {autoItems.map(a => (
+            <button key={a.key} type="button" onClick={() => setPage(a.page)} className="admin-todo-auto-row" style={{ borderLeftColor: a.color, background: a.bg }}>
+              <div>
+                <div className="admin-todo-auto-row__title">{a.label}</div>
+                <div className="admin-todo-auto-row__sub">{a.sub}</div>
+              </div>
+              <span>›</span>
+            </button>
+          ))}
+        </div>
+      )}
 
-          {/* 할 일 추가 */}
-          {!readOnly && (
-          <div className="admin-todo-add" style={{ display:"flex", flexDirection:"column", gap:8 }}>
+      {shownTodos.length === 0 && (tab === "done" || autoItems.length === 0 || filterAssignee !== "all") ? (
+        <div className="admin-todo-table-empty">
+          {tab === "done" ? "완료된 항목이 없습니다" : "처리할 업무가 없습니다 ✅"}
+        </div>
+      ) : shownTodos.length > 0 ? (
+        <div className="admin-todo-table-wrap">
+          <div className="admin-todo-table-head">
+            <span>우선순위</span>
+            <span>할 일 제목</span>
+            <span>담당자</span>
+            <span>마감일</span>
+            <span>진행상태</span>
+            <span>등록일</span>
+            <span aria-hidden/>
+          </div>
+          {shownTodos.map(t => {
+            const who = t.assignee_id ? assigneeName(t.assignee_id) : "전체";
+            const checklist = Array.isArray(t.checklist) ? t.checklist : [];
+            const doneN = checklist.filter(c => c.done).length;
+            const pri = priMeta(t.priority);
+            const overdue = !t.is_completed && t.due_date && dday(t.due_date) < 0;
+            const expanded = expandedId === t.id;
+            return (
+              <div key={t.id} className="admin-todo-table-block">
+                <div className={`admin-todo-table-row${t.is_completed ? " is-done" : ""}`}>
+                  <span className={`admin-todo-pri ${pri.cls}`}><i/><span>{pri.label}</span></span>
+                  <button type="button" className="admin-todo-table-row__title" onClick={() => setExpandedId(expanded ? null : t.id)}>
+                    <span>{t.content}</span>
+                    {checklist.length > 0 && (
+                      <span className="admin-todo-check-count">📄 {doneN}/{checklist.length}</span>
+                    )}
+                  </button>
+                  <span className="admin-todo-assignee">
+                    <span className="admin-todo-avatar" style={{ background: assigneeAvatarColor(who) }}>{(who || "?")[0]}</span>
+                    {who}
+                  </span>
+                  <span className={`admin-todo-due${overdue ? " is-overdue" : ""}`}>
+                    {t.due_date ? fmtDateWeekday(t.due_date) : "-"}
+                  </span>
+                  <span className={`admin-todo-status ${t.is_completed ? "is-done" : "is-active"}`}>
+                    {t.is_completed ? "완료" : "진행 중"}
+                  </span>
+                  <span className="admin-todo-created">{fmtDateWeekday(t.created_at)}</span>
+                  <div className="admin-todo-more-wrap">
+                    <button type="button" className="admin-todo-more-btn" aria-label="더보기" onClick={(e) => { e.stopPropagation(); setMenuId(menuId === t.id ? null : t.id); }}>⋮</button>
+                    {menuId === t.id && (
+                      <div className="admin-todo-menu">
+                        {!readOnly && (
+                          <button type="button" onClick={() => { onToggle(t.id, !t.is_completed); setMenuId(null); }}>
+                            {t.is_completed ? "진행 중으로" : "완료 처리"}
+                          </button>
+                        )}
+                        <button type="button" onClick={() => { setExpandedId(t.id); setMenuId(null); }}>하위 항목</button>
+                        {!readOnly && (
+                          <button type="button" className="is-danger" onClick={() => { onDelete(t.id); setMenuId(null); }}>삭제</button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {expanded && (
+                  <div className="admin-todo-table-expand">
+                    <AdminTodoRow
+                      todo={t}
+                      who={who}
+                      period={null}
+                      onToggle={onToggle}
+                      onDelete={onDelete}
+                      onUpdate={onUpdate}
+                      onItemComplete={notifyItemComplete}
+                      readOnly={readOnly}
+                      forceExpanded
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {hasMore && (
+        <button type="button" className="admin-todo-more-footer" onClick={() => setVisibleCount(c => c + 6)}>
+          더보기 ∨
+        </button>
+      )}
+
+      {!readOnly && composing && (
+        <div className="admin-todo-modal-backdrop" onClick={resetCompose}>
+          <div className="admin-todo-modal-card" onClick={e => e.stopPropagation()}>
+            <div className="admin-todo-modal-card__head">
+              <div className="admin-todo-modal-card__title">할 일 추가</div>
+              <button type="button" className="admin-todo-modal-card__close" onClick={resetCompose}>닫기</button>
+            </div>
+            <label style={fieldLabel}>할 일 제목</label>
             <input
               value={content}
               onChange={e=>setContent(e.target.value)}
-              onKeyDown={e=>{ if(e.key==="Enter" && !composing) startCompose(); }}
               placeholder="할 일 제목 입력..."
-              style={{ ...inputStyle, width:"100%" }}
+              style={{ ...inputStyle, width:"100%", marginBottom:12 }}
+              autoFocus
             />
-            <div className="admin-todo-add-controls" style={{ display:"flex", flexWrap:"wrap", gap:8, alignItems:"center" }}>
-              <select value={priority} onChange={e=>setPriority(e.target.value)} title="우선순위" style={{ ...inputStyle, cursor:"pointer", flex:"1 1 108px" }}>
-                <option value="normal">일반</option>
-                <option value="urgent">🔴 긴급</option>
-                <option value="low">낮음</option>
-              </select>
-              <select value={assignee} onChange={e=>setAssignee(e.target.value)} title="담당자" style={{ ...inputStyle, cursor:"pointer", flex:"1 1 120px" }}>
-                <option value="all">담당: 전체</option>
-                {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-              <input type="date" value={start} max={due || undefined} onChange={e=>setStart(e.target.value)} title="시작일" style={{ ...inputStyle, cursor:"pointer", flex:"1 1 130px" }}/>
-              <input type="date" value={due} min={start || undefined} onChange={e=>setDue(e.target.value)} title="종료일" style={{ ...inputStyle, cursor:"pointer", flex:"1 1 130px" }}/>
-              {!composing && <Btn onClick={startCompose} disabled={!content.trim()}>추가</Btn>}
-            </div>
-
-            {composing && (
-              <div className="admin-todo-compose" style={{ border:"1px dashed #d7dee6", borderRadius:12, padding:14, background:"#fafbfc", display:"flex", flexDirection:"column", gap:8 }}>
-                <div style={{ fontSize:12, fontWeight:700, color:DS.textSecondary }}>하위 항목 <span style={{ fontWeight:600, color:DS.textMuted }}>(선택)</span></div>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <input
-                    value={subDraft}
-                    onChange={e=>setSubDraft(e.target.value)}
-                    onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addDraftItem(); } }}
-                    placeholder="+ 항목 추가..."
-                    autoFocus
-                    style={{ ...inputStyle, flex:1, minWidth:0 }}
-                  />
-                  <Btn sm onClick={addDraftItem} disabled={!subDraft.trim()}>+</Btn>
-                </div>
-                {draftItems.map(it => (
-                  <div key={it.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"4px 2px" }}>
-                    <input type="checkbox" disabled checked={false} readOnly style={{ width:16, height:16, accentColor:DS.primary, flexShrink:0 }}/>
-                    <span style={{ flex:1, minWidth:0, fontSize:13, color:"#374151" }}>{it.text}</span>
-                    <button type="button" onClick={()=>removeDraftItem(it.id)} aria-label="항목 삭제" style={{ width:24, height:24, borderRadius:7, border:"none", background:"transparent", color:DS.textMuted, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                    </button>
-                  </div>
-                ))}
-                <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:4 }}>
-                  <Btn ghost onClick={resetCompose} disabled={saving}>취소</Btn>
-                  <Btn onClick={submit} disabled={saving || !content.trim()}>{saving ? "저장 중..." : "저장"}</Btn>
-                </div>
+            <div className="admin-todo-add-controls" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+              <div>
+                <label style={fieldLabel}>우선순위</label>
+                <select value={priority} onChange={e=>setPriority(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%" }}>
+                  <option value="urgent">긴급</option>
+                  <option value="important">중요</option>
+                  <option value="normal">일반</option>
+                </select>
               </div>
-            )}
+              <div>
+                <label style={fieldLabel}>담당자</label>
+                <select value={assignee} onChange={e=>setAssignee(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%" }}>
+                  <option value="all">담당: 전체</option>
+                  {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={fieldLabel}>시작일</label>
+                <input type="date" value={start} max={due || undefined} onChange={e=>setStart(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%" }}/>
+              </div>
+              <div>
+                <label style={fieldLabel}>종료일</label>
+                <input type="date" value={due} min={start || undefined} onChange={e=>setDue(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%" }}/>
+              </div>
+            </div>
+            <div style={fieldLabel}>하위 체크리스트 <span style={{ fontWeight:600, color:DS.textMuted }}>(선택)</span></div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+              <input
+                value={subDraft}
+                onChange={e=>setSubDraft(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addDraftItem(); } }}
+                placeholder="+ 항목 추가..."
+                style={{ ...inputStyle, flex:1, minWidth:0 }}
+              />
+              <Btn sm onClick={addDraftItem} disabled={!subDraft.trim()}>+</Btn>
+            </div>
+            {draftItems.map(it => (
+              <div key={it.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"4px 2px" }}>
+                <input type="checkbox" disabled checked={false} readOnly style={{ width:16, height:16 }}/>
+                <span style={{ flex:1, fontSize:13 }}>{it.text}</span>
+                <button type="button" onClick={()=>removeDraftItem(it.id)} aria-label="삭제" style={{ border:"none", background:"transparent", cursor:"pointer", color:DS.textMuted }}>×</button>
+              </div>
+            ))}
+            <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:14 }}>
+              <Btn ghost onClick={resetCompose} disabled={saving}>취소</Btn>
+              <Btn onClick={submit} disabled={saving || !content.trim()}>{saving ? "저장 중..." : "저장"}</Btn>
+            </div>
           </div>
-          )}
-        </div>
-      ) : (
-        <div key="done" className="admin-todo-fade">
-          {doneTodos.length===0 ? (
-            <div style={{ textAlign:"center", padding:"28px 16px", color:DS.textSecondary, fontSize:14, fontWeight:600 }}>
-              완료된 항목이 없습니다
-            </div>
-          ) : (
-            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {doneTodos.map(renderTodoRow)}
-            </div>
-          )}
         </div>
       )}
-    </PanelSection>
+    </div>
   );
 }
 
 function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris, rets, setPage, onItemClick, teachers, adminTodos, onAddTodo, onToggleTodo, onDeleteTodo, onUpdateTodo }) {
-  const canManage = isGearPlatformAdmin(me);
-  const isMobile = useMediaQuery("(max-width: 767px)");
+  const canManage = isGearPlatformAdmin(me) || isItemAdmin(me);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [kind, setKind] = useState("normal");
@@ -6735,6 +6854,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   const [viewNotice, setViewNotice] = useState(null);
   const [feedItems, setFeedItems] = useState([]);
   const [feedLoading, setFeedLoading] = useState(true);
+  const [feedTick, setFeedTick] = useState(0);
 
   const resetComposeForm = useCallback(() => {
     setTitle("");
@@ -6743,6 +6863,10 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
     setEventDate("");
     setEventTime("");
     setEventLocation("");
+  }, []);
+
+  const refreshFeed = useCallback(() => {
+    setFeedTick(t => t + 1);
   }, []);
 
   useEffect(() => {
@@ -6756,7 +6880,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         if (!cancelled) setFeedLoading(false);
       });
     return () => { cancelled = true; };
-  }, [notices]);
+  }, [notices, feedTick]);
 
   const handleAdd = async () => {
     if (!title.trim()) return alert("제목을 입력하세요");
@@ -6784,34 +6908,22 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         alertCount={alertCount}
       />
 
-      {canManage && isMobile ? (
-        <div className="notice-compose-mobile-bar">
-          <Btn full onClick={() => setComposeOpen(true)}>공지 작성</Btn>
-        </div>
-      ) : null}
-
-      {canManage && !isMobile ? (
-        <PanelSection title="공지 작성">
-          <NoticeFormFields
-            title={title}
-            setTitle={setTitle}
-            body={body}
-            setBody={setBody}
-            kind={kind}
-            setKind={setKind}
-            eventDate={eventDate}
-            setEventDate={setEventDate}
-            eventTime={eventTime}
-            setEventTime={setEventTime}
-            eventLocation={eventLocation}
-            setEventLocation={setEventLocation}
-          />
-          <Btn full onClick={handleAdd} disabled={saving}>{saving ? "등록 중..." : "공지 등록"}</Btn>
-        </PanelSection>
-      ) : null}
+      <div className="notices-hub-top notices-hub-top--unified">
+        <UnifiedNoticesFeed
+          items={feedItems}
+          loading={feedLoading}
+          variant="table"
+          onSelectNotice={setViewNotice}
+          canManage={canManage}
+          onEditNotice={setEditNotice}
+          onDeleteNotice={onDelete}
+          onExceptionMutated={refreshFeed}
+          onCompose={canManage ? () => setComposeOpen(true) : undefined}
+        />
+      </div>
 
       {canManage && composeOpen ? (
-        <Modal title="공지 작성" onClose={() => setComposeOpen(false)}>
+        <Modal title="공지 작성" onClose={() => setComposeOpen(false)} center>
           <NoticeFormFields
             title={title}
             setTitle={setTitle}
@@ -6830,19 +6942,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         </Modal>
       ) : null}
 
-      <div className="notices-hub-top notices-hub-top--unified">
-        <UnifiedNoticesFeed
-          items={feedItems}
-          loading={feedLoading}
-          previewCount={8}
-          onSelectNotice={setViewNotice}
-          canManage={canManage}
-          onEditNotice={setEditNotice}
-          onDeleteNotice={onDelete}
-        />
-      </div>
-
-      {isItemAdmin(me) && (
+      {canManage && (
         <AdminTodoSection
           me={me}
           teachers={teachers}
@@ -7717,6 +7817,15 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
 
   const openTeacher=(s)=>{setSelected(s);setModalTab("current");};
 
+  useEffect(() => {
+    if (!selected) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow || "";
+    };
+  }, [selected]);
+
   const statCard=(id,label,value,iconBg,iconColor,filterId,iconMark)=>{
     const on=filter===filterId;
     return(
@@ -7998,8 +8107,9 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
             background:"#fff",borderRadius:20,width:"min(96vw, 1000px)",
             maxHeight:"88vh",overflow:"hidden",display:"flex",flexDirection:"column",
             boxShadow:"0 24px 48px rgba(0,0,0,0.18)",
+            overscrollBehavior:"contain",
           }} onClick={e=>e.stopPropagation()}>
-            <div style={{padding:"20px 22px 0",borderBottom:"1px solid #f1f5f9"}}>
+            <div style={{padding:"20px 22px 0",borderBottom:"1px solid #f1f5f9",flexShrink:0}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
                 <div>
                   <div style={{fontSize:18,fontWeight:700,color:selected.hasOverdue?"#dc2626":DS.textPrimary}}>
@@ -8030,7 +8140,7 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
             </div>
 
             {modalTab==="current" ? (
-              <div style={{flex:1,minHeight:0,display:"flex"}}>
+              <div style={{flex:1,minHeight:0,display:"flex",overflow:"hidden"}}>
                 <HoldingsListView
                   held={selected.current.map(c=>c.ri)}
                   items={items}
@@ -9347,7 +9457,7 @@ function HubPage({ me, onSelect, onLogout }) {
     const row = {
       content: content.trim(),
       assignee_id: assignee_id || null,
-      priority: priority || "normal",
+      priority: priority === "urgent" ? "urgent" : (priority === "important" ? "important" : (priority === "low" ? "low" : "normal")),
       start_date: start_date || null,
       due_date: due_date || null,
       checklist: Array.isArray(checklist) ? checklist : [],
@@ -9358,9 +9468,11 @@ function HubPage({ me, onSelect, onLogout }) {
     const { data, error } = await supabase.from("admin_todos").insert(row).select().single();
     if (error) { alert(error.message || "할 일 추가에 실패했습니다."); return; }
     setTodos(prev => [data, ...prev]);
-    if (assignee_id) {
-      void sendPushEvent(supabase, "task_assigned", { assignee_id, title: row.content });
-    }
+    void sendPushEvent(supabase, "task_assigned", {
+      assignee_id: assignee_id || null,
+      title: row.content,
+      priority: row.priority,
+    });
   };
 
   const toggleTodo = async (id, isCompleted) => {
@@ -9783,7 +9895,7 @@ function EquipmentApp({ onBack, me, session }) {
     const row = {
       content: content.trim(),
       assignee_id: assignee_id || null,
-      priority: priority || "normal",
+      priority: priority === "urgent" ? "urgent" : (priority === "important" ? "important" : (priority === "low" ? "low" : "normal")),
       start_date: start_date || null,
       due_date: due_date || null,
       checklist: Array.isArray(checklist) ? checklist : [],
@@ -9794,9 +9906,11 @@ function EquipmentApp({ onBack, me, session }) {
     const { data, error } = await supabase.from("admin_todos").insert(row).select().single();
     if (error) { alert(error.message || "할 일 추가에 실패했습니다."); return; }
     setAdminTodos(prev => [data, ...prev]);
-    if (assignee_id) {
-      void sendPushEvent(supabase, "task_assigned", { assignee_id, title: row.content });
-    }
+    void sendPushEvent(supabase, "task_assigned", {
+      assignee_id: assignee_id || null,
+      title: row.content,
+      priority: row.priority,
+    });
   };
 
   const toggleAdminTodo = async (id, isCompleted) => {

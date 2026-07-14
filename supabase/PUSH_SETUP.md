@@ -123,6 +123,19 @@ supabase/push_cron_return_due.sql
 
 Dashboard → Database → Extensions에서 **pg_cron**, **pg_net** 활성화 필요.
 
+## 6. 할 일 당일 마감 알림 (pg_cron)
+
+SQL Editor에서 실행 (Service Role Key 교체):
+
+```
+supabase/push_cron_todo_due_today.sql
+```
+
+- 매일 **UTC 23:30** (= KST **08:30**) `send-push` 호출 (`todo_due_today`)
+- 오늘(`due_date`) 마감 · 미완료 할 일 → 담당자 + 슈퍼관리자 푸시
+- 담당자 미지정(전체)이면 관리자 전체 + 슈퍼관리자
+- 메시지: `오늘 마감: [할 일 제목]`
+
 ## 문제 해결
 
 - 콘솔 `[push] send-push: 전송 0건 — 수신자 push 구독 없음` → **관리자 계정**으로 앱에 로그인 후「알림 허용」필수

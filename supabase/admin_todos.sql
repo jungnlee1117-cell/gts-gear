@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS public.admin_todos (
   assignee_id uuid REFERENCES public.teachers(id) ON DELETE SET NULL,
   start_date date,
   due_date date,           -- 기간 종료일 (D-day 기준)
-  priority text NOT NULL DEFAULT 'normal' CHECK (priority IN ('urgent', 'normal', 'low')),
+  priority text NOT NULL DEFAULT 'normal' CHECK (priority IN ('urgent', 'important', 'normal', 'low')),
   checklist jsonb NOT NULL DEFAULT '[]'::jsonb,  -- 하위 체크리스트 [{id,text,done}]
   is_completed boolean NOT NULL DEFAULT false,
   completed_at timestamptz,
@@ -23,9 +23,21 @@ CREATE TABLE IF NOT EXISTS public.admin_todos (
 ALTER TABLE public.admin_todos ADD COLUMN IF NOT EXISTS start_date date;
 ALTER TABLE public.admin_todos ADD COLUMN IF NOT EXISTS checklist jsonb NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE public.admin_todos ADD COLUMN IF NOT EXISTS priority text NOT NULL DEFAULT 'normal';
-DO $$ BEGIN
-  ALTER TABLE public.admin_todos ADD CONSTRAINT admin_todos_priority_chk CHECK (priority IN ('urgent', 'normal', 'low'));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- 우선순위: urgent(긴급) / important(중요) / normal(일반) / low(낮음)
+UPDATE public.admin_todos
+SET priority = CASE
+  WHEN priority = 'urgent' THEN 'urgent'
+  WHEN priority = 'important' THEN 'important'
+  WHEN priority = 'low' THEN 'low'
+  ELSE 'normal'
+END;
+
+ALTER TABLE public.admin_todos DROP CONSTRAINT IF EXISTS admin_todos_priority_chk;
+ALTER TABLE public.admin_todos
+  ADD CONSTRAINT admin_todos_priority_chk CHECK (priority IN ('urgent', 'important', 'normal', 'low'));
+
+COMMENT ON COLUMN public.admin_todos.priority IS 'urgent=긴급, important=중요, normal=일반, low=낮음';
 
 CREATE INDEX IF NOT EXISTS idx_admin_todos_open
   ON public.admin_todos (is_completed, created_at DESC);

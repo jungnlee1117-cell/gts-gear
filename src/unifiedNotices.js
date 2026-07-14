@@ -94,7 +94,7 @@ function classifyNotice(notice) {
 function classifyException(ex) {
   const note = ex.note?.trim() || "";
   if (ex.exception_type === "event") {
-    return { type: "institution", title: note || "행사" };
+    return { type: "event", title: note || "행사" };
   }
   if (ex.exception_type === "cancelled") {
     if (/방학/.test(note)) {
