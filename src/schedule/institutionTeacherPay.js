@@ -1,4 +1,4 @@
-import { estimateTeacherPayByEntry } from "./settlement.js";
+import { estimateTeacherPayByEntry, payRelevantEntries } from "./settlement.js";
 import { computeTemporaryInstructorCostForInstitution, engagementOverlapsMonth, resolveEngagementBillableItems } from "./temporaryTeachers.js";
 
 function matchInstitutionName(name, pattern) {
@@ -12,7 +12,7 @@ function teacherByName(teachers, name) {
 }
 
 function entriesForTeacher(entries, teacherId) {
-  return (entries || []).filter(e => e.teacher_id === teacherId);
+  return payRelevantEntries(entries, teacherId);
 }
 
 /** additional_payments → 기관별 breakdown 매핑 (reason + 기관명 패턴) */

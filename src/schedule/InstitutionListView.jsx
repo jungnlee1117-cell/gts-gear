@@ -232,7 +232,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
             <thead>
               <tr>
                 <th>이름</th>
-                <th>담당자</th>
+                <th>담당 관리자</th>
                 <th>과금</th>
                 <th>{yearMonth} 매출</th>
                 <th>계약유형</th>
@@ -331,7 +331,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                 <input className="sch-input" value={form.business_registration_number}
                   onChange={e => setForm(f => ({ ...f, business_registration_number: e.target.value }))}/>
               </label>
-              <label className="sch-field"><span>담당자</span>
+              <label className="sch-field"><span>담당 관리자</span>
                 <select className="sch-select" value={form.manager_id}
                   onChange={e => setForm(f => ({ ...f, manager_id: e.target.value }))}>
                   <option value="">선택</option>

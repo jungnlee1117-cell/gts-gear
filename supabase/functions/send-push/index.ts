@@ -554,6 +554,60 @@ async function resolveNotification(event, payload, userId, adminClient) {
         url: "/schedule",
       };
     }
+    case "class_reassigned": {
+      if (!(await isScheduleAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      if (!payload.teacher_id) {
+        return { error: "teacher_id required", status: 400 };
+      }
+      return {
+        teacherIds: [payload.teacher_id],
+        title: "수업 배정",
+        body: String(payload.body || "수업이 배정됐습니다"),
+        url: "/schedule",
+      };
+    }
+    case "class_unassigned_admin": {
+      if (!(await isScheduleAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      const adminIds = await getScheduleAdminIds(adminClient);
+      return {
+        teacherIds: adminIds,
+        title: "수업 미배정",
+        body: String(payload.body || "퇴직 후 미배정 수업이 있습니다"),
+        url: "/schedule",
+      };
+    }
+    case "institution_teacher_assigned": {
+      if (!(await isScheduleAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      if (!payload.teacher_id) {
+        return { error: "teacher_id required", status: 400 };
+      }
+      return {
+        teacherIds: [payload.teacher_id],
+        title: "원 담당 배정",
+        body: String(payload.body || "원 담당이 배정됐습니다"),
+        url: "/schedule",
+      };
+    }
+    case "institution_teacher_changed": {
+      if (!(await isScheduleAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      if (!payload.teacher_id) {
+        return { error: "teacher_id required", status: 400 };
+      }
+      return {
+        teacherIds: [payload.teacher_id],
+        title: "원 담당 변경",
+        body: String(payload.body || "원 담당이 변경됐습니다"),
+        url: "/schedule",
+      };
+    }
     case "task_assigned": {
       if (!(await canManageTodos(adminClient, userId))) {
         return { error: "Forbidden", status: 403 };

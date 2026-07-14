@@ -459,29 +459,103 @@ export async function upsertInstitution(payload) {
   return data;
 }
 
-export async function fetchAssignments(institutionId, { activeOnly = true } = {}) {
+export async function fetchAssignments(institutionId, { activeOnly = true, role = null } = {}) {
   let q = scheduleSupabase
     .from("institution_teacher_assignments")
     .select("*, teachers(id, name)")
     .order("created_at", { ascending: false });
   if (institutionId) q = q.eq("institution_id", institutionId);
   if (activeOnly) q = q.eq("is_active", true);
+  if (role) q = q.eq("role", role);
   const { data, error } = await q;
   if (error) throw error;
   return data || [];
 }
 
-export async function saveAssignment({ institution_id, teacher_id, pay_types }) {
-  const { data, error } = await scheduleSupabase
+export async function saveAssignment({ institution_id, teacher_id, pay_types, role = "teacher" }) {
+  const row = {
+    institution_id,
+    teacher_id,
+    pay_types: pay_types || [],
+    is_active: true,
+    role: role === "manager" ? "manager" : "teacher",
+  };
+  let { data, error } = await scheduleSupabase
     .from("institution_teacher_assignments")
-    .upsert(
-      { institution_id, teacher_id, pay_types, is_active: true },
-      { onConflict: "institution_id,teacher_id" },
-    )
+    .upsert(row, { onConflict: "institution_id,teacher_id" })
     .select("*, teachers(id, name)")
     .single();
+  if (error && /role|column/i.test(error.message || "")) {
+    const { role: _omit, ...fallback } = row;
+    ({ data, error } = await scheduleSupabase
+      .from("institution_teacher_assignments")
+      .upsert(fallback, { onConflict: "institution_id,teacher_id" })
+      .select("*, teachers(id, name)")
+      .single());
+  }
   if (error) throw error;
   return data;
+}
+
+/**
+ * 기관 담당 관리자(manager_id) 변경.
+ * 수업 시간표·수업 선생님 배정은 건드리지 않음.
+ */
+export async function changeInstitutionManager({ institutionId, managerId }) {
+  if (!institutionId) throw new Error("기관이 없습니다.");
+  const nextId = managerId || null;
+
+  const { data: before, error: beforeErr } = await scheduleSupabase
+    .from("institutions")
+    .select("id, name, manager_id")
+    .eq("id", institutionId)
+    .single();
+  if (beforeErr) throw beforeErr;
+
+  const { data: updated, error } = await scheduleSupabase
+    .from("institutions")
+    .update({ manager_id: nextId, updated_at: new Date().toISOString() })
+    .eq("id", institutionId)
+    .select("*")
+    .single();
+  if (error) throw error;
+
+  // 이전 manager 전용 배정 행 비활성 (수업 teacher 행은 유지)
+  if (before.manager_id && before.manager_id !== nextId) {
+    await scheduleSupabase
+      .from("institution_teacher_assignments")
+      .update({ is_active: false })
+      .eq("institution_id", institutionId)
+      .eq("teacher_id", before.manager_id)
+      .eq("role", "manager");
+  }
+
+  // 새 담당자 — 수업 선생님으로 이미 있으면 유지, 없으면 manager 행 추가
+  if (nextId) {
+    const { data: existing } = await scheduleSupabase
+      .from("institution_teacher_assignments")
+      .select("id, role, is_active")
+      .eq("institution_id", institutionId)
+      .eq("teacher_id", nextId)
+      .maybeSingle();
+
+    if (!existing) {
+      await scheduleSupabase.from("institution_teacher_assignments").insert({
+        institution_id: institutionId,
+        teacher_id: nextId,
+        pay_types: [],
+        is_active: true,
+        role: "manager",
+      });
+    } else if (existing.role === "manager" && !existing.is_active) {
+      await scheduleSupabase
+        .from("institution_teacher_assignments")
+        .update({ is_active: true })
+        .eq("id", existing.id);
+    }
+  }
+
+  return { before, updated };
 }
 
 export async function deactivateAssignment(id) {
@@ -513,20 +587,40 @@ export async function fetchWeeklySchedule(institutionId, teacherId) {
 }
 
 export async function saveWeeklySlot(payload) {
+  const row = {
+    institution_id: payload.institution_id,
+    teacher_id: payload.teacher_id || null,
+    day_of_week: Number(payload.day_of_week),
+    class_type: payload.class_type,
+    start_time: payload.start_time,
+    end_time: payload.end_time,
+    label: payload.label ?? null,
+    sort_order: payload.sort_order ?? 0,
+  };
+  if ("effective_from" in payload) {
+    row.effective_from = payload.effective_from
+      ? String(payload.effective_from).slice(0, 10)
+      : null;
+  }
+  if ("effective_to" in payload) {
+    row.effective_to = payload.effective_to
+      ? String(payload.effective_to).slice(0, 10)
+      : null;
+  }
   if (payload.id) {
     const { data, error } = await scheduleSupabase
       .from("institution_weekly_schedule")
-      .update(payload)
+      .update(row)
       .eq("id", payload.id)
-      .select()
+      .select("*, institutions(id, name, address, parking_info)")
       .single();
     if (error) throw error;
     return data;
   }
   const { data, error } = await scheduleSupabase
     .from("institution_weekly_schedule")
-    .insert(payload)
-    .select()
+    .insert(row)
+    .select("*, institutions(id, name, address, parking_info)")
     .single();
   if (error) throw error;
   return data;
@@ -872,15 +966,60 @@ export async function insertPayRate(payload) {
 }
 
 export async function fetchPayrollEntries({ teacherId, institutionId, yearMonth } = {}) {
+  const start = yearMonth ? yearMonthFirstDay(yearMonth) : null;
+  const end = yearMonth ? yearMonthLastDay(yearMonth) : null;
+
+  if (teacherId && start && end) {
+    const baseSelect = "*, institutions(id, name)";
+    const [byClassRes, byMakeupRes] = await Promise.all([
+      scheduleSupabase
+        .from("payroll_entries")
+        .select(baseSelect)
+        .or(`teacher_id.eq.${teacherId},substitute_teacher_id.eq.${teacherId}`)
+        .gte("class_date", start)
+        .lte("class_date", end)
+        .order("class_date", { ascending: false }),
+      scheduleSupabase
+        .from("payroll_entries")
+        .select(baseSelect)
+        .eq("teacher_id", teacherId)
+        .eq("is_makeup", true)
+        .gte("makeup_date", start)
+        .lte("makeup_date", end)
+        .order("class_date", { ascending: false }),
+    ]);
+    if (byClassRes.error) {
+      // substitute_teacher_id 컬럼 미적용 DB 폴백
+      if (/substitute_teacher_id|is_makeup|makeup_date/i.test(byClassRes.error.message || "")) {
+        let q = scheduleSupabase
+          .from("payroll_entries")
+          .select(baseSelect)
+          .eq("teacher_id", teacherId)
+          .gte("class_date", start)
+          .lte("class_date", end)
+          .order("class_date", { ascending: false });
+        const { data, error } = await q;
+        if (error) throw error;
+        return data || [];
+      }
+      throw byClassRes.error;
+    }
+    if (byMakeupRes.error && !/is_makeup|makeup_date/i.test(byMakeupRes.error.message || "")) {
+      throw byMakeupRes.error;
+    }
+    const byId = new Map();
+    for (const row of byClassRes.data || []) byId.set(row.id, row);
+    for (const row of byMakeupRes.data || []) byId.set(row.id, row);
+    return [...byId.values()].sort((a, b) => String(b.class_date).localeCompare(String(a.class_date)));
+  }
+
   let q = scheduleSupabase
     .from("payroll_entries")
     .select("*, institutions(id, name)")
     .order("class_date", { ascending: false });
   if (teacherId) q = q.eq("teacher_id", teacherId);
   if (institutionId) q = q.eq("institution_id", institutionId);
-  if (yearMonth) {
-    const start = yearMonthFirstDay(yearMonth);
-    const end = yearMonthLastDay(yearMonth);
+  if (start && end) {
     q = q.gte("class_date", start).lte("class_date", end);
   }
   const { data, error } = await q;
@@ -889,12 +1028,55 @@ export async function fetchPayrollEntries({ teacherId, institutionId, yearMonth 
 }
 
 export async function savePayrollEntry(payload) {
-  const row = { ...payload, updated_at: new Date().toISOString() };
-  if (payload.id) {
+  const {
+    id,
+    teacher_id,
+    institution_id,
+    class_date,
+    pay_type,
+    minutes,
+    note,
+    entry_status,
+    schedule_slot_id,
+    home_visit_pattern_id,
+    substitute_teacher_id,
+    is_makeup,
+    makeup_date,
+    makeup_start_time,
+    makeup_end_time,
+  } = payload;
+  const row = {
+    teacher_id,
+    institution_id: institution_id ?? null,
+    class_date,
+    pay_type,
+    minutes: Number(minutes),
+    note: note ?? null,
+    entry_status: entry_status ?? null,
+    schedule_slot_id: schedule_slot_id ?? null,
+    home_visit_pattern_id: home_visit_pattern_id ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  if ("substitute_teacher_id" in payload) {
+    row.substitute_teacher_id = substitute_teacher_id || null;
+  }
+  if ("is_makeup" in payload) {
+    row.is_makeup = Boolean(is_makeup);
+  }
+  if ("makeup_date" in payload) {
+    row.makeup_date = makeup_date || null;
+  }
+  if ("makeup_start_time" in payload) {
+    row.makeup_start_time = makeup_start_time || null;
+  }
+  if ("makeup_end_time" in payload) {
+    row.makeup_end_time = makeup_end_time || null;
+  }
+  if (id) {
     const { data, error } = await scheduleSupabase
       .from("payroll_entries")
       .update(row)
-      .eq("id", payload.id)
+      .eq("id", id)
       .select("*, institutions(id, name)")
       .single();
     if (error) throw error;
@@ -1266,12 +1448,36 @@ export async function fetchAdditionalPaymentRequests({ teacherId, yearMonth, sta
   return data || [];
 }
 
-export async function insertAdditionalPaymentRequest({ teacher_id, year_month, amount, reason, memo }) {
+function normalizeTimeValue(value) {
+  if (!value) return null;
+  const t = String(value).trim();
+  if (!t) return null;
+  // HTML time input → HH:MM ; DB time accepts HH:MM:SS
+  return t.length === 5 ? `${t}:00` : t;
+}
+
+export async function insertAdditionalPaymentRequest({
+  teacher_id,
+  year_month,
+  amount,
+  reason,
+  memo,
+  event_date = null,
+  start_time = null,
+  end_time = null,
+  location = null,
+}) {
+  const eventDate = event_date ? String(event_date).slice(0, 10) : null;
+  const ymSource = eventDate || year_month;
   const { data, error } = await scheduleSupabase
     .from("additional_payment_requests")
     .insert({
       teacher_id,
-      year_month: yearMonthFirstDay(year_month),
+      year_month: yearMonthFirstDay(ymSource),
+      event_date: eventDate,
+      start_time: normalizeTimeValue(start_time),
+      end_time: normalizeTimeValue(end_time),
+      location: location?.trim() || null,
       amount: Number(amount),
       reason: reason.trim(),
       memo: memo?.trim() || null,
@@ -1323,7 +1529,7 @@ export async function approveAdditionalPaymentRequest(requestId, { reviewed_by, 
 
 export async function rejectAdditionalPaymentRequest(requestId, { reviewed_by, rejection_reason }) {
   const reason = (rejection_reason || "").trim();
-  if (!reason) throw new Error("반려 사유를 입력하세요.");
+  if (!reason) throw new Error("거절 사유를 입력하세요.");
   const now = new Date().toISOString();
   const { data, error } = await scheduleSupabase
     .from("additional_payment_requests")
@@ -1587,12 +1793,11 @@ export async function loadPayrollDashboard(yearMonth) {
   const teacherRows = teachers
     .filter(t => t.role === "teacher")
     .map(t => {
-      const mine = entries.filter(e => e.teacher_id === t.id);
-      const byType = groupPayrollByTypeConfirmed(mine);
-      const lessonPay = estimateTeacherPayByEntry(
-        mine.filter(e => e.minutes > 0),
-        rates,
+      const mine = entries.filter(e =>
+        e.teacher_id === t.id || e.substitute_teacher_id === t.id,
       );
+      const byType = groupPayrollByTypeConfirmed(mine, t.id);
+      const lessonPay = estimateTeacherPayByEntry(mine, rates, {}, t.id);
       const teacherOneoff = oneoffLessons.filter(l => l.teacher_id === t.id);
       const oneoffPayAdj = sumOneoffCustomPayAdjustments(mine, teacherOneoff, rates);
       const adjustedLessonPay = lessonPay + oneoffPayAdj;

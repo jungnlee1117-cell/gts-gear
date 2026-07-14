@@ -9,6 +9,10 @@ CREATE TABLE IF NOT EXISTS public.additional_payment_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   teacher_id uuid NOT NULL REFERENCES public.teachers(id) ON DELETE CASCADE,
   year_month date NOT NULL,
+  event_date date,
+  start_time time,
+  end_time time,
+  location text,
   amount numeric(12, 0) NOT NULL CHECK (amount > 0),
   reason text NOT NULL CHECK (char_length(trim(reason)) > 0),
   memo text,
@@ -20,6 +24,13 @@ CREATE TABLE IF NOT EXISTS public.additional_payment_requests (
   additional_payment_id uuid REFERENCES public.additional_payments(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- 기존 테이블에 컬럼이 없을 때(패치 미적용) 대비
+ALTER TABLE public.additional_payment_requests
+  ADD COLUMN IF NOT EXISTS event_date date,
+  ADD COLUMN IF NOT EXISTS start_time time,
+  ADD COLUMN IF NOT EXISTS end_time time,
+  ADD COLUMN IF NOT EXISTS location text;
 
 CREATE INDEX IF NOT EXISTS idx_additional_payment_requests_teacher_month
   ON public.additional_payment_requests (teacher_id, year_month DESC);

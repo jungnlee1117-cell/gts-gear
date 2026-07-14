@@ -1,4 +1,4 @@
-import { AlertCircle, CircleCheck } from "lucide-react";
+import { AlertCircle, Check } from "lucide-react";
 import { dayConfirmState } from "./payrollCalendar.js";
 
 /** 캘린더 날짜 칸 우측 상단 아이콘 종류 */
@@ -14,18 +14,14 @@ export default function CalendarDayStatusIcon({ kind }) {
   if (!kind) return null;
   if (kind === "unconfirmed") {
     return (
-      <AlertCircle
-        size={11}
-        className="sch-cal-status-icon sch-cal-status-icon--alert"
-        aria-hidden="true"
-      />
+      <span className="sch-cal-status-icon sch-cal-status-icon--alert" aria-hidden="true">
+        <AlertCircle size={15} strokeWidth={2.75} />
+      </span>
     );
   }
   return (
-    <CircleCheck
-      size={11}
-      className="sch-cal-status-icon sch-cal-status-icon--done"
-      aria-hidden="true"
-    />
+    <span className="sch-cal-status-icon sch-cal-status-icon--done" aria-hidden="true">
+      <Check size={11} strokeWidth={3} />
+    </span>
   );
 }

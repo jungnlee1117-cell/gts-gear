@@ -32,6 +32,16 @@ function isOneoffSlotActive(slot, dateStr) {
   return dateStr === slot.label.slice(ONEOFF_LABEL_PREFIX.length);
 }
 
+/** effective_from / effective_to 기간 안인지 */
+export function isWeeklySlotEffectiveOnDate(slot, dateStr) {
+  if (!slot || !dateStr) return true;
+  const from = slot.effective_from ? String(slot.effective_from).slice(0, 10) : null;
+  const to = slot.effective_to ? String(slot.effective_to).slice(0, 10) : null;
+  if (from && dateStr < from) return false;
+  if (to && dateStr > to) return false;
+  return true;
+}
+
 function isAfterSchoolDisplaySlot(slot) {
   return slot.class_type === "방과후" || slot.label === "고정50000";
 }
@@ -49,7 +59,11 @@ export function plannedSlotDisplayLabel(planned) {
 export function getSlotsForDate(weeklySlots, date, exceptions = []) {
   const dateStr = fmtLocalDate(date);
   const dow = date.getDay();
-  let slots = weeklySlots.filter(s => s.day_of_week === dow && isOneoffSlotActive(s, dateStr));
+  let slots = weeklySlots.filter(s =>
+    s.day_of_week === dow
+    && isOneoffSlotActive(s, dateStr)
+    && isWeeklySlotEffectiveOnDate(s, dateStr),
+  );
   const exList = exceptions ?? [];
   if (exList.length) {
     slots = slots.filter(s => {
@@ -145,9 +159,23 @@ export function isSlotResolved(entries, planned) {
   return Boolean(getEffectiveSlotStatus(findEntryForPlanned(entries, planned), planned.dateStr));
 }
 
-export function effectiveSlotStatusLabel(planned, entry) {
+export function effectiveSlotStatusLabel(planned, entry, { teachersById } = {}) {
   const status = getEffectiveSlotStatus(entry, planned.dateStr);
   if (!status) return "미확인";
+  if (entry?.substitute_teacher_id) {
+    const name = teachersById?.get?.(entry.substitute_teacher_id)?.name
+      || teachersById?.[entry.substitute_teacher_id]?.name
+      || "대체 선생님";
+    return `대체수업 · ${name}`;
+  }
+  if (entry?.is_makeup && entry.makeup_date) {
+    const mk = String(entry.makeup_date).slice(0, 10);
+    const [, m, d] = mk.split("-");
+    const time = entry.makeup_start_time && entry.makeup_end_time
+      ? ` ${String(entry.makeup_start_time).slice(0, 5)}–${String(entry.makeup_end_time).slice(0, 5)}`
+      : "";
+    return `보강 · ${Number(m)}/${Number(d)}${time} · ${entry.minutes}분`;
+  }
   if (status === ENTRY_STATUS.as_scheduled) {
     return `평소대로 · ${planned.scheduledMinutes}분`;
   }
@@ -245,18 +273,41 @@ export function countSkippedEntries(entries) {
   return entries.filter(e => e.entry_status === ENTRY_STATUS.skipped).length;
 }
 
-/** 확정된 수업만 급여·합계에 포함 (minutes > 0) */
-export function confirmedEntries(entries) {
-  return entries.filter(e => e.entry_status && e.minutes > 0);
+/** 확정된 수업만 급여·합계에 포함 (minutes > 0).
+ *  teacherId가 있으면 대체 수업 귀속을 반영. */
+export function confirmedEntries(entries, teacherId = null) {
+  if (teacherId) {
+    return (entries || []).filter(e => {
+      if (!e.entry_status || !(e.minutes > 0)) return false;
+      if (e.substitute_teacher_id) return e.substitute_teacher_id === teacherId;
+      return e.teacher_id === teacherId;
+    });
+  }
+  return (entries || []).filter(e => e.entry_status && e.minutes > 0 && !e.substitute_teacher_id);
 }
 
-export function groupPayrollByTypeConfirmed(entries) {
+export function groupPayrollByTypeConfirmed(entries, teacherId = null) {
   const groups = {};
   for (const t of ["정규", "방과후", "가정방문", "센터", "센터보조"]) groups[t] = 0;
-  for (const e of confirmedEntries(entries)) {
+  for (const e of confirmedEntries(entries, teacherId)) {
     groups[e.pay_type] = (groups[e.pay_type] || 0) + e.minutes;
   }
   return groups;
+}
+
+/** 달력 날짜 칸 — 대체/보강 뱃지 */
+export function calendarPayrollBadgesForDate(entries, dateStr) {
+  if (!entries?.length || !dateStr) return [];
+  const badges = [];
+  const hasSub = entries.some(e =>
+    e.substitute_teacher_id && e.class_date === dateStr,
+  );
+  if (hasSub) badges.push({ kind: "substitute", label: "대체" });
+  const hasMakeup = entries.some(e =>
+    e.is_makeup && e.makeup_date === dateStr,
+  );
+  if (hasMakeup) badges.push({ kind: "makeup", label: "보강" });
+  return badges;
 }
 
 export function uniqueInstitutionIdsForDate(planned) {
@@ -272,12 +323,19 @@ export function uniqueInstitutionIdsForDate(planned) {
   return ids;
 }
 
-/** 캘린더 날짜 칸 점 — 원 + 가정방문(학생별) */
+/** 캘린더 날짜 칸 마커 — 원 + 가정방문(학생별). label은 데스크톱 텍스트 표시용 */
 export function uniqueCalendarMarkersForDate(planned) {
+  const nameByInst = new Map();
+  for (const p of planned) {
+    if (!p.institutionId) continue;
+    if (!nameByInst.has(p.institutionId) && p.institutionName) {
+      nameByInst.set(p.institutionId, p.institutionName);
+    }
+  }
   const markers = uniqueInstitutionIdsForDate(planned).map(id => ({
     type: "institution",
     id,
-    label: null,
+    label: nameByInst.get(id) || "원",
     key: `inst-${id}`,
   }));
   const seen = new Set();
@@ -287,7 +345,7 @@ export function uniqueCalendarMarkersForDate(planned) {
     markers.push({
       type: "home_visit",
       id: p.patternId,
-      label: p.studentName,
+      label: p.studentName || "가정방문",
       key: `hv-${p.patternId}`,
     });
   }

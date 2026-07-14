@@ -14,6 +14,8 @@ import {
   resolveNotificationPayType,
 } from "./scheduleChangeNotifications.js";
 import { summarizeChangeReasons } from "./changeReasonOptions.js";
+import RegularClassesManagePanel from "./RegularClassesManagePanel.jsx";
+import { isScheduleAdmin } from "./roles.js";
 
 const TYPE_FILTERS = [
   { id: "all", label: "전체" },
@@ -169,7 +171,10 @@ function ChangeAlertDetail({ item }) {
   );
 }
 
-export default function ScheduleChangeAlertsView({ onBack }) {
+export default function ScheduleChangeAlertsView({ me, onBack }) {
+  const admin = isScheduleAdmin(me);
+  const [tab, setTab] = useState(() => (admin ? "alerts" : "regular"));
+
   const today = new Date();
   const [yearMonth, setYearMonth] = useState(yearMonthKey(today));
   const [typeFilter, setTypeFilter] = useState("all");
@@ -179,12 +184,16 @@ export default function ScheduleChangeAlertsView({ onBack }) {
   const [marking, setMarking] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [expandedIds, setExpandedIds] = useState(() => new Set());
-  const totalUnread = useUnreadChangeAlertCount(true);
+  const totalUnread = useUnreadChangeAlertCount(admin);
 
   const [y, m] = yearMonth.split("-").map(Number);
   const monthLabel = `${y}년 ${m}월`;
 
   const load = useCallback(async () => {
+    if (!admin) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setLoadError("");
     setExpandedIds(new Set());
@@ -203,7 +212,7 @@ export default function ScheduleChangeAlertsView({ onBack }) {
     } finally {
       setLoading(false);
     }
-  }, [yearMonth]);
+  }, [yearMonth, admin]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -301,9 +310,11 @@ export default function ScheduleChangeAlertsView({ onBack }) {
         <button type="button" className="sch-back-btn" onClick={onBack}>
           <ChevronLeft size={18}/> 스케줄 관리
         </button>
-        <h2 className="sch-view-title">수업 변동 내역</h2>
+        <h2 className="sch-view-title">
+          {admin ? "수업 변동 내역" : "정규 수업"}
+        </h2>
         <div className="sch-header-actions">
-          {unreadInView > 0 ? (
+          {admin && tab === "alerts" && unreadInView > 0 ? (
             <button
               type="button"
               className="sch-btn sch-btn--ghost sch-change-alerts-mark-all"
@@ -316,6 +327,36 @@ export default function ScheduleChangeAlertsView({ onBack }) {
         </div>
       </header>
 
+      <div className="sch-change-alerts-tabs" role="tablist">
+        {admin ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "alerts"}
+            className={`sch-change-alerts-tab${tab === "alerts" ? " sch-change-alerts-tab--active" : ""}`}
+            onClick={() => setTab("alerts")}
+          >
+            변동 내역
+            {totalUnread > 0 ? (
+              <span className="sch-change-alerts-tab-badge">{totalUnread}</span>
+            ) : null}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "regular"}
+          className={`sch-change-alerts-tab${tab === "regular" ? " sch-change-alerts-tab--active" : ""}`}
+          onClick={() => setTab("regular")}
+        >
+          정규 수업
+        </button>
+      </div>
+
+      {tab === "regular" ? (
+        <RegularClassesManagePanel me={me} />
+      ) : (
+        <>
       <p className="sch-change-alerts-desc">
         강사가 평소 스케줄과 다르게 입력한 기록입니다 (수업 안 함, 시간·분 수정).
         공휴일 자동 처리는 포함되지 않습니다. 카드를 눌러 상세를 확인하세요.
@@ -447,6 +488,8 @@ export default function ScheduleChangeAlertsView({ onBack }) {
             );
           })}
         </ul>
+      )}
+        </>
       )}
     </div>
   );

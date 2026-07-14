@@ -7,10 +7,25 @@ import {
 } from "./api.js";
 
 const STATUS_LABEL = {
-  pending: "대기중",
+  pending: "대기",
   approved: "승인",
-  rejected: "반려",
+  rejected: "거절",
 };
+
+function formatRequestDate(dateStr) {
+  if (!dateStr) return "—";
+  const [y, m, d] = String(dateStr).slice(0, 10).split("-");
+  if (!y || !m || !d) return dateStr;
+  return `${Number(m)}/${Number(d)}`;
+}
+
+function formatRequestTime(start, end) {
+  const s = start ? String(start).slice(0, 5) : "";
+  const e = end ? String(end).slice(0, 5) : "";
+  if (s && e) return `${s}–${e}`;
+  if (s) return s;
+  return "—";
+}
 
 export default function AdditionalPaymentRequestsAdminSection({
   yearMonth,
@@ -56,7 +71,7 @@ export default function AdditionalPaymentRequestsAdminSection({
 
   const handleReject = async (e) => {
     e.preventDefault();
-    if (!rejectReason.trim()) return alert("반려 사유를 입력하세요.");
+    if (!rejectReason.trim()) return alert("거절 사유를 입력하세요.");
     setSaving(true);
     try {
       await rejectAdditionalPaymentRequest(rejecting.id, {
@@ -67,7 +82,7 @@ export default function AdditionalPaymentRequestsAdminSection({
       setRejectReason("");
       await load();
     } catch (err) {
-      alert("반려 실패: " + err.message);
+      alert("거절 실패: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -99,11 +114,22 @@ export default function AdditionalPaymentRequestsAdminSection({
                       <span className="sch-additional-request-teacher">
                         {req.teachers?.name ?? "—"}
                       </span>
-                      <span className="sch-additional-request-reason">{req.reason}</span>
+                      <span className="sch-additional-request-meta">
+                        <span>{formatRequestDate(req.event_date)}</span>
+                        <span className="sch-additional-request-sep">·</span>
+                        <span>{formatRequestTime(req.start_time, req.end_time)}</span>
+                        <span className="sch-additional-request-sep">·</span>
+                        <span className="sch-additional-request-location">
+                          {req.location?.trim() || "—"}
+                        </span>
+                      </span>
                       <span className="sch-additional-request-amount">{formatWon(req.amount)}</span>
                     </div>
+                    {req.reason ? (
+                      <p className="sch-muted sch-additional-request-memo">사유: {req.reason}</p>
+                    ) : null}
                     {req.memo ? (
-                      <p className="sch-muted sch-additional-request-memo">{req.memo}</p>
+                      <p className="sch-muted sch-additional-request-memo">메모: {req.memo}</p>
                     ) : null}
                     <div className="sch-additional-request-actions">
                       <button
@@ -123,7 +149,7 @@ export default function AdditionalPaymentRequestsAdminSection({
                           setRejectReason("");
                         }}
                       >
-                        반려
+                        거절
                       </button>
                     </div>
                   </li>
@@ -145,11 +171,22 @@ export default function AdditionalPaymentRequestsAdminSection({
                       <span className="sch-additional-request-teacher">
                         {req.teachers?.name ?? "—"}
                       </span>
-                      <span className="sch-additional-request-reason">{req.reason}</span>
+                      <span className="sch-additional-request-meta">
+                        <span>{formatRequestDate(req.event_date)}</span>
+                        <span className="sch-additional-request-sep">·</span>
+                        <span>{formatRequestTime(req.start_time, req.end_time)}</span>
+                        <span className="sch-additional-request-sep">·</span>
+                        <span className="sch-additional-request-location">
+                          {req.location?.trim() || "—"}
+                        </span>
+                      </span>
                       <span className="sch-additional-request-amount">{formatWon(req.amount)}</span>
                     </div>
+                    {req.reason ? (
+                      <p className="sch-muted sch-additional-request-memo">사유: {req.reason}</p>
+                    ) : null}
                     {req.status === "rejected" && req.rejection_reason ? (
-                      <p className="sch-additional-request-rejection">반려 사유: {req.rejection_reason}</p>
+                      <p className="sch-additional-request-rejection">거절 사유: {req.rejection_reason}</p>
                     ) : null}
                   </li>
                 ))}
@@ -162,19 +199,19 @@ export default function AdditionalPaymentRequestsAdminSection({
       {rejecting ? (
         <div className="sch-modal-overlay" onClick={() => setRejecting(null)}>
           <form className="sch-modal sch-form" onClick={e => e.stopPropagation()} onSubmit={handleReject}>
-            <h3>신청 반려</h3>
+            <h3>신청 거절</h3>
             <p className="sch-muted">
               {rejecting.teachers?.name ?? "—"} · {rejecting.reason} · {formatWon(rejecting.amount)}
             </p>
             <label className="sch-field">
-              <span>반려 사유</span>
+              <span>거절 사유</span>
               <textarea
                 className="sch-input"
                 required
                 rows={3}
                 value={rejectReason}
                 onChange={e => setRejectReason(e.target.value)}
-                placeholder="강사에게 전달될 반려 사유"
+                placeholder="강사에게 전달될 거절 사유"
               />
             </label>
             <div className="sch-form-actions">
@@ -182,7 +219,7 @@ export default function AdditionalPaymentRequestsAdminSection({
                 취소
               </button>
               <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
-                {saving ? "처리 중..." : "반려"}
+                {saving ? "처리 중..." : "거절"}
               </button>
             </div>
           </form>

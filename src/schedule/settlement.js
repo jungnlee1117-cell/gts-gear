@@ -161,16 +161,29 @@ export function sumPayrollCost(entries, ratesByTeacherPayType) {
   return Math.round(total);
 }
 
-/** 해당 날짜 기준 유효 단가 선택 */
-export function pickRateForDate(rates, teacherId, payType, classDate) {
-  const matched = rates
-    .filter(r =>
-      r.teacher_id === teacherId
-      && r.pay_type === payType
-      && r.effective_from <= classDate,
-    )
-    .sort((a, b) => b.effective_from.localeCompare(a.effective_from));
-  return matched[0]?.rate_per_minute ?? 0;
+/** 해당 날짜 기준 유효 단가 선택.
+ *  institutionId가 있으면 기관별 단가 우선, 없으면(또는 미설정이면) 기본 단가(institution_id null). */
+export function pickRateForDate(rates, teacherId, payType, classDate, institutionId = null) {
+  const candidates = (rates || []).filter(r =>
+    r.teacher_id === teacherId
+    && r.pay_type === payType
+    && r.effective_from <= classDate,
+  );
+  if (!candidates.length) return 0;
+
+  const sortNewest = (a, b) => b.effective_from.localeCompare(a.effective_from);
+
+  if (institutionId) {
+    const specific = candidates
+      .filter(r => r.institution_id === institutionId)
+      .sort(sortNewest);
+    if (specific.length) return Number(specific[0].rate_per_minute) || 0;
+  }
+
+  const defaults = candidates
+    .filter(r => !r.institution_id)
+    .sort(sortNewest);
+  return Number(defaults[0]?.rate_per_minute) || 0;
 }
 
 export function buildRatesMap(rates, asOfDate) {
@@ -178,7 +191,8 @@ export function buildRatesMap(rates, asOfDate) {
   const byKey = {};
   for (const r of rates) {
     if (r.effective_from > asOfDate) continue;
-    const key = `${r.teacher_id}:${r.pay_type}`;
+    const inst = r.institution_id || "";
+    const key = `${r.teacher_id}:${r.pay_type}:${inst}`;
     if (!byKey[key] || byKey[key].effective_from < r.effective_from) {
       byKey[key] = r;
     }
@@ -190,8 +204,8 @@ export function buildRatesMap(rates, asOfDate) {
 }
 
 export function estimateTeacherPay(entries, rates, asOfDate) {
-  const rateMap = buildRatesMap(rates, asOfDate);
-  return sumPayrollCost(entries, rateMap);
+  // 기관별 단가를 쓰려면 entry 단위 계산 사용
+  return estimateTeacherPayByEntry(entries, rates);
 }
 
 /** 회당 고정 급여(분 무관) — teacher + institution + payType */
@@ -208,14 +222,17 @@ export const FLAT_PAY_SLOT_LABEL = "고정50000";
 
 function matchesFlatPayRule(entry) {
   if (!entry?.minutes || entry.minutes <= 0) return null;
+  const payeeId = entry.substitute_teacher_id || entry.teacher_id;
   return FLAT_PAY_PER_SESSION.find(r =>
-    entry.teacher_id === r.teacherId
+    payeeId === r.teacherId
     && entry.institution_id === r.institutionId
     && entry.pay_type === r.payType,
   ) ?? null;
 }
 
-/** 항목별 급여 — flat 규칙·슬롯 label 우선, 없으면 분×단가 */
+/** 항목별 급여 — flat 규칙·슬롯 label 우선, 없으면 분×단가.
+ *  substitute_teacher_id가 있으면 대체 선생님 단가로 계산.
+ *  기관별 단가 > 기본 단가. */
 export function entryPayAmount(entry, rates, slotById = {}) {
   if (!entry?.minutes || entry.minutes <= 0) return 0;
   if (entry.schedule_slot_id) {
@@ -224,14 +241,31 @@ export function entryPayAmount(entry, rates, slotById = {}) {
   }
   const flat = matchesFlatPayRule(entry);
   if (flat) return flat.amount;
-  const rate = Number(pickRateForDate(rates, entry.teacher_id, entry.pay_type, entry.class_date)) || 0;
+  const rateTeacherId = entry.substitute_teacher_id || entry.teacher_id;
+  const rate = Number(pickRateForDate(
+    rates,
+    rateTeacherId,
+    entry.pay_type,
+    entry.class_date,
+    entry.institution_id || null,
+  )) || 0;
   return entry.minutes * rate;
 }
 
+/** 해당 선생님 급여에 포함될 항목만 (대체 배정 시 원래 선생님 제외) */
+export function payRelevantEntries(entries, teacherId) {
+  return (entries || []).filter(e => {
+    if (!e?.entry_status || !(e.minutes > 0)) return false;
+    if (e.substitute_teacher_id) return e.substitute_teacher_id === teacherId;
+    return e.teacher_id === teacherId;
+  });
+}
+
 /** 항목별 class_date 기준 단가 적용 (정확한 급여 계산) */
-export function estimateTeacherPayByEntry(entries, rates, slotById = {}) {
+export function estimateTeacherPayByEntry(entries, rates, slotById = {}, teacherId = null) {
+  const list = teacherId ? payRelevantEntries(entries, teacherId) : (entries || []);
   let total = 0;
-  for (const e of entries) {
+  for (const e of list) {
     total += entryPayAmount(e, rates, slotById);
   }
   return Math.round(total);
@@ -240,7 +274,8 @@ export function estimateTeacherPayByEntry(entries, rates, slotById = {}) {
 export function ratesRowsToMap(rows) {
   const map = {};
   for (const r of rows) {
-    map[`${r.teacher_id}:${r.pay_type}`] = Number(r.rate_per_minute);
+    const inst = r.institution_id || "";
+    map[`${r.teacher_id}:${r.pay_type}:${inst}`] = Number(r.rate_per_minute);
   }
   return map;
 }

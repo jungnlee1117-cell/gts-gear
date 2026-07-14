@@ -6,21 +6,50 @@ import {
 } from "./api.js";
 
 const STATUS_LABEL = {
-  pending: "대기중",
+  pending: "대기",
   approved: "승인",
-  rejected: "반려",
+  rejected: "거절",
+};
+
+function formatRequestDate(dateStr) {
+  if (!dateStr) return "—";
+  const [y, m, d] = String(dateStr).slice(0, 10).split("-");
+  if (!y || !m || !d) return dateStr;
+  return `${Number(m)}/${Number(d)}`;
+}
+
+function formatRequestTime(start, end) {
+  const s = start ? String(start).slice(0, 5) : "";
+  const e = end ? String(end).slice(0, 5) : "";
+  if (s && e) return `${s}–${e}`;
+  if (s) return s;
+  return "—";
+}
+
+const EMPTY_FORM = {
+  event_date: "",
+  start_time: "",
+  end_time: "",
+  location: "",
+  memo: "",
+  amount: "",
+  reason: "",
 };
 
 export default function AdditionalPaymentRequestsTeacherSection({
   teacherId,
   yearMonth,
+  defaultDate = "",
   readOnly = false,
 }) {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ reason: "", amount: "", memo: "" });
+  const [form, setForm] = useState(() => ({
+    ...EMPTY_FORM,
+    event_date: defaultDate || "",
+  }));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,21 +65,39 @@ export default function AdditionalPaymentRequestsTeacherSection({
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!showForm) return;
+    setForm(f => (f.event_date ? f : { ...f, event_date: defaultDate || "" }));
+  }, [defaultDate, showForm]);
+
+  const openForm = () => {
+    setForm({ ...EMPTY_FORM, event_date: defaultDate || "" });
+    setShowForm(true);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const amount = Number(form.amount);
-    if (!form.reason.trim()) return alert("사유를 입력해주세요.");
+    if (!form.event_date) return alert("날짜를 선택해주세요.");
+    if (!form.start_time || !form.end_time) return alert("시작·종료 시간을 입력해주세요.");
+    if (form.start_time >= form.end_time) return alert("종료 시간은 시작 시간보다 늦어야 합니다.");
+    if (!form.location.trim()) return alert("수업 장소/기관을 입력해주세요.");
+    if (!form.reason.trim()) return alert("신청 사유를 입력해주세요.");
     if (!amount || amount <= 0) return alert("1원 이상 입력해주세요.");
     setSaving(true);
     try {
       await insertAdditionalPaymentRequest({
         teacher_id: teacherId,
         year_month: yearMonth,
+        event_date: form.event_date,
+        start_time: form.start_time,
+        end_time: form.end_time,
+        location: form.location,
         amount,
         reason: form.reason.trim(),
         memo: form.memo,
       });
-      setForm({ reason: "", amount: "", memo: "" });
+      setForm({ ...EMPTY_FORM, event_date: defaultDate || "" });
       setShowForm(false);
       await load();
     } catch (err) {
@@ -68,7 +115,7 @@ export default function AdditionalPaymentRequestsTeacherSection({
           <button
             type="button"
             className="sch-btn sch-btn--primary sch-btn--sm"
-            onClick={() => setShowForm(v => !v)}
+            onClick={() => (showForm ? setShowForm(false) : openForm())}
           >
             {showForm ? "닫기" : "추가수당 신청"}
           </button>
@@ -81,14 +128,56 @@ export default function AdditionalPaymentRequestsTeacherSection({
       {showForm && !readOnly ? (
         <form className="sch-form sch-additional-request-form" onSubmit={handleSubmit}>
           <label className="sch-field">
-            <span>사유</span>
+            <span>날짜</span>
+            <input
+              type="date"
+              className="sch-input"
+              required
+              value={form.event_date}
+              onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))}
+            />
+          </label>
+          <div className="sch-time-row">
+            <label className="sch-field">
+              <span>시작 시간</span>
+              <input
+                type="time"
+                className="sch-input"
+                required
+                value={form.start_time}
+                onChange={e => setForm(f => ({ ...f, start_time: e.target.value }))}
+              />
+            </label>
+            <label className="sch-field">
+              <span>종료 시간</span>
+              <input
+                type="time"
+                className="sch-input"
+                required
+                value={form.end_time}
+                onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
+              />
+            </label>
+          </div>
+          <label className="sch-field">
+            <span>수업 장소/기관</span>
             <input
               type="text"
               className="sch-input"
               required
-              placeholder="예: 추가 근무 수당"
-              value={form.reason}
-              onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+              placeholder="예: 힘멜아카데미, Play by GTS"
+              value={form.location}
+              onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+            />
+          </label>
+          <label className="sch-field">
+            <span>수업 내용 메모 (선택)</span>
+            <input
+              type="text"
+              className="sch-input"
+              placeholder="수업 내용·특이사항"
+              value={form.memo}
+              onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
             />
           </label>
           <label className="sch-field">
@@ -103,13 +192,14 @@ export default function AdditionalPaymentRequestsTeacherSection({
             />
           </label>
           <label className="sch-field">
-            <span>메모 (선택)</span>
+            <span>신청 사유</span>
             <input
               type="text"
               className="sch-input"
-              placeholder="상세 설명"
-              value={form.memo}
-              onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
+              required
+              placeholder="예: 추가 근무 수당, 특별 수업"
+              value={form.reason}
+              onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
             />
           </label>
           <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
@@ -130,14 +220,25 @@ export default function AdditionalPaymentRequestsTeacherSection({
                 <span className={`sch-request-status sch-request-status--${req.status}`}>
                   {STATUS_LABEL[req.status] ?? req.status}
                 </span>
-                <span className="sch-additional-request-reason">{req.reason}</span>
+                <span className="sch-additional-request-meta">
+                  <span>{formatRequestDate(req.event_date)}</span>
+                  <span className="sch-additional-request-sep">·</span>
+                  <span>{formatRequestTime(req.start_time, req.end_time)}</span>
+                  <span className="sch-additional-request-sep">·</span>
+                  <span className="sch-additional-request-location">
+                    {req.location?.trim() || "—"}
+                  </span>
+                </span>
                 <span className="sch-additional-request-amount">{formatWon(req.amount)}</span>
               </div>
+              {req.reason ? (
+                <p className="sch-muted sch-additional-request-memo">사유: {req.reason}</p>
+              ) : null}
               {req.memo ? (
-                <p className="sch-muted sch-additional-request-memo">{req.memo}</p>
+                <p className="sch-muted sch-additional-request-memo">메모: {req.memo}</p>
               ) : null}
               {req.status === "rejected" && req.rejection_reason ? (
-                <p className="sch-additional-request-rejection">반려 사유: {req.rejection_reason}</p>
+                <p className="sch-additional-request-rejection">거절 사유: {req.rejection_reason}</p>
               ) : null}
             </li>
           ))}

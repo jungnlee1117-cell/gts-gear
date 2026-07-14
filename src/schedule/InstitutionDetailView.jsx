@@ -18,15 +18,18 @@ import {
 } from "./api.js";
 import InstitutionAssignmentsTab from "./InstitutionAssignmentsTab.jsx";
 import InstitutionBillingTab from "./InstitutionBillingTab.jsx";
+import InstitutionTeacherTransferModal from "./InstitutionTeacherTransferModal.jsx";
+import { filterClassTeacherAssignments } from "./assignmentRoles.js";
 import { formatExceptionNotice } from "./scheduleExceptions.js";
 import { notifyEventScheduled } from "./pushScheduleNotification.js";
+import { isScheduleAdmin } from "./roles.js";
 import {
   canViewInstitutionRevenue,
   institutionInManagerScope,
   isScheduleSuperAdmin,
 } from "./managerScope.js";
 
-const TABS = ["기본정보", "시간표", "계약/매출", "배정 강사"];
+const TABS = ["기본정보", "시간표", "계약/매출", "수업 선생님"];
 
 export default function InstitutionDetailView({ institutionId, onBack, me }) {
   const [tab, setTab] = useState("기본정보");
@@ -36,6 +39,8 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
   const [exceptions, setExceptions] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferTab, setTransferTab] = useState("manager");
   const [exForm, setExForm] = useState({
     start_date: "",
     end_date: "",
@@ -123,6 +128,11 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
     }
   };
 
+  const openTransfer = (which) => {
+    setTransferTab(which);
+    setTransferOpen(true);
+  };
+
   if (loading || !inst) return <p className="sch-muted">불러오는 중...</p>;
 
   if (!institutionInManagerScope(inst, me)) {
@@ -137,6 +147,9 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
   const admins = teachers.filter(t => t.role === "admin" || t.role === "superadmin");
   const teacherList = teachers.filter(t => t.role === "teacher");
   const canEditContract = isScheduleSuperAdmin(me);
+  const canManageRoles = isScheduleAdmin(me);
+  const classTeachers = filterClassTeacherAssignments(assignments);
+  const managerName = teachers.find(t => t.id === inst.manager_id)?.name || "미지정";
 
   return (
     <div className="sch-view">
@@ -145,6 +158,31 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
           <ChevronLeft size={18}/> 원 관리
         </button>
         <h2 className="sch-view-title">{inst.name}</h2>
+        {canManageRoles ? (
+          <div className="sch-header-actions">
+            <button
+              type="button"
+              className="sch-btn sch-btn--ghost"
+              onClick={() => openTransfer("manager")}
+            >
+              담당자 변경
+            </button>
+            <button
+              type="button"
+              className="sch-btn sch-btn--ghost"
+              onClick={() => openTransfer("teacher")}
+            >
+              수업 선생님 변경
+            </button>
+            <button
+              type="button"
+              className="sch-btn sch-btn--ghost"
+              onClick={() => setTab("수업 선생님")}
+            >
+              수업 선생님 추가/제거
+            </button>
+          </div>
+        ) : null}
       </header>
 
       <div className="sch-tabs">
@@ -159,6 +197,39 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
 
       {tab === "기본정보" && (
         <form className="sch-form" onSubmit={saveInfo}>
+          <div className="sch-field" style={{
+            background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 12,
+          }}>
+            <span style={{ fontWeight: 700 }}>담당자 (관리자)</span>
+            <p style={{ margin: "6px 0 0", fontWeight: 800, fontSize: 16 }}>{managerName}</p>
+            <p className="sch-muted" style={{ margin: "4px 0 0" }}>
+              해당 기관을 관리하는 관리자입니다. 오른쪽 상단 &quot;담당자 변경&quot;으로 변경할 수 있습니다.
+            </p>
+          </div>
+
+          <div className="sch-field" style={{
+            background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 12,
+          }}>
+            <span style={{ fontWeight: 700 }}>수업 선생님</span>
+            {classTeachers.length === 0 ? (
+              <p className="sch-muted" style={{ margin: "6px 0 0" }}>등록된 수업 선생님이 없습니다.</p>
+            ) : (
+              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+                {classTeachers.map(a => (
+                  <li key={a.id} style={{ fontWeight: 600 }}>
+                    {a.teachers?.name || "—"}
+                    {(a.pay_types || []).length ? (
+                      <span className="sch-muted"> · {(a.pay_types || []).join(", ")}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="sch-muted" style={{ margin: "6px 0 0" }}>
+              실제 수업을 진행하는 선생님입니다. &quot;수업 선생님&quot; 탭에서 추가·제거할 수 있습니다.
+            </p>
+          </div>
+
           <label className="sch-field"><span>이름</span>
             <input className="sch-input" value={inst.name || ""} onChange={e => setInst({ ...inst, name: e.target.value })}/>
           </label>
@@ -172,14 +243,17 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
             <input className="sch-input" value={inst.business_registration_number || ""}
               onChange={e => setInst({ ...inst, business_registration_number: e.target.value })}/>
           </label>
-          <label className="sch-field"><span>담당자</span>
-            <select className="sch-select" value={inst.manager_id || ""}
-              disabled={!canEditContract}
-              onChange={e => setInst({ ...inst, manager_id: e.target.value || null })}>
-              <option value="">선택</option>
-              {admins.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </label>
+          {canEditContract ? (
+            <label className="sch-field">
+              <span>담당 관리자 (고급)</span>
+              <select className="sch-select" value={inst.manager_id || ""}
+                onChange={e => setInst({ ...inst, manager_id: e.target.value || null })}>
+                <option value="">선택</option>
+                {admins.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <span className="sch-muted">슈퍼관리자만. 일반 변경은 &quot;담당자 변경&quot; 버튼을 사용하세요.</span>
+            </label>
+          ) : null}
           <label className="sch-field"><span>계약유형</span>
             <select className="sch-select" value={inst.contract_type}
               disabled={!canEditContract}
@@ -253,7 +327,7 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
                   await saveWeeklySlot({ ...slot, teacher_id: e.target.value || null });
                   load();
                 }}>
-                  <option value="">강사</option>
+                  <option value="">수업 선생님</option>
                   {teacherList.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
                 <button type="button" className="sch-icon-btn" onClick={async () => {
@@ -323,7 +397,7 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
         />
       )}
 
-      {tab === "배정 강사" && (
+      {tab === "수업 선생님" && (
         <InstitutionAssignmentsTab
           institutionId={institutionId}
           assignments={assignments}
@@ -331,6 +405,21 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
           onRefresh={load}
         />
       )}
+
+      {transferOpen ? (
+        <InstitutionTeacherTransferModal
+          key={transferTab}
+          institution={inst}
+          assignments={assignments}
+          weekly={weekly}
+          teachers={teachers}
+          teacherList={teacherList}
+          adminList={admins}
+          initialTab={transferTab}
+          onClose={() => setTransferOpen(false)}
+          onDone={load}
+        />
+      ) : null}
     </div>
   );
 }

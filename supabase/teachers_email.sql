@@ -11,6 +11,9 @@ RETURNS TABLE (
   email text,
   role text,
   active boolean,
+  is_item_admin boolean,
+  resigned_at date,
+  resignation_reason text,
   created_at timestamptz
 )
 LANGUAGE sql
@@ -25,6 +28,9 @@ AS $$
     COALESCE(NULLIF(TRIM(t.email), ''), u.email::text) AS email,
     t.role,
     t.active,
+    COALESCE(t.is_item_admin, false) AS is_item_admin,
+    t.resigned_at,
+    t.resignation_reason,
     t.created_at
   FROM public.teachers t
   LEFT JOIN auth.users u ON u.id = t.id

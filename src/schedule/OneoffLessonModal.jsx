@@ -84,8 +84,14 @@ export default function OneoffLessonModal({
 
   const ratePerMinute = useMemo(() => {
     if (!teacherId || !lessonDate) return 0;
-    return Number(pickRateForDate(payRates, teacherId, payTypeForRate, lessonDate)) || 0;
-  }, [payRates, teacherId, payTypeForRate, lessonDate]);
+    return Number(pickRateForDate(
+      payRates,
+      teacherId,
+      payTypeForRate,
+      lessonDate,
+      form.institution_id || null,
+    )) || 0;
+  }, [payRates, teacherId, payTypeForRate, lessonDate, form.institution_id]);
 
   const autoPayAmount = useMemo(() => {
     if (!form.link_payroll || previewMinutes <= 0 || ratePerMinute <= 0) return null;

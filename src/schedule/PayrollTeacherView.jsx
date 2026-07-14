@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Pencil } from "lucide-react";
+import { Check, ChevronLeft, Pencil } from "lucide-react";
 import { DAY_LABELS, PAY_TYPES, formatMinutes, formatWon, grossToNetPay, homeVisitColor, institutionColor, isHomeVisitPlanned, minutesBetween, yearMonthKey } from "./constants.js";
 import PayrollMonthNotices from "./PayrollMonthNotices.jsx";
 import { TeacherNoteDayEditor, TeacherNotesMonthList } from "./TeacherNotesPanel.jsx";
@@ -25,6 +25,7 @@ import {
   fetchScheduleExceptions,
   fetchSubstituteAssignmentsForTeacher,
   fetchTeacherNotes,
+  fetchTeachers,
   fetchWeeklySchedule,
   savePayrollEntry,
   upsertTeacherNote,
@@ -35,11 +36,17 @@ import {
   upsertPayrollSlotWithNotification,
 } from "./payrollSaveWithNotification.js";
 import ChangeReasonField from "./ChangeReasonField.jsx";
-import { resolveChangeReason, validateChangeReason } from "./changeReasonOptions.js";
+import {
+  isMakeupReason,
+  isSubstituteReason,
+  resolveChangeReason,
+  validateChangeReason,
+} from "./changeReasonOptions.js";
 import { shouldNotifyScheduleChange } from "./scheduleChangeNotifications.js";
-import { estimateTeacherPayByEntry } from "./settlement.js";
+import { estimateTeacherPayByEntry, payRelevantEntries } from "./settlement.js";
 import {
   ENTRY_STATUS,
+  calendarPayrollBadgesForDate,
   collectUnconfirmedPlanned,
   countUnconfirmedDays,
   isDateConfirmable,
@@ -101,6 +108,7 @@ export default function PayrollTeacherView({
   const [rates, setRates] = useState([]);
   const [substituteAssignments, setSubstituteAssignments] = useState([]);
   const [finalizedIds, setFinalizedIds] = useState(new Set());
+  const [teacherOptions, setTeacherOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [noteSaving, setNoteSaving] = useState(false);
@@ -135,6 +143,18 @@ export default function PayrollTeacherView({
   useEffect(() => {
     if (initialYearMonth) setYearMonth(initialYearMonth);
   }, [initialYearMonth]);
+
+  useEffect(() => {
+    fetchTeachers()
+      .then(rows => setTeacherOptions((rows || []).filter(t => t.role === "teacher")))
+      .catch(console.error);
+  }, []);
+
+  const teachersById = useMemo(() => {
+    const m = new Map();
+    for (const t of teacherOptions) m.set(t.id, t);
+    return m;
+  }, [teacherOptions]);
 
   const load = useCallback(async () => {
     if (!teacherId || !scheduleAuthReady) return;
@@ -206,15 +226,35 @@ export default function PayrollTeacherView({
     [weeklySlots, scheduleByDate, assignedInstitutions],
   );
 
-  const byType = useMemo(() => groupPayrollByTypeConfirmed(entries), [entries]);
+  const byType = useMemo(
+    () => groupPayrollByTypeConfirmed(entries, teacherId),
+    [entries, teacherId],
+  );
+
+  const payEntries = useMemo(
+    () => payRelevantEntries(entries, teacherId),
+    [entries, teacherId],
+  );
+
+  const makeupPayEntries = useMemo(
+    () => payEntries.filter(e => e.is_makeup),
+    [payEntries],
+  );
+
   const slotById = useMemo(() => {
     const map = {};
     for (const s of weeklySlots) map[s.id] = s;
     return map;
   }, [weeklySlots]);
+
   const lessonPay = useMemo(
-    () => estimateTeacherPayByEntry(entries.filter(e => e.minutes > 0), rates, slotById),
-    [entries, rates, slotById],
+    () => estimateTeacherPayByEntry(payEntries, rates, slotById, teacherId),
+    [payEntries, rates, slotById, teacherId],
+  );
+
+  const makeupPay = useMemo(
+    () => estimateTeacherPayByEntry(makeupPayEntries, rates, slotById, teacherId),
+    [makeupPayEntries, rates, slotById, teacherId],
   );
   const fixedGrossPay = useMemo(
     () => findFixedGrossPay(teacherId, yearMonth),
@@ -283,7 +323,16 @@ export default function PayrollTeacherView({
     setSelectedDate(now);
   };
 
-  const buildPayload = (planned, { status, minutes, note }) => {
+  const buildPayload = (planned, {
+    status,
+    minutes,
+    note,
+    substitute_teacher_id = null,
+    is_makeup = false,
+    makeup_date = null,
+    makeup_start_time = null,
+    makeup_end_time = null,
+  }) => {
     const existing = findEntryForPlanned(entries, planned);
     return {
       id: existing?.id,
@@ -296,6 +345,15 @@ export default function PayrollTeacherView({
       schedule_slot_id: isHomeVisitPlanned(planned) ? null : planned.slot.id,
       home_visit_pattern_id: planned.patternId || null,
       note: note?.trim() || null,
+      substitute_teacher_id: substitute_teacher_id || null,
+      is_makeup: Boolean(is_makeup),
+      makeup_date: is_makeup && makeup_date ? String(makeup_date).slice(0, 10) : null,
+      makeup_start_time: is_makeup && makeup_start_time
+        ? (String(makeup_start_time).length === 5 ? `${makeup_start_time}:00` : makeup_start_time)
+        : null,
+      makeup_end_time: is_makeup && makeup_end_time
+        ? (String(makeup_end_time).length === 5 ? `${makeup_end_time}:00` : makeup_end_time)
+        : null,
     };
   };
 
@@ -333,6 +391,13 @@ export default function PayrollTeacherView({
 
   const handleDayConfirmAll = () => {
     bulkSavePlanned(selectedPlanned, {
+      status: ENTRY_STATUS.as_scheduled,
+      minutesFor: p => p.scheduledMinutes,
+    });
+  };
+
+  const handleSlotConfirm = (planned) => {
+    bulkSavePlanned([planned], {
       status: ENTRY_STATUS.as_scheduled,
       minutesFor: p => p.scheduledMinutes,
     });
@@ -423,21 +488,38 @@ export default function PayrollTeacherView({
 
   const openCustom = (planned) => {
     const existing = findEntryForPlanned(entries, planned);
+    let changeReasonPreset = "";
+    if (existing?.substitute_teacher_id) changeReasonPreset = "대체수업";
+    else if (existing?.is_makeup) changeReasonPreset = "보강수업";
     setCustomEdit({
       planned,
       minutes: existing?.entry_status === ENTRY_STATUS.custom
-        ? existing.minutes
+        || existing?.substitute_teacher_id
+        || existing?.is_makeup
+        ? (existing.minutes || planned.scheduledMinutes)
         : planned.scheduledMinutes,
       startTime: planned.startTime,
       endTime: planned.endTime,
       note: existing?.note || "",
-      changeReasonPreset: "",
+      changeReasonPreset,
       changeReasonCustom: "",
+      substituteTeacherId: existing?.substitute_teacher_id || "",
+      makeupDate: existing?.makeup_date ? String(existing.makeup_date).slice(0, 10) : "",
+      makeupStartTime: existing?.makeup_start_time
+        ? String(existing.makeup_start_time).slice(0, 5)
+        : planned.startTime,
+      makeupEndTime: existing?.makeup_end_time
+        ? String(existing.makeup_end_time).slice(0, 5)
+        : planned.endTime,
     });
   };
 
   const customEditNeedsReason = useMemo(() => {
     if (!customEdit) return false;
+    if (isSubstituteReason(customEdit.changeReasonPreset)
+      || isMakeupReason(customEdit.changeReasonPreset)) {
+      return true;
+    }
     const savePayload = buildPayload(customEdit.planned, {
       status: ENTRY_STATUS.custom,
       minutes: Number(customEdit.minutes) || 0,
@@ -462,18 +544,49 @@ export default function PayrollTeacherView({
     if (isLocked(customEdit.planned.institutionId)) {
       return alert("정산 확정된 원은 수정할 수 없습니다.");
     }
-    const mins = Number(customEdit.minutes);
+
+    const isSub = isSubstituteReason(customEdit.changeReasonPreset);
+    const isMk = isMakeupReason(customEdit.changeReasonPreset);
+
+    if (isSub) {
+      if (!customEdit.substituteTeacherId) return alert("대체 선생님을 선택해주세요.");
+      if (customEdit.substituteTeacherId === teacherId) {
+        return alert("본인은 대체 선생님으로 선택할 수 없습니다.");
+      }
+    }
+    if (isMk) {
+      if (!customEdit.makeupDate) return alert("보강 날짜를 입력해주세요.");
+      if (!customEdit.makeupStartTime || !customEdit.makeupEndTime) {
+        return alert("보강 시작·종료 시간을 입력해주세요.");
+      }
+      if (customEdit.makeupStartTime >= customEdit.makeupEndTime) {
+        return alert("보강 종료 시간은 시작 시간보다 늦어야 합니다.");
+      }
+    }
+
+    let mins = Number(customEdit.minutes);
+    if (isMk) {
+      mins = minutesBetween(customEdit.makeupStartTime, customEdit.makeupEndTime) || mins;
+    }
     if (!mins || mins <= 0) return alert("1분 이상 입력해주세요.");
+
     const payload = buildPayload(customEdit.planned, {
       status: ENTRY_STATUS.custom,
       minutes: mins,
       note: customEdit.note,
+      substitute_teacher_id: isSub ? customEdit.substituteTeacherId : null,
+      is_makeup: isMk,
+      makeup_date: isMk ? customEdit.makeupDate : null,
+      makeup_start_time: isMk ? customEdit.makeupStartTime : null,
+      makeup_end_time: isMk ? customEdit.makeupEndTime : null,
     });
     const handlingExtra = {
-      startTime: customEdit.startTime,
-      endTime: customEdit.endTime,
+      startTime: isMk ? customEdit.makeupStartTime : customEdit.startTime,
+      endTime: isMk ? customEdit.makeupEndTime : customEdit.endTime,
     };
-    if (shouldNotifyScheduleChange(customEdit.planned, payload, handlingExtra)) {
+    const needsReason = customEditNeedsReason
+      || shouldNotifyScheduleChange(customEdit.planned, payload, handlingExtra);
+    if (needsReason) {
       const reasonErr = validateChangeReason(
         customEdit.changeReasonPreset,
         customEdit.changeReasonCustom,
@@ -735,6 +848,9 @@ export default function PayrollTeacherView({
                 const state = dayConfirmState(planned, entries);
                 const holiday = getKoreanHoliday(dateStr);
                 const statusKind = calendarDayStatusKind(planned, entries, { isHoliday: !!holiday });
+                const payrollBadges = inMonth && !holiday
+                  ? calendarPayrollBadgesForDate(entries, dateStr)
+                  : [];
 
                 return (
                   <button
@@ -760,27 +876,48 @@ export default function PayrollTeacherView({
                   >
                     {inMonth ? <CalendarDayStatusIcon kind={statusKind} /> : null}
                     <span className="sch-cal-day-num">{date.getDate()}</span>
+                    {payrollBadges.map(b => (
+                      <span
+                        key={b.kind}
+                        className={`sch-cal-sub-badge sch-cal-sub-badge--${b.kind}`}
+                      >
+                        {b.label}
+                      </span>
+                    ))}
                     {holiday ? (
                       <span className="sch-cal-holiday-label" title={holiday.name}>
                         {holidayShortLabel(holiday.name)}
                       </span>
                     ) : (
-                      <span className="sch-cal-dots">
-                        {instIds.map(marker => (
-                          <span
-                            key={marker.key}
-                            className={[
-                              "sch-cal-dot",
-                              marker.type === "home_visit" && "sch-cal-dot--home-visit",
-                            ].filter(Boolean).join(" ")}
-                            style={{
-                              background: marker.type === "home_visit"
-                                ? homeVisitColor(marker.id)
-                                : institutionColor(marker.id),
-                            }}
-                            title={marker.type === "home_visit" ? `가정방문 · ${marker.label}` : undefined}
-                          />
-                        ))}
+                      <span className="sch-cal-markers">
+                        {instIds.map(marker => {
+                          const color = marker.type === "home_visit"
+                            ? homeVisitColor(marker.id)
+                            : institutionColor(marker.id);
+                          const title = marker.type === "home_visit"
+                            ? `가정방문 · ${marker.label}`
+                            : marker.label;
+                          return (
+                            <span key={marker.key} className="sch-cal-marker" title={title}>
+                              <span
+                                className={[
+                                  "sch-cal-dot",
+                                  "sch-cal-marker-dot",
+                                  marker.type === "home_visit" && "sch-cal-dot--home-visit",
+                                ].filter(Boolean).join(" ")}
+                                style={{ background: color }}
+                              />
+                              <span
+                                className={[
+                                  "sch-cal-marker-name",
+                                  marker.type === "home_visit" && "sch-cal-marker-name--home-visit",
+                                ].filter(Boolean).join(" ")}
+                              >
+                                {marker.label}
+                              </span>
+                            </span>
+                          );
+                        })}
                       </span>
                     )}
                   </button>
@@ -857,6 +994,8 @@ export default function PayrollTeacherView({
                         "sch-payroll-slot-row",
                         locked && "sch-payroll-slot-row--locked",
                         planned.isSubstituteCovered && "sch-payroll-slot-row--substitute",
+                        status && status !== ENTRY_STATUS.skipped && "sch-payroll-slot-row--done",
+                        status === ENTRY_STATUS.skipped && "sch-payroll-slot-row--skipped",
                       ].filter(Boolean).join(" ")}>
                         <span className="sch-cal-detail-bar" style={{ background: color }}/>
                         <div className="sch-payroll-slot-row-body">
@@ -868,12 +1007,22 @@ export default function PayrollTeacherView({
                             {plannedSlotDisplayLabel(planned)}
                           </div>
                           <div className={`sch-payroll-status sch-payroll-status--${status || "pending"}`}>
-                            {effectiveSlotStatusLabel(planned, entry)}
+                            {effectiveSlotStatusLabel(planned, entry, { teachersById })}
                           </div>
                           {locked ? <span className="sch-lock-badge">정산 확정</span> : null}
                         </div>
                         {!locked && (selectedDateConfirmable || status) ? (
                           <div className="sch-payroll-slot-row-actions">
+                            {!status && selectedDateConfirmable && canEditPayroll ? (
+                              <button
+                                type="button"
+                                className="sch-payroll-confirm-btn"
+                                disabled={saving}
+                                onClick={() => handleSlotConfirm(planned)}
+                              >
+                                <Check size={13}/> 완료
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               className="sch-payroll-edit-btn"
@@ -992,6 +1141,12 @@ export default function PayrollTeacherView({
                 ) : null}
               </>
             )}
+            <AdditionalPaymentRequestsTeacherSection
+              teacherId={teacherId}
+              yearMonth={yearMonth}
+              defaultDate={selectedDateStr}
+              readOnly={adminInspectMode && !canEditPayroll}
+            />
             {canEditPayroll ? (
               <TeacherNoteDayEditor
                 noteDate={selectedDateStr}
@@ -1117,6 +1272,11 @@ export default function PayrollTeacherView({
           ) : lessonPay !== totalPay ? (
             <p className="sch-payroll-pay-hint">수업료 {formatWon(lessonPay)} + 추가지급</p>
           ) : null}
+          {makeupPay > 0 ? (
+            <p className="sch-payroll-pay-hint">
+              보강 수업료 {formatWon(makeupPay)} 포함 (기본 단가와 동일)
+            </p>
+          ) : null}
         </div>
         <div className="sch-payroll-pay-card">
           <div className="sch-payroll-pay-label">3.3% 세금 제외 후 실수령액</div>
@@ -1128,12 +1288,6 @@ export default function PayrollTeacherView({
           </p>
         </div>
       </div>
-
-      <AdditionalPaymentRequestsTeacherSection
-        teacherId={teacherId}
-        yearMonth={yearMonth}
-        readOnly={adminInspectMode && !canEditPayroll}
-      />
 
       {customEdit ? (
         <div className="sch-modal-overlay" onClick={() => setCustomEdit(null)}>
@@ -1184,13 +1338,97 @@ export default function PayrollTeacherView({
                   }}/>
               </label>
             </div>
-            {customEditNeedsReason ? (
-              <ChangeReasonField
-                preset={customEdit.changeReasonPreset}
-                customText={customEdit.changeReasonCustom}
-                onPresetChange={preset => setCustomEdit(c => ({ ...c, changeReasonPreset: preset }))}
-                onCustomChange={text => setCustomEdit(c => ({ ...c, changeReasonCustom: text }))}
-              />
+            <ChangeReasonField
+              preset={customEdit.changeReasonPreset}
+              customText={customEdit.changeReasonCustom}
+              onPresetChange={preset => setCustomEdit(c => ({
+                ...c,
+                changeReasonPreset: preset,
+                substituteTeacherId: isSubstituteReason(preset) ? c.substituteTeacherId : "",
+                makeupDate: isMakeupReason(preset) ? c.makeupDate : "",
+              }))}
+              onCustomChange={text => setCustomEdit(c => ({ ...c, changeReasonCustom: text }))}
+              required={customEditNeedsReason
+                || isSubstituteReason(customEdit.changeReasonPreset)
+                || isMakeupReason(customEdit.changeReasonPreset)}
+            />
+            {isSubstituteReason(customEdit.changeReasonPreset) ? (
+              <label className="sch-field">
+                <span>누가 수업했나요? *</span>
+                <select
+                  className="sch-select"
+                  required
+                  value={customEdit.substituteTeacherId}
+                  onChange={e => setCustomEdit(c => ({ ...c, substituteTeacherId: e.target.value }))}
+                >
+                  <option value="">대체 선생님 선택</option>
+                  {teacherOptions
+                    .filter(t => t.id !== teacherId)
+                    .map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                </select>
+                <span className="sch-muted sch-field-hint">
+                  선택 시 수업료는 대체 선생님 급여로 이동하고, 원래 선생님 급여에서는 제외됩니다.
+                </span>
+              </label>
+            ) : null}
+            {isMakeupReason(customEdit.changeReasonPreset) ? (
+              <>
+                <label className="sch-field">
+                  <span>보강 날짜 *</span>
+                  <input
+                    type="date"
+                    className="sch-input"
+                    required
+                    value={customEdit.makeupDate}
+                    onChange={e => setCustomEdit(c => ({ ...c, makeupDate: e.target.value }))}
+                  />
+                </label>
+                <div className="sch-time-row">
+                  <label className="sch-field">
+                    <span>보강 시작 *</span>
+                    <input
+                      type="time"
+                      className="sch-input"
+                      required
+                      value={customEdit.makeupStartTime}
+                      onChange={e => {
+                        const start = e.target.value;
+                        setCustomEdit(c => ({
+                          ...c,
+                          makeupStartTime: start,
+                          minutes: c.makeupEndTime
+                            ? minutesBetween(start, c.makeupEndTime)
+                            : c.minutes,
+                        }));
+                      }}
+                    />
+                  </label>
+                  <label className="sch-field">
+                    <span>보강 종료 *</span>
+                    <input
+                      type="time"
+                      className="sch-input"
+                      required
+                      value={customEdit.makeupEndTime}
+                      onChange={e => {
+                        const end = e.target.value;
+                        setCustomEdit(c => ({
+                          ...c,
+                          makeupEndTime: end,
+                          minutes: c.makeupStartTime
+                            ? minutesBetween(c.makeupStartTime, end)
+                            : c.minutes,
+                        }));
+                      }}
+                    />
+                  </label>
+                </div>
+                <p className="sch-muted sch-field-hint">
+                  보강 수업료는 동일 단가로 별도 계산되며, 보강 날짜 달력에 「보강」이 표시됩니다.
+                </p>
+              </>
             ) : null}
             <label className="sch-field">
               <span>메모 (선택)</span>

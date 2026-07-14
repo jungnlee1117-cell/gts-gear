@@ -124,7 +124,7 @@ export default function ScheduleApp({ me, session, onBack }) {
       case "events":
         return <EventsScheduleView me={me} onBack={goHub}/>;
       case "change-alerts":
-        return admin ? <ScheduleChangeAlertsView onBack={goHub}/> : null;
+        return <ScheduleChangeAlertsView me={me} onBack={goHub}/>;
       case "payroll":
         return admin
           ? (
