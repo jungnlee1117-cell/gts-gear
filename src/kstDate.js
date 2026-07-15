@@ -43,6 +43,22 @@ export function ddayKst(due) {
   return Math.round((dueUtc - todayUtc) / 86_400_000);
 }
 
+/**
+ * due − asOf 일수 (KST 달력).
+ * asOf: Date | ISO | YYYY-MM-DD. 생략 시 오늘.
+ * 음수 = asOf 기준 연체 일수 (절대값이 연체일수)
+ */
+export function ddayKstAsOf(due, asOf) {
+  const dueParts = parseDateOnly(due);
+  if (!dueParts) return null;
+  const asOfYmd = asOf == null ? kstTodayYmd() : toKstDateOnly(asOf);
+  const asOfParts = parseDateOnly(asOfYmd);
+  if (!asOfParts) return null;
+  const dueUtc = Date.UTC(dueParts.y, dueParts.m - 1, dueParts.d);
+  const asOfUtc = Date.UTC(asOfParts.y, asOfParts.m - 1, asOfParts.d);
+  return Math.round((dueUtc - asOfUtc) / 86_400_000);
+}
+
 export function formatYmdWeekday(value) {
   const parts = parseDateOnly(value);
   if (parts) {

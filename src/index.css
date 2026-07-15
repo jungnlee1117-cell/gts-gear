@@ -12677,6 +12677,179 @@ button.pe-res-resource-youtube-thumb:hover {
   margin-bottom: 14px;
 }
 
+.notice-unread-banner {
+  margin: 0 16px 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.notice-unread-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2563eb;
+  flex-shrink: 0;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.hub-unified-row__title.is-unread,
+.admin-notice-table-row__title.is-unread {
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.admin-notice-table-row.is-unread .admin-notice-table-row__title,
+.hub-unified-row.is-unread .hub-unified-row__title {
+  font-weight: 800;
+}
+
+.admin-notice-read-stat {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.notice-read-receipt {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.notice-read-receipt__summary {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 10px;
+}
+
+.notice-read-receipt__tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.notice-read-receipt__tab {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.notice-read-receipt__tab.is-active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.notice-read-receipt__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.notice-read-receipt__list li {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.notice-read-receipt__list li:last-child {
+  border-bottom: none;
+}
+
+.notice-read-receipt__empty {
+  color: #94a3b8 !important;
+}
+
+.notice-audience-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notice-audience-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  color: #334155;
+}
+
+.notice-audience-radio.is-active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.notice-audience-radio input {
+  width: auto;
+  margin: 0;
+  accent-color: #2563eb;
+}
+
+.notice-audience-teachers__count {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1d4ed8;
+  margin-bottom: 6px;
+}
+
+.notice-audience-teachers__list {
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notice-audience-teachers__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.notice-audience-teachers__item input {
+  width: auto;
+  margin: 0;
+  accent-color: #2563eb;
+}
+
 .notice-form-kind__select {
   width: 100%;
   padding: 10px 12px;
@@ -13100,6 +13273,14 @@ button.pe-res-resource-youtube-thumb:hover {
 .hub-feed-tag--global {
   background: #eff6ff;
   color: #2563eb;
+}
+.hub-feed-tag--teachers {
+  background: #f0fdfa;
+  color: #0f766e;
+}
+.hub-feed-tag--specific {
+  background: #f5f3ff;
+  color: #7c3aed;
 }
 .hub-feed-tag--vacation {
   background: #fffbeb;
@@ -14074,8 +14255,13 @@ button.pe-res-resource-youtube-thumb:hover {
 .admin-notice-badge--general { background: #fff; color: #16a34a; border: 1px solid #86efac; }
 .admin-notice-badge--institution,
 .admin-notice-badge--global,
+.admin-notice-badge--teachers,
+.admin-notice-badge--specific,
 .admin-notice-badge--event,
 .admin-notice-badge--vacation { background: #fff; color: #2563eb; border: 1px solid #93c5fd; }
+
+.admin-notice-badge--teachers { color: #0f766e; border-color: #5eead4; }
+.admin-notice-badge--specific { color: #7c3aed; border-color: #c4b5fd; }
 .admin-notice-pager {
   display: flex;
   justify-content: center;
@@ -14354,7 +14540,28 @@ button.pe-res-resource-youtube-thumb:hover {
 .admin-todo-status.is-active { background: #eff6ff; color: #2563eb; }
 .admin-todo-status.is-done { background: #ecfdf5; color: #16a34a; }
 .admin-todo-created { font-size: 12px; color: #94a3b8; }
-.admin-todo-more-wrap { position: relative; display: flex; justify-content: flex-end; }
+.admin-todo-more-wrap {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+}
+.admin-todo-edit-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.admin-todo-edit-btn:hover { background: #f1f5f9; }
 .admin-todo-more-btn {
   width: 44px;
   height: 44px;

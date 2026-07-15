@@ -188,6 +188,16 @@ async function getAllActiveTeacherIds(client) {
   return (data || []).map((row) => row.id);
 }
 
+/** active + role=teacher only (관리자·슈퍼관리자 제외) */
+async function getActiveTeacherRoleIds(client) {
+  const { data } = await client
+    .from("teachers")
+    .select("id")
+    .eq("active", true)
+    .eq("role", "teacher");
+  return (data || []).map((row) => row.id);
+}
+
 async function getInstitutionTeacherIds(client, institutionId) {
   if (!institutionId) return [];
   const [assignmentsRes, weeklyRes] = await Promise.all([
@@ -210,6 +220,63 @@ async function getInstitutionTeacherIds(client, institutionId) {
     if (row.teacher_id) ids.add(row.teacher_id);
   }
   return [...ids];
+}
+
+/** 기관 배정·주간일정 중 role=teacher 인 계정만 */
+async function getInstitutionTeacherRoleIds(client, institutionId) {
+  if (!institutionId) return [];
+  const [assignmentsRes, weeklyRes] = await Promise.all([
+    client
+      .from("institution_teacher_assignments")
+      .select("teacher_id, role")
+      .eq("institution_id", institutionId)
+      .eq("is_active", true),
+    client
+      .from("institution_weekly_schedule")
+      .select("teacher_id")
+      .eq("institution_id", institutionId)
+      .not("teacher_id", "is", null),
+  ]);
+  const ids = new Set<string>();
+  for (const row of assignmentsRes.data || []) {
+    // 수업 선생님만 (담당 관리자 role=manager 제외). role null은 기존 데이터 → teacher
+    if (row.teacher_id && (row.role == null || row.role === "teacher")) {
+      ids.add(row.teacher_id);
+    }
+  }
+  for (const row of weeklyRes.data || []) {
+    if (row.teacher_id) ids.add(row.teacher_id);
+  }
+  if (!ids.size) return [];
+  const { data } = await client
+    .from("teachers")
+    .select("id")
+    .in("id", [...ids])
+    .eq("active", true)
+    .eq("role", "teacher");
+  return (data || []).map((row) => row.id);
+}
+
+async function resolveNoticePostedTeacherIds(client, payload) {
+  const explicit = Array.isArray(payload?.teacher_ids)
+    ? payload.teacher_ids.filter(Boolean)
+    : [];
+  if (explicit.length) return explicit;
+
+  const audience = String(payload?.audience_type || "all");
+  if (audience === "teachers") {
+    return getActiveTeacherRoleIds(client);
+  }
+  if (audience === "institution_teachers") {
+    return getInstitutionTeacherRoleIds(client, payload?.institution_id);
+  }
+  if (audience === "specific") {
+    const ids = Array.isArray(payload?.audience_teacher_ids)
+      ? payload.audience_teacher_ids.filter(Boolean)
+      : [];
+    return ids;
+  }
+  return getAllActiveTeacherIds(client);
 }
 
 async function deliverPushNotifications(
@@ -519,7 +586,7 @@ async function resolveNotification(event, payload, userId, adminClient) {
       }
       const title = String(payload.title || "").trim() || "제목 없음";
       return {
-        teacherIds: await getAllActiveTeacherIds(adminClient),
+        teacherIds: await resolveNoticePostedTeacherIds(adminClient, payload || {}),
         title: "공지사항",
         body: `새 공지사항: ${title}`,
         url: "/gear",

@@ -1,6 +1,7 @@
 import { fetchScheduleExceptions } from "./schedule/api.js";
 import { DAY_LABELS, EXCEPTION_LABELS, fmtLocalDate } from "./schedule/constants.js";
 import { exceptionEndDate } from "./schedule/scheduleExceptions.js";
+import { audienceBadgeTone, audienceLabel } from "./noticeAudience.js";
 
 /** @typedef {'institution'|'global'|'vacation'|'event'|'urgent'|'general'} UnifiedNoticeType */
 
@@ -117,6 +118,8 @@ export function noticeToFeedItem(notice) {
     : "";
   const institutionName = notice.institutions?.name || null;
   const institutionId = notice.institution_id || null;
+  const scopeLabel = audienceLabel(notice, institutionName);
+  const scopeTone = audienceBadgeTone(notice);
 
   return /** @type {UnifiedFeedItem} */ ({
     id: `notice-${notice.id}`,
@@ -129,7 +132,8 @@ export function noticeToFeedItem(notice) {
     pinned: notice.importance === "important",
     institutionId,
     institutionName,
-    scopeLabel: institutionId ? (institutionName || "담당기관") : "전체 공개",
+    scopeLabel,
+    scopeTone,
     raw: notice,
   });
 }

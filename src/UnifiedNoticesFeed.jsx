@@ -41,7 +41,7 @@ function noticeAuthor(item) {
   return "시스템";
 }
 
-function FeedRow({ item, onClick }) {
+function FeedRow({ item, onClick, unread = false }) {
   const tone = UNIFIED_NOTICE_TYPE_TONES[item.type] || "general";
   const label = UNIFIED_NOTICE_TYPE_LABELS[item.type] || "일반";
   const dday = item.eventDate
@@ -49,16 +49,21 @@ function FeedRow({ item, onClick }) {
     : (item.type === "urgent" && isCreatedToday(item.createdAt) ? "오늘" : "");
 
   return (
-    <button type="button" className="hub-unified-row" onClick={() => onClick(item)}>
+    <button
+      type="button"
+      className={`hub-unified-row${unread ? " is-unread" : ""}`}
+      onClick={() => onClick(item)}
+    >
       <span className="hub-unified-row__main">
         <span className="hub-unified-row__top">
+          {unread ? <span className="notice-unread-dot" aria-hidden /> : null}
           <span className={`hub-feed-tag hub-feed-tag--${tone}`}>{label}</span>
           {item.source === "notice" ? (
-            <span className={`hub-feed-tag hub-feed-tag--${item.institutionId ? "institution" : "global"}`}>
-              {item.institutionId ? (item.institutionName || "담당기관") : "전체 공개"}
+            <span className={`hub-feed-tag hub-feed-tag--${item.scopeTone || (item.institutionId ? "institution" : "global")}`}>
+              {item.scopeLabel || (item.institutionId ? (item.institutionName || "담당기관") : "전체")}
             </span>
           ) : null}
-          <span className="hub-unified-row__title">{item.title}</span>
+          <span className={`hub-unified-row__title${unread ? " is-unread" : ""}`}>{item.title}</span>
         </span>
         {item.subtitle ? (
           <span className="hub-unified-row__sub">{item.subtitle}</span>
@@ -336,6 +341,14 @@ export default function UnifiedNoticesFeed({
   onExceptionMutated,
   compact = false,
   variant = "feed",
+  /** 선생님: 읽은 공지 id Set */
+  readNoticeIds = null,
+  /** 선생님: 안 읽은 스타일 */
+  showUnreadStyles = false,
+  /** 선생님: 상단 배지용 */
+  unreadCount = 0,
+  /** 관리자: noticeId → { readCount, totalCount } */
+  readStatsByNoticeId = null,
 }) {
   const [showAll, setShowAll] = useState(false);
   const [detailException, setDetailException] = useState(null);
@@ -343,6 +356,22 @@ export default function UnifiedNoticesFeed({
   const [page, setPage] = useState(1);
 
   const isTable = variant === "table";
+  const readSet = readNoticeIds instanceof Set
+    ? readNoticeIds
+    : new Set(readNoticeIds || []);
+
+  const isUnreadNotice = (item) =>
+    showUnreadStyles
+    && item.source === "notice"
+    && item.raw?.id
+    && !readSet.has(item.raw.id);
+
+  const readStatLabel = (item) => {
+    if (!readStatsByNoticeId || item.source !== "notice" || !item.raw?.id) return null;
+    const s = readStatsByNoticeId.get?.(item.raw.id) || readStatsByNoticeId[item.raw.id];
+    if (!s) return null;
+    return `읽음 ${s.readCount ?? 0}명 / 전체 ${s.totalCount ?? 0}명`;
+  };
 
   const preview = useMemo(
     () => (items || []).slice(0, previewCount),
@@ -386,6 +415,10 @@ export default function UnifiedNoticesFeed({
   const manage = canManage && Boolean(onEditNotice || onDeleteNotice || onExceptionMutated);
   const showRowActions = (item) =>
     manage && (item.source === "notice" || item.source === "exception");
+
+  const unreadBanner = showUnreadStyles && unreadCount > 0 ? (
+    <div className="notice-unread-banner">안 읽은 공지 {unreadCount}건</div>
+  ) : null;
 
   const exceptionModals = (
     <>
@@ -431,6 +464,8 @@ export default function UnifiedNoticesFeed({
             </div>
           </header>
 
+          {unreadBanner}
+
           {loading ? (
             <div className="hub-panel-card__empty">공지를 불러오는 중...</div>
           ) : (items?.length || 0) === 0 ? (
@@ -444,27 +479,34 @@ export default function UnifiedNoticesFeed({
                   <span>작성 정보</span>
                   <span>{manage ? "관리" : ""}</span>
                 </div>
-                {tableRows.map(item => (
+                {tableRows.map(item => {
+                  const unread = isUnreadNotice(item);
+                  const stat = readStatLabel(item);
+                  return (
                   <div
                     key={item.id}
                     role="button"
                     tabIndex={0}
-                    className={`admin-notice-table-row${manage ? " admin-notice-table-row--manage" : ""}`}
+                    className={`admin-notice-table-row${manage ? " admin-notice-table-row--manage" : ""}${unread ? " is-unread" : ""}`}
                     onClick={() => handleRowClick(item)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleRowClick(item); } }}
                   >
                     <span className="admin-notice-table-row__badge"><TableBadge type={item.type}/></span>
-                    <span className="admin-notice-table-row__title">
+                    <span className={`admin-notice-table-row__title${unread ? " is-unread" : ""}`}>
+                      {unread ? <span className="notice-unread-dot" aria-hidden /> : null}
                       {item.pinned ? <span className="admin-notice-pin" aria-hidden>📌</span> : null}
                       {item.source === "notice" ? (
                         <span
-                          className={`admin-notice-badge admin-notice-badge--${item.institutionId ? "institution" : "global"}`}
+                          className={`admin-notice-badge admin-notice-badge--${item.scopeTone || (item.institutionId ? "institution" : "global")}`}
                           style={{ marginRight: 6 }}
                         >
-                          {item.institutionId ? (item.institutionName || "담당기관") : "전체 공개"}
+                          {item.scopeLabel || (item.institutionId ? (item.institutionName || "담당기관") : "전체")}
                         </span>
                       ) : null}
                       {item.title}
+                      {stat ? (
+                        <span className="admin-notice-read-stat">{stat}</span>
+                      ) : null}
                     </span>
                     <div className="admin-notice-table-row__metas">
                       <span className="admin-notice-table-row__meta">{noticeAuthor(item)}</span>
@@ -484,7 +526,8 @@ export default function UnifiedNoticesFeed({
                       <span className="admin-notice-table-row__chev"><ChevronRight size={16} aria-hidden/></span>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
               {totalPages > 1 ? (
                 <div className="admin-notice-pager">
@@ -511,11 +554,13 @@ export default function UnifiedNoticesFeed({
                 <h3 className="hub-modal__title">공지사항 전체</h3>
                 <button type="button" className="hub-modal__close" onClick={() => setShowAll(false)}>닫기</button>
               </div>
+              {unreadBanner}
               <div className="hub-feed-list hub-feed-list--modal hub-feed-list--unified">
                 {(items || []).map(item => (
                   <div key={item.id} className="hub-feed-row-wrap">
                     <FeedRow
                       item={item}
+                      unread={isUnreadNotice(item)}
                       onClick={feedItem => {
                         setShowAll(false);
                         handleRowClick(feedItem);
@@ -560,6 +605,8 @@ export default function UnifiedNoticesFeed({
           ) : null}
         </header>
 
+        {unreadBanner}
+
         {loading ? (
           <div className="hub-panel-card__empty hub-panel-card__empty--compact">공지를 불러오는 중...</div>
         ) : (items?.length || 0) === 0 ? (
@@ -567,7 +614,12 @@ export default function UnifiedNoticesFeed({
         ) : (
           <div className="hub-feed-list hub-feed-list--unified">
             {preview.map(item => (
-              <FeedRow key={item.id} item={item} onClick={handleRowClick}/>
+              <FeedRow
+                key={item.id}
+                item={item}
+                unread={isUnreadNotice(item)}
+                onClick={handleRowClick}
+              />
             ))}
           </div>
         )}
@@ -580,11 +632,13 @@ export default function UnifiedNoticesFeed({
               <h3 className="hub-modal__title">공지사항 전체</h3>
               <button type="button" className="hub-modal__close" onClick={() => setShowAll(false)}>닫기</button>
             </div>
+            {unreadBanner}
             <div className="hub-feed-list hub-feed-list--modal hub-feed-list--unified">
               {(items || []).map(item => (
                 <div key={item.id} className="hub-feed-row-wrap">
                   <FeedRow
                     item={item}
+                    unread={isUnreadNotice(item)}
                     onClick={feedItem => {
                       setShowAll(false);
                       handleRowClick(feedItem);

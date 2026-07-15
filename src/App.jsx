@@ -49,13 +49,30 @@ import {
   noticeToKind,
   syncNoticeEventSchedule,
 } from "./noticeEventSync.js";
+import {
+  EMPTY_NOTICE_AUDIENCE,
+  NOTICE_AUDIENCE_OPTIONS,
+  audienceBadgeTone,
+  audienceLabel,
+  noticeToAudience,
+  selectableNoticeTeachers,
+  validateNoticeAudience,
+} from "./noticeAudience.js";
+import {
+  buildNoticeReadStats,
+  fetchInstitutionTeacherIdMap,
+  fetchMyNoticeReadIds,
+  fetchNoticeReads,
+  markNoticeAsRead,
+  splitReadUnreadTeachers,
+} from "./noticeReads.js";
 import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin } from "./authRoles.js";
 import { useMediaQuery } from "./useMediaQuery.js";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { fetchInstitutions } from "./schedule/api.js";
 import { EventScheduleFields, EMPTY_EVENT_FORM } from "./schedule/EventRegisterForm.jsx";
 import { shouldForcePasswordChange } from "./authPolicy.js";
-import { ddayKst, formatYmdShort, formatYmdWeekday, toKstDateOnly } from "./kstDate.js";
+import { ddayKst, ddayKstAsOf, formatYmdShort, formatYmdWeekday, toKstDateOnly } from "./kstDate.js";
 import {
   DUPLICATE_ITEM_NAME_MESSAGE,
   findItemNameConflict,
@@ -256,6 +273,10 @@ async function persistNotice(notice, existing) {
     importance: normalizeNoticeImportance(notice.importance),
     notice_type: notice.notice_type || "general",
     institution_id: notice.institution_id || null,
+    audience_type: notice.audience_type || "all",
+    audience_teacher_ids: Array.isArray(notice.audience_teacher_ids)
+      ? notice.audience_teacher_ids
+      : [],
     event_date: notice.event_date || null,
     event_end_date: notice.event_end_date || null,
     exception_type: notice.exception_type || null,
@@ -266,21 +287,42 @@ async function persistNotice(notice, existing) {
     author_name: notice.author_name,
   };
   const { data, error } = await supabase.from("notices").insert(row).select("*, institutions(id, name)").single();
-  if (error && /institution_id|event_end_date|exception_type/i.test(error.message || "")) {
-    const { institution_id, event_end_date, exception_type, ...legacy } = row;
+  if (error && /audience_type|audience_teacher_ids|institution_id|event_end_date|exception_type/i.test(error.message || "")) {
+    const {
+      institution_id, event_end_date, exception_type,
+      audience_type, audience_teacher_ids,
+      ...legacy
+    } = row;
     const retry = await supabase.from("notices").insert(legacy).select("*").single();
     if (!retry.error && retry.data) {
       if (retry.data.notice_type === "event") {
         try {
           const ids = await syncNoticeEventSchedule({ ...retry.data, institution_id, event_end_date, exception_type });
-          const refreshed = { ...retry.data, schedule_exception_ids: ids, institution_id, event_end_date, exception_type };
+          const refreshed = {
+            ...retry.data,
+            schedule_exception_ids: ids,
+            institution_id,
+            event_end_date,
+            exception_type,
+            audience_type,
+            audience_teacher_ids,
+          };
           return { list: [refreshed, ...existing], savedToDb: true, notice: refreshed };
         } catch (syncErr) {
           await supabase.from("notices").delete().eq("id", retry.data.id);
           throw syncErr;
         }
       }
-      return { list: [retry.data, ...existing], savedToDb: true, notice: retry.data };
+      return {
+        list: [{
+          ...retry.data,
+          institution_id,
+          audience_type,
+          audience_teacher_ids,
+        }, ...existing],
+        savedToDb: true,
+        notice: { ...retry.data, institution_id, audience_type, audience_teacher_ids },
+      };
     }
   }
   if (!error && data) {
@@ -309,6 +351,10 @@ async function updateNoticeRecord(id, patch, existing) {
     importance: normalizeNoticeImportance(patch.importance),
     notice_type: patch.notice_type || "general",
     institution_id: patch.institution_id || null,
+    audience_type: patch.audience_type || "all",
+    audience_teacher_ids: Array.isArray(patch.audience_teacher_ids)
+      ? patch.audience_teacher_ids
+      : [],
     event_date: patch.event_date || null,
     event_end_date: patch.event_end_date || null,
     exception_type: patch.exception_type || null,
@@ -318,11 +364,15 @@ async function updateNoticeRecord(id, patch, existing) {
     updated_at: new Date().toISOString(),
   };
   let { data, error } = await supabase.from("notices").update(payload).eq("id", id).select("*, institutions(id, name)").single();
-  if (error && /institution_id|event_end_date|exception_type/i.test(error.message || "")) {
-    const { institution_id, event_end_date, exception_type, ...legacy } = payload;
+  if (error && /audience_type|audience_teacher_ids|institution_id|event_end_date|exception_type/i.test(error.message || "")) {
+    const {
+      institution_id, event_end_date, exception_type,
+      audience_type, audience_teacher_ids,
+      ...legacy
+    } = payload;
     ({ data, error } = await supabase.from("notices").update(legacy).eq("id", id).select("*").single());
     if (!error && data) {
-      data = { ...data, institution_id, event_end_date, exception_type };
+      data = { ...data, institution_id, event_end_date, exception_type, audience_type, audience_teacher_ids };
     }
   }
   if (!error && data) return existing.map(n => (n.id === id ? data : n));
@@ -5735,9 +5785,57 @@ function MyReservationsPage({ me, reservations, items, onCancel }) {
 
 function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onDamage,onLoss}) {
   const pendRets = filterReturnPendingLastWeek(rets);
+
+  const approvedRows = useMemo(() => (rets || [])
+    .filter(r => ["return_approved", "damage_confirmed", "loss_confirmed"].includes(r.status))
+    .map(ret => {
+      const ri = ris.find(r => r.id === ret.rental_item_id);
+      return {
+        ret,
+        teacherName: tname(ret.teacher_id, teachers),
+        returnDate: ret.created_at,
+        approverName: ret.approved_by ? tname(ret.approved_by, teachers) : "-",
+        approvedAt: ret.approved_at,
+        itemLabel: ri
+          ? `${iname(ri.item_id, items)} ×${ret.quantity}`
+          : `교구 ×${ret.quantity}`,
+      };
+    })
+    .sort((a, b) => new Date(b.approvedAt || b.returnDate) - new Date(a.approvedAt || a.returnDate)),
+  [rets, ris, items, teachers]);
+
+  const historyTableHead = {
+    display: "grid",
+    gap: 8,
+    padding: "8px 0",
+    borderBottom: "1px solid #e2e8f0",
+    fontSize: 10,
+    fontWeight: 700,
+    color: DS.textMuted,
+    gridTemplateColumns: "minmax(72px, 0.9fr) minmax(72px, 0.8fr) minmax(72px, 0.9fr) minmax(108px, 1.1fr) minmax(120px, 1.6fr) minmax(72px, 0.7fr)",
+  };
+  const historyTableRow = {
+    display: "grid",
+    gap: 8,
+    padding: "12px 0",
+    borderTop: "1px solid #f8fafc",
+    fontSize: 12,
+    alignItems: "start",
+    gridTemplateColumns: "minmax(72px, 0.9fr) minmax(72px, 0.8fr) minmax(72px, 0.9fr) minmax(108px, 1.1fr) minmax(120px, 1.6fr) minmax(72px, 0.7fr)",
+  };
+
   return (
     <PageShell>
       <PageHeader me={me} subtitle={`${PAGE_META["returns-approval"].sub} (최근 7일)`} alertCount={pendRets.length}/>
+
+      <div style={{
+        display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+        gap: 14, marginBottom: 24,
+      }}>
+        <DashStatCard label="승인 대기" value={pendRets.length} iconMark="대기" iconBg="#fef9c3" iconColor="#ca8a04"/>
+        <DashStatCard label="승인 완료" value={approvedRows.length} iconMark="완료" iconBg="#dcfce7" iconColor="#16a34a"/>
+      </div>
+
       {pendRets.length === 0 ? (
         <PanelSection title="반납 승인 대기">
           <Empty text="승인 대기 중인 반납 신청이 없습니다"/>
@@ -5761,6 +5859,33 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onDamage,o
           </PanelSection>
         );
       })}
+
+      <PanelSection title={`반납 승인 내역 (${approvedRows.length}건)`}>
+        {approvedRows.length === 0 ? (
+          <Empty text="승인된 반납 내역이 없습니다"/>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ ...historyTableHead, minWidth: 680 }}>
+              <span>반납자</span>
+              <span>반납일</span>
+              <span>승인자</span>
+              <span>승인일시</span>
+              <span>교구</span>
+              <span>상태</span>
+            </div>
+            {approvedRows.map(({ ret, teacherName, returnDate, approverName, approvedAt, itemLabel }) => (
+              <div key={ret.id} style={{ ...historyTableRow, minWidth: 680 }}>
+                <span style={{ fontWeight: 700, color: DS.textPrimary }}>{teacherName}</span>
+                <span style={{ color: DS.textSecondary }}>{fmt(returnDate)}</span>
+                <span style={{ fontWeight: 600, color: DS.textPrimary }}>{approverName}</span>
+                <span style={{ color: DS.textSecondary, lineHeight: 1.5 }}>{fmtdt(approvedAt)}</span>
+                <span style={{ color: DS.textSecondary, lineHeight: 1.5 }}>{itemLabel}</span>
+                <span><Badge s={ret.status}/></span>
+              </div>
+            ))}
+          </div>
+        )}
+      </PanelSection>
     </PageShell>
   );
 }
@@ -6011,49 +6136,86 @@ function NoticeImportanceBadge({ importance, noticeType }) {
   );
 }
 
-function InstitutionScopeField({ institutionId, setInstitutionId, institutions = [], scope, setScope }) {
-  const isGlobal = scope !== "institution";
+function NoticeAudienceField({ audience, setAudience, institutions = [], teachers = [] }) {
+  const type = audience?.audience_type || "all";
+  const selectedIds = new Set(audience?.audience_teacher_ids || []);
+  const teacherRows = useMemo(() => selectableNoticeTeachers(teachers), [teachers]);
+  const selectedCount = selectedIds.size;
+  const hint = NOTICE_AUDIENCE_OPTIONS.find(o => o.value === type)?.hint;
+
+  const setType = (nextType) => {
+    setAudience((prev) => ({
+      ...prev,
+      audience_type: nextType,
+      institution_id: nextType === "institution_teachers" ? (prev.institution_id || "") : "",
+      audience_teacher_ids: nextType === "specific" ? (prev.audience_teacher_ids || []) : [],
+    }));
+  };
+
+  const toggleTeacher = (id) => {
+    setAudience((prev) => {
+      const cur = new Set(prev.audience_teacher_ids || []);
+      if (cur.has(id)) cur.delete(id);
+      else cur.add(id);
+      return { ...prev, audience_teacher_ids: [...cur] };
+    });
+  };
+
   return (
-    <div className="sch-field" style={{ marginBottom: 12 }}>
-      <span>공개 범위 *</span>
-      <div className="sch-chip-row" style={{ marginBottom: 8 }}>
-        <button
-          type="button"
-          className={`sch-chip${isGlobal ? " active" : ""}`}
-          onClick={() => { setScope("global"); setInstitutionId(""); }}
-        >
-          전체 공개
-        </button>
-        <button
-          type="button"
-          className={`sch-chip${!isGlobal ? " active" : ""}`}
-          onClick={() => setScope("institution")}
-        >
-          특정 기관
-        </button>
+    <div className="sch-field notice-audience-field" style={{ marginBottom: 12 }}>
+      <span>수신 대상 *</span>
+      <div className="notice-audience-radios" role="radiogroup" aria-label="수신 대상">
+        {NOTICE_AUDIENCE_OPTIONS.map((opt) => (
+          <label key={opt.value} className={`notice-audience-radio${type === opt.value ? " is-active" : ""}`}>
+            <input
+              type="radio"
+              name="notice-audience"
+              value={opt.value}
+              checked={type === opt.value}
+              onChange={() => setType(opt.value)}
+            />
+            <span>{opt.label}</span>
+          </label>
+        ))}
       </div>
-      {isGlobal ? (
-        <p className="sch-muted" style={{ margin: 0 }}>
-          슈퍼관리자·전체 관리자·전체 선생님에게 공개됩니다.
-        </p>
-      ) : (
-        <>
-          <select
-            className="sch-select"
-            required
-            value={institutionId}
-            onChange={e => setInstitutionId(e.target.value)}
-          >
-            <option value="">기관 선택</option>
-            {institutions.map(inst => (
-              <option key={inst.id} value={inst.id}>{inst.name}</option>
+      {hint ? <p className="sch-muted" style={{ margin: "4px 0 0" }}>{hint}</p> : null}
+
+      {type === "institution_teachers" ? (
+        <select
+          className="sch-select"
+          required
+          value={audience?.institution_id || ""}
+          onChange={(e) => setAudience((prev) => ({ ...prev, institution_id: e.target.value }))}
+          style={{ marginTop: 8 }}
+        >
+          <option value="">기관 선택</option>
+          {institutions.map((inst) => (
+            <option key={inst.id} value={inst.id}>{inst.name}</option>
+          ))}
+        </select>
+      ) : null}
+
+      {type === "specific" ? (
+        <div className="notice-audience-teachers" style={{ marginTop: 8 }}>
+          <div className="notice-audience-teachers__count">
+            {selectedCount}명 선택됨
+          </div>
+          <div className="notice-audience-teachers__list">
+            {teacherRows.length === 0 ? (
+              <p className="sch-muted" style={{ margin: 0 }}>선택 가능한 선생님이 없습니다.</p>
+            ) : teacherRows.map((t) => (
+              <label key={t.id} className="notice-audience-teachers__item">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(t.id)}
+                  onChange={() => toggleTeacher(t.id)}
+                />
+                <span>{t.name || "이름 없음"}</span>
+              </label>
             ))}
-          </select>
-          <p className="sch-muted" style={{ marginTop: 6 }}>
-            해당 기관 담당 선생님·담당 관리자만 조회할 수 있습니다.
-          </p>
-        </>
-      )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -6063,7 +6225,9 @@ function NoticeFormFields({
   body, setBody,
   kind, setKind,
   eventForm, setEventForm,
+  audience, setAudience,
   institutions = [],
+  teachers = [],
 }) {
   return (
     <>
@@ -6084,7 +6248,7 @@ function NoticeFormFields({
         <div className="notice-event-fields">
           <div className="notice-event-fields__title">행사 일정</div>
           <p className="notice-event-fields__hint" style={{ marginTop: 0 }}>
-            스케줄 → 행사일정과 동일한 입력 항목입니다.
+            스케줄 → 행사일정과 동일한 입력 항목입니다. (캘린더 반영 기관)
           </p>
           <EventScheduleFields
             form={eventForm}
@@ -6104,25 +6268,112 @@ function NoticeFormFields({
         <>
           <Inp2 label="제목 *" value={title} onChange={e => setTitle(e.target.value)} placeholder="공지 제목"/>
           <Txa2 label="내용" value={body} onChange={e => setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
-          <InstitutionScopeField
-            institutionId={eventForm.institution_id || ""}
-            setInstitutionId={(id) => setEventForm(f => ({ ...f, institution_id: id || "", scope: id ? "institution" : f.scope }))}
-            scope={eventForm.scope || "global"}
-            setScope={(s) => setEventForm(f => ({ ...f, scope: s, institution_id: s === "global" ? "" : f.institution_id }))}
-            institutions={institutions}
-          />
         </>
       )}
+
+      <NoticeAudienceField
+        audience={audience}
+        setAudience={setAudience}
+        institutions={institutions}
+        teachers={teachers}
+      />
     </>
   );
 }
 
-function NoticeDetailModal({ notice, onClose, canManage, onEdit, onDelete }) {
+function NoticeReadReceiptSection({ notice, teachers = [], readStats, onResendUnread }) {
+  const [tab, setTab] = useState("unread");
+  const [sending, setSending] = useState(false);
+  const stats = readStats || { recipientIds: [], readIds: new Set(), readCount: 0, totalCount: 0 };
+  const { read, unread } = useMemo(
+    () => splitReadUnreadTeachers(teachers, stats.recipientIds, stats.readIds),
+    [teachers, stats.recipientIds, stats.readIds],
+  );
+  const list = tab === "read" ? read : unread;
+
+  const handleResend = async () => {
+    if (!unread.length) return alert("안 읽은 선생님이 없습니다.");
+    if (!confirm(`안 읽은 선생님 ${unread.length}명에게 다시 알림을 보낼까요?`)) return;
+    setSending(true);
+    try {
+      await onResendUnread?.(notice, unread.map((t) => t.id));
+      alert("알림을 다시 보냈습니다.");
+    } catch (err) {
+      alert(err?.message || "알림 발송에 실패했습니다.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="notice-read-receipt">
+      <div className="notice-read-receipt__summary">
+        읽음 {stats.readCount}명 / 전체 {stats.totalCount}명
+      </div>
+      <div className="notice-read-receipt__tabs">
+        <button
+          type="button"
+          className={`notice-read-receipt__tab${tab === "unread" ? " is-active" : ""}`}
+          onClick={() => setTab("unread")}
+        >
+          안 읽음 ({unread.length})
+        </button>
+        <button
+          type="button"
+          className={`notice-read-receipt__tab${tab === "read" ? " is-active" : ""}`}
+          onClick={() => setTab("read")}
+        >
+          읽음 ({read.length})
+        </button>
+      </div>
+      <ul className="notice-read-receipt__list">
+        {list.length === 0 ? (
+          <li className="notice-read-receipt__empty">
+            {tab === "unread" ? "안 읽은 선생님이 없습니다." : "읽은 선생님이 없습니다."}
+          </li>
+        ) : list.map((t) => (
+          <li key={t.id}>{t.name || "이름 없음"}</li>
+        ))}
+      </ul>
+      {unread.length > 0 ? (
+        <Btn full onClick={handleResend} disabled={sending} style={{ marginTop: 10 }}>
+          {sending ? "알림 보내는 중..." : "안 읽은 선생님에게 다시 알림 보내기"}
+        </Btn>
+      ) : null}
+    </div>
+  );
+}
+
+function NoticeDetailModal({
+  notice,
+  onClose,
+  canManage,
+  onEdit,
+  onDelete,
+  me = null,
+  teachers = [],
+  readStats = null,
+  onMarkedRead,
+  onResendUnread,
+}) {
+  const shouldAutoRead = Boolean(notice?.id && me?.id)
+    && (isGearTeacher(me) || me?.role === "teacher");
+
+  useEffect(() => {
+    if (!shouldAutoRead || !notice?.id) return;
+    let cancelled = false;
+    (async () => {
+      const ok = await markNoticeAsRead(supabase, notice.id, me.id);
+      if (!cancelled && ok) onMarkedRead?.(notice.id);
+    })();
+    return () => { cancelled = true; };
+  }, [notice?.id, me?.id, shouldAutoRead]);
+
   if (!notice) return null;
   const isImportant = normalizeNoticeImportance(notice.importance) === "important";
   const eventSummary = formatEventSummary(notice);
-  const institutionName = notice.institutions?.name
-    || (notice.institution_id ? "담당기관" : "전체 공개");
+  const scopeText = audienceLabel(notice, notice.institutions?.name);
+  const scopeTone = audienceBadgeTone(notice);
 
   return (
     <Modal title={notice.title} onClose={onClose} center closeLabel="×">
@@ -6132,13 +6383,9 @@ function NoticeDetailModal({ notice, onClose, canManage, onEdit, onDelete }) {
           <NoticeImportanceBadge importance={notice.importance} noticeType={notice.notice_type}/>
         </div>
         <div className="notice-detail-meta__row">
-          <span className="notice-detail-meta__label">담당기관</span>
+          <span className="notice-detail-meta__label">수신 대상</span>
           <span className="notice-detail-meta__value">
-            {notice.institution_id ? (
-              <span className="admin-notice-badge admin-notice-badge--institution">{institutionName}</span>
-            ) : (
-              <span className="admin-notice-badge admin-notice-badge--global">전체 공개</span>
-            )}
+            <span className={`admin-notice-badge admin-notice-badge--${scopeTone}`}>{scopeText}</span>
           </span>
         </div>
         <div className="notice-detail-meta__row">
@@ -6166,6 +6413,16 @@ function NoticeDetailModal({ notice, onClose, canManage, onEdit, onDelete }) {
       >
         {notice.body?.trim() ? notice.body : "내용이 없습니다."}
       </div>
+
+      {canManage ? (
+        <NoticeReadReceiptSection
+          notice={notice}
+          teachers={teachers}
+          readStats={readStats}
+          onResendUnread={onResendUnread}
+        />
+      ) : null}
+
       {canManage && (
         <div style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap" }}>
           <Btn onClick={() => { onClose(); onEdit(notice); }}>수정</Btn>
@@ -6195,11 +6452,12 @@ function noticeToEventForm(notice) {
   };
 }
 
-function NoticeEditModal({ notice, onClose, onSave, institutions = [] }) {
+function NoticeEditModal({ notice, onClose, onSave, institutions = [], teachers = [] }) {
   const [title, setTitle] = useState(notice?.title || "");
   const [body, setBody] = useState(notice?.body || "");
   const [kind, setKind] = useState(noticeToKind(notice));
   const [eventForm, setEventForm] = useState(() => noticeToEventForm(notice));
+  const [audience, setAudience] = useState(() => noticeToAudience(notice));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -6207,6 +6465,7 @@ function NoticeEditModal({ notice, onClose, onSave, institutions = [] }) {
     setBody(notice?.body || "");
     setKind(noticeToKind(notice));
     setEventForm(noticeToEventForm(notice));
+    setAudience(noticeToAudience(notice));
   }, [notice]);
 
   const submit = async () => {
@@ -6217,13 +6476,15 @@ function NoticeEditModal({ notice, onClose, onSave, institutions = [] }) {
         return alert("종료일은 시작일 이후여야 합니다.");
       }
       if (eventForm.scope === "institution" && !eventForm.institution_id) {
-        return alert("기관을 선택하세요.");
+        return alert("캘린더 반영 기관을 선택하세요.");
       }
     } else if (!title.trim()) {
       return alert("제목을 입력하세요");
     }
+    const audienceErr = validateNoticeAudience(audience);
+    if (audienceErr) return alert(audienceErr);
     setSaving(true);
-    const fields = kindToNoticeFields(kind, eventForm);
+    const fields = kindToNoticeFields(kind, eventForm, audience);
     const resolvedTitle = kind === "event" ? eventForm.note.trim() : title.trim();
     const ok = await onSave({
       id: notice.id,
@@ -6246,7 +6507,10 @@ function NoticeEditModal({ notice, onClose, onSave, institutions = [] }) {
         setKind={setKind}
         eventForm={eventForm}
         setEventForm={setEventForm}
+        audience={audience}
+        setAudience={setAudience}
         institutions={institutions}
+        teachers={teachers}
       />
       <Btn full onClick={submit} disabled={saving}>{saving ? "저장 중..." : "저장"}</Btn>
     </Modal>
@@ -6360,6 +6624,7 @@ function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemC
 }
 
 function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd, onToggle, onDelete, onUpdate, hideAuto = false, readOnly = false }) {
+  const canEditTodo = isSuperAdmin(me);
   const [content, setContent] = useState("");
   const [assignee, setAssignee] = useState("all");
   const [priority, setPriority] = useState("normal");
@@ -6369,11 +6634,13 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   const [tab, setTab] = useState("all"); // all | active | done
   const [filterAssignee, setFilterAssignee] = useState("all");
   const [composing, setComposing] = useState(false);
+  const [editingTodo, setEditingTodo] = useState(null);
   const [draftItems, setDraftItems] = useState([]);
   const [subDraft, setSubDraft] = useState("");
   const [visibleCount, setVisibleCount] = useState(6);
   const [menuId, setMenuId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+  const modalOpen = composing || Boolean(editingTodo);
 
   const overdueN = useMemo(() => (ris || []).filter(r => ["rented","partial_returned"].includes(r.status) && dday(r.due_date)!==null && dday(r.due_date)<0).length, [ris]);
   const pendingN = useMemo(() => (reqs || []).filter(r => r.status==="pending").length, [reqs]);
@@ -6401,34 +6668,105 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   );
   const assigneeName = (id) => (teachers || []).find(t => t.id===id)?.name || null;
 
-  const resetCompose = () => {
-    setContent(""); setStart(""); setDue(""); setAssignee("all"); setPriority("normal");
-    setDraftItems([]); setSubDraft(""); setComposing(false);
+  const resetModalForm = () => {
+    setContent("");
+    setStart("");
+    setDue("");
+    setAssignee("all");
+    setPriority("normal");
+    setDraftItems([]);
+    setSubDraft("");
+    setComposing(false);
+    setEditingTodo(null);
+  };
+
+  const openCompose = () => {
+    setEditingTodo(null);
+    setContent("");
+    setStart("");
+    setDue("");
+    setAssignee("all");
+    setPriority("normal");
+    setDraftItems([]);
+    setSubDraft("");
+    setComposing(true);
+  };
+
+  const openEdit = (todo) => {
+    if (!canEditTodo || !todo) return;
+    setComposing(false);
+    setMenuId(null);
+    setEditingTodo(todo);
+    setContent(todo.content || "");
+    setAssignee(todo.assignee_id || "all");
+    setPriority(
+      todo.priority === "urgent" ? "urgent"
+        : todo.priority === "important" ? "important"
+          : "normal",
+    );
+    setStart(todo.start_date ? String(todo.start_date).slice(0, 10) : "");
+    setDue(todo.due_date ? String(todo.due_date).slice(0, 10) : "");
+    setDraftItems(
+      (Array.isArray(todo.checklist) ? todo.checklist : []).map((it) => ({
+        id: it.id || (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`),
+        text: it.text || "",
+        done: !!it.done,
+      })),
+    );
+    setSubDraft("");
   };
 
   const addDraftItem = () => {
     const txt = subDraft.trim();
     if (!txt) return;
-    setDraftItems(prev => [...prev, { id: (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`), text: txt }]);
+    setDraftItems(prev => [...prev, {
+      id: (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`),
+      text: txt,
+      done: false,
+    }]);
     setSubDraft("");
   };
   const removeDraftItem = (id) => setDraftItems(prev => prev.filter(it => it.id !== id));
+  const updateDraftItemText = (id, text) => {
+    setDraftItems(prev => prev.map(it => (it.id === id ? { ...it, text } : it)));
+  };
+  const toggleDraftItemDone = (id, done) => {
+    setDraftItems(prev => prev.map(it => (it.id === id ? { ...it, done } : it)));
+  };
 
   const submit = async () => {
     const c = content.trim();
     if (!c) return;
     if (start && due && due < start) { alert("종료일이 시작일보다 빠릅니다."); return; }
+    const checklist = draftItems
+      .map(it => ({ id: it.id, text: String(it.text || "").trim(), done: !!it.done }))
+      .filter(it => it.text);
     setSaving(true);
     try {
-      await onAdd({
-        content: c,
-        assignee_id: assignee==="all" ? null : assignee,
-        priority: priority === "urgent" ? "urgent" : priority === "important" ? "important" : "normal",
-        start_date: toKstDateOnly(start),
-        due_date: toKstDateOnly(due),
-        checklist: draftItems.map(it => ({ id: it.id, text: it.text, done: false })),
-      });
-      resetCompose();
+      if (editingTodo) {
+        if (!canEditTodo) {
+          alert("슈퍼관리자만 수정할 수 있습니다.");
+          return;
+        }
+        await onUpdate?.(editingTodo.id, {
+          content: c,
+          assignee_id: assignee === "all" ? null : assignee,
+          priority: priority === "urgent" ? "urgent" : priority === "important" ? "important" : "normal",
+          start_date: toKstDateOnly(start),
+          due_date: toKstDateOnly(due),
+          checklist,
+        });
+      } else {
+        await onAdd({
+          content: c,
+          assignee_id: assignee === "all" ? null : assignee,
+          priority: priority === "urgent" ? "urgent" : priority === "important" ? "important" : "normal",
+          start_date: toKstDateOnly(start),
+          due_date: toKstDateOnly(due),
+          checklist: checklist.map(it => ({ ...it, done: false })),
+        });
+      }
+      resetModalForm();
     } finally { setSaving(false); }
   };
 
@@ -6460,11 +6798,11 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   const hasMore = filteredTodos.length > visibleCount;
 
   useEffect(() => {
-    if (!composing) return undefined;
+    if (!modalOpen) return undefined;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev || ""; };
-  }, [composing]);
+  }, [modalOpen]);
 
   const inputStyle = {
     padding:"10px 12px", borderRadius:10, border:"1px solid #e8ecee",
@@ -6506,7 +6844,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
               {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
             {!readOnly && (
-              <button type="button" className="admin-todo-add-btn" onClick={() => setComposing(true)}>+ 할 일 추가</button>
+              <button type="button" className="admin-todo-add-btn" onClick={openCompose}>+ 할 일 추가</button>
             )}
           </div>
         </div>
@@ -6569,6 +6907,17 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
                     <span className="admin-todo-created">{fmtDateWeekday(t.created_at)}</span>
                   </div>
                   <div className="admin-todo-more-wrap">
+                    {canEditTodo && (
+                      <button
+                        type="button"
+                        className="admin-todo-edit-btn"
+                        aria-label="수정"
+                        title="수정"
+                        onClick={(e) => { e.stopPropagation(); openEdit(t); }}
+                      >
+                        ✏️
+                      </button>
+                    )}
                     <button type="button" className="admin-todo-more-btn" aria-label="더보기" onClick={(e) => { e.stopPropagation(); setMenuId(menuId === t.id ? null : t.id); }}>⋮</button>
                     {menuId === t.id && (
                       <div className="admin-todo-menu">
@@ -6578,6 +6927,9 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
                           </button>
                         )}
                         <button type="button" onClick={() => { setExpandedId(t.id); setMenuId(null); }}>하위 항목</button>
+                        {canEditTodo && (
+                          <button type="button" onClick={() => openEdit(t)}>수정</button>
+                        )}
                         {!readOnly && (
                           <button type="button" className="is-danger" onClick={() => { onDelete(t.id); setMenuId(null); }}>삭제</button>
                         )}
@@ -6612,12 +6964,12 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
         </button>
       )}
 
-      {!readOnly && composing && (
-        <div className="admin-todo-modal-backdrop" onClick={resetCompose}>
+      {((!readOnly && composing) || (canEditTodo && editingTodo)) && (
+        <div className="admin-todo-modal-backdrop" onClick={resetModalForm}>
           <div className="admin-todo-modal-card" onClick={e => e.stopPropagation()}>
             <div className="admin-todo-modal-card__head">
-              <div className="admin-todo-modal-card__title">할 일 추가</div>
-              <button type="button" className="admin-todo-modal-card__close" onClick={resetCompose}>닫기</button>
+              <div className="admin-todo-modal-card__title">{editingTodo ? "할 일 수정" : "할 일 추가"}</div>
+              <button type="button" className="admin-todo-modal-card__close" onClick={resetModalForm}>닫기</button>
             </div>
             <label style={fieldLabel}>할 일 제목</label>
             <input
@@ -6664,14 +7016,28 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
               <Btn sm onClick={addDraftItem} disabled={!subDraft.trim()}>+</Btn>
             </div>
             {draftItems.map(it => (
-              <div key={it.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"4px 2px" }}>
-                <input type="checkbox" disabled checked={false} readOnly style={{ width:16, height:16 }}/>
-                <span style={{ flex:1, fontSize:13 }}>{it.text}</span>
+              <div key={it.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 2px" }}>
+                <input
+                  type="checkbox"
+                  checked={!!it.done}
+                  disabled={!editingTodo}
+                  onChange={e => editingTodo && toggleDraftItemDone(it.id, e.target.checked)}
+                  style={{ width:16, height:16, flexShrink:0, cursor: editingTodo ? "pointer" : "default" }}
+                />
+                {editingTodo ? (
+                  <input
+                    value={it.text}
+                    onChange={e => updateDraftItemText(it.id, e.target.value)}
+                    style={{ ...inputStyle, flex:1, minWidth:0, padding:"6px 8px", minHeight:0 }}
+                  />
+                ) : (
+                  <span style={{ flex:1, fontSize:13 }}>{it.text}</span>
+                )}
                 <button type="button" onClick={()=>removeDraftItem(it.id)} aria-label="삭제" style={{ border:"none", background:"transparent", cursor:"pointer", color:DS.textMuted }}>×</button>
               </div>
             ))}
             <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:14 }}>
-              <Btn ghost onClick={resetCompose} disabled={saving}>취소</Btn>
+              <Btn ghost onClick={resetModalForm} disabled={saving}>취소</Btn>
               <Btn onClick={submit} disabled={saving || !content.trim()}>{saving ? "저장 중..." : "저장"}</Btn>
             </div>
           </div>
@@ -6683,10 +7049,12 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
 
 function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris, rets, setPage, onItemClick, teachers, adminTodos, onAddTodo, onToggleTodo, onDeleteTodo, onUpdateTodo }) {
   const canManage = isGearPlatformAdmin(me) || isItemAdmin(me);
+  const showUnreadStyles = isGearTeacher(me) || (!canManage && me?.role === "teacher");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [kind, setKind] = useState("normal");
   const [eventForm, setEventForm] = useState({ ...EMPTY_EVENT_FORM });
+  const [audience, setAudience] = useState({ ...EMPTY_NOTICE_AUDIENCE });
   const [institutions, setInstitutions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -6695,16 +7063,24 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   const [feedItems, setFeedItems] = useState([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [feedTick, setFeedTick] = useState(0);
+  const [readNoticeIds, setReadNoticeIds] = useState(() => new Set());
+  const [readStatsByNoticeId, setReadStatsByNoticeId] = useState(() => new Map());
+  const [readsTick, setReadsTick] = useState(0);
 
   const resetComposeForm = useCallback(() => {
     setTitle("");
     setBody("");
     setKind("normal");
     setEventForm({ ...EMPTY_EVENT_FORM });
+    setAudience({ ...EMPTY_NOTICE_AUDIENCE });
   }, []);
 
   const refreshFeed = useCallback(() => {
     setFeedTick(t => t + 1);
+  }, []);
+
+  const refreshReads = useCallback(() => {
+    setReadsTick(t => t + 1);
   }, []);
 
   useEffect(() => {
@@ -6728,6 +7104,68 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
     return () => { cancelled = true; };
   }, [notices, feedTick]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const noticeRows = (feedItems || [])
+      .filter((i) => i.source === "notice" && i.raw?.id)
+      .map((i) => i.raw);
+    const noticeIds = noticeRows.map((n) => n.id);
+    if (!noticeIds.length) {
+      setReadNoticeIds(new Set());
+      setReadStatsByNoticeId(new Map());
+      return;
+    }
+
+    (async () => {
+      if (showUnreadStyles && me?.id) {
+        const mine = await fetchMyNoticeReadIds(supabase, me.id, noticeIds);
+        if (!cancelled) setReadNoticeIds(mine);
+      }
+
+      if (canManage) {
+        const institutionIds = noticeRows
+          .filter((n) => (n.audience_type || (n.institution_id ? "institution_teachers" : "all")) === "institution_teachers")
+          .map((n) => n.institution_id)
+          .filter(Boolean);
+        const [reads, institutionMap] = await Promise.all([
+          fetchNoticeReads(supabase, noticeIds),
+          fetchInstitutionTeacherIdMap(supabase, institutionIds),
+        ]);
+        if (cancelled) return;
+        setReadStatsByNoticeId(
+          buildNoticeReadStats(noticeRows, teachers, reads, institutionMap),
+        );
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [feedItems, teachers, canManage, showUnreadStyles, me?.id, readsTick]);
+
+  const noticeUnreadCount = useMemo(() => {
+    if (!showUnreadStyles) return 0;
+    return (feedItems || []).filter(
+      (i) => i.source === "notice" && i.raw?.id && !readNoticeIds.has(i.raw.id),
+    ).length;
+  }, [feedItems, readNoticeIds, showUnreadStyles]);
+
+  const handleMarkedRead = useCallback((noticeId) => {
+    if (!noticeId) return;
+    setReadNoticeIds((prev) => {
+      const next = new Set(prev);
+      next.add(noticeId);
+      return next;
+    });
+    refreshReads();
+  }, [refreshReads]);
+
+  const handleResendUnread = useCallback(async (notice, teacherIds) => {
+    await sendPushEvent(supabase, "notice_posted", {
+      title: notice?.title || "공지사항",
+      audience_type: "specific",
+      audience_teacher_ids: teacherIds || [],
+    });
+  }, []);
+
   const handleAdd = async () => {
     if (kind === "event") {
       if (!eventForm.start_date) return alert("시작일을 입력하세요");
@@ -6736,17 +7174,16 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         return alert("종료일은 시작일 이후여야 합니다.");
       }
       if (eventForm.scope === "institution" && !eventForm.institution_id) {
-        return alert("기관을 선택하세요.");
+        return alert("캘린더 반영 기관을 선택하세요.");
       }
     } else if (!title.trim()) {
       return alert("제목을 입력하세요");
     }
-    if (kind !== "event" && eventForm.scope === "institution" && !eventForm.institution_id) {
-      return alert("기관을 선택하세요.");
-    }
+    const audienceErr = validateNoticeAudience(audience);
+    if (audienceErr) return alert(audienceErr);
     setSaving(true);
     try {
-      const fields = kindToNoticeFields(kind, eventForm);
+      const fields = kindToNoticeFields(kind, eventForm, audience);
       const resolvedTitle = kind === "event" ? eventForm.note.trim() : title.trim();
       await onAdd({ title: resolvedTitle, body: body.trim(), ...fields });
       resetComposeForm();
@@ -6779,6 +7216,10 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
           onDeleteNotice={onDelete}
           onExceptionMutated={refreshFeed}
           onCompose={canManage ? () => setComposeOpen(true) : undefined}
+          showUnreadStyles={showUnreadStyles}
+          readNoticeIds={readNoticeIds}
+          unreadCount={noticeUnreadCount}
+          readStatsByNoticeId={canManage ? readStatsByNoticeId : null}
         />
       </div>
 
@@ -6793,7 +7234,10 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
             setKind={setKind}
             eventForm={eventForm}
             setEventForm={setEventForm}
+            audience={audience}
+            setAudience={setAudience}
             institutions={institutions}
+            teachers={teachers}
           />
           <Btn full onClick={handleAdd} disabled={saving}>{saving ? "등록 중..." : "공지 등록"}</Btn>
         </Modal>
@@ -6834,6 +7278,11 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
           canManage={canManage}
           onEdit={setEditNotice}
           onDelete={onDelete}
+          me={me}
+          teachers={teachers}
+          readStats={canManage ? readStatsByNoticeId.get(viewNotice.id) : null}
+          onMarkedRead={handleMarkedRead}
+          onResendUnread={handleResendUnread}
         />
       )}
 
@@ -6841,6 +7290,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         <NoticeEditModal
           notice={editNotice}
           institutions={institutions}
+          teachers={teachers}
           onClose={() => setEditNotice(null)}
           onSave={onUpdate}
         />
@@ -7626,6 +8076,31 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
     .sort((a,b)=>dday(a.ri.due_date)-dday(b.ri.due_date)),
   [ris,reqs,teachers,items]);
 
+  /** 반납 시점에 연체였던 해결 건 */
+  const resolvedOverdueRows = useMemo(() => (rets || [])
+    .filter(r => ["return_approved", "damage_confirmed", "loss_confirmed"].includes(r.status))
+    .map(ret => {
+      const ri = ris.find(r => r.id === ret.rental_item_id);
+      if (!ri?.due_date) return null;
+      const actualReturnAt = ret.approved_at || ret.created_at;
+      const delta = ddayKstAsOf(ri.due_date, actualReturnAt);
+      if (delta == null || delta >= 0) return null;
+      const req = reqs.find(r => r.id === ri.request_id);
+      const teacherId = ret.teacher_id || req?.teacher_id;
+      return {
+        id: ret.id,
+        teacherName: tname(teacherId, teachers),
+        itemName: iname(ri.item_id, items),
+        dueDate: ri.due_date,
+        actualReturnAt,
+        overdueDays: Math.abs(delta),
+        adminName: ret.approved_by ? tname(ret.approved_by, teachers) : "-",
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.actualReturnAt) - new Date(a.actualReturnAt)),
+  [rets, ris, reqs, teachers, items]);
+
   const filtered=useMemo(()=>{
     if(filter==="active") return summaries.filter(s=>s.hasCurrent);
     if(filter==="overdue") return summaries.filter(s=>s.hasOverdue);
@@ -7729,33 +8204,84 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
         alertCount={dueAlerts.length}
       />
 
-      {isOverduePage && (
-        <PanelSection title={`연체 목록 (${overdueItems.length}건)`}>
-          {overdueItems.length === 0 ? (
-            <Empty text="연체 건이 없습니다"/>
-          ) : overdueItems.map(({ ri, req, teacher, itemName, dd }) => (
-            <div key={ri.id} style={{ ...card, borderLeft: "3px solid #dc2626", marginBottom: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: 14, color: "#dc2626" }}>
-                    {itemName} ×{ri.quantity}개
-                  </div>
-                  <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 6, lineHeight: 1.7 }}>
-                    <div>대여자: {teacher}</div>
-                    <div>사용 장소: {req?.dispatch_location || "-"}</div>
-                    <div>
-                      반납예정: {fmt(ri.due_date)} ·{" "}
-                      <span style={{ fontWeight: 800, color: dd?.color }}>{dd?.text}</span>
+      {isOverduePage ? (
+        <>
+          <PanelSection title={`연체 목록 (${overdueItems.length}건)`}>
+            {overdueItems.length === 0 ? (
+              <Empty text="연체 건이 없습니다"/>
+            ) : overdueItems.map(({ ri, req, teacher, itemName, dd }) => (
+              <div key={ri.id} style={{ ...card, borderLeft: "3px solid #dc2626", marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: "#dc2626" }}>
+                      {itemName} ×{ri.quantity}개
+                    </div>
+                    <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 6, lineHeight: 1.7 }}>
+                      <div>대여자: {teacher}</div>
+                      <div>사용 장소: {req?.dispatch_location || "-"}</div>
+                      <div>
+                        반납예정: {fmt(ri.due_date)} ·{" "}
+                        <span style={{ fontWeight: 800, color: dd?.color }}>{dd?.text}</span>
+                      </div>
                     </div>
                   </div>
+                  <ForceReturnButton ri={ri} me={me} itemName={itemName} onForceReturn={onForceReturn}/>
                 </div>
-                <ForceReturnButton ri={ri} me={me} itemName={itemName} onForceReturn={onForceReturn}/>
               </div>
-            </div>
-          ))}
-        </PanelSection>
-      )}
+            ))}
+          </PanelSection>
 
+          <PanelSection title={`연체 해결 내역 (${resolvedOverdueRows.length}건)`}>
+            {resolvedOverdueRows.length === 0 ? (
+              <Empty text="연체 해결 내역이 없습니다"/>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <div style={{
+                  display: "grid",
+                  gap: 8,
+                  padding: "8px 0",
+                  borderBottom: "1px solid #e2e8f0",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: DS.textMuted,
+                  gridTemplateColumns: "minmax(72px, 0.9fr) minmax(100px, 1.3fr) minmax(80px, 0.9fr) minmax(80px, 0.9fr) minmax(64px, 0.6fr) minmax(72px, 0.9fr)",
+                  minWidth: 680,
+                }}>
+                  <span>선생님명</span>
+                  <span>교구명</span>
+                  <span>반납예정일</span>
+                  <span>실제반납일</span>
+                  <span>연체일수</span>
+                  <span>처리 관리자</span>
+                </div>
+                {resolvedOverdueRows.map(row => (
+                  <div
+                    key={row.id}
+                    style={{
+                      display: "grid",
+                      gap: 8,
+                      padding: "12px 0",
+                      borderTop: "1px solid #f8fafc",
+                      fontSize: 12,
+                      alignItems: "start",
+                      gridTemplateColumns: "minmax(72px, 0.9fr) minmax(100px, 1.3fr) minmax(80px, 0.9fr) minmax(80px, 0.9fr) minmax(64px, 0.6fr) minmax(72px, 0.9fr)",
+                      minWidth: 680,
+                    }}
+                  >
+                    <span style={{ fontWeight: 700, color: DS.textPrimary }}>{row.teacherName}</span>
+                    <span style={{ color: DS.textSecondary, lineHeight: 1.5 }}>{row.itemName}</span>
+                    <span style={{ color: DS.textSecondary }}>{fmt(row.dueDate)}</span>
+                    <span style={{ color: DS.textSecondary }}>{fmt(row.actualReturnAt)}</span>
+                    <span style={{ fontWeight: 800, color: "#dc2626" }}>{row.overdueDays}일</span>
+                    <span style={{ fontWeight: 600, color: DS.textPrimary }}>{row.adminName}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </PanelSection>
+        </>
+      ) : (
+      <>
       <div style={{
         display:"grid",
         gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",
@@ -8053,6 +8579,8 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
             )}
           </div>
         </div>
+      )}
+      </>
       )}
     </PageShell>
   );
@@ -9266,8 +9794,10 @@ function HubPage({ me, onSelect, onLogout }) {
   const [feedItems, setFeedItems] = useState([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [viewNotice, setViewNotice] = useState(null);
+  const [readNoticeIds, setReadNoticeIds] = useState(() => new Set());
 
   const showTodo = isItemAdmin(me);
+  const showUnreadStyles = isGearTeacher(me) || me?.role === "teacher";
   const [todos, setTodos] = useState([]);
   const [todoTeachers, setTodoTeachers] = useState([]);
   const [todoReqs, setTodoReqs] = useState([]);
@@ -9285,6 +9815,38 @@ function HubPage({ me, onSelect, onLogout }) {
         if (!cancelled) setFeedLoading(false);
       });
     return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!showUnreadStyles || !me?.id) return;
+    let cancelled = false;
+    const noticeIds = (feedItems || [])
+      .filter((i) => i.source === "notice" && i.raw?.id)
+      .map((i) => i.raw.id);
+    if (!noticeIds.length) {
+      setReadNoticeIds(new Set());
+      return;
+    }
+    fetchMyNoticeReadIds(supabase, me.id, noticeIds).then((mine) => {
+      if (!cancelled) setReadNoticeIds(mine);
+    });
+    return () => { cancelled = true; };
+  }, [feedItems, me?.id, showUnreadStyles]);
+
+  const noticeUnreadCount = useMemo(() => {
+    if (!showUnreadStyles) return 0;
+    return (feedItems || []).filter(
+      (i) => i.source === "notice" && i.raw?.id && !readNoticeIds.has(i.raw.id),
+    ).length;
+  }, [feedItems, readNoticeIds, showUnreadStyles]);
+
+  const handleMarkedRead = useCallback((noticeId) => {
+    if (!noticeId) return;
+    setReadNoticeIds((prev) => {
+      const next = new Set(prev);
+      next.add(noticeId);
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -9407,6 +9969,9 @@ function HubPage({ me, onSelect, onLogout }) {
               compact
               onSelectNotice={setViewNotice}
               onViewAll={() => navigate("/gear?page=notices")}
+              showUnreadStyles={showUnreadStyles}
+              readNoticeIds={readNoticeIds}
+              unreadCount={noticeUnreadCount}
             />
           </div>
 
@@ -9418,6 +9983,9 @@ function HubPage({ me, onSelect, onLogout }) {
               compact
               onSelectNotice={setViewNotice}
               onViewAll={() => navigate("/gear?page=notices")}
+              showUnreadStyles={showUnreadStyles}
+              readNoticeIds={readNoticeIds}
+              unreadCount={noticeUnreadCount}
             />
           </div>
 
@@ -9447,6 +10015,8 @@ function HubPage({ me, onSelect, onLogout }) {
           notice={viewNotice}
           onClose={() => setViewNotice(null)}
           canManage={false}
+          me={me}
+          onMarkedRead={handleMarkedRead}
           onEdit={() => {
             setViewNotice(null);
             navigate("/gear?page=notices");
@@ -9732,17 +10302,30 @@ function EquipmentApp({ onBack, me, session }) {
       body: payload.body || "",
       importance: payload.importance || "normal",
       notice_type: payload.notice_type || "general",
+      institution_id: payload.institution_id || null,
+      audience_type: payload.audience_type || "all",
+      audience_teacher_ids: Array.isArray(payload.audience_teacher_ids)
+        ? payload.audience_teacher_ids
+        : [],
       event_date: payload.event_date || null,
+      event_end_date: payload.event_end_date || null,
+      exception_type: payload.exception_type || null,
       event_time: payload.event_time || null,
       event_location: payload.event_location || null,
+      schedule_exception_ids: payload.schedule_exception_ids || [],
       author_id: me.id,
       author_name: me.name,
       created_at: new Date().toISOString(),
     };
-    const { list, savedToDb } = await persistNotice(row, notices);
+    const { list, savedToDb, notice: saved } = await persistNotice(row, notices);
     setNotices(list);
     if (savedToDb) {
-      void sendPushEvent(supabase, "notice_posted", { title: row.title });
+      void sendPushEvent(supabase, "notice_posted", {
+        title: row.title,
+        audience_type: saved?.audience_type || row.audience_type,
+        institution_id: saved?.institution_id || row.institution_id,
+        audience_teacher_ids: saved?.audience_teacher_ids || row.audience_teacher_ids,
+      });
     }
     alert(row.notice_type === "event" ? "행사 공지와 일정이 등록되었습니다." : "공지가 등록되었습니다.");
   };
@@ -9807,6 +10390,10 @@ function EquipmentApp({ onBack, me, session }) {
       importance: normalizeNoticeImportance(patch.importance),
       notice_type: patch.notice_type || "general",
       institution_id: patch.institution_id || null,
+      audience_type: patch.audience_type || "all",
+      audience_teacher_ids: Array.isArray(patch.audience_teacher_ids)
+        ? patch.audience_teacher_ids
+        : [],
       event_date: patch.event_date || null,
       event_end_date: patch.event_end_date || null,
       exception_type: patch.exception_type || null,

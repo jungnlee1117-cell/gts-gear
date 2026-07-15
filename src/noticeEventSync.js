@@ -4,6 +4,7 @@ import {
   fetchInstitutions,
   saveScheduleException,
 } from "./schedule/api.js";
+import { resolveAudiencePersistFields } from "./noticeAudience.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -24,11 +25,12 @@ export function noticeToKind(notice) {
 /**
  * @param {string} kind
  * @param {object} event — start_date, end_date, exception_type, institution_id, note, event_time, event_location
+ * @param {object} [audience] — audience_type, institution_id, audience_teacher_ids
  */
-export function kindToNoticeFields(kind, event = {}) {
-  const resolvedInstitution = event.scope === "global"
-    ? null
-    : (event.institution_id || null);
+export function kindToNoticeFields(kind, event = {}, audience = {}) {
+  const { audience_type, audience_teacher_ids, institution_id } =
+    resolveAudiencePersistFields(audience, event, kind);
+
   if (kind === "event") {
     const start = event.start_date || event.event_date || null;
     const endRaw = event.end_date || event.event_end_date || null;
@@ -36,7 +38,9 @@ export function kindToNoticeFields(kind, event = {}) {
     return {
       notice_type: "event",
       importance: "normal",
-      institution_id: resolvedInstitution,
+      institution_id,
+      audience_type,
+      audience_teacher_ids,
       event_date: start,
       event_end_date: end,
       exception_type: event.exception_type || "event",
@@ -47,7 +51,9 @@ export function kindToNoticeFields(kind, event = {}) {
   return {
     notice_type: "general",
     importance: kind === "important" ? "important" : "normal",
-    institution_id: resolvedInstitution,
+    institution_id,
+    audience_type,
+    audience_teacher_ids,
     event_date: null,
     event_end_date: null,
     exception_type: null,

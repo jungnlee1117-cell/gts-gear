@@ -35,8 +35,7 @@ SELECT cron.schedule(
     url := 'https://ivphpmjaddrubshchxck.supabase.co/functions/v1/send-push',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2cGhwbWphZGRydWJzaGNoeGNrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTk2NTI2OCwiZXhwIjoyMDk1NTQxMjY4fQ.0twDhSrdCbHbCGXrBaulKqBFe-E8mRYkqkZdS8bShl0'
-      
+      'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY'
     ),
     body := '{"event":"todo_due_today","payload":{}}'::jsonb
   ) AS request_id;
