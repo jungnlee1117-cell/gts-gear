@@ -21,12 +21,25 @@ export function noticeToKind(notice) {
   return "normal";
 }
 
+/**
+ * @param {string} kind
+ * @param {object} event — start_date, end_date, exception_type, institution_id, note, event_time, event_location
+ */
 export function kindToNoticeFields(kind, event = {}) {
+  const resolvedInstitution = event.scope === "global"
+    ? null
+    : (event.institution_id || null);
   if (kind === "event") {
+    const start = event.start_date || event.event_date || null;
+    const endRaw = event.end_date || event.event_end_date || null;
+    const end = endRaw && start && endRaw !== start ? endRaw : null;
     return {
       notice_type: "event",
       importance: "normal",
-      event_date: event.event_date || null,
+      institution_id: resolvedInstitution,
+      event_date: start,
+      event_end_date: end,
+      exception_type: event.exception_type || "event",
       event_time: event.event_time?.trim() || null,
       event_location: event.event_location?.trim() || null,
     };
@@ -34,7 +47,10 @@ export function kindToNoticeFields(kind, event = {}) {
   return {
     notice_type: "general",
     importance: kind === "important" ? "important" : "normal",
+    institution_id: resolvedInstitution,
     event_date: null,
+    event_end_date: null,
+    exception_type: null,
     event_time: null,
     event_location: null,
     schedule_exception_ids: [],
@@ -59,7 +75,7 @@ export function parseEventTimeRange(value) {
 }
 
 export function buildEventExceptionNote(notice) {
-  const parts = [notice.title?.trim() || "행사"];
+  const parts = [notice.title?.trim() || notice.body?.trim() || "행사"];
   if (notice.event_time?.trim()) parts.push(notice.event_time.trim());
   if (notice.event_location?.trim()) parts.push(notice.event_location.trim());
   return parts.join(" · ");
@@ -82,8 +98,8 @@ async function deleteLinkedExceptions(notice) {
 }
 
 /**
- * 행사 공지 → 전체 활성 원 institution_schedule_exceptions 생성
- * @returns {Promise<string[]>} exception ids
+ * 행사 공지 → institution_schedule_exceptions 동기화
+ * institution_id 있으면 해당 원만, 없으면 전체 활성 원
  */
 export async function syncNoticeEventSchedule(notice) {
   if (notice.notice_type !== "event" || !notice.event_date) {
@@ -93,21 +109,33 @@ export async function syncNoticeEventSchedule(notice) {
 
   await deleteLinkedExceptions(notice);
 
-  const institutions = await fetchInstitutions({ activeOnly: true });
+  let institutions;
+  if (notice.institution_id) {
+    institutions = [{ id: notice.institution_id }];
+  } else {
+    institutions = await fetchInstitutions({ activeOnly: true });
+  }
   if (!institutions.length) {
     throw new Error("등록된 원이 없어 행사 일정을 저장할 수 없습니다.");
   }
 
   const { start, end } = parseEventTimeRange(notice.event_time);
   const note = buildEventExceptionNote(notice);
+  const endDate = notice.event_end_date
+    && notice.event_end_date !== notice.event_date
+    ? notice.event_end_date
+    : null;
+  const exceptionType = ["cancelled", "event", "time_change"].includes(notice.exception_type)
+    ? notice.exception_type
+    : "event";
   const ids = [];
 
   for (const inst of institutions) {
     const payload = {
       institution_id: inst.id,
       exception_date: notice.event_date,
-      end_date: null,
-      exception_type: "event",
+      end_date: endDate,
+      exception_type: exceptionType,
       note,
       adjusted_start_time: start,
       adjusted_end_time: end,
@@ -135,7 +163,12 @@ export function formatEventSummary(notice) {
   const parts = [];
   if (notice.event_date) {
     const d = new Date(`${notice.event_date}T12:00:00`);
-    parts.push(`${d.getMonth() + 1}월 ${d.getDate()}일`);
+    let range = `${d.getMonth() + 1}월 ${d.getDate()}일`;
+    if (notice.event_end_date && notice.event_end_date !== notice.event_date) {
+      const e = new Date(`${notice.event_end_date}T12:00:00`);
+      range += ` ~ ${e.getMonth() + 1}월 ${e.getDate()}일`;
+    }
+    parts.push(range);
   }
   if (notice.event_time?.trim()) parts.push(notice.event_time.trim());
   if (notice.event_location?.trim()) parts.push(notice.event_location.trim());

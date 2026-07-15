@@ -53,6 +53,11 @@ function FeedRow({ item, onClick }) {
       <span className="hub-unified-row__main">
         <span className="hub-unified-row__top">
           <span className={`hub-feed-tag hub-feed-tag--${tone}`}>{label}</span>
+          {item.source === "notice" ? (
+            <span className={`hub-feed-tag hub-feed-tag--${item.institutionId ? "institution" : "global"}`}>
+              {item.institutionId ? (item.institutionName || "담당기관") : "전체 공개"}
+            </span>
+          ) : null}
           <span className="hub-unified-row__title">{item.title}</span>
         </span>
         {item.subtitle ? (
@@ -451,6 +456,14 @@ export default function UnifiedNoticesFeed({
                     <span className="admin-notice-table-row__badge"><TableBadge type={item.type}/></span>
                     <span className="admin-notice-table-row__title">
                       {item.pinned ? <span className="admin-notice-pin" aria-hidden>📌</span> : null}
+                      {item.source === "notice" ? (
+                        <span
+                          className={`admin-notice-badge admin-notice-badge--${item.institutionId ? "institution" : "global"}`}
+                          style={{ marginRight: 6 }}
+                        >
+                          {item.institutionId ? (item.institutionName || "담당기관") : "전체 공개"}
+                        </span>
+                      ) : null}
                       {item.title}
                     </span>
                     <div className="admin-notice-table-row__metas">

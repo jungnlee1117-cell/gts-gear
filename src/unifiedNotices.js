@@ -115,6 +115,8 @@ export function noticeToFeedItem(notice) {
   const subtitle = body
     ? body.split("\n").map(s => s.trim()).filter(Boolean)[0]?.slice(0, 100) || ""
     : "";
+  const institutionName = notice.institutions?.name || null;
+  const institutionId = notice.institution_id || null;
 
   return /** @type {UnifiedFeedItem} */ ({
     id: `notice-${notice.id}`,
@@ -125,6 +127,9 @@ export function noticeToFeedItem(notice) {
     eventDate: notice.notice_type === "event" ? notice.event_date : undefined,
     createdAt: notice.created_at,
     pinned: notice.importance === "important",
+    institutionId,
+    institutionName,
+    scopeLabel: institutionId ? (institutionName || "담당기관") : "전체 공개",
     raw: notice,
   });
 }

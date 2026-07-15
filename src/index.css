@@ -14536,10 +14536,45 @@ button.pe-res-resource-youtube-thumb:hover {
   min-height: 44px;
   min-width: 44px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 700;
+  line-height: 1;
   color: #64748b;
   font-family: inherit;
+}
+
+.notice-detail-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e8ecee;
+  border-radius: 12px;
+}
+.notice-detail-meta__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.notice-detail-meta__label {
+  flex: 0 0 52px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+.notice-detail-meta__value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+.notice-detail-body {
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  min-height: 80px;
 }
 
 @media (max-width: 768px) {

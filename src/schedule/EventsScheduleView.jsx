@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, Pencil, Trash2 } from "lucide-react";
 import {
   DAY_LABELS,
-  EXCEPTION_LABELS,
   institutionColor,
   yearMonthKey,
   yearMonthLastDay,
@@ -23,93 +22,15 @@ import CalendarEventBadges from "./CalendarEventBadges.jsx";
 import { fmtLocalDate, getMonthGrid } from "./payrollCalendar.js";
 import { isScheduleAdmin } from "./roles.js";
 import { notifyEventScheduled } from "./pushScheduleNotification.js";
+import EventRegisterForm, {
+  EMPTY_EVENT_FORM,
+  exceptionToEventForm,
+} from "./EventRegisterForm.jsx";
 
-const EMPTY_FORM = {
-  institution_id: "",
-  start_date: "",
-  end_date: "",
-  exception_type: "event",
-  note: "",
-};
+const EMPTY_FORM = EMPTY_EVENT_FORM;
 
 function exceptionToForm(ex) {
-  return {
-    id: ex.id,
-    institution_id: ex.institution_id || "",
-    start_date: ex.exception_date || "",
-    end_date: ex.end_date && ex.end_date !== ex.exception_date ? ex.end_date : "",
-    exception_type: ex.exception_type || "event",
-    note: ex.note || "",
-  };
-}
-
-function EventRegisterForm({
-  form,
-  setForm,
-  institutions,
-  saving,
-  onSubmit,
-  onCancel,
-  showCancel = false,
-  submitLabel = "안내 저장",
-}) {
-  return (
-    <form className="sch-form sch-events-form" onSubmit={onSubmit}>
-      <label className="sch-field">
-        <span>원</span>
-        <select
-          className="sch-select"
-          required
-          value={form.institution_id}
-          onChange={e => setForm(f => ({ ...f, institution_id: e.target.value }))}
-        >
-          <option value="">원 선택</option>
-          {institutions.map(inst => (
-            <option key={inst.id} value={inst.id}>{inst.name}</option>
-          ))}
-        </select>
-      </label>
-      <div className="sch-time-row">
-        <label className="sch-field">
-          <span>시작일</span>
-          <input type="date" className="sch-input" required
-            value={form.start_date}
-            onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}/>
-        </label>
-        <label className="sch-field">
-          <span>종료일 (선택)</span>
-          <input type="date" className="sch-input"
-            value={form.end_date}
-            onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}/>
-        </label>
-      </div>
-      <label className="sch-field">
-        <span>유형</span>
-        <select className="sch-select" value={form.exception_type}
-          onChange={e => setForm(f => ({ ...f, exception_type: e.target.value }))}>
-          {Object.entries(EXCEPTION_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-      </label>
-      <label className="sch-field">
-        <span>메모</span>
-        <input type="text" className="sch-input" required placeholder="예: 여름방학, 현장학습"
-          value={form.note}
-          onChange={e => setForm(f => ({ ...f, note: e.target.value }))}/>
-      </label>
-      <div className="sch-form-actions">
-        {showCancel ? (
-          <button type="button" className="sch-btn sch-btn--ghost" disabled={saving} onClick={onCancel}>
-            취소
-          </button>
-        ) : null}
-        <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
-          {saving ? "저장 중..." : submitLabel}
-        </button>
-      </div>
-    </form>
-  );
+  return exceptionToEventForm(ex);
 }
 
 export default function EventsScheduleView({ me, onBack }) {
