@@ -21,5 +21,9 @@ export const isSuperAdmin = (u) =>
 export const isGearTeacher = (u) =>
   u?.role === "teacher" && !isItemAdmin(u);
 
+/** 자기 교구 대여·반납 (선생님 + 교구 관리자/슈퍼관리자) */
+export const canPersonalGearRental = (u) =>
+  isGearTeacher(u) || isItemAdmin(u);
+
 /** 교구 플랫폼: 대시보드 · 공지 작성/수정/삭제 */
 export const isGearPlatformAdmin = isScheduleAdmin;

@@ -16,20 +16,23 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 const PE_ADMIN = (u) => u?.role === "superadmin" || u?.role === "admin";
 const PE_SUPER = (u) => u?.role === "superadmin";
 
-/** 선생님 허브에 노출되는 3개 카테고리 (영상·음원·영어 대본) */
+/** 선생님 허브에 노출되는 카테고리 (영상·음원·영어체육 자료·영어 대본 프로그램) */
 const TEACHER_HUB_CATEGORIES = [
   { id: "video-media", num: 1, title: "영상 자료", color: "#0ea5e9", bg: "#f0f9ff",
     items: ["수업 영상", "유튜브 링크"], subs: [], icon: "video", mediaTab: "video", status: "active" },
   { id: "audio-media", num: 2, title: "음원 자료", color: "#22c55e", bg: "#ecfdf5",
     items: ["MP3/WAV 음원", "영어체육 BGM"], subs: [], icon: "audio", mediaTab: "audio", status: "active" },
-  { id: "english-script", num: 3, title: "영어 대본", color: "#8b5cf6", bg: "#f5f3ff",
+  { id: "english-pe", num: 3, title: "영어체육 자료", color: "#8b5cf6", bg: "#f5f3ff",
+    items: ["TPR 표현", "주제별 표현", "영어 게임", "영어 노래", "영어 대본", "영어 체육 활동"],
+    subs: ["TPR", "주제별", "게임", "노래", "대본", "활동"], icon: "abc", status: "active" },
+  { id: "english-script", num: 4, title: "영어 대본 프로그램", color: "#7c3aed", bg: "#f5f3ff",
     items: ["교구별 3단계 대본", "상황별 대처", "수업 흐름 팁"], subs: [], icon: "abc",
     externalPath: "/english-script", status: "active" },
 ];
 
 /** 관리자 허브에서 당분간 비활성(준비 중) 처리할 카테고리 */
 const PE_COMING_SOON_IDS = new Set([
-  "age-program", "sports", "english-pe", "lesson-plan", "events", "child-dev", "teacher-ed",
+  "age-program", "sports", "lesson-plan", "events", "child-dev", "teacher-ed",
 ]);
 
 const QUICK_TAGS = ["4세 균형", "축구", "영어체육", "점프활동", "공놀이", "밸런스"];
@@ -1009,10 +1012,6 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
       setView("list");
       const tab = cat.mediaTab === "audio" ? "&tab=audio" : "";
       navigate(`/pe-resources?category=videos${tab}`);
-      return;
-    }
-    if (cat.id === "english-pe" || (cat.title || "").includes("영어체육")) {
-      (onNavigate || navigate)("/english-script");
       return;
     }
     setCategory(cat);

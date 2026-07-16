@@ -66,7 +66,7 @@ import {
   markNoticeAsRead,
   splitReadUnreadTeachers,
 } from "./noticeReads.js";
-import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin } from "./authRoles.js";
+import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin, canPersonalGearRental } from "./authRoles.js";
 import { useMediaQuery } from "./useMediaQuery.js";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { fetchInstitutions } from "./schedule/api.js";
@@ -1307,6 +1307,7 @@ function buildSidebarNav(me) {
       { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
       { type: "item", id: "my-gear-rotation", label: "이번 달 내 교구", glyph: "my-gear-rotation" },
       { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
+      { type: "item", id: "rental-return", label: "내 대여·반납", glyph: "rental-return" },
       {
         type: "group", id: "gear", label: "교구관리", glyph: "items",
         children: [
@@ -1342,6 +1343,7 @@ function buildSidebarNav(me) {
       { type: "item", id: "dashboard", label: "대시보드", glyph: "dashboard" },
       { type: "item", id: "my-gear-rotation", label: "이번 달 내 교구", glyph: "my-gear-rotation" },
       { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
+      { type: "item", id: "rental-return", label: "내 대여·반납", glyph: "rental-return" },
       { type: "item", id: "items", label: "교구관리", glyph: "items" },
       { type: "item", id: "gear-categories", label: "카테고리 관리", glyph: "items" },
       { type: "item", id: "gear-rotation-manage", label: "순환 교구 관리", glyph: "gear-rotation-manage" },
@@ -1408,10 +1410,9 @@ function buildMobileBottomNav(me) {
 
 function buildMobileMoreNav(me, bottomNav) {
   const pinned = new Set(bottomNav.filter(n => n.id !== "more").map(n => n.id));
-  const isTeacher = isGearTeacher(me);
   const all = flattenSidebarNav(buildSidebarNav(me));
-  const extra = isTeacher
-    ? [{ id: "rental-return", label: "대여 신청", glyph: "rental-return" }]
+  const extra = canPersonalGearRental(me)
+    ? [{ id: "rental-return", label: "내 대여·반납", glyph: "rental-return" }]
     : [];
   const seen = new Set();
   return [...all, ...extra].filter(n => {
@@ -7259,7 +7260,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         />
       )}
 
-      {!canManage && items && (
+      {canPersonalGearRental(me) && items && (
         <TeacherGearStatusSection
           me={me}
           items={items}
@@ -7325,6 +7326,12 @@ function SettingsPage({me,onChangePw,onLogout,onDataExport}) {
 
 function RentalManageHubPage({me,setPage}) {
   const cards = [
+    ...(canPersonalGearRental(me) ? [{
+      id: "rental-return",
+      label: "내 대여·반납",
+      desc: "내가 대여한 교구 반납 신청",
+      color: "#7c3aed",
+    }] : []),
     { id: "rental-approval", label: "대여승인", desc: "선생님 대여 신청 승인", color: "#d97706" },
     { id: "rental-status", label: "대여현황", desc: "선생님별 대여 현황", color: DS.primary },
     { id: "returns-approval", label: "반납승인", desc: "반납 신청 승인", color: "#2563eb" },
@@ -10751,6 +10758,8 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   const submitReturnByItem = async ({ quantity, condition, memo, lines, itemId, idea }) => {
+    const autoApprove = isItemAdmin(me);
+    const now = new Date().toISOString();
     let remaining = quantity;
     const sorted = [...lines].sort(
       (a, b) => new Date(a.ri.approved_at || a.req?.created_at || 0) - new Date(b.ri.approved_at || b.req?.created_at || 0)
@@ -10766,7 +10775,8 @@ function EquipmentApp({ onBack, me, session }) {
         condition,
         memo: memo || "",
         teacher_id: me.id,
-        status: "return_pending",
+        status: autoApprove ? "return_approved" : "return_pending",
+        ...(autoApprove ? { approved_by: me.id, approved_at: now } : {}),
       });
       remaining -= q;
     }
@@ -10782,15 +10792,39 @@ function EquipmentApp({ onBack, me, session }) {
         return;
       }
       created.push(data);
+
+      if (autoApprove) {
+        const ri = ris.find(r => r.id === row.rental_item_id);
+        if (ri) {
+          const approved = [
+            ...rets.filter(r => r.rental_item_id === row.rental_item_id && r.status === "return_approved"),
+            data,
+          ].reduce((s, r) => s + r.quantity, 0);
+          const ns = approved >= ri.quantity ? "returned" : "partial_returned";
+          const { error: riErr } = await supabase.from("rental_items").update({ status: ns }).eq("id", ri.id);
+          if (riErr) {
+            alert("반납 처리 오류: " + riErr.message);
+            return;
+          }
+          setRIs(p => p.map(r => (r.id === ri.id ? { ...r, status: ns } : r)));
+          const allRI = ris.filter(r => r.request_id === ri.request_id);
+          const allDone = allRI.every(r => (r.id === ri.id ? ns === "returned" : r.status === "returned"));
+          const rs = allDone ? "completed" : "partial";
+          await supabase.from("rental_requests").update({ status: rs }).eq("id", ri.request_id);
+          setReqs(p => p.map(r => (r.id === ri.request_id && r.status !== "rejected" ? { ...r, status: rs } : r)));
+        }
+      }
     }
     setRets(p => [...created, ...p]);
 
-    const returnItemName = items.find(i => i.id === itemId)?.name;
-    sendPushEvent(supabase, "return_submitted", {
-      teacher_id: me.id,
-      teacher_name: me.name,
-      item_names: formatPushItemNames([returnItemName]),
-    });
+    if (!autoApprove) {
+      const returnItemName = items.find(i => i.id === itemId)?.name;
+      sendPushEvent(supabase, "return_submitted", {
+        teacher_id: me.id,
+        teacher_name: me.name,
+        item_names: formatPushItemNames([returnItemName]),
+      });
+    }
 
     const ideaText = (idea || "").trim();
     if (ideaText && itemId) {
@@ -10802,17 +10836,22 @@ function EquipmentApp({ onBack, me, session }) {
       });
       if (ideaErr) {
         alert(
-          "반납은 접수되었으나 활용 아이디어 저장에 실패했습니다.\n"
-          + ideaErr.message
+          autoApprove
+            ? "반납은 완료되었으나 활용 아이디어 저장에 실패했습니다.\n" + ideaErr.message
+            : "반납은 접수되었으나 활용 아이디어 저장에 실패했습니다.\n" + ideaErr.message
         );
       }
     }
 
     setItemReturnGroup(null);
     alert(
-      created.length > 1
-        ? `반납 신청 ${created.length}건이 접수되었습니다.\n상태: 반납 승인 대기 · 관리자 승인 후 재고가 복구됩니다.`
-        : "반납 신청이 접수되었습니다.\n상태: 반납 승인 대기 · 관리자 승인 후 재고가 복구됩니다."
+      autoApprove
+        ? (created.length > 1
+          ? `반납 ${created.length}건이 처리되었습니다.\n재고가 반영되었습니다.`
+          : "반납이 완료되었습니다.\n재고가 반영되었습니다.")
+        : (created.length > 1
+          ? `반납 신청 ${created.length}건이 접수되었습니다.\n상태: 반납 승인 대기 · 관리자 승인 후 재고가 복구됩니다.`
+          : "반납 신청이 접수되었습니다.\n상태: 반납 승인 대기 · 관리자 승인 후 재고가 복구됩니다.")
     );
   };
 
@@ -11155,11 +11194,11 @@ function EquipmentApp({ onBack, me, session }) {
             onViewDetail={()=>openItemDetail(scanRentItem,"qr-rent")}
             onDismiss={()=>{
               setScanRentItem(null);
-              setPage(me?.role==="teacher"?"rental-return":"items");
+              setPage(canPersonalGearRental(me) ? "rental-return" : "items");
             }}
           />
         )}
-        {(page==="rental-return"||(me?.role==="teacher"&&(page==="rentals"||page==="my-rental-status"||page==="return-request")))&&me?.role==="teacher"&&(
+        {(page==="rental-return"||(canPersonalGearRental(me)&&(page==="rentals"||page==="my-rental-status"||page==="return-request")))&&canPersonalGearRental(me)&&(
           <TeacherRentalReturnPage
             me={me}
             reqs={reqs}
