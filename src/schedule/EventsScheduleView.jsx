@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Pencil, Trash2 } from "lucide-react";
+import { ChevronLeft, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   DAY_LABELS,
+  EXCEPTION_LABELS,
   institutionColor,
   yearMonthKey,
   yearMonthLastDay,
@@ -89,12 +90,13 @@ export default function EventsScheduleView({ me, onBack }) {
 
   const openRegisterForDate = (dateStr) => {
     setSelectedDate(dateStr);
-    setForm(f => ({ ...f, start_date: dateStr, end_date: "" }));
+    setForm({ ...EMPTY_FORM, start_date: dateStr });
     setShowRegisterModal(true);
   };
 
   const closeRegisterModal = () => {
     setShowRegisterModal(false);
+    setForm(EMPTY_FORM);
   };
 
   const openEdit = (ex) => {
@@ -168,6 +170,19 @@ export default function EventsScheduleView({ me, onBack }) {
           <ChevronLeft size={18}/> 스케줄 관리
         </button>
         <h2 className="sch-view-title">행사 일정</h2>
+        {admin ? (
+          <div className="sch-header-actions">
+            <button
+              type="button"
+              className="sch-btn sch-btn--primary"
+              onClick={() => openRegisterForDate(
+                selectedDate?.startsWith(yearMonth) ? selectedDate : monthStart
+              )}
+            >
+              <Plus size={16}/> 행사 등록
+            </button>
+          </div>
+        ) : null}
       </header>
 
       <p className="sch-muted">
@@ -183,80 +198,6 @@ export default function EventsScheduleView({ me, onBack }) {
 
       {loading ? <p className="sch-muted">불러오는 중...</p> : (
         <>
-          <section className="sch-events-list-section">
-            <h3 className="sch-admin-dash-section-title">
-              {monthLabel} 전체 안내 ({monthExceptions.length}건)
-            </h3>
-            {monthExceptions.length === 0 ? (
-              <p className="sch-muted">등록된 행사·휴원 안내가 없습니다.</p>
-            ) : (
-              <div className="sch-table-wrap sch-admin-table-wrap">
-                <table className="sch-table sch-admin-table">
-                  <thead>
-                    <tr>
-                      <th>원</th>
-                      <th>안내</th>
-                      <th>유형</th>
-                      <th>메모</th>
-                      {admin ? <th/> : null}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthExceptions.map(ex => (
-                      <tr key={ex.id}>
-                        <td>
-                          <span className="sch-cal-dot sch-events-inst-dot" style={{ background: institutionColor(ex.institution_id) }}/>
-                          {ex.institutions?.name || instName(ex.institution_id)}
-                        </td>
-                        <td>{formatExceptionNotice(ex)}</td>
-                        <td>{EXCEPTION_LABELS[ex.exception_type] || ex.exception_type}</td>
-                        <td>
-                          {ex.note || "—"}
-                          {ex.event_location ? (
-                            <span className="sch-muted" style={{ display: "block", fontSize: 12 }}>
-                              📍 {ex.event_location}
-                            </span>
-                          ) : null}
-                          {ex.notice_id ? (
-                            <span className="sch-badge sch-badge--muted" style={{ display: "inline-block", marginTop: 4 }}>
-                              공지 연동
-                            </span>
-                          ) : null}
-                        </td>
-                        {admin ? (
-                          <td>
-                            <div className="sch-events-row-actions">
-                              <button
-                                type="button"
-                                className="sch-btn sch-btn--ghost sch-btn--sm"
-                                disabled={saving || !!ex.notice_id}
-                                title={ex.notice_id ? "공지사항에서 수정하세요" : "수정"}
-                                onClick={() => openEdit(ex)}
-                                aria-label="수정"
-                              >
-                                <Pencil size={13}/>
-                              </button>
-                              <button
-                                type="button"
-                                className="sch-btn sch-btn--ghost sch-btn--sm"
-                                disabled={saving || !!ex.notice_id}
-                                title={ex.notice_id ? "공지사항에서 삭제하세요" : "삭제"}
-                                onClick={() => handleDelete(ex.id)}
-                                aria-label="삭제"
-                              >
-                                <Trash2 size={13}/>
-                              </button>
-                            </div>
-                          </td>
-                        ) : null}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
           <div className="sch-cal-grid sch-events-cal" role="grid" aria-label={`${monthLabel} 행사·휴원`}>
             <div className="sch-cal-head-row" role="row">
               {DAY_LABELS.map((label, i) => (
@@ -345,18 +286,79 @@ export default function EventsScheduleView({ me, onBack }) {
             )}
           </section>
 
-          {admin ? (
-            <section className="sch-events-form-section">
-              <h3 className="sch-admin-dash-section-title">안내 등록</h3>
-              <EventRegisterForm
-                form={form}
-                setForm={setForm}
-                institutions={institutions}
-                saving={saving}
-                onSubmit={handleSubmit}
-              />
-            </section>
-          ) : null}
+          <section className="sch-events-list-section">
+            <h3 className="sch-admin-dash-section-title">
+              {monthLabel} 전체 안내 ({monthExceptions.length}건)
+            </h3>
+            {monthExceptions.length === 0 ? (
+              <p className="sch-muted">등록된 행사·휴원 안내가 없습니다.</p>
+            ) : (
+              <div className="sch-table-wrap sch-admin-table-wrap">
+                <table className="sch-table sch-admin-table">
+                  <thead>
+                    <tr>
+                      <th>원</th>
+                      <th>안내</th>
+                      <th>유형</th>
+                      <th>메모</th>
+                      {admin ? <th/> : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthExceptions.map(ex => (
+                      <tr key={ex.id}>
+                        <td>
+                          <span className="sch-cal-dot sch-events-inst-dot" style={{ background: institutionColor(ex.institution_id) }}/>
+                          {ex.institutions?.name || instName(ex.institution_id)}
+                        </td>
+                        <td>{formatExceptionNotice(ex)}</td>
+                        <td>{EXCEPTION_LABELS[ex.exception_type] || ex.exception_type}</td>
+                        <td>
+                          {ex.note || "—"}
+                          {ex.event_location ? (
+                            <span className="sch-muted" style={{ display: "block", fontSize: 12 }}>
+                              📍 {ex.event_location}
+                            </span>
+                          ) : null}
+                          {ex.notice_id ? (
+                            <span className="sch-badge sch-badge--muted" style={{ display: "inline-block", marginTop: 4 }}>
+                              공지 연동
+                            </span>
+                          ) : null}
+                        </td>
+                        {admin ? (
+                          <td>
+                            <div className="sch-events-row-actions">
+                              <button
+                                type="button"
+                                className="sch-btn sch-btn--ghost sch-btn--sm"
+                                disabled={saving || !!ex.notice_id}
+                                title={ex.notice_id ? "공지사항에서 수정하세요" : "수정"}
+                                onClick={() => openEdit(ex)}
+                                aria-label="수정"
+                              >
+                                <Pencil size={13}/>
+                              </button>
+                              <button
+                                type="button"
+                                className="sch-btn sch-btn--ghost sch-btn--sm"
+                                disabled={saving || !!ex.notice_id}
+                                title={ex.notice_id ? "공지사항에서 삭제하세요" : "삭제"}
+                                onClick={() => handleDelete(ex.id)}
+                                aria-label="삭제"
+                              >
+                                <Trash2 size={13}/>
+                              </button>
+                            </div>
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         </>
       )}
 
@@ -364,7 +366,7 @@ export default function EventsScheduleView({ me, onBack }) {
         <div className="sch-modal-overlay" onClick={() => !saving && closeRegisterModal()}>
           <div className="sch-modal sch-modal--wide" onClick={e => e.stopPropagation()}>
             <div className="sch-modal-head">
-              <h3>안내 등록 · {form.start_date}</h3>
+              <h3>행사 등록 · {form.start_date}</h3>
             </div>
             <EventRegisterForm
               form={form}

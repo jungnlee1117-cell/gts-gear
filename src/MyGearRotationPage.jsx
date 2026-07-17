@@ -455,10 +455,22 @@ export default function MyGearRotationPage({
     return () => { cancelled = true; };
   }, [me, schoolMonths, startYear]);
 
+  const [todayKey, setTodayKey] = useState(() => new Date().toDateString());
+
+  useEffect(() => {
+    const refreshDate = () => setTodayKey(new Date().toDateString());
+    const timer = window.setInterval(refreshDate, 60 * 1000);
+    window.addEventListener("focus", refreshDate);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshDate);
+    };
+  }, []);
+
   const heldIds = useMemo(() => {
     const rentals = buildCurrentRentals(me, reqs || [], ris || [], items || [], rets || []);
     return new Set(rentals.map(r => r.itemId).filter(Boolean));
-  }, [me, reqs, ris, items, rets]);
+  }, [me, reqs, ris, items, rets, todayKey]);
 
   const letterForMonth = (monthKey) => assignedLetterForMonth(schedules, me, monthKey);
 

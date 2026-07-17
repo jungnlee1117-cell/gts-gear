@@ -93,10 +93,21 @@ export default function TeacherGearStatusSection({
 }) {
   const [extras, setExtras] = useState(null);
   const [loadingExtras, setLoadingExtras] = useState(true);
+  const [todayKey, setTodayKey] = useState(() => new Date().toDateString());
+
+  useEffect(() => {
+    const refreshDate = () => setTodayKey(new Date().toDateString());
+    const timer = window.setInterval(refreshDate, 60 * 1000);
+    window.addEventListener("focus", refreshDate);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshDate);
+    };
+  }, []);
 
   const currentRentals = useMemo(
     () => buildCurrentRentals(me, reqs, ris, items, rets),
-    [me, reqs, ris, items, rets],
+    [me, reqs, ris, items, rets, todayKey],
   );
 
   const dueReturns = useMemo(

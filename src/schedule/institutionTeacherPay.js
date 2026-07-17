@@ -302,33 +302,53 @@ export function formatInstructorCostBreakdown(breakdown, { superAdmin = false } 
   return lines;
 }
 
-/** 지역 관리자 대시보드 — 담당 원·추가수당 연관 강사 포함 */
+/**
+ * 관리자 담당 선생님 리스트 제외 규칙 — 본사 소속 강사가 관리자 계약 원에서
+ * 수업하는 경우. 강사료는 INSTITUTION_MANAGER_SHARE_ADJUSTMENTS 차감으로만 반영.
+ */
+export const MANAGER_SCOPE_TEACHER_EXCLUSIONS = [
+  {
+    institutionPattern: /성동\s*ecc/i,
+    teacherName: "오주영",
+  },
+];
+
+/**
+ * 지역 관리자 대시보드 — 담당 원에서 실제 수업한 강사만 포함.
+ * - 고정지급(GTS 전액, manager_fixed_payout) 원의 타 강사 수업은 본사 관리이므로 제외
+ *   (해당 원 관리자 본인의 수업 기록은 유지)
+ * - MANAGER_SCOPE_TEACHER_EXCLUSIONS 에 해당하는 본사 소속 강사 제외
+ * - 추가수당(additional_payments)만 있는 강사는 포함하지 않음
+ */
 export function expandScopedTeacherRows({
   teacherRows,
   institutionIds,
   entries,
-  additionalPayments,
   institutions,
 }) {
   const idSet = institutionIds ?? new Set();
-  const base = (teacherRows || []).filter(row => {
-    const tid = row.teacher.id;
-    return (entries || []).some(e =>
-      e.teacher_id === tid && e.institution_id && idSet.has(e.institution_id),
-    );
-  });
-  const seen = new Set(base.map(r => r.teacher.id));
-  const extras = [];
+  const instById = new Map((institutions || []).map(i => [i.id, i]));
 
-  for (const row of teacherRows || []) {
-    if (seen.has(row.teacher.id)) continue;
-    const hasDbAdditional = (additionalPayments || []).some(
-      p => p.teacher_id === row.teacher.id,
-    );
-    if (hasDbAdditional) extras.push(row);
-  }
+  const entryCountsForScope = (entry, teacher) => {
+    if (!entry.institution_id || !idSet.has(entry.institution_id)) return false;
+    const inst = instById.get(entry.institution_id);
 
-  return [...base, ...extras];
+    if (inst?.contract_type === "manager_fixed_payout" && entry.teacher_id !== inst.manager_id) {
+      return false;
+    }
+
+    const excluded = MANAGER_SCOPE_TEACHER_EXCLUSIONS.some(rule =>
+      matchInstitutionName(inst?.name, rule.institutionPattern)
+      && (!rule.teacherName || rule.teacherName === teacher?.name),
+    );
+    return !excluded;
+  };
+
+  return (teacherRows || []).filter(row =>
+    (entries || []).some(e =>
+      e.teacher_id === row.teacher.id && entryCountsForScope(e, row.teacher),
+    ),
+  );
 }
 
 export function filterAdditionalPaymentsForScope(payments, scopedTeacherIds) {

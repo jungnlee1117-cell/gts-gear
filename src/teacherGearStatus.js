@@ -35,6 +35,14 @@ function toYmd(date) {
   return `${y}-${m}-${d}`;
 }
 
+function hasRentalStarted(req) {
+  if (!req?.dispatch_start) return true;
+  const start = parseLocalDay(req.dispatch_start);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return !start || start <= today;
+}
+
 export function formatShortDate(value) {
   const d = parseLocalDay(value);
   if (!d) return "-";
@@ -95,7 +103,9 @@ export function buildCurrentRentals(me, reqs, ris, items, rets) {
   return ris
     .filter(ri => {
       const req = reqs.find(r => r.id === ri.request_id);
-      return req?.teacher_id === me.id && ["rented", "partial_returned"].includes(ri.status);
+      return req?.teacher_id === me.id
+        && hasRentalStarted(req)
+        && ["rented", "partial_returned"].includes(ri.status);
     })
     .map(ri => {
       const held = heldQtyForRi(ri, rets);

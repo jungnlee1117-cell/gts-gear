@@ -363,11 +363,6 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     [data?.teacherNotes],
   );
 
-  const missingInputCount = useMemo(
-    () => (data?.teacherRows || []).filter(r => r.inputMissing).length,
-    [data?.teacherRows],
-  );
-
   const managerFilterIds = useMemo(
     () => ({
       ...resolveManagerFilterIds(data?.managerMap),
@@ -398,10 +393,9 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
       teacherRows: data?.teacherRows ?? [],
       institutionIds: managedInstitutionIds,
       entries: data?.entries ?? [],
-      additionalPayments: data?.additionalPayments ?? [],
       institutions: data?.institutions ?? [],
     });
-  }, [me, data?.teacherRows, data?.entries, data?.institutions, data?.additionalPayments, managedInstitutionIds]);
+  }, [me, data?.teacherRows, data?.entries, data?.institutions, managedInstitutionIds]);
 
   const displayTeacherRows = useMemo(() => {
     if (isScheduleSuperAdmin(me)) return scopedTeacherRows;
@@ -421,6 +415,12 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   const scopedTempTeacherRows = useMemo(
     () => filterTempTeacherRowsForScope(data?.tempTeacherRows ?? [], me, data?.institutions ?? []),
     [data?.tempTeacherRows, data?.institutions, me],
+  );
+
+  const missingInputCount = useMemo(
+    () => scopedTeacherRows.filter(r => r.inputMissing).length
+      + scopedTempTeacherRows.filter(r => r.inputMissing).length,
+    [scopedTeacherRows, scopedTempTeacherRows],
   );
 
   const scopedTeacherIds = useMemo(

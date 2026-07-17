@@ -446,9 +446,28 @@ function getTeacherPendingReservation(reservations, teacherId, itemId) {
 
 function reservationDisplayStatus(res) {
   if (res.status === "pending") return "pending";
-  if (res.status === "confirmed") return "confirmed";
+  if (res.status === "confirmed") {
+    return res.start_date > todayYmd() ? "reserved" : "rented";
+  }
   if (res.status === "cancelled" && res.rejection_reason) return "rejected";
   return "cancelled";
+}
+
+function reservationLifecycleStatus(res, ris = [], rets = [], currentYmd = todayYmd()) {
+  if (res.status !== "confirmed") return reservationDisplayStatus(res);
+
+  const related = ris.filter(ri => ri.request_id === res.rental_request_id);
+  const pendingReturn = related.some(ri =>
+    rets.some(ret => ret.rental_item_id === ri.id && ret.status === "return_pending")
+  );
+  if (pendingReturn) return "return_pending";
+
+  const returned = related.length > 0 && related.every(ri =>
+    ri.status === "returned" || returnApprovedQty(ri.id, rets) >= ri.quantity
+  );
+  if (returned) return "returned";
+
+  return res.start_date > currentYmd ? "reserved" : "rented";
 }
 
 function fmtShort(d) {
@@ -488,6 +507,29 @@ function todayLocalDay() {
 
 function todayYmd() {
   return toDateInputValue(todayLocalDay());
+}
+
+function useTodayYmd() {
+  const [value, setValue] = useState(todayYmd);
+
+  useEffect(() => {
+    const refresh = () => setValue(todayYmd());
+    const timer = window.setInterval(refresh, 60 * 1000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+
+  return value;
+}
+
+function hasRentalStarted(req, currentYmd = todayYmd()) {
+  if (!req?.dispatch_start) return true;
+  return req.dispatch_start <= currentYmd;
 }
 
 function addDaysYmd(ymd, days) {
@@ -696,9 +738,9 @@ function buildItemScheduleLines(itemId, { ris, rets, reqs, reservations, teacher
     const kind = res.status === "confirmed" ? "confirmed" : "pending";
     let statusLabel;
     if (res.status === "confirmed") {
-      statusLabel = timing === "future" ? "예정" : "예약확정";
+      statusLabel = timing === "future" ? "예약 중" : "대여 중";
     } else {
-      statusLabel = timing === "future" ? "예정" : "예약";
+      statusLabel = timing === "future" ? "예약 대기" : "승인 대기";
     }
     entries.push({
       teacherId: res.teacher_id,
@@ -709,7 +751,9 @@ function buildItemScheduleLines(itemId, { ris, rets, reqs, reservations, teacher
       kind,
       sortAt: res.created_at || res.start_date,
       key: `res-${res.id}`,
-      type: res.status === "confirmed" ? "confirmed" : "reservation",
+      type: res.status === "confirmed" && timing === "current"
+        ? "rental"
+        : (res.status === "confirmed" ? "confirmed" : "reservation"),
       text: `${name} 선생님 ${statusLabel} ${qty}개 (${fmtShort(res.start_date)} ~ ${fmtShort(res.end_date)})`,
     });
   });
@@ -813,9 +857,12 @@ function toDateInputValue(value) {
 }
 
 function buildTeacherHoldingsByItem(me, reqs, ris, items, rets) {
+  const currentYmd = todayYmd();
   const activeRis = ris.filter(ri => {
     const req = reqs.find(r => r.id === ri.request_id);
-    return req?.teacher_id === me.id && ["rented", "partial_returned"].includes(ri.status);
+    return req?.teacher_id === me.id
+      && hasRentalStarted(req, currentYmd)
+      && ["rented", "partial_returned"].includes(ri.status);
   });
 
   const byItem = new Map();
@@ -1163,6 +1210,10 @@ const SC = {
 const RSC = {
   pending:   { l: "대기", bg: "#fef3c7", c: "#d97706" },
   confirmed: { l: "승인", bg: "#dcfce7", c: "#16a34a" },
+  reserved:  { l: "예약 중", bg: "#dbeafe", c: "#2563eb" },
+  rented:    { l: "대여 중", bg: "#dcfce7", c: "#16a34a" },
+  return_pending: { l: "반납 신청", bg: "#fef2f2", c: "#dc2626" },
+  returned:  { l: "반납 완료", bg: "#f1f5f9", c: "#64748b" },
   rejected:  { l: "거절", bg: "#fee2e2", c: "#dc2626" },
   cancelled: { l: "취소", bg: "#f1f5f9", c: "#64748b" },
 };
@@ -1204,6 +1255,14 @@ const DS = {
   inputBorder: "#e2e8f0",
   inputFocusBorder: "#16a34a",
   inputBg: "#f8fafc",
+};
+
+const RETURN_THEME = {
+  primary: "#EF4444",
+  hover: "#DC2626",
+  light: "#FEF2F2",
+  border: "#FECACA",
+  text: "#B91C1C",
 };
 
 const DARK_SB = {
@@ -2174,8 +2233,11 @@ const lbl = {
   letterSpacing: "0.02em",
 };
 
-function Badge({s}) {
+function Badge({s, tone}) {
   const c = SC[s]||{l:s,bg:"#f1f5f9",c:"#64748b"};
+  const themed = tone === "return"
+    ? { ...c, bg: RETURN_THEME.light, c: RETURN_THEME.text }
+    : c;
   return (
     <span style={{
       display:"inline-block",
@@ -2183,15 +2245,15 @@ function Badge({s}) {
       borderRadius:99,
       fontSize:11,
       fontWeight:700,
-      background:c.bg,
-      color:c.c,
+      background:themed.bg,
+      color:themed.c,
       letterSpacing:"0.01em",
-    }}>{c.l}</span>
+    }}>{themed.l}</span>
   );
 }
 
-function ReservationBadge({ res }) {
-  const key = reservationDisplayStatus(res);
+function ReservationBadge({ res, status }) {
+  const key = status || reservationDisplayStatus(res);
   const c = RSC[key] || RSC.pending;
   return (
     <span style={{
@@ -5735,13 +5797,41 @@ function ReservationApprovalPage({ me, reservations, items, teachers, onApprove,
   );
 }
 
-function MyReservationsPage({ me, reservations, items, onCancel }) {
+function MyReservationsPage({ me, reservations, items, ris, rets, onCancel }) {
+  const currentYmd = useTodayYmd();
   const mine = useMemo(
     () => (reservations || [])
       .filter(r => r.teacher_id === me.id)
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
     [reservations, me.id]
   );
+  const rows = useMemo(
+    () => mine.map(res => ({
+      res,
+      status: reservationLifecycleStatus(res, ris, rets, currentYmd),
+    })),
+    [mine, ris, rets, currentYmd],
+  );
+  const groups = [
+    {
+      key: "reserved",
+      title: "예약 중인 교구",
+      empty: "예약 중인 교구가 없습니다",
+      rows: rows.filter(row => ["pending", "reserved"].includes(row.status)),
+    },
+    {
+      key: "rented",
+      title: "대여 중인 교구",
+      empty: "현재 대여 중인 교구가 없습니다",
+      rows: rows.filter(row => ["rented", "return_pending"].includes(row.status)),
+    },
+    {
+      key: "done",
+      title: "완료된 예약",
+      empty: "완료된 예약이 없습니다",
+      rows: rows.filter(row => ["returned", "rejected", "cancelled"].includes(row.status)),
+    },
+  ];
 
   return (
     <PageShell>
@@ -5751,35 +5841,44 @@ function MyReservationsPage({ me, reservations, items, onCancel }) {
         <PanelSection title="내 예약">
           <Empty text="예약 내역이 없습니다"/>
         </PanelSection>
-      ) : mine.map(res => {
-        const item = items.find(i => i.id === res.item_id);
-        return (
-          <PanelSection key={res.id} title={item?.name || "교구"}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
-              <div style={{ fontSize: 13, color: DS.textSecondary, lineHeight: 1.7 }}>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
-                  <CatTag cat={item?.category}/>
-                  <span style={{ fontFamily: "monospace", fontSize: 10, color: DS.textMuted }}>{item?.code}</span>
+      ) : groups.map(group => (
+        <PanelSection key={group.key} title={`${group.title} (${group.rows.length})`}>
+          {group.rows.length === 0 ? (
+            <Empty text={group.empty}/>
+          ) : group.rows.map(({ res, status }) => {
+            const item = items.find(i => i.id === res.item_id);
+            return (
+              <div key={res.id} style={{ ...card, borderLeft: `3px solid ${RSC[status]?.c || "#e2e8f0"}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
+                  <div style={{ fontSize: 13, color: DS.textSecondary, lineHeight: 1.7 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary, marginBottom: 5 }}>
+                      {item?.name || "교구"}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                      <CatTag cat={item?.category}/>
+                      <span style={{ fontFamily: "monospace", fontSize: 10, color: DS.textMuted }}>{item?.code}</span>
+                    </div>
+                    <div>사용 장소: {res.location}</div>
+                    <div>예약 기간: {fmt(res.start_date)} ~ {fmt(res.end_date)}</div>
+                    <div>수량: {res.quantity}개</div>
+                    <div>신청일: {fmt(res.created_at)}</div>
+                    {res.rejection_reason && (
+                      <div style={{ marginTop: 6, color: "#dc2626", fontWeight: 600 }}>거절 사유: {res.rejection_reason}</div>
+                    )}
+                  </div>
+                  <ReservationBadge res={res} status={status}/>
                 </div>
-                <div>사용 장소: {res.location}</div>
-                <div>예약 기간: {fmt(res.start_date)} ~ {fmt(res.end_date)}</div>
-                <div>수량: {res.quantity}개</div>
-                <div>신청일: {fmt(res.created_at)}</div>
-                {res.rejection_reason && (
-                  <div style={{ marginTop: 6, color: "#dc2626", fontWeight: 600 }}>거절 사유: {res.rejection_reason}</div>
+                {res.status === "pending" && (
+                  <Btn sm ghost color="#dc2626" onClick={() => {
+                    if (!confirm("예약을 취소하시겠습니까?")) return;
+                    onCancel(res.id);
+                  }}>예약 취소</Btn>
                 )}
               </div>
-              <ReservationBadge res={res}/>
-            </div>
-            {res.status === "pending" && (
-              <Btn sm ghost color="#dc2626" onClick={() => {
-                if (!confirm("예약을 취소하시겠습니까?")) return;
-                onCancel(res.id);
-              }}>예약 취소</Btn>
-            )}
-          </PanelSection>
-        );
-      })}
+            );
+          })}
+        </PanelSection>
+      ))}
     </PageShell>
   );
 }
@@ -7356,9 +7455,10 @@ function RentalManageHubPage({me,setPage}) {
 }
 
 function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancelRequest, onEditRequest, embedded = false }) {
+  const currentYmd = useTodayYmd();
   const holdings = useMemo(
     () => buildTeacherHoldingsByItem(me, reqs, ris, items, rets),
-    [me, reqs, ris, items, rets]
+    [me, reqs, ris, items, rets, currentYmd]
   );
   const pendingReqs = useMemo(
     () => reqs.filter(r => r.teacher_id === me.id && r.status === "pending")
@@ -7384,9 +7484,9 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancel
         marginBottom: 20,
       }}>
         <DashStatCard label="승인 대기" value={pendingReqs.length} iconMark="대기" iconBg="#fef3c7" iconColor="#d97706"/>
-        <DashStatCard label="대여 교구 종류" value={holdings.length} iconMark="종류" iconBg={DS.primaryLight} iconColor={DS.primary}/>
-        <DashStatCard label="보유 수량" value={totalHeld} iconMark="수량" iconBg="#ede9fe" iconColor="#7c3aed"/>
-        <DashStatCard label="반납 승인 대기" value={totalPending} iconMark="반납" iconBg="#fef9c3" iconColor="#ca8a04"/>
+        <DashStatCard label="대여 교구 종류" value={holdings.length} iconMark="종류" iconBg={RETURN_THEME.light} iconColor={RETURN_THEME.primary}/>
+        <DashStatCard label="보유 수량" value={totalHeld} iconMark="수량" iconBg={RETURN_THEME.light} iconColor={RETURN_THEME.primary}/>
+        <DashStatCard label="반납 승인 대기" value={totalPending} iconMark="반납" iconBg={RETURN_THEME.light} iconColor={RETURN_THEME.primary}/>
       </div>
 
       {pendingReqs.length > 0 && (
@@ -7423,7 +7523,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancel
           <Empty text="현재 대여 중인 교구가 없습니다"/>
         </PanelSection>
       ) : (
-        <PanelSection title="교구별 대여 · 반납">
+        <PanelSection title={`대여 중인 교구 (${holdings.length})`}>
           {holdings.map(group => {
             const item = group.item;
             const pendingRets = (rets || []).filter(
@@ -7456,13 +7556,13 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancel
                     </div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
                       <span style={{
-                        fontSize: 13, fontWeight: 800, color: "#7c3aed",
-                        background: "#ede9fe", padding: "4px 10px", borderRadius: 8,
+                        fontSize: 13, fontWeight: 800, color: RETURN_THEME.text,
+                        background: RETURN_THEME.light, padding: "4px 10px", borderRadius: 8,
                       }}>
                         대여 중 {group.totalHeld}개
                       </span>
                       {group.totalPendingReturn > 0 && (
-                        <Badge s="return_pending"/>
+                        <Badge s="return_pending" tone="return"/>
                       )}
                     </div>
                     <div style={{ marginTop: 10, fontSize: 11, color: DS.textSecondary, lineHeight: 1.6 }}>
@@ -7472,7 +7572,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancel
                           <div key={line.ri.id}>
                             · {line.req?.dispatch_location || "파견지"} — 보유 {line.held}개
                             {line.pendingRet > 0 && (
-                              <span style={{ color: "#ca8a04", fontWeight: 600 }}> (반납 대기 {line.pendingRet}개)</span>
+                              <span style={{ color: RETURN_THEME.text, fontWeight: 600 }}> (반납 대기 {line.pendingRet}개)</span>
                             )}
                             {dd && <span style={{ color: dd.color, marginLeft: 6 }}>{dd.text}</span>}
                           </div>
@@ -7483,7 +7583,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancel
                       <div style={{ marginTop: 8 }}>
                         {pendingRets.map(ret => (
                           <div key={ret.id} style={{ fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
-                            └ 반납 요청 {ret.quantity}개 · <Badge s={ret.status}/>
+                            └ 반납 요청 {ret.quantity}개 · <Badge s={ret.status} tone="return"/>
                           </div>
                         ))}
                       </div>
@@ -7492,7 +7592,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancel
                   <div style={{ flexShrink: 0 }}>
                     <Btn
                       sm
-                      color="#f97316"
+                      color={RETURN_THEME.primary}
                       disabled={group.totalReturnable <= 0}
                       onClick={() => onReturnItem(group)}
                     >
@@ -7522,12 +7622,13 @@ function TeacherRentalReturnPage({
 }) {
   const [tab, setTab] = useState(initialTab);
   const [editReq, setEditReq] = useState(null);
+  const currentYmd = useTodayYmd();
   useEffect(() => { setTab(initialTab); }, [initialTab]);
 
   const pendingReturn = useMemo(() => {
     const holdings = buildTeacherHoldingsByItem(me, reqs, ris, items, rets);
     return holdings.reduce((s, h) => s + h.totalPendingReturn, 0);
-  }, [me, reqs, ris, items, rets]);
+  }, [me, reqs, ris, items, rets, currentYmd]);
 
   const editReqRIs = editReq ? ris.filter(ri => ri.request_id === editReq.id) : [];
 
@@ -7535,28 +7636,35 @@ function TeacherRentalReturnPage({
     <PageShell>
       <PageHeader me={me} subtitle={PAGE_META["rental-return"].sub}/>
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {[["rent", "대여 신청"], ["return", pendingReturn > 0 ? `반납 신청 (${pendingReturn})` : "반납 신청"]].map(([v, l]) => (
+        {[["rent", "대여 신청"], ["return", pendingReturn > 0 ? `반납 신청 (${pendingReturn})` : "반납 신청"]].map(([v, l]) => {
+          const activeColor = v === "return" ? RETURN_THEME.primary : DS.primary;
+          const inactiveBackground = v === "return" ? RETURN_THEME.light : DS.primaryLight;
+          const inactiveText = v === "return" ? RETURN_THEME.hover : DS.primary;
+          return (
           <button
             key={v}
             type="button"
             onClick={() => setTab(v)}
+            className={`gear-rental-tab${tab === v ? " is-active" : ""}${v === "return" ? " gear-rental-tab--return" : " gear-rental-tab--rent"}`}
             style={{
               flex: 1,
               padding: "12px 0",
               borderRadius: 12,
               border: "none",
-              background: tab === v ? DS.primary : "#f1f5f9",
-              color: tab === v ? "#fff" : DS.textSecondary,
+              background: tab === v ? activeColor : inactiveBackground,
+              color: tab === v ? "#fff" : inactiveText,
               fontWeight: 700,
               fontSize: 13,
               cursor: "pointer",
-              boxShadow: tab === v ? `0 4px 16px ${DS.primary}33` : "none",
+              boxShadow: tab === v ? `0 4px 16px ${activeColor}33` : "none",
+              transition: "all 0.2s",
               fontFamily: "inherit",
             }}
           >
             {l}
           </button>
-        ))}
+          );
+        })}
       </div>
       {tab === "rent" ? (
         <RentalsPage
@@ -9161,7 +9269,17 @@ function ItemReturnModal({ group, onSubmit, onClose }) {
 
   return (
     <Modal title={`반납 신청 — ${group.item?.name || ""}`} onClose={onClose}>
-      <div style={{ background: "#fff7ed", borderRadius: 10, padding: "10px 13px", marginBottom: 13, fontSize: 12, color: "#92400e", fontWeight: 600, lineHeight: 1.6 }}>
+      <div style={{
+        background: RETURN_THEME.light,
+        border: `1px solid ${RETURN_THEME.border}`,
+        borderRadius: 10,
+        padding: "10px 13px",
+        marginBottom: 13,
+        fontSize: 12,
+        color: RETURN_THEME.text,
+        fontWeight: 600,
+        lineHeight: 1.6,
+      }}>
         교구 종류 기준 반납 · 반납 가능 <strong>{max}개</strong>
         <div style={{ fontWeight: 500, marginTop: 4, fontSize: 11 }}>
           대여 중 {group.totalHeld}개
@@ -9189,7 +9307,7 @@ function ItemReturnModal({ group, onSubmit, onClose }) {
         onChange={e => setF(p => ({ ...p, idea: e.target.value }))}
         placeholder="수업에서 활용한 게임·활동 방법을 다른 선생님과 나눠 주세요"
       />
-      <Btn full color="#f97316" onClick={() => {
+      <Btn full color={RETURN_THEME.primary} onClick={() => {
         const q = parseInt(f.quantity, 10) || 0;
         if (q < 1 || q > max) return alert(`1~${max}개 사이로 입력하세요`);
         onSubmit({
@@ -10180,6 +10298,12 @@ function EquipmentApp({ onBack, me, session }) {
     if (!silent) setDataLoading(true);
     const errors = [];
     try {
+      // 시작일이 된 확정 예약을 pending → rented 로 전환 (함수 미배포 시 무시)
+      {
+        const { error: activateErr } = await supabase.rpc("activate_due_reservations");
+        if (activateErr) console.warn("activate_due_reservations:", activateErr.message);
+      }
+
       let ts = [];
       try {
         ts = await fetchTeachers();
@@ -10570,6 +10694,8 @@ function EquipmentApp({ onBack, me, session }) {
       return false;
     }
     const now = new Date().toISOString();
+    // 시작일 전: pending(예약 보유) → 시작일부터 cron/로드 시 rented(대여 중)
+    const itemStatus = res.start_date <= todayYmd() ? "rented" : "pending";
     const { data: newReq, error: reqErr } = await supabase.from("rental_requests").insert({
       teacher_id: res.teacher_id,
       dispatch_location: res.location,
@@ -10591,7 +10717,7 @@ function EquipmentApp({ onBack, me, session }) {
       item_id: res.item_id,
       quantity: res.quantity,
       due_date: res.end_date,
-      status: "rented",
+      status: itemStatus,
       approved_by: me.id,
       approved_at: now,
     }).select();
@@ -10620,7 +10746,11 @@ function EquipmentApp({ onBack, me, session }) {
         ? { ...r, status: "confirmed", approved_by: me.id, approved_at: now, rental_request_id: newReq.id }
         : r
     )));
-    alert("예약이 승인되어 대여가 확정되었습니다.");
+    alert(
+      itemStatus === "rented"
+        ? "예약이 승인되어 대여가 시작되었습니다."
+        : "예약이 승인되었습니다.\n시작일이 되면 자동으로 대여 중으로 전환됩니다."
+    );
     return true;
   };
 
@@ -11215,7 +11345,7 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="rentals"&&me?.role!=="teacher"&&<RentalsPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} rets={rets} onApprove={approveReq} onReject={rejectReq}/>}
         {page==="rental-approval"&&<RentalApprovalPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} onApprove={approveReq} onReject={rejectReq}/>}
         {page==="reservation-approval"&&<ReservationApprovalPage me={me} reservations={reservations} items={items} teachers={teachers} onApprove={approveReservation} onReject={rejectReservation}/>}
-        {page==="my-reservations"&&<MyReservationsPage me={me} reservations={reservations} items={items} onCancel={cancelReservation}/>}
+        {page==="my-reservations"&&<MyReservationsPage me={me} reservations={reservations} items={items} ris={ris} rets={rets} onCancel={cancelReservation}/>}
         {page==="returns-approval"&&<ReturnsApprovalPage me={me} rets={rets} ris={ris} items={items} teachers={teachers} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
         {page==="rental-manage"&&<RentalManageHubPage me={me} setPage={setPage}/>}
         {page==="stats"&&<StatsPage me={me} items={items} ris={ris} reqs={reqs} teachers={teachers}/>}

@@ -30,6 +30,23 @@
   }
 }
 
+/* 내 대여·반납 상단 탭 */
+.gear-rental-tab.is-active.gear-rental-tab--rent:hover {
+  background: #15803d !important;
+}
+
+.gear-rental-tab.is-active.gear-rental-tab--return:hover {
+  background: #dc2626 !important;
+}
+
+.gear-rental-tab:not(.is-active).gear-rental-tab--rent:hover {
+  background: #dcfce7 !important;
+}
+
+.gear-rental-tab:not(.is-active).gear-rental-tab--return:hover {
+  background: #fee2e2 !important;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --text: #9ca3af;
