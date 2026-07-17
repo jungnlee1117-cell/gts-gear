@@ -41,7 +41,8 @@ export default function ScheduleSidebar({ me, view, onGoMain, onSelect, onGoHub 
         {items.map(item => {
           const Icon = ICONS[item.id] || Calendar;
           const isActive = view === item.id
-            || (item.id === "institution-schedule" && view === "teacher-monthly");
+            || (item.id === "institution-schedule" && view === "teacher-monthly")
+            || (item.id === "change-alerts" && view === "temporary-teachers");
           return (
             <button
               key={item.id}

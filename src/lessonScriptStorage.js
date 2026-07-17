@@ -7,11 +7,20 @@ import {
 } from "./lessonScriptSavedLessonsApi.js";
 import { isLessonScriptSupabaseConfigured } from "./lessonScriptSupabase.js";
 import { readLocalSavedLessons } from "./lessonScriptDataStorage.js";
+import {
+  createFinalScriptV2,
+  normalizeLocalSavedLesson,
+} from "./lessonScriptSavedLessonV2.js";
 
 const STORAGE_KEY = "gts_lesson_scripts_v1";
 
 function readAllLocal() {
-  return readLocalSavedLessons();
+  const rows = readLocalSavedLessons();
+  const normalized = rows.map(normalizeLocalSavedLesson).filter(Boolean);
+  if (rows.some(row => row?.version !== 2 || !row?.finalScript)) {
+    writeAllLocal(normalized);
+  }
+  return normalized;
 }
 
 function writeAllLocal(rows) {
@@ -37,6 +46,8 @@ function saveLessonScriptLocal(payload) {
     recommendMeta: payload.recommendMeta || null,
     fullText: payload.fullText || "",
     sections: payload.sections || [],
+    version: 2,
+    finalScript: createFinalScriptV2(payload),
     createdAt: existingIdx >= 0 ? rows[existingIdx].createdAt : now,
     updatedAt: now,
   };

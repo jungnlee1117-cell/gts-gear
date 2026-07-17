@@ -15,7 +15,11 @@ import {
 } from "./scheduleChangeNotifications.js";
 import { summarizeChangeReasons } from "./changeReasonOptions.js";
 import RegularClassesManagePanel from "./RegularClassesManagePanel.jsx";
+import OneoffLessonRegisterPanel from "./OneoffLessonRegisterPanel.jsx";
+import TemporaryTeachersView from "./TemporaryTeachersView.jsx";
 import { isScheduleAdmin } from "./roles.js";
+
+const ADMIN_TABS = ["alerts", "regular", "oneoff", "temp"];
 
 const TYPE_FILTERS = [
   { id: "all", label: "전체" },
@@ -130,6 +134,52 @@ function groupChangeAlerts(items) {
   return groups.sort((a, b) => b.dateMax.localeCompare(a.dateMax));
 }
 
+/** 768px 이하 여부 — 모바일은 아코디언, 데스크톱은 마스터-디테일 */
+function useIsNarrowScreen() {
+  const [narrow, setNarrow] = useState(
+    () => window.matchMedia("(max-width: 768px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const onChange = e => setNarrow(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}
+
+/** 그룹 요약(날짜·기관·강사 + 배지) — 왼쪽 목록과 오른쪽 상세 헤더에서 공유 */
+function ChangeAlertGroupSummary({ group }) {
+  const dateRange = formatDateRange(group.dateMin, group.dateMax);
+  const summaryBadges = Object.entries(group.typeCounts);
+  return (
+    <div className="sch-change-alerts-group-summary">
+      <span className="sch-change-alerts-group-main">
+        <span className="sch-change-alerts-date-range">{dateRange}</span>
+        <span className="sch-change-alerts-sep">·</span>
+        <span>{group.institutionName}</span>
+        <span className="sch-change-alerts-sep">·</span>
+        <span className="sch-change-alerts-teacher">{group.teacherName}</span>
+      </span>
+      <span className="sch-change-alerts-group-badges">
+        {summaryBadges.map(([type, count]) => (
+          <span
+            key={type}
+            className={`sch-change-alerts-type ${CHANGE_BADGE_CLASS[type] || "sch-change-alerts-type--custom"}`}
+          >
+            {CHANGE_LABELS[type] || type} {count}건
+          </span>
+        ))}
+        {group.reasonSummary ? (
+          <span className="sch-change-alerts-reason">
+            · 사유: {group.reasonSummary}
+          </span>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
 function ChangeAlertDetail({ item }) {
   const payType = resolveNotificationPayType(item);
   return (
@@ -171,9 +221,12 @@ function ChangeAlertDetail({ item }) {
   );
 }
 
-export default function ScheduleChangeAlertsView({ me, onBack }) {
+export default function ScheduleChangeAlertsView({ me, onBack, initialTab }) {
   const admin = isScheduleAdmin(me);
-  const [tab, setTab] = useState(() => (admin ? "alerts" : "regular"));
+  const [tab, setTab] = useState(() => {
+    if (!admin) return "regular";
+    return ADMIN_TABS.includes(initialTab) ? initialTab : "alerts";
+  });
 
   const today = new Date();
   const [yearMonth, setYearMonth] = useState(yearMonthKey(today));
@@ -184,6 +237,8 @@ export default function ScheduleChangeAlertsView({ me, onBack }) {
   const [marking, setMarking] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
+  const isNarrow = useIsNarrowScreen();
   const totalUnread = useUnreadChangeAlertCount(admin);
 
   const [y, m] = yearMonth.split("-").map(Number);
@@ -197,6 +252,7 @@ export default function ScheduleChangeAlertsView({ me, onBack }) {
     setLoading(true);
     setLoadError("");
     setExpandedIds(new Set());
+    setSelectedGroupId(null);
     try {
       const [rows, total] = await Promise.all([
         fetchScheduleChangeNotifications({ yearMonth }),
@@ -214,7 +270,11 @@ export default function ScheduleChangeAlertsView({ me, onBack }) {
     }
   }, [yearMonth, admin]);
 
-  useEffect(() => { load(); }, [load]);
+  // 다른 탭(일일등록 등)에서 등록한 건이 바로 보이도록 탭 진입 시마다 재조회
+  useEffect(() => {
+    if (tab !== "alerts") return;
+    load();
+  }, [tab, load]);
 
   const filteredItems = useMemo(
     () => items.filter(item => matchesTypeFilter(item, typeFilter)),
@@ -224,6 +284,18 @@ export default function ScheduleChangeAlertsView({ me, onBack }) {
   const groupedItems = useMemo(
     () => groupChangeAlerts(filteredItems),
     [filteredItems],
+  );
+
+  // 필터 변경 등으로 선택한 그룹이 목록에서 사라지면 선택 해제
+  useEffect(() => {
+    if (selectedGroupId && !groupedItems.some(g => g.id === selectedGroupId)) {
+      setSelectedGroupId(null);
+    }
+  }, [groupedItems, selectedGroupId]);
+
+  const selectedGroup = useMemo(
+    () => groupedItems.find(g => g.id === selectedGroupId) || null,
+    [groupedItems, selectedGroupId],
   );
 
   const unreadInView = useMemo(
@@ -279,6 +351,16 @@ export default function ScheduleChangeAlertsView({ me, onBack }) {
     }
   };
 
+  /** 데스크톱 마스터-디테일: 클릭 시 오른쪽 패널에 상세 표시 + 읽음 처리 */
+  const handleSelectGroup = async (group) => {
+    setSelectedGroupId(group.id);
+    try {
+      await markItemsRead(group.items);
+    } catch (e) {
+      alert("확인 처리 실패: " + (e.message || "알 수 없는 오류"));
+    }
+  };
+
   const handleMarkAllRead = async () => {
     if (!unreadInView) return;
     const scope = typeFilter === "all"
@@ -311,7 +393,7 @@ export default function ScheduleChangeAlertsView({ me, onBack }) {
           <ChevronLeft size={18}/> 스케줄 관리
         </button>
         <h2 className="sch-view-title">
-          {admin ? "수업 변동 내역" : "정규 수업"}
+          {admin ? "수업등록/변경" : "정규 수업"}
         </h2>
         <div className="sch-header-actions">
           {admin && tab === "alerts" && unreadInView > 0 ? (
@@ -351,10 +433,36 @@ export default function ScheduleChangeAlertsView({ me, onBack }) {
         >
           정규 수업
         </button>
+        {admin ? (
+          <>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "oneoff"}
+              className={`sch-change-alerts-tab${tab === "oneoff" ? " sch-change-alerts-tab--active" : ""}`}
+              onClick={() => setTab("oneoff")}
+            >
+              일일등록
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "temp"}
+              className={`sch-change-alerts-tab${tab === "temp" ? " sch-change-alerts-tab--active" : ""}`}
+              onClick={() => setTab("temp")}
+            >
+              임시 선생님
+            </button>
+          </>
+        ) : null}
       </div>
 
       {tab === "regular" ? (
         <RegularClassesManagePanel me={me} />
+      ) : tab === "oneoff" && admin ? (
+        <OneoffLessonRegisterPanel me={me} />
+      ) : tab === "temp" && admin ? (
+        <TemporaryTeachersView me={me} embedded />
       ) : (
         <>
       <p className="sch-change-alerts-desc">
@@ -424,70 +532,73 @@ export default function ScheduleChangeAlertsView({ me, onBack }) {
           ) : null}
         </div>
       ) : (
-        <ul className="sch-change-alerts-list">
-          {groupedItems.map(group => {
-            const isOpen = expandedIds.has(group.id);
-            const hasUnread = group.items.some(i => !i.is_read);
-            const dateRange = formatDateRange(group.dateMin, group.dateMax);
-            const summaryBadges = Object.entries(group.typeCounts);
+        <div className={`sch-change-alerts-split${isNarrow ? "" : " sch-change-alerts-split--desktop"}`}>
+          <ul className="sch-change-alerts-list">
+            {groupedItems.map(group => {
+              const isOpen = isNarrow && expandedIds.has(group.id);
+              const isSelected = !isNarrow && selectedGroupId === group.id;
+              const hasUnread = group.items.some(i => !i.is_read);
 
-            return (
-              <li
-                key={group.id}
-                className={`sch-change-alerts-item${hasUnread ? " sch-change-alerts-item--unread" : ""}${isOpen ? " sch-change-alerts-item--open" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="sch-change-alerts-group-btn"
-                  aria-expanded={isOpen}
-                  onClick={() => handleToggleGroup(group)}
+              return (
+                <li
+                  key={group.id}
+                  className={`sch-change-alerts-item${hasUnread ? " sch-change-alerts-item--unread" : ""}${isOpen ? " sch-change-alerts-item--open" : ""}${isSelected ? " sch-change-alerts-item--selected" : ""}`}
                 >
-                  <div className="sch-change-alerts-group-summary">
-                    <span className="sch-change-alerts-group-main">
-                      <span className="sch-change-alerts-date-range">{dateRange}</span>
-                      <span className="sch-change-alerts-sep">·</span>
-                      <span>{group.institutionName}</span>
-                      <span className="sch-change-alerts-sep">·</span>
-                      <span className="sch-change-alerts-teacher">{group.teacherName}</span>
-                    </span>
-                    <span className="sch-change-alerts-group-badges">
-                      {summaryBadges.map(([type, count]) => (
-                        <span
-                          key={type}
-                          className={`sch-change-alerts-type ${CHANGE_BADGE_CLASS[type] || "sch-change-alerts-type--custom"}`}
-                        >
-                          {CHANGE_LABELS[type] || type} {count}건
-                        </span>
-                      ))}
-                      {group.reasonSummary ? (
-                        <span className="sch-change-alerts-reason">
-                          · 사유: {group.reasonSummary}
-                        </span>
+                  <button
+                    type="button"
+                    className="sch-change-alerts-group-btn"
+                    aria-expanded={isNarrow ? isOpen : undefined}
+                    aria-current={isNarrow ? undefined : isSelected}
+                    onClick={() => (isNarrow ? handleToggleGroup(group) : handleSelectGroup(group))}
+                  >
+                    <ChangeAlertGroupSummary group={group}/>
+                    <span className="sch-change-alerts-group-actions">
+                      {hasUnread ? (
+                        <span className="sch-change-alerts-unread-dot" aria-label="미확인"/>
+                      ) : null}
+                      {isNarrow ? (
+                        <ChevronDown
+                          size={18}
+                          className={`sch-change-alerts-chevron${isOpen ? " sch-change-alerts-chevron--open" : ""}`}
+                          aria-hidden
+                        />
                       ) : null}
                     </span>
+                  </button>
+                  {isOpen ? (
+                    <div className="sch-change-alerts-group-body">
+                      {group.items.map(item => (
+                        <ChangeAlertDetail key={item.id} item={item}/>
+                      ))}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+
+          {!isNarrow ? (
+            <div className="sch-change-alerts-detail-panel">
+              {selectedGroup ? (
+                <>
+                  <div className="sch-change-alerts-detail-panel-head">
+                    <ChangeAlertGroupSummary group={selectedGroup}/>
                   </div>
-                  <span className="sch-change-alerts-group-actions">
-                    {hasUnread ? (
-                      <span className="sch-change-alerts-unread-dot" aria-label="미확인"/>
-                    ) : null}
-                    <ChevronDown
-                      size={18}
-                      className={`sch-change-alerts-chevron${isOpen ? " sch-change-alerts-chevron--open" : ""}`}
-                      aria-hidden
-                    />
-                  </span>
-                </button>
-                {isOpen ? (
-                  <div className="sch-change-alerts-group-body">
-                    {group.items.map(item => (
+                  <div className="sch-change-alerts-detail-panel-body">
+                    {selectedGroup.items.map(item => (
                       <ChangeAlertDetail key={item.id} item={item}/>
                     ))}
                   </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+                </>
+              ) : (
+                <div className="sch-change-alerts-detail-placeholder">
+                  <Bell size={28} strokeWidth={1.5}/>
+                  <p>왼쪽 목록에서 변동 내역을 선택하면 상세 내용을 확인할 수 있습니다.</p>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
       )}
         </>
       )}

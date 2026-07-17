@@ -66,6 +66,14 @@ function periodLabel(classType, index) {
   return `${index + 1}교시`;
 }
 
+function classTypeTone(classType) {
+  if (classType === "방과후") return "after-school";
+  if (classType === "센터") return "center";
+  if (classType === "센터보조") return "center-assist";
+  if (classType === "가정방문") return "home-visit";
+  return "regular";
+}
+
 export default function RegularClassesManagePanel({ me }) {
   const admin = isScheduleAdmin(me);
   const superAdmin = isScheduleSuperAdmin(me);
@@ -411,8 +419,10 @@ export default function RegularClassesManagePanel({ me }) {
                   <span className="sch-regular-classes-time">
                     {formatTime(slot.start_time)}–{formatTime(slot.end_time)}
                   </span>
-                  <span className="sch-regular-classes-type">{slot.class_type}</span>
-                  <span className="sch-regular-classes-inst">{instName}</span>
+                  <span className={`sch-regular-classes-type sch-regular-classes-type--${classTypeTone(slot.class_type)}`}>
+                    {slot.class_type}
+                  </span>
+                  <span className="sch-regular-classes-inst" title={instName}>{instName}</span>
                   <span className="sch-regular-classes-teacher">
                     {teacherMap.get(slot.teacher_id) || "강사 미지정"}
                   </span>

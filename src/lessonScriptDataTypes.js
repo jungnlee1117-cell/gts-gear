@@ -31,6 +31,14 @@
  * @typedef {Object} ActivityRecord
  * @property {string} id
  * @property {string} label
+ * @property {string} [title]
+ * @property {string} [title_en]
+ * @property {"warmup"|"game"} [stage]
+ * @property {"large"|"medium"|"small"|"none"} [space_requirement]
+ * @property {"easy"|"medium"|"hard"} [difficulty]
+ * @property {number} [duration_minutes]
+ * @property {string} [materials]
+ * @property {string} [script]
  * @property {import("./lessonScriptAiTypes.js").ActivityScriptMeta} [meta]
  */
 

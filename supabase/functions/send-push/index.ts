@@ -552,6 +552,22 @@ async function resolveNotification(event, payload, userId, adminClient) {
         url: "/gear",
       };
     }
+    case "gear_registered": {
+      if (!(await isItemAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      const itemName = String(payload.item_name || "").trim().slice(0, 100);
+      const actorName = String(payload.actor_name || "").trim().slice(0, 50) || "관리자";
+      if (!itemName) {
+        return { error: "item_name required", status: 400 };
+      }
+      return {
+        teacherIds: await getTodoAdminIds(adminClient),
+        title: "새 교구 등록",
+        body: `${actorName}님이 ${itemName}을(를) 재고에 추가했습니다`,
+        url: "/gear",
+      };
+    }
     case "rental_extended": {
       if (userId !== payload.teacher_id) {
         return { error: "Forbidden", status: 403 };

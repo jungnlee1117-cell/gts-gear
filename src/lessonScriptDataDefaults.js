@@ -1,5 +1,12 @@
 /** 수업 대본 만들기 — 번들 기본 데이터 (관리자 오버라이드 전 원본) */
 
+import {
+  EXPANDED_GAME_ACTIVITIES,
+  EXPANDED_GAME_VARIANTS,
+  EXPANDED_PREPARATION_ACTIVITIES,
+  EXPANDED_PREPARATION_VARIANTS,
+} from "./lessonScriptExpandedContent.js";
+
 export const LESSON_SCRIPT_LEVELS = [
   { id: "foundation", label: "Foundation" },
   { id: "interactive", label: "Interactive" },
@@ -189,6 +196,7 @@ export const WARMUP_ACTIVITY_VARIANTS = {
       d("Stretch time!", "Stretch your arms and legs!", "Stretch sequence: arms up, side bend, hamstring — breathe in and out!"),
     ],
   },
+  ...EXPANDED_PREPARATION_VARIANTS,
 };
 
 export const GAME_VARIANTS = {
@@ -219,6 +227,7 @@ export const GAME_VARIANTS = {
       d("Fast pass!", "Don't hold the bomb!", "Bomb pass — name an animal each time you pass!"),
     ],
   },
+  ...EXPANDED_GAME_VARIANTS,
 };
 
 export const DEFAULT_SAFETY_MEMOS = {
@@ -272,33 +281,11 @@ export const WARMUP_SETS = [
   },
 ];
 
-export const WARMUP_ACTIVITIES = [
-  { id: "shuttle-run", label: "왕복 달리기" },
-  { id: "circle-run", label: "동그랗게 달리기" },
-  { id: "dance-warmup", label: "댄스 준비운동" },
-  { id: "stretching", label: "스트레칭" },
-];
+export const WARMUP_ACTIVITIES = EXPANDED_PREPARATION_ACTIVITIES;
 
 export const GEAR_INTRO_SCRIPT = {
   id: "default-gear-intro",
   label: "교구 소개",
 };
 
-export const GAME_ACTIVITIES = [
-  { id: "peanut-butter", label: "Peanut Butter" },
-  { id: "bomb", label: "Bomb" },
-  { id: "body-part-cones", label: "Body Part with Cones" },
-  { id: "jungle-game", label: "Jungle Game (Snake, Eagle)" },
-  { id: "frogs-insects", label: "Frogs & Insects (Bugs)" },
-  { id: "catching-fly", label: "Catching Fly Game" },
-  { id: "green-red-light", label: "Green Light & Red Light" },
-  { id: "chickens-hunters", label: "Chickens & Hunters" },
-  { id: "rock-paper-scissors", label: "Rock, Paper, Scissors" },
-  { id: "cheese-ball-monster", label: "Cheese Ball Monster Game" },
-  { id: "fishing-game", label: "Fishing Game" },
-  { id: "roleplay-teacher", label: "Role-play Teacher Game" },
-  { id: "hopping-monster", label: "Hopping Monster Game" },
-  { id: "bear-monster", label: "Bear Monster Game" },
-  { id: "butterfly", label: "Butterfly Game" },
-  { id: "caterpillar", label: "Caterpillar Where Are You?" },
-];
+export const GAME_ACTIVITIES = EXPANDED_GAME_ACTIVITIES;

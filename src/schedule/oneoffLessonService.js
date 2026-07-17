@@ -1,4 +1,5 @@
 import {
+  createScheduleChangeNotification,
   deletePayrollEntry,
   insertOneoffLesson,
   savePayrollEntry,
@@ -7,6 +8,30 @@ import {
 } from "./api.js";
 import { ENTRY_STATUS } from "./payrollCalendar.js";
 import { oneoffLessonMinutes } from "./oneoffLessons.js";
+import { buildExtraAddedNotificationRow } from "./scheduleChangeNotifications.js";
+
+/**
+ * 일회성 수업 신규 등록을 변동 내역(스케줄 외 추가)에 기록. 실패해도 등록은 유지.
+ * markNotificationRead: 일일등록 탭(관리자)에서만 true — 처음부터 확인됨으로 저장.
+ */
+async function notifyOneoffLessonAdded(lesson, payType, { markNotificationRead = false } = {}) {
+  try {
+    const row = buildExtraAddedNotificationRow({
+      teacher_id: lesson.teacher_id,
+      institution_id: lesson.institution_id,
+      class_date: lesson.lesson_date,
+      pay_type: payType,
+      minutes: oneoffLessonMinutes(lesson),
+    }, { institutionName: lesson.institutions?.name });
+    if (markNotificationRead) {
+      row.is_read = true;
+      row.read_at = new Date().toISOString();
+    }
+    await createScheduleChangeNotification(row);
+  } catch (err) {
+    console.error("oneoff lesson change notification failed:", err);
+  }
+}
 
 async function syncOneoffPayroll(lesson, { linkPayroll, payType = "정규" }) {
   const minutes = oneoffLessonMinutes(lesson);
@@ -45,6 +70,7 @@ export async function registerOneoffLesson({
   linkPayroll = false,
   payAmount = null,
   payType = "정규",
+  markNotificationRead = false,
 }) {
   const lesson = await insertOneoffLesson({
     teacher_id: teacherId,
@@ -57,6 +83,8 @@ export async function registerOneoffLesson({
     pay_amount: payAmount != null && payAmount !== "" ? Math.round(Number(payAmount)) : null,
     created_by: me?.id,
   });
+
+  await notifyOneoffLessonAdded(lesson, payType, { markNotificationRead });
 
   if (linkPayroll) {
     const payrollEntryId = await syncOneoffPayroll(lesson, { linkPayroll, payType });

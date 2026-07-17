@@ -11120,6 +11120,16 @@ function EquipmentApp({ onBack, me, session }) {
       alert("저장 오류: " + error.message);
       return null;
     }
+    if (!editId && row) {
+      const pushResult = await sendPushEvent(supabase, "gear_registered", {
+        item_id: row.id,
+        item_name: row.name,
+        actor_name: me?.name || "관리자",
+      });
+      if (!pushResult.ok) {
+        console.warn("[gear] 신규 교구 등록 푸시 실패", pushResult);
+      }
+    }
     await reloadItems();
     if (editId && detailItem?.id === editId && row) setDetailItem(row);
     return row;

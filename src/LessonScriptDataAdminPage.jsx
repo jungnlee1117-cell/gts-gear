@@ -45,6 +45,7 @@ import {
 } from "./lessonScriptDataRepository.js";
 import {
   AdminModal,
+  ActivityContentEditor,
   ActivityMetaEditor,
   ItemListRow,
   normalizeVariantBlock,
@@ -141,6 +142,15 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
     if (meta.recommendedDuration) parts.push(meta.recommendedDuration);
     if (meta.energyLevel) parts.push(`에너지 ${meta.energyLevel}`);
     return parts.length ? parts.join(" · ") : null;
+  };
+
+  const activitySubtitle = (item) => {
+    const parts = [
+      item.title_en,
+      item.duration_minutes ? `${item.duration_minutes}분` : null,
+      item.materials ? `준비물 ${item.materials}` : null,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" · ") : metaSubtitle(item.meta);
   };
 
   const runMutation = async (fn) => {
@@ -281,7 +291,7 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
             className="lsda-btn lsda-btn--primary lsda-btn--sm"
             onClick={() => setModal({
               type: "warmup-activity",
-              record: { id: "", label: "", meta: {} },
+              record: { id: "", label: "", title: "", title_en: "", stage: "warmup", space_requirement: "none", duration_minutes: null, materials: "", script: "", meta: {} },
               block: { label: "", default: { easy: "", medium: "", hard: "" }, alternatives: [] },
             })}
           >
@@ -297,8 +307,8 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
             <ItemListRow
               key={item.id}
               title={item.label}
-              subtitle={metaSubtitle(item.meta) || (block ? `대체 멘트 ${block.alternatives?.length || 0}개` : "대본 미등록 (placeholder 사용)")}
-              badges={[item.id, item.meta ? "메타" : null].filter(Boolean)}
+              subtitle={activitySubtitle(item) || (block ? `대체 멘트 ${block.alternatives?.length || 0}개` : "대본 미등록 (placeholder 사용)")}
+              badges={[item.id, item.space_requirement || null].filter(Boolean)}
               onEdit={() => setModal({
                 type: "warmup-activity",
                 record: { ...item, meta: item.meta || {} },
@@ -406,7 +416,7 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
             className="lsda-btn lsda-btn--primary lsda-btn--sm"
             onClick={() => setModal({
               type: "game",
-              record: { id: "", label: "", meta: {} },
+              record: { id: "", label: "", title: "", title_en: "", stage: "game", difficulty: "medium", duration_minutes: null, materials: "", script: "", meta: {} },
               block: { label: "", default: { easy: "", medium: "", hard: "" }, alternatives: [] },
             })}
           >
@@ -422,8 +432,8 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
             <ItemListRow
               key={item.id}
               title={item.label}
-              subtitle={metaSubtitle(item.meta) || (block ? `대체 멘트 ${block.alternatives?.length || 0}개` : "대본 미등록 (placeholder 사용)")}
-              badges={[item.id, item.meta ? "메타" : null].filter(Boolean)}
+              subtitle={activitySubtitle(item) || (block ? `대체 멘트 ${block.alternatives?.length || 0}개` : "대본 미등록 (placeholder 사용)")}
+              badges={[item.id, item.difficulty || null].filter(Boolean)}
               onEdit={() => setModal({
                 type: "game",
                 record: { ...item, meta: item.meta || {} },
@@ -496,10 +506,21 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
       }
 
       if (modal.type === "warmup-activity") {
-        const record = { ...modal.record, meta: modal.record.meta || {} };
+        const record = {
+          ...modal.record,
+          title: modal.record.label,
+          stage: "warmup",
+          meta: modal.record.meta || {},
+        };
         if (!record.label?.trim()) return alert("준비운동 이름을 입력해 주세요.");
         if (!record.id) record.id = createSlugId(record.label);
-        const block = normalizeVariantBlock({ ...modal.block, label: record.label });
+        const block = normalizeVariantBlock({
+          ...modal.block,
+          label: record.label,
+          default: record.script?.trim()
+            ? { easy: record.script.trim(), medium: record.script.trim(), hard: record.script.trim() }
+            : modal.block.default,
+        });
         const err = validateVariantBlock(block);
         if (err) return alert(err);
         await saveWarmupActivity(record, userId);
@@ -518,10 +539,21 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
       }
 
       if (modal.type === "game") {
-        const record = { ...modal.record, meta: modal.record.meta || {} };
+        const record = {
+          ...modal.record,
+          title: modal.record.label,
+          stage: "game",
+          meta: modal.record.meta || {},
+        };
         if (!record.label?.trim()) return alert("게임 이름을 입력해 주세요.");
         if (!record.id) record.id = createSlugId(record.label);
-        const block = normalizeVariantBlock({ ...modal.block, label: record.label });
+        const block = normalizeVariantBlock({
+          ...modal.block,
+          label: record.label,
+          default: record.script?.trim()
+            ? { easy: record.script.trim(), medium: record.script.trim(), hard: record.script.trim() }
+            : modal.block.default,
+        });
         const err = validateVariantBlock(block);
         if (err) return alert(err);
         await saveGameActivity(record, userId);
@@ -616,6 +648,11 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
             <span>표시 이름</span>
             <input className="lsda-input" value={modal.record.label} onChange={e => setModal({ ...modal, record: { ...modal.record, label: e.target.value } })}/>
           </label>
+          <ActivityContentEditor
+            value={modal.record}
+            isGame={isGame}
+            onChange={record => setModal({ ...modal, record })}
+          />
           <ActivityMetaEditor
             value={modal.record.meta}
             onChange={meta => setModal({ ...modal, record: { ...modal.record, meta } })}

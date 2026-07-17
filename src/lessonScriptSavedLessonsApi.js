@@ -1,4 +1,9 @@
 import { isLessonScriptSupabaseConfigured, lessonScriptSupabase } from "./lessonScriptSupabase.js";
+import {
+  createFinalScriptV2,
+  flattenFinalScriptSections,
+  normalizeFinalScript,
+} from "./lessonScriptSavedLessonV2.js";
 
 const TABLE = "lesson_script_saved_lessons";
 
@@ -6,8 +11,12 @@ const TABLE = "lesson_script_saved_lessons";
 export function mapSavedLessonRow(row) {
   if (!row) return null;
   const opts = row.selected_options_json || {};
-  const final = row.final_script_json || {};
   const custom = row.custom_text_json || {};
+  const final = normalizeFinalScript(
+    row.final_script_json || {},
+    opts,
+    custom.customTexts || {},
+  );
   return {
     id: row.id,
     title: row.title,
@@ -21,7 +30,9 @@ export function mapSavedLessonRow(row) {
     safetyOverrides: custom.safetyOverrides || {},
     recommendMeta: custom.recommendMeta || null,
     fullText: final.fullText || "",
-    sections: final.sections || [],
+    sections: flattenFinalScriptSections(final),
+    finalScript: final,
+    version: 2,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by,
@@ -41,10 +52,7 @@ export function mapSavedLessonPayload(payload, userId) {
       levelId: payload.levelId || "foundation",
       difficultyId: payload.difficultyId || "medium",
     },
-    final_script_json: {
-      fullText: payload.fullText || "",
-      sections: payload.sections || [],
-    },
+    final_script_json: createFinalScriptV2(payload),
     custom_text_json: {
       customTexts: payload.customTexts || {},
       safetyOverrides: payload.safetyOverrides || {},

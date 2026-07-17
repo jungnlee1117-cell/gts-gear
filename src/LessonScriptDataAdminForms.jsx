@@ -202,6 +202,65 @@ export function ActivityMetaEditor({ value, onChange }) {
   );
 }
 
+export function ActivityContentEditor({ value, onChange, isGame = false }) {
+  const record = value || {};
+  const set = (key, val) => onChange({ ...record, [key]: val });
+
+  return (
+    <fieldset className="lsda-fieldset">
+      <legend>콘텐츠 정보</legend>
+      <div className="lsda-form-grid">
+        <label className="lsda-field">
+          <span>영문 제목</span>
+          <input className="lsda-input" value={record.title_en || ""} onChange={e => set("title_en", e.target.value)}/>
+        </label>
+        <label className="lsda-field">
+          <span>단계</span>
+          <input className="lsda-input" value={isGame ? "game" : "warmup"} disabled/>
+        </label>
+        {isGame ? (
+          <label className="lsda-field">
+            <span>난이도</span>
+            <select className="lsda-input" value={record.difficulty || "medium"} onChange={e => set("difficulty", e.target.value)}>
+              <option value="easy">쉬움</option>
+              <option value="medium">보통</option>
+              <option value="hard">어려움</option>
+            </select>
+          </label>
+        ) : (
+          <label className="lsda-field">
+            <span>필요 공간</span>
+            <select className="lsda-input" value={record.space_requirement || "none"} onChange={e => set("space_requirement", e.target.value)}>
+              <option value="large">큼</option>
+              <option value="medium">중간</option>
+              <option value="small">작음</option>
+              <option value="none">공간 무관</option>
+            </select>
+          </label>
+        )}
+        <label className="lsda-field">
+          <span>소요 시간 (분)</span>
+          <input
+            type="number"
+            min="1"
+            className="lsda-input"
+            value={record.duration_minutes || ""}
+            onChange={e => set("duration_minutes", Number(e.target.value) || null)}
+          />
+        </label>
+      </div>
+      <label className="lsda-field">
+        <span>준비물</span>
+        <input className="lsda-input" value={record.materials || ""} onChange={e => set("materials", e.target.value)}/>
+      </label>
+      <label className="lsda-field">
+        <span>대본 원문</span>
+        <textarea className="lsda-textarea lsda-textarea--tall" rows={12} value={record.script || ""} onChange={e => set("script", e.target.value)}/>
+      </label>
+    </fieldset>
+  );
+}
+
 export function ItemListRow({ title, subtitle, badges = [], onEdit, onDelete, onAi, deleteLabel = "삭제" }) {
   return (
     <li className="lsda-item">

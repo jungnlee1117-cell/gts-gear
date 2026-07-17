@@ -62,6 +62,8 @@ export default defineConfig(({ mode }) => {
         },
         injectManifest: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webp,json}'],
+          // 메인 번들이 기본 한도(2 MiB)를 넘어 프리캐시에서 빠지는 것 방지
+          maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         },
         devOptions: {
           enabled: true,

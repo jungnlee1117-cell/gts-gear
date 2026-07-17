@@ -3167,6 +3167,9 @@ button.pe-res-resource-youtube-thumb:hover {
   align-items: flex-end;
   padding: 4px 0 8px;
 }
+.lsb-step__cards > .lsb-actions {
+  grid-column: 1 / -1;
+}
 
 .lsb-title-field {
   display: flex;
@@ -3489,124 +3492,6 @@ button.pe-res-resource-youtube-thumb:hover {
   color: #0f172a;
 }
 
-.lsb-difficulty-panel,
-.lsb-recommend-panel {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 18px;
-  margin-bottom: 20px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
-}
-
-.lsb-difficulty-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.lsb-difficulty-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 12px;
-  background: #fff;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.lsb-difficulty-card strong {
-  font-size: 14px;
-  color: #0f172a;
-}
-
-.lsb-difficulty-card span {
-  font-size: 12px;
-  color: #64748b;
-  line-height: 1.45;
-}
-
-.lsb-difficulty-card:hover {
-  border-color: #c4b5fd;
-  background: #faf5ff;
-}
-
-.lsb-difficulty-card.active {
-  border-color: #7c3aed;
-  background: #f5f3ff;
-}
-
-.lsb-recommend-panel__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-
-.lsb-recommend-panel__head .lsb-panel-title {
-  margin-bottom: 0;
-}
-
-.lsb-recommend-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.lsb-recommend-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px;
-}
-
-.lsb-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: #475569;
-  font-weight: 600;
-}
-
-.lsb-select {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 13px;
-  color: #0f172a;
-  background: #fff;
-}
-
-.lsb-recommend-result {
-  margin-top: 14px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  font-size: 13px;
-  color: #334155;
-  line-height: 1.5;
-}
-
-.lsb-recommend-result p {
-  margin: 0 0 8px;
-}
-
-.lsb-recommend-result ul {
-  margin: 0;
-  padding-left: 18px;
-}
-
-.lsb-recommend-result li {
-  margin-bottom: 4px;
-}
-
 .lsb-preview-part__head {
   display: flex;
   align-items: center;
@@ -3760,16 +3645,6 @@ button.pe-res-resource-youtube-thumb:hover {
   color: #334155;
   line-height: 1.5;
   white-space: pre-wrap;
-}
-
-@media (max-width: 768px) {
-  .lsb-difficulty-row {
-    grid-template-columns: 1fr;
-  }
-
-  .lsb-recommend-panel__head {
-    flex-direction: column;
-  }
 }
 
 /* ── 수업 대본 데이터 관리 (관리자) ── */
@@ -9511,9 +9386,11 @@ button.pe-res-resource-youtube-thumb:hover {
 .sch-user-role { color: #94a3b8; }
 
 .sch-main {
-  max-width: 1200px;
+  width: 100%;
+  max-width: none;
   margin: 0 auto;
-  padding: 20px 16px 48px;
+  padding: 20px clamp(16px, 3vw, 64px) 48px;
+  box-sizing: border-box;
 }
 
 .sch-hero { margin-bottom: 24px; }
@@ -11893,7 +11770,6 @@ button.pe-res-resource-youtube-thumb:hover {
 .sch-change-alerts-view {
   --sch-beige: #f1efe8;
   --sch-beige-border: #e3dfd4;
-  max-width: 720px;
 }
 .sch-change-alerts-tabs {
   display: flex;
@@ -11949,22 +11825,34 @@ button.pe-res-resource-youtube-thumb:hover {
 }
 .sch-regular-classes-hint { margin: 0 0 14px; }
 .sch-regular-classes-list {
-  list-style: none; margin: 0; padding: 0; display: grid; gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
 }
 .sch-regular-classes-item {
-  display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px;
-  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
   background: #fff;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border-radius: 12px;
 }
 .sch-regular-classes-main {
-  flex: 1;
   min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns:
+    minmax(36px, 48px)
+    minmax(108px, 130px)
+    minmax(62px, 82px)
+    minmax(100px, 1fr)
+    minmax(80px, 140px)
+    minmax(86px, 112px);
   align-items: center;
-  gap: 6px 10px;
+  gap: 4px 16px;
   text-align: left;
   border: none;
   background: transparent;
@@ -11973,22 +11861,132 @@ button.pe-res-resource-youtube-thumb:hover {
   font: inherit;
   color: inherit;
 }
+.sch-regular-classes-main--oneoff {
+  grid-template-columns:
+    minmax(76px, 86px)
+    minmax(108px, 130px)
+    minmax(62px, 82px)
+    minmax(100px, 1fr)
+    minmax(80px, 140px)
+    minmax(110px, 150px);
+}
 .sch-regular-classes-main:disabled { cursor: default; }
 .sch-regular-classes-dow {
-  font-weight: 800; color: #0f172a; min-width: 1.5em;
+  font-weight: 800;
+  color: #0f172a;
 }
-.sch-regular-classes-time { font-weight: 700; color: #334155; }
+.sch-regular-classes-time {
+  font-weight: 700;
+  color: #334155;
+  white-space: nowrap;
+}
 .sch-regular-classes-type {
-  font-size: 11px; font-weight: 700; color: #475569;
-  background: #f1f5f9; padding: 2px 6px; border-radius: 99px;
+  justify-self: start;
+  min-width: 54px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+  color: #475569;
+  background: #f1f5f9;
 }
-.sch-regular-classes-inst { font-weight: 700; color: #0f172a; }
-.sch-regular-classes-teacher { font-size: 12px; color: #64748b; }
-.sch-regular-classes-range { font-size: 11px; color: #94a3b8; width: 100%; }
+.sch-regular-classes-type--regular {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+.sch-regular-classes-type--after-school {
+  color: #15803d;
+  background: #dcfce7;
+}
+.sch-regular-classes-type--center {
+  color: #7e22ce;
+  background: #f3e8ff;
+}
+.sch-regular-classes-type--center-assist {
+  color: #a16207;
+  background: #fef3c7;
+}
+.sch-regular-classes-type--home-visit {
+  color: #0e7490;
+  background: #cffafe;
+}
+.sch-regular-classes-type--oneoff {
+  color: #0369a1;
+  background: #e0f2fe;
+}
+.sch-regular-classes-inst {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sch-regular-classes-teacher {
+  min-width: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sch-regular-classes-range {
+  color: #94a3b8;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.sch-regular-classes-note {
+  grid-column: 4 / -1;
+  min-width: 0;
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sch-regular-classes-actions {
-  display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 .sch-regular-classes-delete { color: #b91c1c; }
+
+@media (max-width: 768px) {
+  .sch-regular-classes-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+  }
+  .sch-regular-classes-main,
+  .sch-regular-classes-main--oneoff {
+    grid-template-columns: 44px minmax(110px, auto) minmax(54px, 1fr);
+    gap: 6px 10px;
+  }
+  .sch-regular-classes-main--oneoff {
+    grid-template-columns: 86px minmax(110px, auto) minmax(54px, 1fr);
+  }
+  .sch-regular-classes-inst {
+    grid-column: 1 / -1;
+  }
+  .sch-regular-classes-teacher {
+    grid-column: 1 / 3;
+  }
+  .sch-regular-classes-range {
+    grid-column: 3;
+    justify-self: end;
+  }
+  .sch-regular-classes-note {
+    grid-column: 1 / -1;
+  }
+  .sch-regular-classes-actions {
+    justify-self: end;
+  }
+}
+
 .sch-regular-classes-periods { display: grid; gap: 8px; margin-bottom: 4px; }
 .sch-regular-classes-period-row {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
@@ -12152,6 +12150,59 @@ button.pe-res-resource-youtube-thumb:hover {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+/* 변동 내역 마스터-디테일 (데스크톱 >768px, JS에서 클래스 부여) */
+.sch-change-alerts-split--desktop {
+  display: grid;
+  grid-template-columns: clamp(360px, 30vw, 420px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.sch-change-alerts-split--desktop .sch-change-alerts-list {
+  min-width: 0;
+}
+.sch-change-alerts-item--selected {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 1px #16a34a;
+}
+.sch-change-alerts-item--selected .sch-change-alerts-group-btn {
+  background: #f8fafc;
+}
+.sch-change-alerts-item--unread.sch-change-alerts-item--selected {
+  box-shadow: 0 0 0 1px #16a34a, 0 0 0 3px #fca5a5;
+}
+.sch-change-alerts-detail-panel {
+  border: 0.5px solid var(--sch-beige-border);
+  border-radius: 12px;
+  background: #fff;
+  min-height: 240px;
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+.sch-change-alerts-detail-panel-head {
+  padding: 14px 16px;
+  border-bottom: 0.5px solid var(--sch-beige-border);
+}
+.sch-change-alerts-detail-panel-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #fafaf9;
+  border-radius: 0 0 12px 12px;
+}
+.sch-change-alerts-detail-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 240px;
+  padding: 48px 20px;
+  color: #9ca3af;
+  text-align: center;
 }
 .sch-change-alerts-detail-item {
   padding: 12px 14px;

@@ -55,7 +55,7 @@ function recordToForm(record) {
   };
 }
 
-export default function TemporaryTeachersView({ me, onBack }) {
+export default function TemporaryTeachersView({ me, onBack, embedded = false }) {
   const [institutions, setInstitutions] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [engagements, setEngagements] = useState([]);
@@ -208,13 +208,9 @@ export default function TemporaryTeachersView({ me, onBack }) {
   };
 
   return (
-    <div className="sch-view">
-      <header className="sch-view-header">
-        <button type="button" className="sch-back-btn" onClick={onBack}>
-          <ChevronLeft size={18}/> 급여/정산
-        </button>
-        <h2 className="sch-view-title">임시 선생님 등록</h2>
-        <div className="sch-header-actions">
+    <div className={embedded ? "sch-temp-teachers-embedded" : "sch-view"}>
+      {embedded ? (
+        <div className="sch-regular-classes-toolbar">
           <button
             type="button"
             className="sch-btn sch-btn--primary"
@@ -223,7 +219,23 @@ export default function TemporaryTeachersView({ me, onBack }) {
             {showForm ? "취소" : "+ 임시 선생님 등록"}
           </button>
         </div>
-      </header>
+      ) : (
+        <header className="sch-view-header">
+          <button type="button" className="sch-back-btn" onClick={onBack}>
+            <ChevronLeft size={18}/> 급여/정산
+          </button>
+          <h2 className="sch-view-title">임시 선생님 등록</h2>
+          <div className="sch-header-actions">
+            <button
+              type="button"
+              className="sch-btn sch-btn--primary"
+              onClick={() => (showForm ? resetForm() : openCreate())}
+            >
+              {showForm ? "취소" : "+ 임시 선생님 등록"}
+            </button>
+          </div>
+        </header>
+      )}
 
       <p className="sch-muted sch-view-desc">
         로그인 계정 없이 정산용 인력 정보만 등록합니다. 급여는 시급·일급·총금액 중 선택해 입력하며, 등록 후에도 수정할 수 있습니다.

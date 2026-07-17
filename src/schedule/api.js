@@ -1184,6 +1184,10 @@ export async function createScheduleChangeNotification(row) {
   if (row.pay_type) extended.pay_type = row.pay_type;
   if (row.home_visit_pattern_id) extended.home_visit_pattern_id = row.home_visit_pattern_id;
   if (row.change_reason) extended.change_reason = row.change_reason;
+  if (row.is_read === true) {
+    extended.is_read = true;
+    extended.read_at = row.read_at || new Date().toISOString();
+  }
 
   try {
     await insertScheduleChangeNotificationRow(extended);

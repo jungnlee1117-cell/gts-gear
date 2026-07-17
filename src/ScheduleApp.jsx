@@ -13,7 +13,6 @@ import HomeVisitScheduleView from "./schedule/HomeVisitScheduleView.jsx";
 import EventsScheduleView from "./schedule/EventsScheduleView.jsx";
 import ScheduleChangeAlertsView from "./schedule/ScheduleChangeAlertsView.jsx";
 import MonthlySettlementView from "./schedule/MonthlySettlementView.jsx";
-import TemporaryTeachersView from "./schedule/TemporaryTeachersView.jsx";
 import TeacherPayRatesView from "./schedule/TeacherPayRatesView.jsx";
 import { ScheduleAuthContext } from "./schedule/ScheduleAuthContext.jsx";
 import { syncScheduleAuthSession, scheduleSupabase } from "./schedule/api.js";
@@ -148,8 +147,9 @@ export default function ScheduleApp({ me, session, onBack }) {
             />
           );
       case "temporary-teachers":
+        // 임시 선생님은 수업등록/변경 화면의 탭으로 통합됨
         return admin
-          ? <TemporaryTeachersView me={me} onBack={() => setView("payroll")}/>
+          ? <ScheduleChangeAlertsView me={me} onBack={goHub} initialTab="temp"/>
           : (
             <ScheduleAccessDenied
               message="임시 선생님 등록은 관리자만 이용할 수 있습니다."

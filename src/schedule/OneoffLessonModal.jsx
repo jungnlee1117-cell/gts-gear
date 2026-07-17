@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatWon } from "./constants.js";
-import { fetchInstitutions, fetchPayRates } from "./api.js";
+import { fmtLocalDate, formatWon } from "./constants.js";
+import { fetchInstitutions, fetchPayRates, fetchTeachers } from "./api.js";
 import { registerOneoffLesson, saveOneoffLesson } from "./oneoffLessonService.js";
 import { oneoffLessonMinutes } from "./oneoffLessons.js";
 import { listInstitutionsForOneoffLesson } from "./oneoffInstitutions.js";
@@ -16,6 +16,10 @@ const EMPTY_FORM = {
   pay_amount: "",
 };
 
+/**
+ * teacherId / lessonDate props가 있으면 기존처럼 고정 표시(선생님 시간표 경로),
+ * 없으면 모달 안에서 선생님·날짜를 직접 선택(일일등록 탭 신규 등록 경로).
+ */
 export default function OneoffLessonModal({
   open,
   onClose,
@@ -23,30 +27,49 @@ export default function OneoffLessonModal({
   teacherId,
   teacherName = "",
   lessonDate,
+  initialTeacherId = "",
+  initialLessonDate = "",
+  /** 일일등록 탭(관리자)에서만 true — 변동 알림을 처음부터 확인됨으로 생성 */
+  markNotificationRead = false,
   editingLesson = null,
   onSaved,
 }) {
+  const teacherLocked = Boolean(teacherId);
+  const dateLocked = Boolean(lessonDate);
   const [institutions, setInstitutions] = useState([]);
   const [payRates, setPayRates] = useState([]);
+  const [teachers, setTeachers] = useState([]);
+  const [pickedTeacherId, setPickedTeacherId] = useState("");
+  const [pickedLessonDate, setPickedLessonDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
 
+  const effectiveTeacherId = teacherId || pickedTeacherId;
+  const effectiveLessonDate = lessonDate || pickedLessonDate;
+  const effectiveTeacherName = teacherLocked
+    ? teacherName
+    : (teachers.find(t => t.id === pickedTeacherId)?.name || "");
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [insts, rates] = await Promise.all([
+      const [insts, rates, allTeachers] = await Promise.all([
         fetchInstitutions({ activeOnly: false }),
         fetchPayRates(),
+        teacherLocked ? Promise.resolve(null) : fetchTeachers(),
       ]);
       setInstitutions(listInstitutionsForOneoffLesson(insts));
       setPayRates(rates || []);
+      if (allTeachers) {
+        setTeachers((allTeachers || []).filter(t => t.role === "teacher"));
+      }
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [teacherLocked]);
 
   useEffect(() => {
     if (!open) return;
@@ -62,8 +85,12 @@ export default function OneoffLessonModal({
     } else {
       setForm({ ...EMPTY_FORM });
     }
+    setPickedTeacherId(editingLesson?.teacher_id || initialTeacherId || "");
+    setPickedLessonDate(
+      String(editingLesson?.lesson_date || initialLessonDate || fmtLocalDate(new Date())).slice(0, 10),
+    );
     load();
-  }, [open, editingLesson, load]);
+  }, [open, editingLesson, initialTeacherId, initialLessonDate, load]);
 
   const previewMinutes = oneoffLessonMinutes({
     start_time: form.start_time,
@@ -83,15 +110,15 @@ export default function OneoffLessonModal({
   }, [selectedInstitution]);
 
   const ratePerMinute = useMemo(() => {
-    if (!teacherId || !lessonDate) return 0;
+    if (!effectiveTeacherId || !effectiveLessonDate) return 0;
     return Number(pickRateForDate(
       payRates,
-      teacherId,
+      effectiveTeacherId,
       payTypeForRate,
-      lessonDate,
+      effectiveLessonDate,
       form.institution_id || null,
     )) || 0;
-  }, [payRates, teacherId, payTypeForRate, lessonDate, form.institution_id]);
+  }, [payRates, effectiveTeacherId, payTypeForRate, effectiveLessonDate, form.institution_id]);
 
   const autoPayAmount = useMemo(() => {
     if (!form.link_payroll || previewMinutes <= 0 || ratePerMinute <= 0) return null;
@@ -100,8 +127,8 @@ export default function OneoffLessonModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!teacherId || !lessonDate) {
-      alert("선생님과 날짜를 확인해 주세요.");
+    if (!effectiveTeacherId || !effectiveLessonDate) {
+      alert("선생님과 날짜를 선택해 주세요.");
       return;
     }
     if (!form.institution_id) {
@@ -121,8 +148,8 @@ export default function OneoffLessonModal({
     try {
       const payload = {
         me,
-        teacherId,
-        lessonDate,
+        teacherId: effectiveTeacherId,
+        lessonDate: effectiveLessonDate,
         startTime: form.start_time,
         endTime: form.end_time,
         institutionId: form.institution_id,
@@ -134,9 +161,9 @@ export default function OneoffLessonModal({
       if (editingLesson) {
         await saveOneoffLesson({ ...payload, lesson: editingLesson });
       } else {
-        await registerOneoffLesson(payload);
+        await registerOneoffLesson({ ...payload, markNotificationRead });
       }
-      onSaved?.();
+      onSaved?.({ teacherId: effectiveTeacherId, lessonDate: effectiveLessonDate });
       onClose?.();
     } catch (err) {
       alert(`일회성 수업 ${editingLesson ? "수정" : "등록"} 실패: ` + err.message);
@@ -152,17 +179,44 @@ export default function OneoffLessonModal({
       <div className="sch-modal sch-modal--wide sch-modal--oneoff" onClick={e => e.stopPropagation()}>
         <h3>{editingLesson ? "일회성 수업 수정" : "일회성 수업 등록"}</h3>
         <p className="sch-muted">
-          {lessonDate}
-          {teacherName ? ` · ${teacherName} 선생님` : ""}
+          {effectiveLessonDate || "날짜 미선택"}
+          {effectiveTeacherName ? ` · ${effectiveTeacherName} 선생님` : ""}
         </p>
 
         {loading ? (
           <p className="sch-muted">불러오는 중...</p>
         ) : (
           <form className="sch-form" onSubmit={handleSubmit}>
+            {!teacherLocked ? (
+              <label className="sch-field">
+                <span>선생님</span>
+                <select
+                  className="sch-select"
+                  required
+                  value={pickedTeacherId}
+                  onChange={e => setPickedTeacherId(e.target.value)}
+                >
+                  <option value="">선택</option>
+                  {teachers.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
             <label className="sch-field">
               <span>날짜</span>
-              <input type="date" className="sch-input" value={lessonDate} readOnly />
+              {dateLocked ? (
+                <input type="date" className="sch-input" value={lessonDate} readOnly />
+              ) : (
+                <input
+                  type="date"
+                  className="sch-input"
+                  required
+                  value={pickedLessonDate}
+                  onChange={e => setPickedLessonDate(e.target.value)}
+                />
+              )}
             </label>
 
             <div className="sch-time-row">
