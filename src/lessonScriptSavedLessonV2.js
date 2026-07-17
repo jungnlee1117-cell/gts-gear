@@ -1,8 +1,9 @@
 const BUCKET_KEYS = {
   warmup: new Set(["warmup-set"]),
-  preparation: new Set(["safety-beforeWarmup", "warmup-activity"]),
-  gear: new Set(["gear-intro", "safety-beforeGear", "gear-lesson"]),
-  game: new Set(["safety-beforeGame", "game"]),
+  preparation: new Set(["warmup-activity"]),
+  gear: new Set(["gear-lesson"]),
+  game: new Set(["game"]),
+  closing: new Set(["closing"]),
 };
 
 function bucketForStep(step) {
@@ -24,7 +25,7 @@ function makeBucket(steps, detail = {}) {
  */
 export function createFinalScriptV2(payload = {}) {
   const steps = Array.isArray(payload.sections) ? payload.sections : [];
-  const grouped = { warmup: [], preparation: [], gear: [], game: [] };
+  const grouped = { warmup: [], preparation: [], gear: [], game: [], closing: [] };
   for (const step of steps) {
     const bucket = bucketForStep(step);
     if (bucket) grouped[bucket].push(step);
@@ -48,12 +49,18 @@ export function createFinalScriptV2(payload = {}) {
         contentId: payload.gearId || null,
         gearId: payload.gearId || null,
         levelId: payload.levelId || "foundation",
-        customText: payload.customTexts?.["gear-intro"] || null,
+        customText: null,
       }),
       game: makeBucket(grouped.game, {
         contentId: payload.gameId || null,
         customText: payload.gameId
           ? payload.customTexts?.[`game-${payload.gameId}`] || null
+          : null,
+      }),
+      closing: makeBucket(grouped.closing, {
+        contentId: payload.closingId || null,
+        customText: payload.closingId
+          ? payload.customTexts?.[`closing-${payload.closingId}`] || null
           : null,
       }),
     },
@@ -78,8 +85,12 @@ export function flattenFinalScriptSections(final = {}) {
   const normalized = final?.version === 2
     ? final
     : normalizeFinalScript(final);
-  return ["warmup", "preparation", "gear", "game"].flatMap(
-    key => normalized.sections?.[key]?.steps || [],
+  // 레거시 safety-* 스텝은 새 구조에서 제외 (옛 저장분 열람 시 gear/game 본문만 유지)
+  return ["warmup", "preparation", "gear", "game", "closing"].flatMap(
+    key => (normalized.sections?.[key]?.steps || []).filter(step => {
+      const stepKey = String(step?.key || "");
+      return !stepKey.startsWith("safety-") && stepKey !== "gear-intro";
+    }),
   );
 }
 

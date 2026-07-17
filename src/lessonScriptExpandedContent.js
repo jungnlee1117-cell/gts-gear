@@ -251,3 +251,142 @@ export const EXPANDED_PREPARATION_VARIANTS = Object.fromEntries(
 export const EXPANDED_GAME_VARIANTS = Object.fromEntries(
   EXPANDED_GAME_ACTIVITIES.map(item => [item.id, sameScriptForAllLevels(item.label, item.script)]),
 );
+
+const closing = (id, title, titleEn, duration, materials, script) => ({
+  id,
+  stage: "closing",
+  label: title,
+  title,
+  title_en: titleEn,
+  duration_minutes: duration,
+  materials,
+  script,
+});
+
+export const EXPANDED_CLOSING_ACTIVITIES = [
+  closing(
+    "closing-farewell",
+    "마무리 인사",
+    "Closing & Farewell",
+    5,
+    "없음",
+    `Teacher: "Now, everyone, final mission! Go back to the wall and sit down nicely. Glue your bottoms to the wall! Three, two, one, sit! Perfect, you guys are so fast."
+
+Teacher: "Let's take a deep breath to cool down our bodies. Inhale through your nose..." (손을 위로 깊게 숨 들이쉬기) "Exhale through your mouth..." (하~ 내쉬며 손 아래로) "One more time, breathe in... breathe out. Good, your hearts are calm now."
+
+Teacher: "Today, we had so much fun! Did you enjoy the class?"
+Kids: "YES!"
+
+Teacher: "What was your favorite part? [아이 이름1], did you like the warm-up or the game?"
+Kids: "The game!"
+
+Teacher: "Haha, I knew it! [아이 이름2], you were amazing today — your energy was incredible from start to finish! [아이 이름3], I saw you helping your friend earlier, that was so kind of you!"
+
+Teacher: "Today, no one got hurt, and everyone followed the rules beautifully. You are the best students, and Teacher is so proud of all of you!"
+
+Teacher: "Now, let's put our hands in the middle. Everyone, hands in!" (손을 한데 모으는 포즈)
+
+Teacher & Kids: "One, two, three... GTS, GO!" (크게 외치며 손을 위로 치켜든다)
+
+Teacher: "Thank you, class! Goodbye, see you next time!"
+Kids: "Thank you, teacher! Goodbye!"
+
+Teacher: "Okay, stay against the wall. When I call your name, give me a high five and go to your mommy/daddy!" (한 명씩 호명) "[아이 이름1], come here. High five, boom! Bye-bye, see you next week! [아이 이름2], you did a great job today. Goodbye!"`,
+  ),
+];
+
+export const EXPANDED_CLOSING_VARIANTS = Object.fromEntries(
+  EXPANDED_CLOSING_ACTIVITIES.map(item => [item.id, sameScriptForAllLevels(item.label, item.script)]),
+);
+
+const warmupSet = (id, label, desc, titleEn, duration, script) => ({
+  id,
+  stage: "warmup-set",
+  label,
+  title: label,
+  title_en: titleEn,
+  desc,
+  duration_minutes: duration,
+  materials: "없음",
+  script,
+});
+
+/** 기존 4파트(medium)를 【파트】 헤더로 합친 기본 세트 */
+export const DEFAULT_GREETING_WARMUP_SCRIPT = `【입장】
+Hello everyone! Come on in~! Please sit against the wall!
+
+【인사/소개】
+Alrighty! We have to say hello to each other. Everyone stand up. Attention!
+
+【몸풀기】
+First, let's warm up together! Head, shoulders, knees, and clap, clap, clap!
+
+【착석】
+Ok~! Please have a seat everyone. Sit nicely!!`;
+
+export const EXPANDED_WARMUP_SETS = [
+  warmupSet(
+    "default-greeting-warmup",
+    "기본 인사 & 워밍업 세트",
+    "입장 → 인사/소개 → 몸풀기 → 착석 (기존 4파트 통합)",
+    "Basic Greeting & Warm-up",
+    5,
+    DEFAULT_GREETING_WARMUP_SCRIPT,
+  ),
+  warmupSet(
+    "high-tension-booster",
+    "하이텐션 부스터형",
+    "아이들이 처져있거나 텐션이 낮을 때 (월요일, 방과후 늦은 시간대 등)",
+    "High-Tension Booster",
+    5,
+    `(교실 문을 활짝 열고, 아주 밝고 큰 목소리로 양손을 흔들며 박수를 친다)
+Teacher: "Hello, everyone! Welcome to GTS Sports! Come in, come in! Wow, you all look so energetic today! [아이 이름1], hello! [아이 이름2], welcome! Run, run, run! Come to the wall, friends!"
+
+(아이들이 교실 가운데로 모이려 하면, 몸짓을 크게 하며 벽을 가리킨다)
+Teacher: "No, no, not the middle! Look at Teacher! Glue your bottoms to the wall! Glue, glue, glue!" (직접 벽에 엉덩이를 붙이는 시늉을 코믹하게 하며) "Like this! [아이 이름3], here, glue your bottom!"
+
+(아이들이 벽에 정렬되면)
+Teacher: "Perfect! Beautiful line! Three, two, one... sit down nicely! Fold your legs, hands on your knees!"
+
+Teacher: "Official greeting! Hello, everyone! My name is Teacher [이름]! Nice to meet you!"
+Kids: "Hello, teacher!"
+
+Teacher: "Wow, your voice is beautiful today! How are you feeling? Let me check!" (오른쪽 아이부터 눈을 맞추며 다가간다) "[아이 이름1], how are you? Show me your smile! Smile!" (아이가 웃으면 하이파이브) "Good! [아이 이름2], are you happy today? Super happy!"
+
+(처져있는 아이가 있다면 다가가서)
+Teacher: "Oh, [아이 이름3], are you tired today?" (피곤한 시늉) "Let's wake up! Wake up, body!" (아이 무릎을 가볍게 톡톡 치며) "Okay, you can do it!"
+
+Teacher: "Now, everybody, look at Teacher's eyes! Listen to the beat." (무릎을 탁탁 치며 리듬 만들기) "Tap your knees, tap, tap, tap! Clap your hands, clap, clap, clap!" (점점 빠르게) "Faster! Stop! Hands on your knees! Shhh..."
+
+Teacher: "Let's sing our hello song! Follow my hands. Hello, hello, how are you? I'm good! I'm great! I'm wonderful!" (동작과 함께)
+Kids: (따라 하며) "I'm wonderful!!"
+
+Teacher: "Oh my goodness! [아이 이름2], your voice was louder than a lion! Amazing!"
+
+Teacher: "Okay, everyone, our bodies are getting warm! Are you ready to move? Stand up against the wall, don't run yet! 1, 2, 3, up!"`,
+  ),
+];
+
+export const EXPANDED_WARMUP_SET_VARIANTS = Object.fromEntries(
+  EXPANDED_WARMUP_SETS.map(item => [item.id, sameScriptForAllLevels(item.label, item.script)]),
+);
+
+/** 옛 partIds 전용 패치 정규화용 (medium 텍스트) */
+export const LEGACY_WARMUP_PART_MEDIUM = {
+  entrance: {
+    label: "입장",
+    text: "Hello everyone! Come on in~! Please sit against the wall!",
+  },
+  greeting: {
+    label: "인사/소개",
+    text: "Alrighty! We have to say hello to each other. Everyone stand up. Attention!",
+  },
+  warmup: {
+    label: "몸풀기",
+    text: "First, let's warm up together! Head, shoulders, knees, and clap, clap, clap!",
+  },
+  seating: {
+    label: "착석",
+    text: "Ok~! Please have a seat everyone. Sit nicely!!",
+  },
+};

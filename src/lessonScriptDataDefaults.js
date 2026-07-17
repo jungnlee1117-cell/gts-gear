@@ -1,10 +1,14 @@
 /** 수업 대본 만들기 — 번들 기본 데이터 (관리자 오버라이드 전 원본) */
 
 import {
+  EXPANDED_CLOSING_ACTIVITIES,
+  EXPANDED_CLOSING_VARIANTS,
   EXPANDED_GAME_ACTIVITIES,
   EXPANDED_GAME_VARIANTS,
   EXPANDED_PREPARATION_ACTIVITIES,
   EXPANDED_PREPARATION_VARIANTS,
+  EXPANDED_WARMUP_SETS,
+  EXPANDED_WARMUP_SET_VARIANTS,
 } from "./lessonScriptExpandedContent.js";
 
 export const LESSON_SCRIPT_LEVELS = [
@@ -14,134 +18,11 @@ export const LESSON_SCRIPT_LEVELS = [
 
 const d = (easy, medium, hard) => ({ easy, medium, hard });
 
-export const WARMUP_PART_VARIANTS = {
-  entrance: {
-    label: "입장",
-    default: d(
-      "Hi friends! Come in~ Sit by the wall!",
-      "Hello everyone! Come on in~! Please sit against the wall!",
-      "Hello everyone! Welcome! Come on in quickly and sit against the wall with your legs crossed!",
-    ),
-    alternatives: [
-      d(
-        "Come in, friends! Wall sit, please!",
-        "Hey everyone! Come on in~! Sit against the wall, please!",
-        "Good morning, everyone! Come in quickly and sit against the wall. Ready?",
-      ),
-      d(
-        "Hello! Come in slowly~ Wall, please!",
-        "Hi kids! Come on in~! Please sit on the wall side!",
-        "Welcome, everyone! Come in and sit against the wall. Criss-cross applesauce!",
-      ),
-      d(
-        "Come in~! Sit here by the wall!",
-        "Hello hello! Come on in~! Sit against the wall nicely!",
-        "Hello everyone! Come on in~! Sit against the wall and show me quiet bodies!",
-      ),
-    ],
-  },
-  greeting: {
-    label: "인사/소개",
-    default: d(
-      "Hello! Stand up. Say hello!",
-      "Alrighty! We have to say hello to each other. Everyone stand up. Attention!",
-      "Alrighty! Let's greet each other properly. Everyone stand up tall. Attention! Look at your partner and say hello!",
-    ),
-    alternatives: [
-      d(
-        "Stand up! Hello, friend!",
-        "Everyone stand up! Let's say hello to our friends!",
-        "Stand up, everyone! Look around and say hello to someone new today!",
-      ),
-      d(
-        "Up up! Hi! Nice to meet you!",
-        "Stand up! Wave and say hello to the person next to you!",
-        "Everyone stand up! Make eye contact and introduce yourself in one English sentence!",
-      ),
-      d(
-        "Hello time! Stand up please!",
-        "Let's greet! Stand up. Hello, everyone!",
-        "Attention! Stand up straight. Greet your neighbor and tell them one thing you like!",
-      ),
-    ],
-  },
-  warmup: {
-    label: "몸풀기",
-    default: d(
-      "Warm up! Head, shoulders, knees. Clap clap!",
-      "First, let's warm up together! Head, shoulders, knees, and clap, clap, clap!",
-      "Let's warm up together! Touch your head, shoulders, knees, and toes — then clap, clap, clap! Can you go faster?",
-    ),
-    alternatives: [
-      d(
-        "Head! Shoulders! Knees! Clap!",
-        "Warm up time! Head, shoulders, knees — clap clap clap!",
-        "Warm up! Head, shoulders, knees, toes — now jump and clap three times!",
-      ),
-      d(
-        "Touch head! Shoulders! Clap!",
-        "Let's move! Head, shoulders, knees. Clap with me!",
-        "Follow me! Head, shoulders, knees, toes. Clap clap clap — now twice as fast!",
-      ),
-      d(
-        "Up up! Down down! Clap clap!",
-        "Body warm up! Head, shoulders, knees, and clap clap clap!",
-        "Full body warm up! Head, shoulders, knees, toes, then spin and clap — great job!",
-      ),
-    ],
-  },
-  seating: {
-    label: "착석",
-    default: d(
-      "Sit down please. Nice sit!",
-      "Ok~! Please have a seat everyone. Sit nicely!!",
-      "Great job! Please have a seat everyone. Sit nicely with your hands on your knees!",
-    ),
-    alternatives: [
-      d(
-        "Sit down~ Good job!",
-        "Have a seat, everyone. Sit nicely!",
-        "Excellent! Take your seats. Sit nicely and show me listening bodies!",
-      ),
-      d(
-        "Sit please! Well done!",
-        "Ok! Sit down everyone. Nice sitting!",
-        "Wonderful! Please sit down. Criss-cross and eyes on me!",
-      ),
-      d(
-        "Seat time! Sit nicely!",
-        "Please sit~! Everyone sit nicely!",
-        "Time to sit! Sit nicely, hands quiet, and eyes up here!",
-      ),
-    ],
-  },
-};
+/** @deprecated 파트 구조 제거 — 빈 객체만 남겨 옛 패치 merge 호환 */
+export const WARMUP_PART_VARIANTS = {};
 
-export const GEAR_INTRO_VARIANTS = {
-  label: "교구 소개",
-  default: d(
-    "Look! I brought something cool today!",
-    "Alright. Today, I brought this cool looking thing...",
-    "Alright everyone! Today I brought something really cool. Look closely — what do you think it is? Can you guess in English?",
-  ),
-  alternatives: [
-    d(
-      "Wow! What's this?",
-      "Look look! What is this today?",
-      "Check this out! What do you think I brought today? Describe it in one English word!",
-    ),
-    d(
-      "Ta-da! Something new!",
-      "Ta-da~! I have something special today!",
-      "Ta-da! I brought something special. Look carefully — what shape is it? What color?",
-    ),
-    d(
-      "Guess! What did teacher bring?",
-      "Can you guess? What did teacher bring today?",
-      "Before I show you — guess what I brought! Who can ask me a question in English?",
-    ),
-  ],
-};
+/** @deprecated 교구 소개는 교구 수업 대본에 포함 — 빈 객체만 남겨 옛 패치 merge 호환 */
+export const GEAR_INTRO_VARIANTS = {};
 
 export const WARMUP_ACTIVITY_VARIANTS = {
   "shuttle-run": {
@@ -230,62 +111,20 @@ export const GAME_VARIANTS = {
   ...EXPANDED_GAME_VARIANTS,
 };
 
-export const DEFAULT_SAFETY_MEMOS = {
-  beforeWarmup: {
-    label: "준비운동 전 안전 멘트",
-    default: d(
-      "Be careful! No pushing!",
-      "Before we move, remember — no pushing, no running into friends. Be safe!",
-      "Safety first! No pushing, watch your space, and if you need help raise your hand. Ready to move safely?",
-    ),
-    alternatives: [
-      d("Safe safe!", "Be safe! Walk, don't push!", "Safety check: space bubbles on — no pushing, eyes up!"),
-      d("Careful!", "Careful bodies! No bumping!", "Before we start: look around, keep arm's length, move safely!"),
-      d("Slowly please!", "Move slowly and safely!", "Safety rules: walk when needed, hands to yourself, tell teacher if hurt!"),
-    ],
-  },
-  beforeGear: {
-    label: "교구 수업 전 안전 멘트",
-    default: d(
-      "Be careful with the gear!",
-      "Before we use the gear — wait for teacher, listen, and use it safely.",
-      "Gear safety! Wait for my signal, use two hands, and tell me immediately if something feels unsafe.",
-    ),
-    alternatives: [
-      d("Wait please!", "Wait for teacher before touching!", "Gear rule: teacher demo first, then your turn — one at a time if needed!"),
-      d("Safe with gear!", "Use the gear safely!", "Before we start: how do we use this safely? Who can tell me one rule?"),
-      d("Listen first!", "Listen, then use the gear!", "Safety moment — eyes on me, hands waiting, then we use the gear together!"),
-    ],
-  },
-  beforeGame: {
-    label: "게임 활동 전 안전 멘트",
-    default: d(
-      "Play safe! Have fun!",
-      "Game time — play safely, cheer for friends, and follow the rules!",
-      "Before the game: play fair, keep hands safe, and congratulate others. Any questions about the rules?",
-    ),
-    alternatives: [
-      d("Fun and safe!", "Have fun but play safe!", "Game safety: fair play, no rough contact, stop when teacher says stop!"),
-      d("Rules first!", "Remember the game rules!", "Quick rule review — who can repeat the safety rule in English?"),
-      d("Safe play!", "Safe play everyone!", "Game time safety: watch your space, encourage teammates, play fair!"),
-    ],
-  },
-};
+export const DEFAULT_SAFETY_MEMOS = {};
 
-export const WARMUP_SETS = [
-  {
-    id: "default-greeting-warmup",
-    label: "기본 인사 & 워밍업 세트",
-    desc: "입장 → 인사/소개 → 몸풀기 → 착석",
-    partIds: ["entrance", "greeting", "warmup", "seating"],
-  },
-];
+export const WARMUP_SETS = EXPANDED_WARMUP_SETS;
+
+export const WARMUP_SET_VARIANTS = {
+  ...EXPANDED_WARMUP_SET_VARIANTS,
+};
 
 export const WARMUP_ACTIVITIES = EXPANDED_PREPARATION_ACTIVITIES;
 
-export const GEAR_INTRO_SCRIPT = {
-  id: "default-gear-intro",
-  label: "교구 소개",
-};
-
 export const GAME_ACTIVITIES = EXPANDED_GAME_ACTIVITIES;
+
+export const CLOSING_ACTIVITIES = EXPANDED_CLOSING_ACTIVITIES;
+
+export const CLOSING_VARIANTS = {
+  ...EXPANDED_CLOSING_VARIANTS,
+};

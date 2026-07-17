@@ -20,19 +20,22 @@ import EnglishProgramLayout from "./EnglishProgramLayout.jsx";
 import GearScriptLibraryView from "./GearScriptLibraryView.jsx";
 import { useEnglishProgramNavigate } from "./useEnglishProgramNavigate.js";
 import {
-  GEAR_CATALOG,
+  getGearCatalog,
   LEVEL_IDS,
   matchGearId,
   getCategoryMeta,
   getActivityGearScripts,
   getGearLevelIds,
 } from "./gearScriptMeta.js";
+import { initGearScriptEntries } from "./gearScriptEntriesApi.js";
 
-const SCRIPT_COUNT = airbridgeScripts.length
-  + GEAR_CATALOG.filter(g => g.type === "activities").reduce(
-    (sum, g) => sum + (getActivityGearScripts(g.id)?.activities.length ?? 0),
-    0,
-  );
+function computeScriptCount() {
+  return airbridgeScripts.length
+    + getGearCatalog().filter(g => g.type === "activities").reduce(
+      (sum, g) => sum + (getActivityGearScripts(g.id)?.activities.length ?? 0),
+      0,
+    );
+}
 
 const LESSON_FLOW = [
   { num: 1, label: "교구소개" },
@@ -42,7 +45,7 @@ const LESSON_FLOW = [
 ];
 
 const LANDING_STAT_DEFS = [
-  { label: "교구 대본", icon: BookOpen, getCount: () => SCRIPT_COUNT },
+  { label: "교구 대본", icon: BookOpen, getCount: () => computeScriptCount() },
   { label: "상황별 대응", icon: ShieldCheck, getCount: situations },
   { label: "수업 흐름 팁", icon: Lightbulb, getCount: flowTipsActivities },
   { label: "발음 팁", icon: Mic, getCount: PRONUNCIATION_TIPS },
@@ -887,7 +890,7 @@ function parseEnglishScriptUrl(search) {
   const raw = search ?? (typeof window !== "undefined" ? window.location.search : "");
   const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
   const gear = params.get("gear");
-  const validGear = GEAR_CATALOG.some(g => g.id === gear) ? gear : null;
+  const validGear = getGearCatalog().some(g => g.id === gear) ? gear : null;
   const picker = params.get("picker") === "1";
   let screen = "gear-picker";
   if (validGear) screen = "script";
@@ -916,7 +919,8 @@ function buildEnglishScriptUrl({ screen, gearId, levelId, mode, cardIndex }) {
 }
 
 function ScriptView({ gearId, onBack, onChangeGear, levelId, mode, cardIndex, onStateChange }) {
-  const gear = GEAR_CATALOG.find(g => g.id === gearId) ?? GEAR_CATALOG[0];
+  const catalog = getGearCatalog();
+  const gear = catalog.find(g => g.id === gearId) ?? catalog[0];
   const gearLevelIds = useMemo(() => getGearLevelIds(gearId), [gearId]);
   const visibleLevels = useMemo(
     () => LEVELS.filter(lv => gearLevelIds.includes(lv.id)),
@@ -1156,7 +1160,17 @@ export default function EnglishScriptApp({ onBack, onGoMain, onGoSituations, onG
   const location = useLocation();
   const navigate = useNavigate();
   const handleProgramNavigate = useEnglishProgramNavigate();
-  const urlState = useMemo(() => parseEnglishScriptUrl(location.search), [location.search]);
+  const [catalogReady, setCatalogReady] = useState(false);
+
+  useEffect(() => {
+    initGearScriptEntries()
+      .finally(() => setCatalogReady(true));
+  }, []);
+
+  const urlState = useMemo(
+    () => parseEnglishScriptUrl(location.search),
+    [location.search, catalogReady],
+  );
 
   const pushUrl = useCallback((patch, usePush = false) => {
     const next = { ...urlState, ...patch };
@@ -1165,6 +1179,15 @@ export default function EnglishScriptApp({ onBack, onGoMain, onGoSituations, onG
   }, [urlState, navigate]);
 
   const { screen, gearId, levelId, mode, cardIndex } = urlState;
+
+  if (!catalogReady && new URLSearchParams(location.search).get("gear")) {
+    return (
+      <div className="eng-lib-loading" style={{ minHeight: "40vh" }}>
+        <Loader2 size={28} className="ab-listen-spin" aria-hidden/>
+        <p>대본 불러오는 중...</p>
+      </div>
+    );
+  }
 
   if (screen === "script") {
     return (

@@ -1,12 +1,10 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, Database, Plus, RotateCcw, Sparkles, Upload } from "lucide-react";
 import { PE_ADMIN } from "./peMedia/peMediaUtils.js";
-import { GEAR_CATALOG } from "./gearScriptMeta.js";
+import { getGearCatalog } from "./gearScriptMeta.js";
 import { LESSON_SCRIPT_LEVELS } from "./lessonScriptDataDefaults.js";
 import {
   createSlugId,
-  SAFETY_SLOT_IDS,
-  SAFETY_SLOT_LABELS,
 } from "./lessonScriptDataTypes.js";
 import {
   clearRemoteAdminData,
@@ -15,33 +13,34 @@ import {
   migrateLocalStorageToSupabase,
 } from "./lessonScriptDataMigration.js";
 import {
+  deleteClosingActivity,
+  deleteClosingVariant,
   deleteGameActivity,
   deleteGameVariant,
   deleteGearLessonOverride,
   deleteWarmupActivity,
   deleteWarmupActivityVariant,
-  deleteWarmupPartVariant,
   deleteWarmupSet,
+  deleteWarmupSetVariant,
   getAdminPatchSummary,
+  getClosingActivities,
+  getClosingVariantsMap,
   getGameActivities,
   getGameVariantsMap,
-  getGearIntroVariants,
   getGearLessonOverrideText,
   getGearLessonOverrideMeta,
-  getSafetyMemosMap,
   getWarmupActivities,
   getWarmupActivityVariantsMap,
-  getWarmupPartVariantsMap,
   getWarmupSets,
+  saveClosingActivity,
+  saveClosingVariant,
   saveGameActivity,
   saveGameVariant,
-  saveGearIntroVariants,
   saveGearLessonOverride,
-  saveSafetyMemo,
   saveWarmupActivity,
   saveWarmupActivityVariant,
-  saveWarmupPartVariant,
   saveWarmupSet,
+  saveWarmupSetVariant,
 } from "./lessonScriptDataRepository.js";
 import {
   AdminModal,
@@ -63,12 +62,10 @@ import {
 
 const TABS = [
   { id: "warmup-sets", label: "인사 & 워밍업 세트" },
-  { id: "warmup-parts", label: "워밍업 파트·대체 멘트" },
   { id: "warmup-activities", label: "준비운동 대본" },
-  { id: "gear-intro", label: "교구 소개" },
   { id: "gear-lessons", label: "교구 수업 대본" },
   { id: "games", label: "게임 활동 대본" },
-  { id: "safety", label: "안전 멘트" },
+  { id: "closings", label: "마무리 인사" },
 ];
 
 const SOURCE_LABELS = {
@@ -90,14 +87,12 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
 
   const summary = useMemo(() => getAdminPatchSummary(), [version]);
   const warmupSets = useMemo(() => getWarmupSets(), [version]);
-  const warmupParts = useMemo(() => Object.entries(getWarmupPartVariantsMap()), [version]);
   const warmupActivities = useMemo(() => getWarmupActivities(), [version]);
   const warmupActivityVariants = useMemo(() => getWarmupActivityVariantsMap(), [version]);
   const games = useMemo(() => getGameActivities(), [version]);
   const gameVariants = useMemo(() => getGameVariantsMap(), [version]);
-  const gearIntro = useMemo(() => getGearIntroVariants(), [version]);
-  const safetyMemos = useMemo(() => getSafetyMemosMap(), [version]);
-
+  const closings = useMemo(() => getClosingActivities(), [version]);
+  const closingVariants = useMemo(() => getClosingVariantsMap(), [version]);
   const closeModal = () => setModal(null);
 
   const openAiGenerate = (activityType, gearContext = null) => {
@@ -213,7 +208,18 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
           className="lsda-btn lsda-btn--primary lsda-btn--sm"
           onClick={() => setModal({
             type: "warmup-set",
-            record: { id: "", label: "", desc: "", partIds: ["entrance", "greeting", "warmup", "seating"] },
+            record: {
+              id: "",
+              label: "",
+              desc: "",
+              title: "",
+              title_en: "",
+              stage: "warmup-set",
+              duration_minutes: 5,
+              materials: "",
+              script: "",
+            },
+            block: { label: "", default: { easy: "", medium: "", hard: "" }, alternatives: [] },
           })}
         >
           <Plus size={14}/>
@@ -225,47 +231,25 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
           <ItemListRow
             key={set.id}
             title={set.label}
-            subtitle={`${set.desc} · 파트: ${set.partIds.join(", ")}`}
+            subtitle={[set.desc, set.duration_minutes ? `${set.duration_minutes}분` : null].filter(Boolean).join(" · ")}
             badges={[set.id]}
-            onEdit={() => setModal({ type: "warmup-set", record: { ...set, partIds: [...set.partIds] } })}
+            onEdit={() => setModal({
+              type: "warmup-set",
+              record: { ...set },
+              block: normalizeVariantBlock({
+                label: set.label,
+                default: set.script
+                  ? { easy: set.script, medium: set.script, hard: set.script }
+                  : { easy: "", medium: "", hard: "" },
+                alternatives: [],
+              }),
+            })}
             onDelete={async () => {
               if (!confirm(`「${set.label}」 세트를 삭제할까요?`)) return;
-              await runMutation(uid => deleteWarmupSet(set.id, uid));
-            }}
-          />
-        ))}
-      </ul>
-    </section>
-  );
-
-  const renderWarmupParts = () => (
-    <section className="lsda-panel">
-      <div className="lsda-panel__head">
-        <h2>워밍업 파트 · 대체 멘트</h2>
-        <button
-          type="button"
-          className="lsda-btn lsda-btn--primary lsda-btn--sm"
-          onClick={() => setModal({
-            type: "warmup-part",
-            partId: "",
-            block: { label: "", default: { easy: "", medium: "", hard: "" }, alternatives: [] },
-          })}
-        >
-          <Plus size={14}/>
-          파트 추가
-        </button>
-      </div>
-      <ul className="lsda-list">
-        {warmupParts.map(([partId, block]) => (
-          <ItemListRow
-            key={partId}
-            title={block.label || partId}
-            subtitle={`대체 멘트 ${block.alternatives?.length || 0}개`}
-            badges={[partId]}
-            onEdit={() => setModal({ type: "warmup-part", partId, block: normalizeVariantBlock(block) })}
-            onDelete={async () => {
-              if (!confirm(`「${block.label || partId}」 파트를 삭제할까요?`)) return;
-              await runMutation(uid => deleteWarmupPartVariant(partId, uid));
+              await runMutation(async (uid) => {
+                await deleteWarmupSet(set.id, uid);
+                await deleteWarmupSetVariant(set.id, uid);
+              });
             }}
           />
         ))}
@@ -328,22 +312,6 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
     </section>
   );
 
-  const renderGearIntro = () => (
-    <section className="lsda-panel">
-      <div className="lsda-panel__head">
-        <h2>교구 소개 멘트</h2>
-        <button
-          type="button"
-          className="lsda-btn lsda-btn--ghost lsda-btn--sm"
-          onClick={() => setModal({ type: "gear-intro", block: normalizeVariantBlock(gearIntro) })}
-        >
-          수정
-        </button>
-      </div>
-      <p className="lsda-muted">기본 멘트 1개 + 대체 멘트 {gearIntro.alternatives?.length || 0}개</p>
-    </section>
-  );
-
   const renderGearLessons = () => (
     <section className="lsda-panel">
       <div className="lsda-panel__head">
@@ -361,7 +329,7 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
         <p className="lsda-muted">코드 기본 대본 대신 관리자가 입력한 전체 텍스트를 사용합니다.</p>
       </div>
       <ul className="lsda-list">
-        {GEAR_CATALOG.map(gear => (
+        {getGearCatalog().map(gear => (
           LESSON_SCRIPT_LEVELS.map(level => {
             const override = getGearLessonOverrideText(gear.id, level.id);
             return (
@@ -453,25 +421,46 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
     </section>
   );
 
-  const renderSafety = () => (
+  const renderClosings = () => (
     <section className="lsda-panel">
       <div className="lsda-panel__head">
-        <h2>안전 멘트</h2>
+        <h2>마무리 인사</h2>
+        <div className="lsda-panel__actions">
+          <button
+            type="button"
+            className="lsda-btn lsda-btn--primary lsda-btn--sm"
+            onClick={() => setModal({
+              type: "closing",
+              record: { id: "", label: "", title: "", title_en: "", stage: "closing", duration_minutes: 5, materials: "", script: "", meta: {} },
+              block: { label: "", default: { easy: "", medium: "", hard: "" }, alternatives: [] },
+            })}
+          >
+            <Plus size={14}/>
+            직접 추가
+          </button>
+        </div>
       </div>
       <ul className="lsda-list">
-        {SAFETY_SLOT_IDS.map(slotId => {
-          const block = safetyMemos[slotId];
+        {closings.map(item => {
+          const block = closingVariants[item.id];
           return (
             <ItemListRow
-              key={slotId}
-              title={SAFETY_SLOT_LABELS[slotId]}
-              subtitle={block?.label || ""}
-              badges={[`대체 ${block?.alternatives?.length || 0}개`]}
+              key={item.id}
+              title={item.label}
+              subtitle={activitySubtitle(item) || (block ? `대체 멘트 ${block.alternatives?.length || 0}개` : "대본 미등록")}
+              badges={[item.id].filter(Boolean)}
               onEdit={() => setModal({
-                type: "safety",
-                slotId,
-                block: normalizeVariantBlock(block),
+                type: "closing",
+                record: { ...item, meta: item.meta || {} },
+                block: normalizeVariantBlock(block || { label: item.label, default: { easy: "", medium: "", hard: "" }, alternatives: [] }),
               })}
+              onDelete={async () => {
+                if (!confirm(`「${item.label}」 마무리 인사를 삭제할까요?`)) return;
+                await runMutation(async (uid) => {
+                  await deleteClosingActivity(item.id, uid);
+                  await deleteClosingVariant(item.id, uid);
+                });
+              }}
             />
           );
         })}
@@ -489,20 +478,25 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
     setSaving(true);
     try {
       if (modal.type === "warmup-set") {
-        const record = { ...modal.record };
+        const record = {
+          ...modal.record,
+          title: modal.record.label,
+          stage: "warmup-set",
+        };
         if (!record.label?.trim()) return alert("세트 이름을 입력해 주세요.");
         if (!record.id) record.id = createSlugId(record.label);
-        if (!record.partIds?.length) return alert("포함할 파트를 1개 이상 선택해 주세요.");
+        if (!record.script?.trim()) return alert("대본 텍스트를 입력해 주세요.");
+        const block = normalizeVariantBlock({
+          ...modal.block,
+          label: record.label,
+          default: {
+            easy: record.script.trim(),
+            medium: record.script.trim(),
+            hard: record.script.trim(),
+          },
+        });
         await saveWarmupSet(record, userId);
-      }
-
-      if (modal.type === "warmup-part") {
-        const partId = modal.partId?.trim() || createSlugId(modal.block.label);
-        const block = normalizeVariantBlock(modal.block);
-        const err = validateVariantBlock(block);
-        if (err) return alert(err);
-        if (!block.label?.trim()) block.label = partId;
-        await saveWarmupPartVariant(partId, block, userId);
+        await saveWarmupSetVariant(record.id, block, userId);
       }
 
       if (modal.type === "warmup-activity") {
@@ -525,13 +519,6 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
         if (err) return alert(err);
         await saveWarmupActivity(record, userId);
         await saveWarmupActivityVariant(record.id, block, userId);
-      }
-
-      if (modal.type === "gear-intro") {
-        const block = normalizeVariantBlock(modal.block);
-        const err = validateVariantBlock(block);
-        if (err) return alert(err);
-        await saveGearIntroVariants(block, userId);
       }
 
       if (modal.type === "gear-lesson") {
@@ -560,12 +547,26 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
         await saveGameVariant(record.id, block, userId);
       }
 
-      if (modal.type === "safety") {
-        const block = normalizeVariantBlock(modal.block);
+      if (modal.type === "closing") {
+        const record = {
+          ...modal.record,
+          title: modal.record.label,
+          stage: "closing",
+          meta: modal.record.meta || {},
+        };
+        if (!record.label?.trim()) return alert("마무리 인사 이름을 입력해 주세요.");
+        if (!record.id) record.id = createSlugId(record.label);
+        const block = normalizeVariantBlock({
+          ...modal.block,
+          label: record.label,
+          default: record.script?.trim()
+            ? { easy: record.script.trim(), medium: record.script.trim(), hard: record.script.trim() }
+            : modal.block.default,
+        });
         const err = validateVariantBlock(block);
         if (err) return alert(err);
-        if (!block.label) block.label = SAFETY_SLOT_LABELS[modal.slotId];
-        await saveSafetyMemo(modal.slotId, block, userId);
+        await saveClosingActivity(record, userId);
+        await saveClosingVariant(record.id, block, userId);
       }
 
       closeModal();
@@ -581,9 +582,8 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
     if (!modal) return null;
 
     if (modal.type === "warmup-set") {
-      const partOptions = warmupParts.map(([id, block]) => ({ id, label: block.label || id }));
       return (
-        <AdminModal title={modal.record.id ? "워밍업 세트 수정" : "워밍업 세트 추가"} onClose={closeModal} onSave={saveModal}>
+        <AdminModal title={modal.record.id ? "워밍업 세트 수정" : "워밍업 세트 추가"} onClose={closeModal} onSave={saveModal} saving={saving} wide>
           <label className="lsda-field">
             <span>세트 ID</span>
             <input className="lsda-input" value={modal.record.id} disabled={!!modal.record.id} onChange={e => setModal({ ...modal, record: { ...modal.record, id: e.target.value } })}/>
@@ -594,54 +594,26 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
           </label>
           <label className="lsda-field">
             <span>설명</span>
-            <input className="lsda-input" value={modal.record.desc} onChange={e => setModal({ ...modal, record: { ...modal.record, desc: e.target.value } })}/>
+            <input className="lsda-input" value={modal.record.desc || ""} onChange={e => setModal({ ...modal, record: { ...modal.record, desc: e.target.value } })}/>
           </label>
-          <fieldset className="lsda-fieldset">
-            <legend>포함 파트</legend>
-            <div className="lsda-check-grid">
-              {partOptions.map(opt => (
-                <label key={opt.id} className="lsda-check">
-                  <input
-                    type="checkbox"
-                    checked={modal.record.partIds.includes(opt.id)}
-                    onChange={e => {
-                      const partIds = e.target.checked
-                        ? [...modal.record.partIds, opt.id]
-                        : modal.record.partIds.filter(id => id !== opt.id);
-                      setModal({ ...modal, record: { ...modal.record, partIds } });
-                    }}
-                  />
-                  {opt.label} ({opt.id})
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          <ActivityContentEditor
+            value={modal.record}
+            isClosing
+            stageLabel="warmup-set"
+            onChange={record => setModal({ ...modal, record: { ...record, stage: "warmup-set" } })}
+          />
         </AdminModal>
       );
     }
 
-    if (modal.type === "warmup-part") {
-      return (
-        <AdminModal title="워밍업 파트 · 대체 멘트" onClose={closeModal} onSave={saveModal} wide>
-          {!modal.partId ? (
-            <label className="lsda-field">
-              <span>파트 ID</span>
-              <input className="lsda-input" value={modal.partId || ""} onChange={e => setModal({ ...modal, partId: e.target.value })}/>
-            </label>
-          ) : (
-            <p className="lsda-muted">파트 ID: {modal.partId}</p>
-          )}
-          <VariantBlockEditor value={modal.block} onChange={block => setModal({ ...modal, block })}/>
-        </AdminModal>
-      );
-    }
-
-    if (modal.type === "warmup-activity" || modal.type === "game") {
+    if (modal.type === "warmup-activity" || modal.type === "game" || modal.type === "closing") {
       const isGame = modal.type === "game";
+      const isClosing = modal.type === "closing";
+      const title = isClosing ? "마무리 인사 대본" : isGame ? "게임 활동 대본" : "준비운동 대본";
       return (
-        <AdminModal title={isGame ? "게임 활동 대본" : "준비운동 대본"} onClose={closeModal} onSave={saveModal} saving={saving} wide>
+        <AdminModal title={title} onClose={closeModal} onSave={saveModal} saving={saving} wide>
           <label className="lsda-field">
-            <span>{isGame ? "게임" : "준비운동"} ID</span>
+            <span>{isClosing ? "마무리 인사" : isGame ? "게임" : "준비운동"} ID</span>
             <input className="lsda-input" value={modal.record.id} disabled={!!modal.record.id} onChange={e => setModal({ ...modal, record: { ...modal.record, id: e.target.value } })}/>
           </label>
           <label className="lsda-field">
@@ -651,14 +623,17 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
           <ActivityContentEditor
             value={modal.record}
             isGame={isGame}
+            isClosing={isClosing}
             onChange={record => setModal({ ...modal, record })}
           />
-          <ActivityMetaEditor
-            value={modal.record.meta}
-            onChange={meta => setModal({ ...modal, record: { ...modal.record, meta } })}
-          />
+          {!isClosing ? (
+            <ActivityMetaEditor
+              value={modal.record.meta}
+              onChange={meta => setModal({ ...modal, record: { ...modal.record, meta } })}
+            />
+          ) : null}
           <VariantBlockEditor value={modal.block} onChange={block => setModal({ ...modal, block })}/>
-          {modal.record.meta?.safetyMemo ? (
+          {!isClosing && modal.record.meta?.safetyMemo ? (
             <section className="lsda-ai-section">
               <h4>안전 멘트 (메타 저장)</h4>
               <VariantBlockEditor
@@ -670,14 +645,6 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
               />
             </section>
           ) : null}
-        </AdminModal>
-      );
-    }
-
-    if (modal.type === "gear-intro" || modal.type === "safety") {
-      return (
-        <AdminModal title={modal.type === "gear-intro" ? "교구 소개 멘트" : `안전 멘트 · ${SAFETY_SLOT_LABELS[modal.slotId]}`} onClose={closeModal} onSave={saveModal} wide>
-          <VariantBlockEditor value={modal.block} onChange={block => setModal({ ...modal, block })}/>
         </AdminModal>
       );
     }
@@ -708,12 +675,10 @@ export default function LessonScriptDataAdminPage({ me, onBack }) {
 
   const tabContent = {
     "warmup-sets": renderWarmupSets,
-    "warmup-parts": renderWarmupParts,
     "warmup-activities": renderWarmupActivities,
-    "gear-intro": renderGearIntro,
     "gear-lessons": renderGearLessons,
     games: renderGames,
-    safety: renderSafety,
+    closings: renderClosings,
   }[activeTab]?.();
 
   if (!allowed) {

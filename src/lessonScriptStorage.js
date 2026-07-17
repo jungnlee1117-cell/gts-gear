@@ -39,6 +39,7 @@ function saveLessonScriptLocal(payload) {
     warmupActivityId: payload.warmupActivityId || null,
     gearId: payload.gearId || null,
     gameId: payload.gameId || null,
+    closingId: payload.closingId || null,
     levelId: payload.levelId || "foundation",
     difficultyId: payload.difficultyId || "medium",
     customTexts: payload.customTexts || {},

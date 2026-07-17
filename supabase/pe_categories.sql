@@ -1,5 +1,6 @@
 -- 체육자료실 카테고리 테이블
 -- Supabase SQL Editor에서 resources.sql 실행 후 실행
+-- 쓰기: admin + superadmin
 
 CREATE TABLE IF NOT EXISTS public.pe_categories (
   id text PRIMARY KEY,
@@ -17,37 +18,43 @@ CREATE TABLE IF NOT EXISTS public.pe_categories (
 
 ALTER TABLE public.pe_categories ENABLE ROW LEVEL SECURITY;
 
+-- 읽기: authenticated 전원
 DROP POLICY IF EXISTS "pe_categories_select" ON public.pe_categories;
 CREATE POLICY "pe_categories_select" ON public.pe_categories
   FOR SELECT TO authenticated USING (true);
 
+-- 쓰기: admin + superadmin (구 superadmin-only 정책 교체)
 DROP POLICY IF EXISTS "pe_categories_insert_superadmin" ON public.pe_categories;
-CREATE POLICY "pe_categories_insert_superadmin" ON public.pe_categories
+DROP POLICY IF EXISTS "pe_categories_update_superadmin" ON public.pe_categories;
+DROP POLICY IF EXISTS "pe_categories_delete_superadmin" ON public.pe_categories;
+DROP POLICY IF EXISTS "pe_categories_insert_admin" ON public.pe_categories;
+DROP POLICY IF EXISTS "pe_categories_update_admin" ON public.pe_categories;
+DROP POLICY IF EXISTS "pe_categories_delete_admin" ON public.pe_categories;
+
+CREATE POLICY "pe_categories_insert_admin" ON public.pe_categories
   FOR INSERT TO authenticated
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM public.teachers t
-      WHERE t.id = auth.uid() AND t.role = 'superadmin'
+      WHERE t.id = auth.uid() AND t.role IN ('admin', 'superadmin')
     )
   );
 
-DROP POLICY IF EXISTS "pe_categories_update_superadmin" ON public.pe_categories;
-CREATE POLICY "pe_categories_update_superadmin" ON public.pe_categories
+CREATE POLICY "pe_categories_update_admin" ON public.pe_categories
   FOR UPDATE TO authenticated
   USING (
     EXISTS (
       SELECT 1 FROM public.teachers t
-      WHERE t.id = auth.uid() AND t.role = 'superadmin'
+      WHERE t.id = auth.uid() AND t.role IN ('admin', 'superadmin')
     )
   );
 
-DROP POLICY IF EXISTS "pe_categories_delete_superadmin" ON public.pe_categories;
-CREATE POLICY "pe_categories_delete_superadmin" ON public.pe_categories
+CREATE POLICY "pe_categories_delete_admin" ON public.pe_categories
   FOR DELETE TO authenticated
   USING (
     EXISTS (
       SELECT 1 FROM public.teachers t
-      WHERE t.id = auth.uid() AND t.role = 'superadmin'
+      WHERE t.id = auth.uid() AND t.role IN ('admin', 'superadmin')
     )
   );
 

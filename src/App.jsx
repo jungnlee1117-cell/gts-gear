@@ -19,6 +19,7 @@ import ScheduleApp from "./ScheduleApp.jsx";
 import PlatformMainButton from "./PlatformMainButton.jsx";
 import PeResourcesApp from "./PeResourcesApp.jsx";
 import EnglishScriptApp from "./EnglishScriptApp.jsx";
+import GearScriptRegisterApp from "./GearScriptRegisterApp.jsx";
 import SituationManualApp from "./SituationManualApp.jsx";
 import ChildTypeApp from "./ChildTypeApp.jsx";
 import ClassFlowTipsApp from "./ClassFlowTipsApp.jsx";
@@ -1390,7 +1391,6 @@ function buildSidebarNav(me) {
       { type: "item", id: "accounts", label: "선생님관리", glyph: "accounts" },
       { type: "item", id: "stats", label: "통계", glyph: "stats" },
       { type: "item", id: "report", label: "리포트", glyph: "report" },
-      { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
       { type: "item", id: "data-export", label: "데이터 내보내기", glyph: "data-export" },
       { type: "item", id: "settings", label: "설정", glyph: "settings" },
     ];
@@ -1419,7 +1419,6 @@ function buildSidebarNav(me) {
       { type: "item", id: "stats", label: "통계", glyph: "stats" },
       { type: "item", id: "report", label: "리포트", glyph: "report" },
       { type: "item", id: "items-qr", label: "QR관리", glyph: "items-qr" },
-      { type: "item", id: "english-script", label: "영어 대본 프로그램", glyph: "english-script" },
     ];
   }
 
@@ -9428,6 +9427,16 @@ function AuthenticatedRoutes({ me, session, logout }) {
             onGoChildTypes={() => navigate("/child-types")}
             onGoFlowTips={() => navigate("/class-flow-tips")}
             onGoPronunciationTips={() => navigate("/pronunciation-tips")}
+          />
+        )}
+      />
+      <Route
+        path="/english-script/register"
+        element={(
+          <GearScriptRegisterApp
+            me={me}
+            onBack={() => goBackOr(navigate, "/english-script")}
+            onGoMain={() => navigate("/")}
           />
         )}
       />

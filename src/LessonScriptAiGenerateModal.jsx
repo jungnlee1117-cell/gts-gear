@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Loader2, Sparkles, Wand2 } from "lucide-react";
-import { GEAR_CATALOG } from "./gearScriptMeta.js";
+import { getGearCatalog } from "./gearScriptMeta.js";
 import { generateLessonScriptWithAi } from "./lessonScriptAiGenerate.js";
 import { lessonScriptSupabase } from "./lessonScriptSupabase.js";
 import {
@@ -146,7 +146,7 @@ export default function LessonScriptAiGenerateModal({
             />
           )}
           <datalist id="lsda-gear-suggestions">
-            {GEAR_CATALOG.map(g => <option key={g.id} value={g.label}/>)}
+            {getGearCatalog().map(g => <option key={g.id} value={g.label}/>)}
           </datalist>
         </label>
 

@@ -1,4 +1,4 @@
-import { ChevronLeft, BookOpen, ShieldCheck, Lightbulb, User, Mic, Star, Layers } from "lucide-react";
+import { ChevronLeft, BookOpen, ShieldCheck, Lightbulb, User, Mic, Star, Layers, FolderOpen } from "lucide-react";
 import { useMemo } from "react";
 import PlatformMainButton from "./PlatformMainButton.jsx";
 import { situations } from "./situationData.js";
@@ -18,6 +18,7 @@ export const PROGRAM_SIDEBAR_MENU = [
   { id: "pronunciation", icon: Mic, label: "발음 팁", count: PRONUNCIATION_TIPS.length, nav: "pronunciation" },
   { id: "child-types", icon: User, label: "아이 유형 가이드", count: childTypes.length, nav: "child-types" },
   { id: "veteran", icon: Star, label: "베테랑 노하우", count: VETERAN_TIPS_COUNT, nav: "veteran" },
+  { id: "pe-files", icon: FolderOpen, label: "자료 파일", nav: "pe-files" },
 ];
 
 const NAV_PATHS = {
@@ -28,6 +29,8 @@ const NAV_PATHS = {
   pronunciation: "/pronunciation-tips",
   "child-types": "/child-types",
   veteran: "/class-flow-tips?cat=veteran",
+  // mode=files: 단독 category=english-pe 리다이렉트를 피하고 업로드 목록을 연다
+  "pe-files": "/pe-resources?category=english-pe&mode=files",
 };
 
 export { NAV_PATHS };

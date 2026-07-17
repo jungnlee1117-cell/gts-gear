@@ -18,6 +18,8 @@ import {
   getGearScriptLastUsed,
   recordGearScriptUsage,
 } from "./gearScriptUsage.js";
+import { initGearScriptEntries } from "./gearScriptEntriesApi.js";
+import { PE_ADMIN } from "./peMedia/peMediaUtils.js";
 
 const PAGE_SIZE = 10;
 const CATEGORY_FILTER_KEYS = ["ALL", ...Object.keys(ITEM_CATEGORIES)];
@@ -64,11 +66,12 @@ function LevelBadgeRow({ gearId }) {
   );
 }
 
-function GearLibraryCard({ item, onSelect }) {
+function GearLibraryCard({ item, onSelect, onRegister, canRegister }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const gearId = matchGearId(item);
   const hasScript = Boolean(gearId);
   const lastUsed = formatLastUsedLabel(getGearScriptLastUsed(item.id));
+  const unregisteredClickable = !hasScript && canRegister;
 
   const openScript = () => {
     if (!hasScript) return;
@@ -76,13 +79,23 @@ function GearLibraryCard({ item, onSelect }) {
     onSelect(gearId);
   };
 
+  const openRegister = () => {
+    if (!unregisteredClickable) return;
+    onRegister?.(item);
+  };
+
+  const handleActivate = () => {
+    if (hasScript) openScript();
+    else openRegister();
+  };
+
   return (
     <article
-      className={`eng-lib-card${hasScript ? "" : " eng-lib-card--unregistered"}`}
-      onClick={hasScript ? openScript : undefined}
-      onKeyDown={hasScript ? (e) => { if (e.key === "Enter") openScript(); } : undefined}
-      role={hasScript ? "button" : undefined}
-      tabIndex={hasScript ? 0 : undefined}
+      className={`eng-lib-card${hasScript ? "" : " eng-lib-card--unregistered"}${unregisteredClickable ? " eng-lib-card--registerable" : ""}`}
+      onClick={hasScript || unregisteredClickable ? handleActivate : undefined}
+      onKeyDown={(hasScript || unregisteredClickable) ? (e) => { if (e.key === "Enter") handleActivate(); } : undefined}
+      role={hasScript || unregisteredClickable ? "button" : undefined}
+      tabIndex={hasScript || unregisteredClickable ? 0 : undefined}
     >
       <div className="eng-lib-card__menu-wrap">
         <button
@@ -105,6 +118,10 @@ function GearLibraryCard({ item, onSelect }) {
               {hasScript ? (
                 <button type="button" onClick={() => { setMenuOpen(false); openScript(); }}>
                   대본 보기
+                </button>
+              ) : unregisteredClickable ? (
+                <button type="button" onClick={() => { setMenuOpen(false); openRegister(); }}>
+                  대본 작성하기
                 </button>
               ) : (
                 <button type="button" disabled>대본 준비중</button>
@@ -129,6 +146,9 @@ function GearLibraryCard({ item, onSelect }) {
         ) : (
           <p className="eng-lib-card__used eng-lib-card__used--muted">사용 기록 없음</p>
         )}
+        {unregisteredClickable ? (
+          <p className="eng-lib-card__cta">대본 작성하기</p>
+        ) : null}
       </div>
     </article>
   );
@@ -194,6 +214,14 @@ export default function GearScriptLibraryView({ onBack, onGoMain, onSelect, onNa
   const [levelFilter, setLevelFilter] = useState("all");
   const [sortBy, setSortBy] = useState("recent");
   const [page, setPage] = useState(1);
+  const [catalogVersion, setCatalogVersion] = useState(0);
+  const canRegister = PE_ADMIN(me);
+
+  useEffect(() => {
+    initGearScriptEntries()
+      .then(() => setCatalogVersion(v => v + 1))
+      .catch(() => setCatalogVersion(v => v + 1));
+  }, []);
 
   const { registered, unregistered } = useMemo(() => {
     const reg = [];
@@ -203,7 +231,7 @@ export default function GearScriptLibraryView({ onBack, onGoMain, onSelect, onNa
       else unreg.push(item);
     }
     return { registered: reg, unregistered: unreg };
-  }, [items]);
+  }, [items, catalogVersion]);
 
   const categoryCounts = useMemo(() => {
     const counts = { ALL: items.length };
@@ -265,6 +293,11 @@ export default function GearScriptLibraryView({ onBack, onGoMain, onSelect, onNa
     const item = items.find(i => matchGearId(i) === gearId);
     if (item) recordGearScriptUsage(item.id);
     onSelect(gearId);
+  };
+
+  const handleRegister = (item) => {
+    if (!item?.id || !canRegister) return;
+    navigate(`/english-script/register?itemId=${encodeURIComponent(item.id)}`);
   };
 
   return (
@@ -392,7 +425,13 @@ export default function GearScriptLibraryView({ onBack, onGoMain, onSelect, onNa
           <>
             <div className="eng-lib-grid">
               {pageItems.map(item => (
-                <GearLibraryCard key={item.id} item={item} onSelect={handleSelect} />
+                <GearLibraryCard
+                  key={item.id}
+                  item={item}
+                  onSelect={handleSelect}
+                  onRegister={handleRegister}
+                  canRegister={canRegister}
+                />
               ))}
             </div>
             <GearLibraryPagination page={page} totalPages={totalPages} onChange={setPage} />

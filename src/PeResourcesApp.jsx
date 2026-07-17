@@ -6,7 +6,7 @@ import PeMediaLibrary from "./peMedia/PeMediaLibrary.jsx";
 import {
   Users, Trophy, Languages, ClipboardList, PartyPopper,
   Baby, GraduationCap, Video, Music, ChevronLeft, Search, X, Upload, Download,
-  Pencil, Trash2, Eye, Settings, Plus, ExternalLink,
+  Pencil, Trash2, Eye, Settings, Plus, ExternalLink, ChevronUp, ChevronDown,
 } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://YOUR.supabase.co";
@@ -14,25 +14,25 @@ const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "YOUR_ANON_KEY";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
 const PE_ADMIN = (u) => u?.role === "superadmin" || u?.role === "admin";
-const PE_SUPER = (u) => u?.role === "superadmin";
 
-/** 선생님 허브에 노출되는 카테고리 (영상·음원·영어체육 자료·영어 대본 프로그램) */
+/** 선생님 허브에 노출되는 카테고리 (영상·음원·영어체육·행사) */
 const TEACHER_HUB_CATEGORIES = [
   { id: "video-media", num: 1, title: "영상 자료", color: "#0ea5e9", bg: "#f0f9ff",
     items: ["수업 영상", "유튜브 링크"], subs: [], icon: "video", mediaTab: "video", status: "active" },
   { id: "audio-media", num: 2, title: "음원 자료", color: "#22c55e", bg: "#ecfdf5",
     items: ["MP3/WAV 음원", "영어체육 BGM"], subs: [], icon: "audio", mediaTab: "audio", status: "active" },
   { id: "english-pe", num: 3, title: "영어체육 자료", color: "#8b5cf6", bg: "#f5f3ff",
-    items: ["TPR 표현", "주제별 표현", "영어 게임", "영어 노래", "영어 대본", "영어 체육 활동"],
-    subs: ["TPR", "주제별", "게임", "노래", "대본", "활동"], icon: "abc", status: "active" },
-  { id: "english-script", num: 4, title: "영어 대본 프로그램", color: "#7c3aed", bg: "#f5f3ff",
-    items: ["교구별 3단계 대본", "상황별 대처", "수업 흐름 팁"], subs: [], icon: "abc",
+    items: ["교구별 3단계 대본", "수업 대본 만들기", "상황별 대처", "수업 흐름 팁"],
+    subs: ["TPR", "주제별", "게임", "노래", "대본", "활동"], icon: "abc",
     externalPath: "/english-script", status: "active" },
+  { id: "events", num: 4, title: "행사 자료", color: "#ec4899", bg: "#fdf2f8",
+    items: ["운동회", "물놀이", "할로윈", "크리스마스", "가족참여수업", "아빠참여수업"],
+    subs: ["운동회", "물놀이", "할로윈", "크리스마스", "가족참여", "아빠참여"], icon: "party", status: "active" },
 ];
 
 /** 관리자 허브에서 당분간 비활성(준비 중) 처리할 카테고리 */
 const PE_COMING_SOON_IDS = new Set([
-  "age-program", "sports", "lesson-plan", "events", "child-dev", "teacher-ed",
+  "age-program", "sports", "lesson-plan", "child-dev", "teacher-ed",
 ]);
 
 const QUICK_TAGS = ["4세 균형", "축구", "영어체육", "점프활동", "공놀이", "밸런스"];
@@ -74,7 +74,20 @@ function withCategoryStatus(cat) {
 
 function hubCategoriesForUser(allCategories, me) {
   if (PE_ADMIN(me)) return allCategories.map(withCategoryStatus);
-  return TEACHER_HUB_CATEGORIES;
+  const byId = new Map((allCategories || []).map(c => [c.id, c]));
+  return TEACHER_HUB_CATEGORIES.map(hub => {
+    const db = byId.get(hub.id);
+    if (!db) return hub;
+    return {
+      ...hub,
+      title: db.title || hub.title,
+      color: db.color || hub.color,
+      bg: db.bg || hub.bg,
+      icon: db.icon || hub.icon,
+      items: Array.isArray(db.items) && db.items.length ? db.items : hub.items,
+      subs: Array.isArray(db.subs) ? db.subs : hub.subs,
+    };
+  });
 }
 
 const ICON_OPTIONS = [
@@ -243,6 +256,117 @@ function isOfficeNoPreview(fileType) {
   return ["word", "excel", "hwp"].includes(fileType);
 }
 
+function isEventsCategory(catOrId) {
+  const id = typeof catOrId === "string" ? catOrId : catOrId?.id;
+  return id === "events";
+}
+
+function normalizeStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(v => String(v ?? "").trim()).filter(Boolean);
+}
+
+function getResourceExtra(resource) {
+  const raw = resource?.extra;
+  const extra = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  return {
+    materials: normalizeStringList(extra.materials),
+    steps: normalizeStringList(extra.steps),
+  };
+}
+
+function buildEventsExtra(materials, steps) {
+  return {
+    materials: normalizeStringList(materials),
+    steps: normalizeStringList(steps),
+  };
+}
+
+function formatEventsExtraSummary(resource) {
+  const { materials, steps } = getResourceExtra(resource);
+  const parts = [];
+  if (materials.length) parts.push(`준비물 ${materials.length}`);
+  if (steps.length) parts.push(`순서 ${steps.length}단계`);
+  return parts.length ? parts.join(" · ") : "";
+}
+
+function moveListItem(list, index, direction) {
+  const next = [...list];
+  const target = index + direction;
+  if (target < 0 || target >= next.length) return next;
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
+}
+
+function EventsStringListEditor({ label, items, onChange, placeholder, numbered }) {
+  const updateAt = (index, value) => {
+    const next = items.map((item, i) => (i === index ? value : item));
+    onChange(next);
+  };
+  const removeAt = (index) => onChange(items.filter((_, i) => i !== index));
+  const addItem = () => onChange([...items, ""]);
+
+  return (
+    <div className="pe-res-events-list-editor">
+      <div className="pe-res-events-list-head">
+        <label style={{ ...peLbl, marginBottom: 0 }}>{label}</label>
+        <button type="button" className="pe-res-events-add-btn" onClick={addItem}>
+          <Plus size={14}/> 추가
+        </button>
+      </div>
+      {items.length === 0 ? (
+        <p className="pe-res-events-list-empty">항목이 없습니다. 추가 버튼으로 입력하세요. (선택)</p>
+      ) : (
+        <div className="pe-res-events-list-rows">
+          {items.map((item, index) => (
+            <div key={index} className="pe-res-events-list-row">
+              {numbered ? (
+                <span className="pe-res-events-step-num" aria-hidden>{index + 1}</span>
+              ) : null}
+              <input
+                value={item}
+                onChange={e => updateAt(index, e.target.value)}
+                style={{ ...peInp, marginBottom: 0, flex: 1 }}
+                placeholder={placeholder || (numbered ? `${index + 1}단계` : "항목")}
+              />
+              {numbered ? (
+                <div className="pe-res-events-move-btns">
+                  <button
+                    type="button"
+                    className="pe-res-events-icon-btn"
+                    onClick={() => onChange(moveListItem(items, index, -1))}
+                    disabled={index === 0}
+                    aria-label="위로"
+                  >
+                    <ChevronUp size={14}/>
+                  </button>
+                  <button
+                    type="button"
+                    className="pe-res-events-icon-btn"
+                    onClick={() => onChange(moveListItem(items, index, 1))}
+                    disabled={index === items.length - 1}
+                    aria-label="아래로"
+                  >
+                    <ChevronDown size={14}/>
+                  </button>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                className="pe-res-events-icon-btn pe-res-events-icon-btn--danger"
+                onClick={() => removeAt(index)}
+                aria-label="삭제"
+              >
+                <Trash2 size={14}/>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 async function fetchResources() {
   const { data, error } = await supabase.from("resources").select("*").order("created_at", { ascending: false });
   if (error) { console.warn("resources fetch:", error.message); return []; }
@@ -314,11 +438,14 @@ function ModalShell({ title, onClose, children, wide }) {
 }
 
 function ResourceUploadModal({ category, me, onClose, onSaved }) {
+  const isEvents = isEventsCategory(category);
   const [uploadMode, setUploadMode] = useState("file");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
   const [subcategory, setSubcategory] = useState(category?.subs?.[0] || "");
+  const [materials, setMaterials] = useState([""]);
+  const [steps, setSteps] = useState([""]);
   const [file, setFile] = useState(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [saving, setSaving] = useState(false);
@@ -338,6 +465,7 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
     setSaving(true);
     try {
       const tagList = tags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean);
+      const eventsExtra = isEvents ? buildEventsExtra(materials, steps) : null;
       let payload;
 
       if (uploadMode === "file") {
@@ -363,6 +491,7 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
           author_id: me.id, author_name: me.name,
         };
       }
+      if (eventsExtra) payload.extra = eventsExtra;
 
       const { error: insErr } = await supabase.from("resources").insert(payload);
       if (insErr) throw new Error(insErr.message);
@@ -408,6 +537,24 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
       <label style={peLbl}>태그 (쉼표로 구분)</label>
       <input value={tags} onChange={e => setTags(e.target.value)} style={peInp} placeholder="예: 4세 균형, 축구"/>
 
+      {isEvents && (
+        <>
+          <EventsStringListEditor
+            label="준비물"
+            items={materials}
+            onChange={setMaterials}
+            placeholder="예: 콘 10개"
+          />
+          <EventsStringListEditor
+            label="순서"
+            items={steps}
+            onChange={setSteps}
+            placeholder="예: 줄 서기"
+            numbered
+          />
+        </>
+      )}
+
       {uploadMode === "file" ? (
         <>
           <label style={peLbl}>파일 *</label>
@@ -447,9 +594,17 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
 }
 
 function ResourceEditModal({ resource, onClose, onSaved }) {
+  const isEvents = isEventsCategory(resource.category_id);
+  const initialExtra = getResourceExtra(resource);
   const [title, setTitle] = useState(resource.title || "");
   const [description, setDescription] = useState(resource.description || "");
   const [tags, setTags] = useState((resource.tags || []).join(", "));
+  const [materials, setMaterials] = useState(
+    initialExtra.materials.length ? initialExtra.materials : [""],
+  );
+  const [steps, setSteps] = useState(
+    initialExtra.steps.length ? initialExtra.steps : [""],
+  );
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
@@ -457,12 +612,16 @@ function ResourceEditModal({ resource, onClose, onSaved }) {
     setSaving(true);
     try {
       const tagList = tags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean);
-      const { error } = await supabase.from("resources").update({
+      const payload = {
         title: title.trim(),
         description: description.trim(),
         tags: tagList,
         updated_at: new Date().toISOString(),
-      }).eq("id", resource.id);
+      };
+      if (isEvents) {
+        payload.extra = buildEventsExtra(materials, steps);
+      }
+      const { error } = await supabase.from("resources").update(payload).eq("id", resource.id);
       if (error) throw new Error(error.message);
       alert("수정되었습니다.");
       onSaved(); onClose();
@@ -480,9 +639,61 @@ function ResourceEditModal({ resource, onClose, onSaved }) {
       <textarea value={description} onChange={e => setDescription(e.target.value)} style={{ ...peInp, minHeight: 80, resize: "vertical" }}/>
       <label style={peLbl}>태그 (쉼표로 구분)</label>
       <input value={tags} onChange={e => setTags(e.target.value)} style={peInp}/>
+      {isEvents && (
+        <>
+          <EventsStringListEditor
+            label="준비물"
+            items={materials}
+            onChange={setMaterials}
+            placeholder="예: 콘 10개"
+          />
+          <EventsStringListEditor
+            label="순서"
+            items={steps}
+            onChange={setSteps}
+            placeholder="예: 줄 서기"
+            numbered
+          />
+        </>
+      )}
       <button type="button" onClick={submit} disabled={saving} style={{ ...pePrimaryBtn, width: "100%" }}>
         {saving ? "저장 중..." : "저장"}
       </button>
+    </ModalShell>
+  );
+}
+
+function ResourceEventsDetailModal({ resource, accent, onClose }) {
+  const { materials, steps } = getResourceExtra(resource);
+  return (
+    <ModalShell title={resource.title || "행사 자료 상세"} onClose={onClose}>
+      {resource.description ? (
+        <p className="pe-res-events-detail-desc">{resource.description}</p>
+      ) : null}
+      {materials.length > 0 && (
+        <section className="pe-res-events-detail-section">
+          <h3 className="pe-res-events-detail-heading" style={{ color: accent }}>준비물</h3>
+          <ul className="pe-res-events-detail-bullets">
+            {materials.map((item, i) => <li key={`${item}-${i}`}>{item}</li>)}
+          </ul>
+        </section>
+      )}
+      {steps.length > 0 && (
+        <section className="pe-res-events-detail-section">
+          <h3 className="pe-res-events-detail-heading" style={{ color: accent }}>순서</h3>
+          <ol className="pe-res-events-detail-steps">
+            {steps.map((item, i) => (
+              <li key={`${item}-${i}`}>
+                <span className="pe-res-events-detail-step-num">{i + 1}</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+      {!materials.length && !steps.length && (
+        <p className="pe-res-events-list-empty">준비물·순서 정보가 없습니다.</p>
+      )}
     </ModalShell>
   );
 }
@@ -561,7 +772,7 @@ function ResourcePreviewModal({ resource, accent, onClose }) {
   );
 }
 
-function CategoryEditModal({ category, categories, onClose, onSaved }) {
+function CategoryEditModal({ category, categories, resources = [], onClose, onSaved }) {
   const isNew = !category?.id;
   const [title, setTitle] = useState(category?.title || "");
   const [icon, setIcon] = useState(category?.icon || "clipboard");
@@ -574,6 +785,18 @@ function CategoryEditModal({ category, categories, onClose, onSaved }) {
     const subs = subsText.split("\n").map(s => s.trim()).filter(Boolean);
     const items = itemsText.split("\n").map(s => s.trim()).filter(Boolean);
     if (!subs.length) return alert("하위 분류를 1개 이상 입력하세요");
+    if (new Set(subs).size !== subs.length) return alert("같은 이름의 하위분류가 중복되어 있습니다.");
+
+    if (!isNew && category?.id) {
+      const removed = (category.subs || []).filter(s => !subs.includes(s));
+      for (const label of removed) {
+        const count = resources.filter(r => r.category_id === category.id && r.subcategory === label).length;
+        if (count > 0) {
+          return alert(`"${label}" 하위분류를 사용하는 자료가 ${count}개 있어 삭제할 수 없습니다.\n먼저 해당 자료의 하위분류를 변경하거나 자료를 삭제해 주세요.`);
+        }
+      }
+    }
+
     setSaving(true);
     try {
       const palette = COLOR_PALETTE[categories.length % COLOR_PALETTE.length];
@@ -588,12 +811,26 @@ function CategoryEditModal({ category, categories, onClose, onSaved }) {
         });
         if (error) throw new Error(error.message);
       } else {
+        const renames = [];
+        const oldSubs = category.subs || [];
+        for (let i = 0; i < Math.min(oldSubs.length, subs.length); i++) {
+          if (oldSubs[i] && subs[i] && oldSubs[i] !== subs[i] && !subs.includes(oldSubs[i])) {
+            renames.push({ from: oldSubs[i], to: subs[i] });
+          }
+        }
         const { error } = await supabase.from("pe_categories").update({
           title: title.trim(), icon,
           subs, items: items.length ? items : subs,
           updated_at: new Date().toISOString(),
         }).eq("id", category.id);
         if (error) throw new Error(error.message);
+        for (const { from, to } of renames) {
+          const { error: resErr } = await supabase.from("resources")
+            .update({ subcategory: to, updated_at: new Date().toISOString() })
+            .eq("category_id", category.id)
+            .eq("subcategory", from);
+          if (resErr) throw new Error(resErr.message);
+        }
       }
       alert(isNew ? "카테고리가 추가되었습니다." : "카테고리가 수정되었습니다.");
       onSaved(); onClose();
@@ -673,21 +910,171 @@ function CategoryManageModal({ categories, resources, onClose, onRefresh }) {
         </div>
       </ModalShell>
       {editing && (
-        <CategoryEditModal category={editing} categories={categories} onClose={() => setEditing(null)} onSaved={onRefresh}/>
+        <CategoryEditModal category={editing} categories={categories} resources={resources} onClose={() => setEditing(null)} onSaved={onRefresh}/>
       )}
       {adding && (
-        <CategoryEditModal category={null} categories={categories} onClose={() => setAdding(false)} onSaved={onRefresh}/>
+        <CategoryEditModal category={null} categories={categories} resources={resources} onClose={() => setAdding(false)} onSaved={onRefresh}/>
       )}
     </>
   );
 }
 
+function SubcategoryManageModal({ category, resources, onClose, onSaved }) {
+  const [rows, setRows] = useState(() =>
+    (category?.subs || []).map(label => ({ key: `${label}-${Math.random()}`, original: label, value: label })),
+  );
+  const [saving, setSaving] = useState(false);
+
+  const countForSub = (label) => {
+    if (!label) return 0;
+    return resources.filter(r => r.category_id === category.id && r.subcategory === label).length;
+  };
+
+  const updateRow = (index, value) => {
+    setRows(prev => prev.map((row, i) => (i === index ? { ...row, value } : row)));
+  };
+
+  const addRow = () => {
+    setRows(prev => [...prev, { key: `new-${Date.now()}`, original: null, value: "" }]);
+  };
+
+  const moveRow = (index, direction) => {
+    setRows(prev => moveListItem(prev, index, direction));
+  };
+
+  const removeRow = (index) => {
+    const row = rows[index];
+    const label = (row.original || row.value || "").trim();
+    if (row.original) {
+      const count = countForSub(row.original);
+      if (count > 0) {
+        alert(`"${row.original}" 하위분류를 사용하는 자료가 ${count}개 있어 삭제할 수 없습니다.\n먼저 해당 자료의 하위분류를 변경하거나 자료를 삭제해 주세요.`);
+        return;
+      }
+    } else if (label) {
+      const count = countForSub(label);
+      if (count > 0) {
+        alert(`"${label}" 하위분류를 사용하는 자료가 ${count}개 있어 삭제할 수 없습니다.`);
+        return;
+      }
+    }
+    setRows(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const submit = async () => {
+    const trimmed = rows.map(r => ({ ...r, value: String(r.value || "").trim() }));
+    if (trimmed.some(r => !r.value)) {
+      return alert("빈 하위분류 이름이 있습니다. 이름을 입력하거나 행을 삭제하세요.");
+    }
+    const labels = trimmed.map(r => r.value);
+    if (new Set(labels).size !== labels.length) {
+      return alert("같은 이름의 하위분류가 중복되어 있습니다.");
+    }
+    if (!labels.length) {
+      return alert("하위분류를 1개 이상 유지하세요.");
+    }
+
+    setSaving(true);
+    try {
+      const { error: catErr } = await supabase.from("pe_categories").update({
+        subs: labels,
+        updated_at: new Date().toISOString(),
+      }).eq("id", category.id);
+      if (catErr) throw new Error(catErr.message);
+
+      for (const row of trimmed) {
+        if (!row.original || row.original === row.value) continue;
+        const { error: resErr } = await supabase.from("resources")
+          .update({ subcategory: row.value, updated_at: new Date().toISOString() })
+          .eq("category_id", category.id)
+          .eq("subcategory", row.original);
+        if (resErr) throw new Error(resErr.message);
+      }
+
+      alert("하위분류가 저장되었습니다.");
+      onSaved();
+      onClose();
+    } catch (e) {
+      alert("저장 오류: " + (e.message || "알 수 없는 오류"));
+    }
+    setSaving(false);
+  };
+
+  return (
+    <ModalShell title={`하위분류 관리 · ${category?.title || ""}`} onClose={onClose} wide>
+      <p className="pe-res-events-list-empty" style={{ marginBottom: 14 }}>
+        추가·이름 변경·삭제·순서 이동 후 저장하세요. 자료가 있는 하위분류는 삭제할 수 없습니다.
+      </p>
+      <div className="pe-res-events-list-head" style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#334155" }}>하위분류</span>
+        <button type="button" className="pe-res-events-add-btn" onClick={addRow}>
+          <Plus size={14}/> 추가
+        </button>
+      </div>
+      <div className="pe-res-events-list-rows" style={{ marginBottom: 16 }}>
+        {rows.map((row, index) => {
+          const used = row.original ? countForSub(row.original) : 0;
+          return (
+            <div key={row.key} className="pe-res-events-list-row">
+              <span className="pe-res-events-step-num" aria-hidden>{index + 1}</span>
+              <input
+                value={row.value}
+                onChange={e => updateRow(index, e.target.value)}
+                style={{ ...peInp, marginBottom: 0, flex: 1 }}
+                placeholder="하위분류 이름"
+              />
+              {used > 0 && (
+                <span className="pe-res-sub-used-badge" title="이 하위분류를 쓰는 자료 수">{used}건</span>
+              )}
+              <div className="pe-res-events-move-btns">
+                <button
+                  type="button"
+                  className="pe-res-events-icon-btn"
+                  onClick={() => moveRow(index, -1)}
+                  disabled={index === 0}
+                  aria-label="위로"
+                >
+                  <ChevronUp size={14}/>
+                </button>
+                <button
+                  type="button"
+                  className="pe-res-events-icon-btn"
+                  onClick={() => moveRow(index, 1)}
+                  disabled={index === rows.length - 1}
+                  aria-label="아래로"
+                >
+                  <ChevronDown size={14}/>
+                </button>
+              </div>
+              <button
+                type="button"
+                className="pe-res-events-icon-btn pe-res-events-icon-btn--danger"
+                onClick={() => removeRow(index)}
+                aria-label="삭제"
+              >
+                <Trash2 size={14}/>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <button type="button" onClick={submit} disabled={saving} style={{ ...pePrimaryBtn, width: "100%" }}>
+        {saving ? "저장 중..." : "저장"}
+      </button>
+    </ModalShell>
+  );
+}
+
 function ResourceListPage({ category, search, me, resources, loading, onRefresh }) {
   const [showUpload, setShowUpload] = useState(false);
+  const [showSubManage, setShowSubManage] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [previewTarget, setPreviewTarget] = useState(null);
+  const [detailTarget, setDetailTarget] = useState(null);
   const [localSub, setLocalSub] = useState("ALL");
   const admin = PE_ADMIN(me);
+  const isEventsList = isEventsCategory(category);
+  const canManageSubs = admin && category && Array.isArray(category.subs);
 
   const filtered = useMemo(() => {
     let r = resources;
@@ -741,9 +1128,16 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
           {search && <p className="pe-res-list-search-note">검색: &quot;{search}&quot;</p>}
         </div>
         {admin && category && (
-          <button type="button" onClick={() => setShowUpload(true)} className="pe-res-upload-btn">
-            <Upload size={16} strokeWidth={2.5}/> 자료 업로드
-          </button>
+          <div className="pe-res-list-header-actions">
+            {canManageSubs && (
+              <button type="button" onClick={() => setShowSubManage(true)} className="pe-res-manage-subs-btn">
+                <Settings size={16} strokeWidth={2.5}/> 하위분류 관리
+              </button>
+            )}
+            <button type="button" onClick={() => setShowUpload(true)} className="pe-res-upload-btn">
+              <Upload size={16} strokeWidth={2.5}/> 자료 업로드
+            </button>
+          </div>
         )}
       </div>
 
@@ -765,6 +1159,9 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
           {filtered.map(res => {
             const youtube = isYoutubeResource(res);
             const youtubeVideoId = youtube ? getYoutubeVideoIdFromResource(res) : null;
+            const eventsSummary = (isEventsList || isEventsCategory(res.category_id))
+              ? formatEventsExtraSummary(res)
+              : "";
             return (
             <div key={res.id} className={`pe-res-resource-item${youtube ? " pe-res-resource-item--youtube" : ""}`}>
               <div
@@ -787,6 +1184,16 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
                   </button>
                 )}
                 {res.description && <div className="pe-res-resource-desc">{res.description}</div>}
+                {eventsSummary && (
+                  <button
+                    type="button"
+                    className="pe-res-events-summary-btn"
+                    onClick={() => setDetailTarget(res)}
+                    style={{ color: accent, borderColor: `${accent}55`, background: `${accent}10` }}
+                  >
+                    {eventsSummary}
+                  </button>
+                )}
                 <div className="pe-res-resource-meta">
                   {res.subcategory && <span className="pe-res-meta-tag">{res.subcategory}</span>}
                   {(res.tags || []).map(t => (
@@ -798,6 +1205,11 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
                 </div>
               </div>
               <div className="pe-res-resource-actions">
+                {eventsSummary && (
+                  <button type="button" className="pe-res-action-btn pe-res-action-preview" onClick={() => setDetailTarget(res)}>
+                    <Eye size={14}/> 상세
+                  </button>
+                )}
                 {res.file_url && (
                   <>
                     <button type="button" className="pe-res-action-btn pe-res-action-preview" onClick={() => handlePreview(res)}>
@@ -839,11 +1251,22 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
       {showUpload && category && (
         <ResourceUploadModal category={category} me={me} onClose={() => setShowUpload(false)} onSaved={onRefresh}/>
       )}
+      {showSubManage && category && (
+        <SubcategoryManageModal
+          category={category}
+          resources={resources}
+          onClose={() => setShowSubManage(false)}
+          onSaved={onRefresh}
+        />
+      )}
       {editTarget && (
         <ResourceEditModal resource={editTarget} onClose={() => setEditTarget(null)} onSaved={onRefresh}/>
       )}
       {previewTarget && (
         <ResourcePreviewModal resource={previewTarget} accent={accent} onClose={() => setPreviewTarget(null)}/>
+      )}
+      {detailTarget && (
+        <ResourceEventsDetailModal resource={detailTarget} accent={accent} onClose={() => setDetailTarget(null)}/>
       )}
     </div>
   );
@@ -902,7 +1325,7 @@ function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTa
               <h1 className="pe-res-page-title">체육자료실</h1>
               <p className="pe-res-page-desc">수업 준비에 필요한 모든 자료를 빠르게 검색하고 활용하세요.</p>
             </div>
-            {PE_SUPER(me) && (
+            {PE_ADMIN(me) && (
               <button type="button" className="pe-res-manage-cat-btn" onClick={onManageCategories}>
                 <Settings size={16}/> 카테고리 관리
               </button>
@@ -938,12 +1361,15 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   const navigate = useNavigate();
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const directCategoryId = searchParams.get("category");
-  const isDirectCategory = Boolean(directCategoryId);
+  const filesMode = searchParams.get("mode") === "files";
+  // 자료 파일(mode=files)만 업로드 목록. 그 외 english-pe 딥링크는 대본 프로그램으로.
+  const isEnglishPeRedirect = directCategoryId === "english-pe" && !filesMode;
+  const isDirectCategory = Boolean(directCategoryId) && !isEnglishPeRedirect;
   const deepLinkRef = useRef(isDirectCategory);
 
   const [view, setView] = useState(() => (isDirectCategory ? "list" : "hub"));
   const [category, setCategory] = useState(() => {
-    if (!directCategoryId) return null;
+    if (!directCategoryId || isEnglishPeRedirect) return null;
     return DEFAULT_PE_CATEGORIES.find(c => c.id === directCategoryId) || null;
   });
   const [search, setSearch] = useState("");
@@ -972,13 +1398,19 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   useEffect(() => { loadAll(); }, []);
 
   useEffect(() => {
-    if (!directCategoryId || !categories.length) return;
+    if (isEnglishPeRedirect) {
+      navigate("/english-script", { replace: true });
+    }
+  }, [isEnglishPeRedirect, navigate]);
+
+  useEffect(() => {
+    if (!directCategoryId || !categories.length || isEnglishPeRedirect) return;
     const cat = categories.find(c => c.id === directCategoryId);
     if (cat) {
       setCategory(cat);
       setView("list");
     }
-  }, [directCategoryId, categories]);
+  }, [directCategoryId, categories, isEnglishPeRedirect]);
 
   const hubCategories = useMemo(
     () => hubCategoriesForUser(categories, me),
@@ -1002,6 +1434,11 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
     if (cat.status === "coming-soon") return;
     if (cat.externalPath) {
       (onNavigate || navigate)(cat.externalPath);
+      return;
+    }
+    // 관리자 허브 등 externalPath 없는 english-pe도 대본 프로그램으로
+    if (cat.id === "english-pe") {
+      (onNavigate || navigate)("/english-script");
       return;
     }
     if (cat.id === "video-media" || cat.id === "audio-media") {
@@ -1038,6 +1475,10 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   const goHub = () => { setView("hub"); setCategory(null); };
 
   const handleListBack = () => {
+    if (filesMode) {
+      navigate("/english-script");
+      return;
+    }
     if (deepLinkRef.current) onBack?.();
     else goHub();
   };
@@ -1105,12 +1546,12 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
 
       <footer className="pe-res-footer">© 2026 GTS. All rights reserved.</footer>
 
-      {showCatManage && PE_SUPER(me) && (
+      {showCatManage && PE_ADMIN(me) && (
         <CategoryManageModal
           categories={categories}
           resources={resources}
           onClose={() => setShowCatManage(false)}
-          onRefresh={loadCategories}
+          onRefresh={loadAll}
         />
       )}
     </div>

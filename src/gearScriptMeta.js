@@ -110,7 +110,64 @@ export const ACTIVITY_GEAR_SCRIPTS = {
   },
 };
 
-const LEVEL_IDS = ["foundation", "interactive"];
+/** @type {{ id: string, label: string, desc: string, type: string, matchPatterns: string[], levelIds?: string[], itemId?: string|null, fromDb?: boolean }[]} */
+let dbCatalogExtra = [];
+/** @type {Record<string, object>} */
+let dbActivityScripts = {};
+
+function normalizeDbContent(contentJson) {
+  if (!contentJson || typeof contentJson !== "object") {
+    return { activitiesOnly: true, activities: [] };
+  }
+  const activities = Array.isArray(contentJson.activities) ? contentJson.activities : [];
+  return {
+    activitiesOnly: true,
+    intro: contentJson.intro || null,
+    activities,
+    closing: contentJson.closing || null,
+    safety: Array.isArray(contentJson.safety)
+      ? contentJson.safety
+      : (contentJson.safety?.notes
+        ? String(contentJson.safety.notes).split("\n").map(s => s.trim()).filter(Boolean)
+        : undefined),
+    introTagSuffix: contentJson.introTagSuffix || "",
+  };
+}
+
+function mapDbRowToCatalog(row) {
+  return {
+    id: row.id,
+    label: row.label,
+    desc: row.description || "",
+    type: row.script_type === "sections" ? "sections" : "activities",
+    matchPatterns: Array.isArray(row.match_patterns) ? row.match_patterns : [],
+    levelIds: Array.isArray(row.level_ids) && row.level_ids.length
+      ? row.level_ids
+      : ["foundation", "interactive"],
+    itemId: row.item_id || null,
+    fromDb: true,
+  };
+}
+
+/** DB 등록 교구를 정적 카탈로그와 merge (정적 id 우선) */
+export function setDbGearScriptEntries(rows = []) {
+  const staticIds = new Set(GEAR_CATALOG.map(g => g.id));
+  dbCatalogExtra = [];
+  dbActivityScripts = {};
+  for (const row of rows) {
+    if (!row?.id || staticIds.has(row.id)) continue;
+    dbCatalogExtra.push(mapDbRowToCatalog(row));
+    if ((row.script_type || "activities") === "activities") {
+      dbActivityScripts[row.id] = normalizeDbContent(row.content_json);
+    }
+  }
+}
+
+export function getGearCatalog() {
+  return [...GEAR_CATALOG, ...dbCatalogExtra];
+}
+
+export const LEVEL_IDS = ["foundation", "interactive"];
 
 const PHOTO_POSITION_PRESETS = {
   "center top": "50% 0%",
@@ -140,7 +197,7 @@ function countAirbridgeLevel(levelId) {
 }
 
 function countActivityGearLevel(gearId, levelId) {
-  const data = ACTIVITY_GEAR_SCRIPTS[gearId];
+  const data = getActivityGearScripts(gearId);
   if (!data) return 0;
 
   const countScript = script => (script ?? []).reduce(
@@ -180,7 +237,7 @@ const EXPRESSION_COUNTERS = {
 };
 
 export function getGearLevelIds(gearId) {
-  const entry = GEAR_CATALOG.find(g => g.id === gearId);
+  const entry = getGearCatalogEntry(gearId);
   return entry?.levelIds ?? LEVEL_IDS;
 }
 
@@ -197,12 +254,16 @@ export function getCategoryMeta(cat) {
 
 export function getExpressionCounts(gearId) {
   const counter = EXPRESSION_COUNTERS[gearId];
-  if (!counter) {
-    return { foundation: 0, interactive: 0 };
+  if (counter) {
+    return {
+      foundation: counter("foundation"),
+      interactive: counter("interactive"),
+    };
   }
+  // DB 등록 교구
   return {
-    foundation: counter("foundation"),
-    interactive: counter("interactive"),
+    foundation: countActivityGearLevel(gearId, "foundation"),
+    interactive: countActivityGearLevel(gearId, "interactive"),
   };
 }
 
@@ -212,22 +273,43 @@ export function getTotalExpressionCount(gearId) {
 }
 
 export function matchGearId(item) {
+  if (item?.id) {
+    const byItem = dbCatalogExtra.find(g => g.itemId === item.id);
+    if (byItem) return byItem.id;
+  }
+
   const haystack = compactText(`${item?.name || ""} ${item?.alias || ""}`);
   if (!haystack) return null;
 
-  for (const gear of GEAR_CATALOG) {
-    const matched = gear.matchPatterns.some(pattern => haystack.includes(compactText(pattern)));
+  for (const gear of getGearCatalog()) {
+    const matched = (gear.matchPatterns || []).some(pattern => haystack.includes(compactText(pattern)));
     if (matched) return gear.id;
   }
   return null;
 }
 
+/**
+ * items[] → { [gearCatalogId]: safety_notes }
+ * 같은 카탈로그에 여러 재고가 매칭되면 첫 번째 non-empty notes를 사용한다.
+ */
+export function buildGearSafetyNotesMap(items = []) {
+  const map = {};
+  for (const item of items) {
+    const notes = String(item?.safety_notes || "").trim();
+    if (!notes) continue;
+    const gearId = matchGearId(item);
+    if (!gearId || map[gearId]) continue;
+    map[gearId] = notes;
+  }
+  return map;
+}
+
 export function getActivityGearScripts(gearId) {
-  return ACTIVITY_GEAR_SCRIPTS[gearId] ?? null;
+  return ACTIVITY_GEAR_SCRIPTS[gearId] ?? dbActivityScripts[gearId] ?? null;
 }
 
 export function getGearCatalogEntry(gearId) {
-  return GEAR_CATALOG.find(g => g.id === gearId) ?? null;
+  return getGearCatalog().find(g => g.id === gearId) ?? null;
 }
 
 export function computeGearPickerStats(items) {
@@ -242,7 +324,7 @@ export function computeGearPickerStats(items) {
     }
   }
 
-  const totalExpressions = GEAR_CATALOG.reduce(
+  const totalExpressions = getGearCatalog().reduce(
     (sum, gear) => sum + getTotalExpressionCount(gear.id),
     0,
   );
@@ -270,5 +352,3 @@ export function buildCategoryTabs(items) {
     }))
     .sort((a, b) => a.label.localeCompare(b.label, "ko"));
 }
-
-export { LEVEL_IDS };

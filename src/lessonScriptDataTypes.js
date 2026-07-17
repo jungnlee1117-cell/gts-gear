@@ -23,8 +23,14 @@
  * @typedef {Object} WarmupSetRecord
  * @property {string} id
  * @property {string} label
- * @property {string} desc
- * @property {string[]} partIds
+ * @property {string} [desc]
+ * @property {string} [title]
+ * @property {string} [title_en]
+ * @property {number} [duration_minutes]
+ * @property {string} [materials]
+ * @property {string} [script]
+ * @property {"warmup-set"} [stage]
+ * @property {string[]} [partIds] 레거시 — script로 정규화됨
  */
 
 /**
@@ -33,7 +39,7 @@
  * @property {string} label
  * @property {string} [title]
  * @property {string} [title_en]
- * @property {"warmup"|"game"} [stage]
+ * @property {"warmup"|"game"|"closing"} [stage]
  * @property {"large"|"medium"|"small"|"none"} [space_requirement]
  * @property {"easy"|"medium"|"hard"} [difficulty]
  * @property {number} [duration_minutes]
@@ -66,23 +72,24 @@ export const LESSON_SCRIPT_DATA_VERSION = 1;
 
 export const ADMIN_COLLECTIONS = {
   WARMUP_SETS: "warmupSets",
-  WARMUP_PART_VARIANTS: "warmupPartVariants",
+  WARMUP_SET_VARIANTS: "warmupSetVariants",
+  WARMUP_PART_VARIANTS: "warmupPartVariants", // 레거시 패치 키 (UI 제거)
   WARMUP_ACTIVITIES: "warmupActivities",
   WARMUP_ACTIVITY_VARIANTS: "warmupActivityVariants",
   GAMES: "games",
   GAME_VARIANTS: "gameVariants",
+  CLOSINGS: "closings",
+  CLOSING_VARIANTS: "closingVariants",
   GEAR_INTRO: "gearIntroVariants",
   GEAR_LESSON_OVERRIDES: "gearLessonOverrides",
-  SAFETY_MEMOS: "safetyMemos",
+  SAFETY_MEMOS: "safetyMemos", // 레거시 패치 키 (UI 제거)
 };
 
-export const SAFETY_SLOT_IDS = ["beforeWarmup", "beforeGear", "beforeGame"];
+/** @deprecated 별도 안전 멘트 슬롯 제거됨 — 빈 배열 유지(옛 코드 호환) */
+export const SAFETY_SLOT_IDS = [];
 
-export const SAFETY_SLOT_LABELS = {
-  beforeWarmup: "준비운동 전",
-  beforeGear: "교구 수업 전",
-  beforeGame: "게임 활동 전",
-};
+/** @deprecated */
+export const SAFETY_SLOT_LABELS = {};
 
 export const DIFFICULTY_FIELDS = [
   { id: "easy", label: "쉬움" },

@@ -202,9 +202,10 @@ export function ActivityMetaEditor({ value, onChange }) {
   );
 }
 
-export function ActivityContentEditor({ value, onChange, isGame = false }) {
+export function ActivityContentEditor({ value, onChange, isGame = false, isClosing = false, stageLabel: stageLabelProp }) {
   const record = value || {};
   const set = (key, val) => onChange({ ...record, [key]: val });
+  const stageLabel = stageLabelProp || (isClosing ? "closing" : isGame ? "game" : "warmup");
 
   return (
     <fieldset className="lsda-fieldset">
@@ -216,7 +217,7 @@ export function ActivityContentEditor({ value, onChange, isGame = false }) {
         </label>
         <label className="lsda-field">
           <span>단계</span>
-          <input className="lsda-input" value={isGame ? "game" : "warmup"} disabled/>
+          <input className="lsda-input" value={stageLabel} disabled/>
         </label>
         {isGame ? (
           <label className="lsda-field">
@@ -227,7 +228,7 @@ export function ActivityContentEditor({ value, onChange, isGame = false }) {
               <option value="hard">어려움</option>
             </select>
           </label>
-        ) : (
+        ) : !isClosing ? (
           <label className="lsda-field">
             <span>필요 공간</span>
             <select className="lsda-input" value={record.space_requirement || "none"} onChange={e => set("space_requirement", e.target.value)}>
@@ -237,7 +238,7 @@ export function ActivityContentEditor({ value, onChange, isGame = false }) {
               <option value="none">공간 무관</option>
             </select>
           </label>
-        )}
+        ) : null}
         <label className="lsda-field">
           <span>소요 시간 (분)</span>
           <input

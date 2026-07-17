@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Check,
+  ChevronLeft,
+  ChevronRight,
   FileText,
   Layers,
   Printer,
@@ -13,6 +15,7 @@ import EnglishProgramLayout from "./EnglishProgramLayout.jsx";
 import { PE_ADMIN } from "./peMedia/peMediaUtils.js";
 import { useEnglishProgramNavigate } from "./useEnglishProgramNavigate.js";
 import {
+  getClosingActivities,
   getGameActivities,
   getWarmupActivities,
   getWarmupSets,
@@ -20,7 +23,9 @@ import {
 } from "./lessonScriptBuilderData.js";
 import { LESSON_DIFFICULTIES } from "./lessonScriptDifficulty.js";
 import { composeLessonScript } from "./lessonScriptCompose.js";
-import { GEAR_CATALOG } from "./gearScriptMeta.js";
+import { getGearCatalog, buildGearSafetyNotesMap } from "./gearScriptMeta.js";
+import { initGearScriptEntries } from "./gearScriptEntriesApi.js";
+import { useGearItems } from "./useGearItems.js";
 import {
   deleteSavedLessonScript,
   getSavedLessonScript,
@@ -29,6 +34,16 @@ import {
 } from "./lessonScriptStorage.js";
 import { AlternativePhraseButton, EditableScriptBlock } from "./LessonScriptBuilderParts.jsx";
 import { useLessonScriptAdminData } from "./useLessonScriptData.js";
+
+const SELECTORS_COLLAPSED_KEY = "lsb-selectors-collapsed";
+
+function readSelectorsCollapsed() {
+  try {
+    return sessionStorage.getItem(SELECTORS_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function StepSection({ step, title, desc, children }) {
   return (
@@ -85,6 +100,8 @@ function activityDescription(item) {
 function altSectionKeyFor(section) {
   if (section.sectionType === "safety") return section.editableKey;
   if (section.sectionType === "game") return "game";
+  if (section.sectionType === "closing") return "closing";
+  if (section.sectionType === "warmup-set") return "warmup-set";
   if (section.sectionType === "warmup-activity") return "warmup-activity";
   return section.sectionType || section.editableKey;
 }
@@ -93,13 +110,11 @@ function PreviewSection({
   section,
   difficultyId,
   customTexts,
-  safetyOverrides,
   onCustomTextChange,
-  onSafetyChange,
 }) {
   if (section.parts?.length) {
     return (
-      <div className="lsb-preview-section">
+      <div className="lsb-preview-section" data-section-key={section.key}>
         <h3 className="lsb-preview-section__title">{section.title}</h3>
         {section.subtitle ? <p className="lsb-preview-section__sub">{section.subtitle}</p> : null}
         {section.parts.map(part => (
@@ -124,40 +139,32 @@ function PreviewSection({
   }
 
   const editableKey = section.editableKey;
-  const isSafety = section.sectionType === "safety";
-  const displayText = isSafety
-    ? (safetyOverrides[editableKey] ?? section.text)
-    : (editableKey && customTexts[editableKey] != null ? customTexts[editableKey] : section.text);
-
-  const applyAltText = (text) => {
-    if (isSafety) onSafetyChange?.(editableKey, text);
-    else onCustomTextChange?.(editableKey, text);
-  };
+  const canEdit = Boolean(editableKey && section.sectionType !== "safety");
+  const displayText = canEdit && customTexts[editableKey] != null
+    ? customTexts[editableKey]
+    : section.text;
 
   return (
-    <div className="lsb-preview-section">
+    <div className="lsb-preview-section" data-section-key={section.key}>
       <div className="lsb-preview-part__head">
         <h3 className="lsb-preview-section__title">{section.title}</h3>
-        {editableKey ? (
+        {canEdit ? (
           <AlternativePhraseButton
             sectionKey={altSectionKeyFor(section)}
             contextId={section.contextId}
             difficultyId={difficultyId}
-            onSelect={applyAltText}
+            onSelect={text => onCustomTextChange?.(editableKey, text)}
           />
         ) : null}
       </div>
       {section.subtitle && !section.title.includes(section.subtitle) ? (
         <p className="lsb-preview-section__sub">{section.subtitle}</p>
       ) : null}
-      {editableKey ? (
+      {canEdit ? (
         <EditableScriptBlock
           text={displayText}
-          onChange={val => {
-            if (isSafety) onSafetyChange?.(editableKey, val);
-            else onCustomTextChange?.(editableKey, val);
-          }}
-          rows={isSafety ? 2 : 4}
+          onChange={val => onCustomTextChange?.(editableKey, val)}
+          rows={4}
         />
       ) : (
         <pre className="lsb-preview-part__text">{section.text}</pre>
@@ -170,9 +177,11 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
   const onNavigate = useEnglishProgramNavigate();
   const navigate = useNavigate();
   const { ready: adminDataReady, version: adminDataVersion } = useLessonScriptAdminData();
+  const { items: gearItems } = useGearItems();
   const warmupSets = getWarmupSets();
   const warmupActivities = getWarmupActivities();
   const gameActivities = getGameActivities();
+  const closingActivities = getClosingActivities();
   const isAdmin = PE_ADMIN(me);
   const userId = me?.id;
 
@@ -180,12 +189,13 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
   const [warmupActivityId, setWarmupActivityId] = useState("");
   const [gearId, setGearId] = useState("");
   const [gameId, setGameId] = useState("");
+  const [closingId, setClosingId] = useState(closingActivities[0]?.id || "");
   const [legacyWarmupActivity, setLegacyWarmupActivity] = useState(null);
   const [legacyGame, setLegacyGame] = useState(null);
+  const [legacyClosing, setLegacyClosing] = useState(null);
   const [levelId, setLevelId] = useState("foundation");
   const [difficultyId, setDifficultyId] = useState("medium");
   const [customTexts, setCustomTexts] = useState({});
-  const [safetyOverrides, setSafetyOverrides] = useState({});
   const [title, setTitle] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [savedList, setSavedList] = useState([]);
@@ -193,10 +203,43 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
   const [savedLoading, setSavedLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const [scrollTarget, setScrollTarget] = useState(null);
+  const [selectorsCollapsed, setSelectorsCollapsed] = useState(readSelectorsCollapsed);
+  const previewRef = useRef(null);
+
+  const toggleSelectorsCollapsed = useCallback(() => {
+    setSelectorsCollapsed(prev => {
+      const next = !prev;
+      try {
+        sessionStorage.setItem(SELECTORS_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        // ignore quota / private mode
+      }
+      return next;
+    });
+  }, []);
+
+  // 왼쪽 카드 선택 시 미리보기 패널을 해당 섹션으로 스크롤 (데스크톱 2열 레이아웃 전용)
+  const requestPreviewScroll = useCallback((sectionKey) => {
+    setScrollTarget({ key: sectionKey });
+  }, []);
+
+  useEffect(() => {
+    if (!scrollTarget?.key) return;
+    if (!window.matchMedia("(min-width: 1025px)").matches) return;
+    const el = previewRef.current?.querySelector(`[data-section-key="${scrollTarget.key}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [scrollTarget]);
+
+  const [gearCatalogVersion, setGearCatalogVersion] = useState(0);
+  useEffect(() => {
+    initGearScriptEntries()
+      .finally(() => setGearCatalogVersion(v => v + 1));
+  }, []);
 
   const gearOptions = useMemo(
-    () => GEAR_CATALOG.map(g => ({ id: g.id, label: g.label, desc: g.desc })),
-    [],
+    () => getGearCatalog().map(g => ({ id: g.id, label: g.label, desc: g.desc })),
+    [adminDataVersion, gearCatalogVersion],
   );
   const visibleWarmupActivities = useMemo(
     () => legacyWarmupActivity
@@ -210,6 +253,17 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
       : gameActivities,
     [legacyGame, gameActivities],
   );
+  const visibleClosingActivities = useMemo(
+    () => legacyClosing
+      ? [legacyClosing, ...closingActivities.filter(item => item.id !== legacyClosing.id)]
+      : closingActivities,
+    [legacyClosing, closingActivities],
+  );
+
+  const gearSafetyNotesMap = useMemo(
+    () => buildGearSafetyNotesMap(gearItems),
+    [gearItems],
+  );
 
   const composed = useMemo(
     () => composeLessonScript({
@@ -217,12 +271,13 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
       warmupActivityId: warmupActivityId || null,
       gearId: gearId || null,
       gameId: gameId || null,
+      closingId: closingId || null,
       levelId,
       difficultyId,
       customTexts,
-      safetyOverrides,
+      gearSafetyNotes: gearId ? (gearSafetyNotesMap[gearId] || null) : null,
     }),
-    [warmupSetId, warmupActivityId, gearId, gameId, levelId, difficultyId, customTexts, safetyOverrides, adminDataVersion],
+    [warmupSetId, warmupActivityId, gearId, gameId, closingId, levelId, difficultyId, customTexts, gearSafetyNotesMap, adminDataVersion],
   );
 
   const refreshSaved = useCallback(async () => {
@@ -245,10 +300,6 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
     setCustomTexts(prev => ({ ...prev, [key]: value }));
   };
 
-  const handleSafetyChange = (key, value) => {
-    setSafetyOverrides(prev => ({ ...prev, [key]: value }));
-  };
-
   const loadSaved = async (id) => {
     const row = await getSavedLessonScript(id, userId);
     if (!row) return;
@@ -258,8 +309,10 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
     setWarmupActivityId(row.warmupActivityId || "");
     setGearId(row.gearId || "");
     setGameId(row.gameId || "");
+    setClosingId(row.closingId || closingActivities[0]?.id || "");
     const savedPreparation = row.sections?.find(section => section.key === "warmup-activity");
     const savedGame = row.sections?.find(section => section.key === "game");
+    const savedClosing = row.sections?.find(section => section.key === "closing");
     setLegacyWarmupActivity(
       row.warmupActivityId && !warmupActivities.some(item => item.id === row.warmupActivityId)
         ? { id: row.warmupActivityId, label: savedPreparation?.subtitle || "기존 준비운동", legacy: true }
@@ -270,10 +323,14 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
         ? { id: row.gameId, label: savedGame?.subtitle || "기존 게임", legacy: true }
         : null,
     );
+    setLegacyClosing(
+      row.closingId && !closingActivities.some(item => item.id === row.closingId)
+        ? { id: row.closingId, label: savedClosing?.subtitle || "기존 마무리 인사", legacy: true }
+        : null,
+    );
     setLevelId(row.levelId || "foundation");
     setDifficultyId(row.difficultyId || "medium");
     setCustomTexts(row.customTexts || {});
-    setSafetyOverrides(row.safetyOverrides || {});
     setGenerated(true);
     setShowSaved(false);
   };
@@ -309,10 +366,10 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
         warmupActivityId: warmupActivityId || null,
         gearId,
         gameId: gameId || null,
+        closingId: closingId || null,
         levelId,
         difficultyId,
         customTexts,
-        safetyOverrides,
         fullText: composed.fullText,
         sections: composed.sections,
       }, userId);
@@ -381,7 +438,7 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
               수업 대본 만들기
             </h1>
             <p className="lsb-header__desc">
-              인사부터 게임까지 원하는 모듈을 순서대로 직접 선택해 대본을 완성하세요.
+              인사부터 마무리까지 원하는 모듈을 순서대로 직접 선택해 대본을 완성하세요.
             </p>
           </div>
           <div className="lsb-header__actions">
@@ -425,14 +482,17 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
           </section>
         ) : null}
 
-        <div className="lsb-layout">
+        <div className={`lsb-layout${selectorsCollapsed ? " lsb-layout--collapsed" : ""}`}>
           <div className="lsb-selectors">
             <StepSection step={1} title="인사 & 워밍업 세트" desc="입장 · 인사 · 몸풀기 · 착석 (난이도별 표현 자동 적용)">
               {warmupSets.map(set => (
                 <SelectCard
                   key={set.id}
                   selected={warmupSetId === set.id}
-                  onClick={() => setWarmupSetId(set.id)}
+                  onClick={() => {
+                    setWarmupSetId(set.id);
+                    requestPreviewScroll("warmup-set");
+                  }}
                   title={set.label}
                   desc={set.desc}
                   badge="세트"
@@ -440,7 +500,7 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
               ))}
             </StepSection>
 
-            <StepSection step={2} title="준비운동" desc="선택 시 안전 멘트 후 준비운동 → 교구 소개로 이어집니다.">
+            <StepSection step={2} title="준비운동" desc="선택하면 준비운동 대본이 미리보기에 추가됩니다.">
               <SelectCard
                 selected={!warmupActivityId}
                 onClick={() => {
@@ -448,7 +508,7 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
                   setLegacyWarmupActivity(null);
                 }}
                 title="준비운동 생략"
-                desc="교구 소개로 바로 이동"
+                desc="교구 수업으로 바로 이동"
               />
               {visibleWarmupActivities.map(item => (
                 <SelectCard
@@ -457,6 +517,7 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
                   onClick={() => {
                     setWarmupActivityId(item.id);
                     if (!item.legacy) setLegacyWarmupActivity(null);
+                    requestPreviewScroll("warmup-activity");
                   }}
                   title={item.label}
                   desc={item.legacy ? "기존 저장 대본 호환 콘텐츠" : activityDescription(item)}
@@ -482,14 +543,17 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
                 <SelectCard
                   key={gear.id}
                   selected={gearId === gear.id}
-                  onClick={() => setGearId(gear.id)}
+                  onClick={() => {
+                    setGearId(gear.id);
+                    requestPreviewScroll("gear-lesson");
+                  }}
                   title={gear.label}
                   desc={gear.desc}
                 />
               ))}
             </StepSection>
 
-            <StepSection step={4} title="게임" desc="선택 시 게임 전 안전 멘트가 자동 삽입됩니다.">
+            <StepSection step={4} title="게임" desc="게임 대본을 선택합니다. 안전 문구는 각 게임 대본 안에 직접 작성할 수 있습니다.">
               <SelectCard
                 selected={!gameId}
                 onClick={() => {
@@ -506,6 +570,7 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
                   onClick={() => {
                     setGameId(game.id);
                     if (!game.legacy) setLegacyGame(null);
+                    requestPreviewScroll("game");
                   }}
                   title={game.label}
                   desc={game.legacy ? "기존 저장 대본 호환 콘텐츠" : activityDescription(game)}
@@ -514,7 +579,33 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
               ))}
             </StepSection>
 
-            <StepSection step={5} title="미리보기 & 저장" desc="오른쪽 미리보기에서 대본을 확인하고 필요한 문구를 수정한 뒤 저장하세요.">
+            <StepSection step={5} title="마무리 인사" desc="수업 마무리 · 쿨다운 · 하이파이브 퇴실 (약 5분)">
+              <SelectCard
+                selected={!closingId}
+                onClick={() => {
+                  setClosingId("");
+                  setLegacyClosing(null);
+                }}
+                title="마무리 인사 생략"
+                desc="게임/교구 수업으로 종료"
+              />
+              {visibleClosingActivities.map(item => (
+                <SelectCard
+                  key={item.id}
+                  selected={closingId === item.id}
+                  onClick={() => {
+                    setClosingId(item.id);
+                    if (!item.legacy) setLegacyClosing(null);
+                    requestPreviewScroll("closing");
+                  }}
+                  title={item.label}
+                  desc={item.legacy ? "기존 저장 대본 호환 콘텐츠" : activityDescription(item)}
+                  badge={item.legacy ? "기존" : "마무리"}
+                />
+              ))}
+            </StepSection>
+
+            <StepSection step={6} title="미리보기 & 저장" desc="오른쪽 미리보기에서 대본을 확인하고 필요한 문구를 수정한 뒤 저장하세요.">
               <div className="lsb-actions">
                 <button type="button" className="lsb-btn lsb-btn--primary" onClick={handleGenerate}>
                   <Sparkles size={16}/>
@@ -536,11 +627,25 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
             </StepSection>
           </div>
 
-          <aside className="lsb-preview" aria-live="polite">
+          <button
+            type="button"
+            className="lsb-collapse-tab"
+            onClick={toggleSelectorsCollapsed}
+            aria-pressed={selectorsCollapsed}
+            aria-label={selectorsCollapsed ? "선택 패널 열기" : "선택 패널 접기"}
+            title={selectorsCollapsed ? "선택 패널 열기" : "선택 패널 접기"}
+          >
+            <span className="lsb-collapse-tab__label">
+              {selectorsCollapsed ? <ChevronRight size={14} aria-hidden /> : <ChevronLeft size={14} aria-hidden />}
+              선택 패널
+            </span>
+          </button>
+
+          <aside className="lsb-preview" aria-live="polite" ref={previewRef}>
             <header className="lsb-preview__head">
               <h2>실시간 미리보기</h2>
               <p className="lsb-muted">
-                안전 멘트 자동 삽입 · 섹션별 수정 가능
+                섹션별 수정 가능 · 교구 안전 주의사항 자동 포함
               </p>
             </header>
             {composed.sections.length === 0 ? (
@@ -552,9 +657,7 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
                   section={section}
                   difficultyId={difficultyId}
                   customTexts={customTexts}
-                  safetyOverrides={safetyOverrides}
                   onCustomTextChange={handleCustomTextChange}
-                  onSafetyChange={handleSafetyChange}
                 />
               ))
             )}
@@ -583,11 +686,9 @@ export default function LessonScriptBuilderApp({ me, onBack, onGoMain }) {
               ))
             ) : (
               <pre className="lsb-preview-part__text">
-                {section.editableKey && section.sectionType === "safety"
-                  ? (safetyOverrides[section.editableKey] ?? section.text)
-                  : section.editableKey && customTexts[section.editableKey] != null
-                    ? customTexts[section.editableKey]
-                    : section.text}
+                {section.editableKey && customTexts[section.editableKey] != null
+                  ? customTexts[section.editableKey]
+                  : section.text}
               </pre>
             )}
           </div>

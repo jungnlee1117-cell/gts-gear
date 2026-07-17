@@ -20,7 +20,7 @@ export function useGearItems() {
 
       const { data, error: fetchError } = await supabase
         .from("items")
-        .select("id, code, name, alias, category, photo_url, photo_position, created_at")
+        .select("id, code, name, alias, category, photo_url, photo_position, safety_notes, created_at")
         .order("name");
 
       if (cancelled) return;

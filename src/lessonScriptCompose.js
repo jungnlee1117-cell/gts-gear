@@ -2,15 +2,15 @@ import { AIRBRIDGE_SCRIPTS } from "./airbridgeScriptData.js";
 import { getDifficultyText } from "./lessonScriptDifficulty.js";
 import {
   findGame,
+  findClosing,
   findWarmupActivity,
   findWarmupSet,
   genericActivityPlaceholder,
+  getClosingVariants,
   getGameVariants,
-  getGearIntroVariants,
   getGearLessonOverrideText,
-  getSafetyMemo,
   getWarmupActivityVariants,
-  getWarmupPartVariants,
+  getWarmupSetVariants,
 } from "./lessonScriptBuilderData.js";
 import { getActivityGearScripts, getGearCatalogEntry } from "./gearScriptMeta.js";
 
@@ -51,24 +51,14 @@ function resolveVariantText(variants, difficultyId, customOverride) {
   return getDifficultyText(variants, difficultyId);
 }
 
-function resolveSafetyText(key, difficultyId, customOverrides = {}) {
-  const overrideKey = `safety-${key}`;
-  if (customOverrides[overrideKey]?.trim()) return customOverrides[overrideKey].trim();
-  const block = getSafetyMemo(key);
-  if (!block) return "";
-  return getDifficultyText(block.default, difficultyId);
-}
-
-function resolveWarmupPartText(partId, difficultyId, customTexts = {}) {
-  if (customTexts[partId]?.trim()) return customTexts[partId].trim();
-  const part = getWarmupPartVariants(partId);
-  if (!part) return "";
-  return getDifficultyText(part.default, difficultyId);
-}
-
-function resolveGearIntroText(difficultyId, customTexts = {}) {
-  if (customTexts["gear-intro"]?.trim()) return customTexts["gear-intro"].trim();
-  return getDifficultyText(getGearIntroVariants().default, difficultyId);
+function resolveWarmupSetText(setId, difficultyId, customTexts = {}) {
+  const key = `warmup-set-${setId}`;
+  if (customTexts[key]?.trim()) return customTexts[key].trim();
+  const block = getWarmupSetVariants(setId);
+  if (block) return getDifficultyText(block.default, difficultyId);
+  const set = findWarmupSet(setId);
+  if (set?.script?.trim()) return set.script.trim();
+  return genericActivityPlaceholder(set?.label || "Warm-up", difficultyId);
 }
 
 function resolveWarmupActivityText(activityId, difficultyId, customTexts = {}) {
@@ -87,6 +77,15 @@ function resolveGameText(gameId, difficultyId, customTexts = {}) {
   if (block) return getDifficultyText(block.default, difficultyId);
   const game = findGame(gameId);
   return genericActivityPlaceholder(game?.label || "Game", difficultyId);
+}
+
+function resolveClosingText(closingId, difficultyId, customTexts = {}) {
+  const key = `closing-${closingId}`;
+  if (customTexts[key]?.trim()) return customTexts[key].trim();
+  const block = getClosingVariants(closingId);
+  if (block) return getDifficultyText(block.default, difficultyId);
+  const closing = findClosing(closingId);
+  return genericActivityPlaceholder(closing?.label || "Closing", difficultyId);
 }
 
 /** 기존 교구 대본 데이터에서 본문 추출 (관리자 오버라이드 우선) */
@@ -135,22 +134,13 @@ export function extractGearLessonText(gearId, levelId = "foundation") {
   return { title: catalog.label, text: chunks.join("\n\n") };
 }
 
-function safetySection(key, difficultyId, customOverrides, order) {
-  const labels = {
-    beforeWarmup: "안전 멘트 (준비운동 전)",
-    beforeGear: "안전 멘트 (교구 수업 전)",
-    beforeGame: "안전 멘트 (게임 활동 전)",
-  };
-  const text = resolveSafetyText(key, difficultyId, customOverrides);
-  return {
-    key: `safety-${key}`,
-    order,
-    title: labels[key],
-    subtitle: getSafetyMemo(key)?.label,
-    text,
-    editableKey: `safety-${key}`,
-    sectionType: "safety",
-  };
+/** items.safety_notes 가 있으면 교구 대본 본문 앞에 자연스럽게 붙인다. */
+export function appendGearSafetyNotes(lessonText, safetyNotes) {
+  const notes = String(safetyNotes || "").trim();
+  const body = String(lessonText || "").trim();
+  if (!notes) return body;
+  const safetyBlock = `【안전 주의사항】\n${notes}`;
+  return body ? `${safetyBlock}\n\n${body}` : safetyBlock;
 }
 
 /**
@@ -161,41 +151,30 @@ export function composeLessonScript({
   warmupActivityId,
   gearId,
   gameId,
+  closingId,
   levelId = "foundation",
   difficultyId = "medium",
   customTexts = {},
-  safetyOverrides = {},
+  gearSafetyNotes = null,
 }) {
   const sections = [];
   let order = 1;
 
   const warmupSet = findWarmupSet(warmupSetId);
   if (warmupSet) {
-    const parts = warmupSet.partIds.map(partId => {
-      const meta = getWarmupPartVariants(partId);
-      return {
-        partId,
-        label: meta?.label || partId,
-        text: resolveWarmupPartText(partId, difficultyId, customTexts),
-        editableKey: partId,
-        sectionType: "warmup-part",
-      };
-    });
     sections.push({
       key: "warmup-set",
       order: order++,
       title: "1. 인사 & 워밍업",
       subtitle: warmupSet.label,
-      parts,
-      text: parts.map(p => `【${p.label}】\n${p.text}`).join("\n\n"),
+      text: resolveWarmupSetText(warmupSetId, difficultyId, customTexts),
+      editableKey: `warmup-set-${warmupSetId}`,
+      sectionType: "warmup-set",
+      contextId: warmupSetId,
     });
   }
 
   if (warmupActivityId) {
-    sections.push({
-      ...safetySection("beforeWarmup", difficultyId, safetyOverrides, order++),
-      title: `${order - 1}. 안전 멘트 (준비운동 전)`,
-    });
     const warmup = findWarmupActivity(warmupActivityId);
     const text = resolveWarmupActivityText(warmupActivityId, difficultyId, customTexts);
     sections.push({
@@ -210,36 +189,19 @@ export function composeLessonScript({
     });
   }
 
-  sections.push({
-    key: "gear-intro",
-    order: order++,
-    title: `${order - 1}. 교구 소개`,
-    subtitle: getGearIntroVariants().label,
-    text: resolveGearIntroText(difficultyId, customTexts),
-    editableKey: "gear-intro",
-    sectionType: "gear-intro",
-  });
-
   if (gearId) {
-    sections.push({
-      ...safetySection("beforeGear", difficultyId, safetyOverrides, order++),
-      title: `${order - 1}. 안전 멘트 (교구 수업 전)`,
-    });
     const gearLesson = extractGearLessonText(gearId, levelId);
+    const lessonBody = gearLesson.text || "(선택한 교구의 대본이 아직 등록되지 않았습니다.)";
     sections.push({
       key: "gear-lesson",
       order: order++,
       title: `${order - 1}. 교구 수업`,
       subtitle: gearLesson.title,
-      text: gearLesson.text || "(선택한 교구의 대본이 아직 등록되지 않았습니다.)",
+      text: appendGearSafetyNotes(lessonBody, gearSafetyNotes),
     });
   }
 
   if (gameId) {
-    sections.push({
-      ...safetySection("beforeGame", difficultyId, safetyOverrides, order++),
-      title: `${order - 1}. 안전 멘트 (게임 활동 전)`,
-    });
     const game = findGame(gameId);
     sections.push({
       key: "game",
@@ -253,35 +215,33 @@ export function composeLessonScript({
     });
   }
 
+  if (closingId) {
+    const closing = findClosing(closingId);
+    sections.push({
+      key: "closing",
+      order: order++,
+      title: `${order - 1}. 마무리 인사`,
+      subtitle: closing?.label,
+      text: resolveClosingText(closingId, difficultyId, customTexts),
+      editableKey: `closing-${closingId}`,
+      sectionType: "closing",
+      contextId: closingId,
+    });
+  }
+
   // Renumber titles with clean step numbers
-  const stepLabels = [
-    "인사 & 워밍업",
-    "안전 멘트 (준비운동 전)",
-    "준비운동",
-    "교구 소개",
-    "안전 멘트 (교구 수업 전)",
-    "교구 수업",
-    "안전 멘트 (게임 활동 전)",
-    "게임 활동",
-  ];
-  let stepIdx = 0;
   for (const s of sections) {
-    const label = stepLabels.find(l => s.title.includes(l) || s.subtitle?.includes(l))
-      || s.title.replace(/^\d+\.\s*/, "");
-    if (s.key.startsWith("safety-")) {
-      s.title = `${s.order}. ${s.subtitle || label}`;
-    } else if (s.key === "warmup-set") {
+    if (s.key === "warmup-set") {
       s.title = `${s.order}. 인사 & 워밍업`;
     } else if (s.key === "warmup-activity") {
       s.title = `${s.order}. 준비운동`;
-    } else if (s.key === "gear-intro") {
-      s.title = `${s.order}. 교구 소개`;
     } else if (s.key === "gear-lesson") {
       s.title = `${s.order}. 교구 수업`;
     } else if (s.key === "game") {
       s.title = `${s.order}. 게임 활동`;
+    } else if (s.key === "closing") {
+      s.title = `${s.order}. 마무리 인사`;
     }
-    stepIdx++;
   }
 
   const fullText = sections
@@ -296,4 +256,4 @@ export function composeLessonScript({
   return { sections, fullText };
 }
 
-export { resolveVariantText, resolveSafetyText };
+export { resolveVariantText };

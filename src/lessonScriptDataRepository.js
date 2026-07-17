@@ -1,5 +1,7 @@
 import {
   DEFAULT_SAFETY_MEMOS,
+  CLOSING_ACTIVITIES,
+  CLOSING_VARIANTS,
   GAME_ACTIVITIES,
   GAME_VARIANTS,
   GEAR_INTRO_VARIANTS,
@@ -7,7 +9,9 @@ import {
   WARMUP_ACTIVITY_VARIANTS,
   WARMUP_PART_VARIANTS,
   WARMUP_SETS,
+  WARMUP_SET_VARIANTS,
 } from "./lessonScriptDataDefaults.js";
+import { LEGACY_WARMUP_PART_MEDIUM } from "./lessonScriptExpandedContent.js";
 import {
   deleteAdminCollectionFromSupabase,
   fetchAdminPatchFromSupabase,
@@ -171,8 +175,39 @@ function mergeGearLessonOverrides() {
   return map;
 }
 
+function flattenLegacyWarmupSetScript(set, partMap = {}) {
+  if (set?.script?.trim()) return set.script.trim();
+  const ids = Array.isArray(set?.partIds) ? set.partIds : [];
+  if (!ids.length) return "";
+  return ids.map(partId => {
+    const fromMap = partMap[partId];
+    const legacy = LEGACY_WARMUP_PART_MEDIUM[partId];
+    const label = fromMap?.label || legacy?.label || partId;
+    const text = fromMap?.default?.medium
+      || fromMap?.default?.easy
+      || legacy?.text
+      || "";
+    return `【${label}】\n${text}`;
+  }).join("\n\n");
+}
+
+/** @param {import("./lessonScriptDataTypes.js").WarmupSetRecord} set */
+export function normalizeWarmupSetRecord(set, partMap = getWarmupPartVariantsMap()) {
+  if (!set) return set;
+  const script = flattenLegacyWarmupSetScript(set, partMap);
+  const { partIds: _legacyPartIds, ...rest } = set;
+  return {
+    ...rest,
+    stage: "warmup-set",
+    title: rest.title || rest.label,
+    script,
+  };
+}
+
 export function getWarmupSets() {
-  return mergeArrayById(WARMUP_SETS, ADMIN_COLLECTIONS.WARMUP_SETS);
+  const partMap = getWarmupPartVariantsMap();
+  return mergeArrayById(WARMUP_SETS, ADMIN_COLLECTIONS.WARMUP_SETS)
+    .map(set => normalizeWarmupSetRecord(set, partMap));
 }
 
 export function getWarmupActivities() {
@@ -183,8 +218,16 @@ export function getGameActivities() {
   return mergeArrayById(GAME_ACTIVITIES, ADMIN_COLLECTIONS.GAMES);
 }
 
+export function getClosingActivities() {
+  return mergeArrayById(CLOSING_ACTIVITIES, ADMIN_COLLECTIONS.CLOSINGS);
+}
+
 export function getWarmupPartVariantsMap() {
   return mergeObjectRecords(WARMUP_PART_VARIANTS, ADMIN_COLLECTIONS.WARMUP_PART_VARIANTS);
+}
+
+export function getWarmupSetVariantsMap() {
+  return mergeObjectRecords(WARMUP_SET_VARIANTS, ADMIN_COLLECTIONS.WARMUP_SET_VARIANTS);
 }
 
 export function getWarmupActivityVariantsMap() {
@@ -193,6 +236,10 @@ export function getWarmupActivityVariantsMap() {
 
 export function getGameVariantsMap() {
   return mergeObjectRecords(GAME_VARIANTS, ADMIN_COLLECTIONS.GAME_VARIANTS);
+}
+
+export function getClosingVariantsMap() {
+  return mergeObjectRecords(CLOSING_VARIANTS, ADMIN_COLLECTIONS.CLOSING_VARIANTS);
 }
 
 export function getGearIntroVariants() {
@@ -215,8 +262,16 @@ export function findGame(id) {
   return getGameActivities().find(g => g.id === id) ?? null;
 }
 
+export function findClosing(id) {
+  return getClosingActivities().find(c => c.id === id) ?? null;
+}
+
 export function getWarmupPartVariants(partId) {
   return getWarmupPartVariantsMap()[partId] ?? null;
+}
+
+export function getWarmupSetVariants(setId) {
+  return getWarmupSetVariantsMap()[setId] ?? null;
 }
 
 export function getWarmupActivityVariants(activityId) {
@@ -225,6 +280,10 @@ export function getWarmupActivityVariants(activityId) {
 
 export function getGameVariants(gameId) {
   return getGameVariantsMap()[gameId] ?? null;
+}
+
+export function getClosingVariants(closingId) {
+  return getClosingVariantsMap()[closingId] ?? null;
 }
 
 export function getSafetyMemo(slotId) {
@@ -252,16 +311,6 @@ export function listGearLessonOverrides() {
 }
 
 export function getAllAlternatives(sectionKey, contextId = null) {
-  if (sectionKey === "gear-intro") {
-    const block = getGearIntroVariants();
-    return [block.default, ...(block.alternatives || [])];
-  }
-  if (sectionKey.startsWith("safety-")) {
-    const key = sectionKey.replace("safety-", "");
-    const block = getSafetyMemo(key);
-    if (!block) return [];
-    return [block.default, ...(block.alternatives || [])];
-  }
   if (sectionKey === "warmup-activity" && contextId) {
     const block = getWarmupActivityVariants(contextId);
     if (!block) return [];
@@ -272,9 +321,17 @@ export function getAllAlternatives(sectionKey, contextId = null) {
     if (!block) return [];
     return [block.default, ...(block.alternatives || [])];
   }
-  const part = getWarmupPartVariants(sectionKey);
-  if (!part) return [];
-  return [part.default, ...(part.alternatives || [])];
+  if (sectionKey === "closing" && contextId) {
+    const block = getClosingVariants(contextId);
+    if (!block) return [];
+    return [block.default, ...(block.alternatives || [])];
+  }
+  if (sectionKey === "warmup-set" && contextId) {
+    const block = getWarmupSetVariants(contextId);
+    if (!block) return [];
+    return [block.default, ...(block.alternatives || [])];
+  }
+  return [];
 }
 
 export function genericActivityPlaceholder(label, difficultyId) {
@@ -320,11 +377,20 @@ async function deleteObjectRecord(collectionKey, recordId, defaultObj, userId) {
 }
 
 export function saveWarmupSet(record, userId) {
-  return upsertArrayItem(ADMIN_COLLECTIONS.WARMUP_SETS, record, WARMUP_SETS, userId);
+  const normalized = normalizeWarmupSetRecord(record);
+  return upsertArrayItem(ADMIN_COLLECTIONS.WARMUP_SETS, normalized, WARMUP_SETS, userId);
 }
 
 export function deleteWarmupSet(id, userId) {
   return deleteArrayItem(ADMIN_COLLECTIONS.WARMUP_SETS, id, WARMUP_SETS, userId);
+}
+
+export function saveWarmupSetVariant(setId, block, userId) {
+  return upsertObjectRecord(ADMIN_COLLECTIONS.WARMUP_SET_VARIANTS, setId, block, WARMUP_SET_VARIANTS, userId);
+}
+
+export function deleteWarmupSetVariant(setId, userId) {
+  return deleteObjectRecord(ADMIN_COLLECTIONS.WARMUP_SET_VARIANTS, setId, WARMUP_SET_VARIANTS, userId);
 }
 
 export function saveWarmupActivity(record, userId) {
@@ -341,6 +407,14 @@ export function saveGameActivity(record, userId) {
 
 export function deleteGameActivity(id, userId) {
   return deleteArrayItem(ADMIN_COLLECTIONS.GAMES, id, GAME_ACTIVITIES, userId);
+}
+
+export function saveClosingActivity(record, userId) {
+  return upsertArrayItem(ADMIN_COLLECTIONS.CLOSINGS, record, CLOSING_ACTIVITIES, userId);
+}
+
+export function deleteClosingActivity(id, userId) {
+  return deleteArrayItem(ADMIN_COLLECTIONS.CLOSINGS, id, CLOSING_ACTIVITIES, userId);
 }
 
 export function saveWarmupPartVariant(partId, block, userId) {
@@ -365,6 +439,14 @@ export function saveGameVariant(gameId, block, userId) {
 
 export function deleteGameVariant(gameId, userId) {
   return deleteObjectRecord(ADMIN_COLLECTIONS.GAME_VARIANTS, gameId, GAME_VARIANTS, userId);
+}
+
+export function saveClosingVariant(closingId, block, userId) {
+  return upsertObjectRecord(ADMIN_COLLECTIONS.CLOSING_VARIANTS, closingId, block, CLOSING_VARIANTS, userId);
+}
+
+export function deleteClosingVariant(closingId, userId) {
+  return deleteObjectRecord(ADMIN_COLLECTIONS.CLOSING_VARIANTS, closingId, CLOSING_VARIANTS, userId);
 }
 
 export function saveGearIntroVariants(block, userId) {
@@ -417,11 +499,14 @@ export function getAdminPatchSummary() {
 
 export {
   WARMUP_SETS,
+  WARMUP_SET_VARIANTS,
   WARMUP_ACTIVITIES,
   GAME_ACTIVITIES,
+  CLOSING_ACTIVITIES,
   WARMUP_PART_VARIANTS,
   WARMUP_ACTIVITY_VARIANTS,
   GAME_VARIANTS,
+  CLOSING_VARIANTS,
   GEAR_INTRO_VARIANTS,
   DEFAULT_SAFETY_MEMOS,
 } from "./lessonScriptDataDefaults.js";
