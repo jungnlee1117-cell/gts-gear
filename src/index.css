@@ -13304,11 +13304,12 @@ button.pe-res-resource-youtube-thumb:hover {
 
 .admin-notice-read-stat {
   display: inline-block;
-  margin-left: 8px;
+  margin-left: 0;
   font-size: 11px;
   font-weight: 700;
   color: #64748b;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .notice-read-receipt {
@@ -14798,12 +14799,40 @@ button.pe-res-resource-youtube-thumb:hover {
   font-weight: 700;
   color: #111827;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 6px 8px;
   min-width: 0;
+}
+.admin-notice-table-row__title-meta {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+  max-width: 100%;
+}
+.admin-notice-table-row__title-meta:empty {
+  display: none;
+}
+.admin-notice-table-row__title-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 데스크톱: 뱃지 → 제목 → 읽음 순서 (meta를 contents로 풀어 배치) */
+@media (min-width: 769px) {
+  .admin-notice-table-row__title-meta {
+    display: contents;
+  }
+  .admin-notice-table-row__title-text {
+    order: 1;
+  }
+  .admin-notice-table-row__title .admin-notice-read-stat {
+    order: 2;
+  }
 }
 .admin-notice-pin { font-size: 12px; flex-shrink: 0; }
 .admin-notice-table-row__metas {
@@ -14842,6 +14871,7 @@ button.pe-res-resource-youtube-thumb:hover {
   border-radius: 8px;
   font-size: 11px;
   font-weight: 800;
+  flex-shrink: 0;
 }
 .admin-notice-badge--urgent { background: #dc2626; color: #fff; }
 .admin-notice-badge--general { background: #fff; color: #16a34a; border: 1px solid #86efac; }
@@ -15395,7 +15425,8 @@ button.pe-res-resource-youtube-thumb:hover {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "badge title actions"
+      "badge meta actions"
+      "text text text"
       "metas metas metas";
     gap: 8px 10px;
     padding: 14px 14px;
@@ -15405,14 +15436,38 @@ button.pe-res-resource-youtube-thumb:hover {
     background: #fff;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   }
-  .admin-notice-table-row__badge { grid-area: badge; align-self: start; }
+  .admin-notice-table-row__badge { grid-area: badge; align-self: center; }
+  /* 자식(meta/text/stat)이 행 그리드에 직접 참여해 제목이 카드 전체 너비를 쓰게 함 */
   .admin-notice-table-row__title {
-    grid-area: title;
+    display: contents;
+  }
+  .admin-notice-table-row__title-meta {
+    grid-area: meta;
+    align-self: center;
+    min-width: 0;
+  }
+  .admin-notice-table-row__title-text {
+    grid-area: text;
+    flex: none;
+    width: auto;
+    min-width: 0;
     white-space: normal;
     overflow: visible;
     text-overflow: unset;
-    align-items: flex-start;
+    overflow-wrap: anywhere;
+    word-break: keep-all;
     line-height: 1.45;
+    font-size: 14px;
+    font-weight: 700;
+    color: #111827;
+  }
+  .admin-notice-table-row__title.is-unread .admin-notice-table-row__title-text,
+  .admin-notice-table-row.is-unread .admin-notice-table-row__title-text {
+    font-weight: 800;
+    color: #0f172a;
+  }
+  .admin-notice-table-row__title-meta .admin-notice-read-stat {
+    margin-left: auto;
   }
   .admin-notice-table-row__metas {
     grid-area: metas;
@@ -15423,7 +15478,7 @@ button.pe-res-resource-youtube-thumb:hover {
     text-overflow: unset;
   }
   .admin-notice-table-row__actions,
-  .admin-notice-table-row__chev { grid-area: actions; align-self: start; }
+  .admin-notice-table-row__chev { grid-area: actions; align-self: center; }
 
   .admin-notice-table-actions {
     width: 100%;

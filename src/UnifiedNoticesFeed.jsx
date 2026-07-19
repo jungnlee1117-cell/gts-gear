@@ -493,20 +493,21 @@ export default function UnifiedNoticesFeed({
                   >
                     <span className="admin-notice-table-row__badge"><TableBadge type={item.type}/></span>
                     <span className={`admin-notice-table-row__title${unread ? " is-unread" : ""}`}>
-                      {unread ? <span className="notice-unread-dot" aria-hidden /> : null}
-                      {item.pinned ? <span className="admin-notice-pin" aria-hidden>📌</span> : null}
-                      {item.source === "notice" ? (
-                        <span
-                          className={`admin-notice-badge admin-notice-badge--${item.scopeTone || (item.institutionId ? "institution" : "global")}`}
-                          style={{ marginRight: 6 }}
-                        >
-                          {item.scopeLabel || (item.institutionId ? (item.institutionName || "담당기관") : "전체")}
-                        </span>
-                      ) : null}
-                      {item.title}
-                      {stat ? (
-                        <span className="admin-notice-read-stat">{stat}</span>
-                      ) : null}
+                      <span className="admin-notice-table-row__title-meta">
+                        {unread ? <span className="notice-unread-dot" aria-hidden /> : null}
+                        {item.pinned ? <span className="admin-notice-pin" aria-hidden>📌</span> : null}
+                        {item.source === "notice" ? (
+                          <span
+                            className={`admin-notice-badge admin-notice-badge--${item.scopeTone || (item.institutionId ? "institution" : "global")}`}
+                          >
+                            {item.scopeLabel || (item.institutionId ? (item.institutionName || "담당기관") : "전체")}
+                          </span>
+                        ) : null}
+                        {stat ? (
+                          <span className="admin-notice-read-stat">{stat}</span>
+                        ) : null}
+                      </span>
+                      <span className="admin-notice-table-row__title-text">{item.title}</span>
                     </span>
                     <div className="admin-notice-table-row__metas">
                       <span className="admin-notice-table-row__meta">{noticeAuthor(item)}</span>
