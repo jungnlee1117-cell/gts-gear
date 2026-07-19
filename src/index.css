@@ -1002,6 +1002,57 @@ code {
   margin-bottom: 24px;
 }
 
+/* ── 내 대여·반납 카드 그리드 (대여 신청 / 대여 중 교구) ── */
+.gts-rental-cards-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 1024px) {
+  .gts-rental-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+
+.gts-rental-req-card {
+  margin-bottom: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.gts-rental-holding-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e8ecee;
+  border-radius: 12px;
+  background: #fff;
+  box-sizing: border-box;
+  height: 100%;
+  margin: 0;
+}
+
+.gts-rental-holding-card__top {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.gts-rental-holding-card__meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.gts-rental-holding-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding-top: 2px;
+}
+
 /* ── GTS 교구 QR 카드 (화면 · 인쇄 공통) ── */
 .gts-qr-screen-grid {
   display: grid;
@@ -13126,6 +13177,71 @@ button.pe-res-resource-youtube-thumb:hover {
 .gear-status-card__more:hover {
   background: #f8fafc;
   border-color: #d1d5db;
+}
+
+/* ── 반납 안내 배너 ── */
+.gts-return-prompt-banner {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 0;
+  border: 1px solid #99f6e4;
+  border-radius: 12px;
+  background: #ccfbf1;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  box-sizing: border-box;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+.gts-return-prompt-banner:hover {
+  filter: brightness(0.98);
+}
+.gts-return-prompt-banner:active {
+  transform: scale(0.997);
+}
+.gts-return-prompt-banner__accent {
+  width: 5px;
+  flex-shrink: 0;
+  background: #0f766e;
+}
+.gts-return-prompt-banner__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 12px 14px 14px;
+}
+.gts-return-prompt-banner__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f766e;
+  line-height: 1.35;
+}
+.gts-return-prompt-banner__sub {
+  font-size: 13px;
+  font-weight: 500;
+  color: #115e59;
+  line-height: 1.4;
+}
+.gts-return-prompt-banner__cta {
+  flex-shrink: 0;
+  align-self: center;
+  margin-right: 14px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #0f766e;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.hub-page .gts-return-prompt-banner {
+  margin: 0 0 20px;
 }
 
 /* ── 공지사항 허브 (상단 2열) ── */

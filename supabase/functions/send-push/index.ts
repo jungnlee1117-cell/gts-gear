@@ -835,11 +835,15 @@ async function resolveNotification(event, payload, userId, adminClient) {
         return { error: "Forbidden", status: 403 };
       }
       const title = String(payload.title || "").trim() || "제목 없음";
+      const noticeId = payload.notice_id || payload.id;
+      const noticeUrl = noticeId
+        ? `/gear?page=notices&notice=${encodeURIComponent(String(noticeId))}`
+        : "/gear?page=notices";
       return {
         teacherIds: await resolveNoticePostedTeacherIds(adminClient, payload || {}),
         title: "공지사항",
         body: `새 공지사항: ${title}`,
-        url: "/gear",
+        url: noticeUrl,
       };
     }
     case "event_scheduled": {

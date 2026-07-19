@@ -43,6 +43,7 @@ import {
   normalizeCategoryKey,
 } from "./gearCategoryData.js";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
+import ReturnPromptBanner, { sumHeldQuantity } from "./ReturnPromptBanner.jsx";
 import UnifiedNoticesFeed from "./UnifiedNoticesFeed.jsx";
 import TeacherAccountsPage from "./TeacherAccountsPage.jsx";
 import { getTeacherAccessBlock } from "./teacherResign.js";
@@ -1392,10 +1393,10 @@ function buildSidebarNav(me) {
       {
         type: "group", id: "rental", label: "대여관리", glyph: "rental-manage",
         children: [
-          { id: "rental-approval", label: "대여승인" },
-          { id: "reservation-approval", label: "예약승인" },
           { id: "rental-status", label: "대여현황" },
+          { id: "rental-approval", label: "대여승인" },
           { id: "returns-approval", label: "반납승인" },
+          { id: "reservation-approval", label: "예약승인" },
           { id: "overdue", label: "연체관리" },
         ],
       },
@@ -1420,10 +1421,10 @@ function buildSidebarNav(me) {
       {
         type: "group", id: "rental", label: "대여관리", glyph: "rental-manage",
         children: [
-          { id: "rental-approval", label: "대여승인" },
-          { id: "reservation-approval", label: "예약승인" },
           { id: "rental-status", label: "대여현황" },
+          { id: "rental-approval", label: "대여승인" },
           { id: "returns-approval", label: "반납승인" },
+          { id: "reservation-approval", label: "예약승인" },
           { id: "overdue", label: "연체관리" },
         ],
       },
@@ -7335,7 +7336,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   );
 }
 
-function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris, rets, setPage, onItemClick, teachers, adminTodos, onAddTodo, onToggleTodo, onDeleteTodo, onUpdateTodo }) {
+function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris, rets, setPage, onItemClick, teachers, adminTodos, onAddTodo, onToggleTodo, onDeleteTodo, onUpdateTodo, initialNoticeId, onNoticeDeepLinkConsumed }) {
   const canManage = isGearPlatformAdmin(me) || isItemAdmin(me);
   const showUnreadStyles = isGearTeacher(me) || (!canManage && me?.role === "teacher");
   const [title, setTitle] = useState("");
@@ -7354,6 +7355,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   const [readNoticeIds, setReadNoticeIds] = useState(() => new Set());
   const [readStatsByNoticeId, setReadStatsByNoticeId] = useState(() => new Map());
   const [readsTick, setReadsTick] = useState(0);
+  const deepLinkOpenedRef = useRef(null);
 
   const resetComposeForm = useCallback(() => {
     setTitle("");
@@ -7449,10 +7451,46 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   const handleResendUnread = useCallback(async (notice, teacherIds) => {
     await sendPushEvent(supabase, "notice_posted", {
       title: notice?.title || "공지사항",
+      notice_id: notice?.id,
       audience_type: "specific",
       audience_teacher_ids: teacherIds || [],
     });
   }, []);
+
+  useEffect(() => {
+    if (!initialNoticeId || feedLoading) return;
+    if (deepLinkOpenedRef.current === String(initialNoticeId)) return;
+    let cancelled = false;
+
+    const fromFeed = (feedItems || []).find(
+      (i) => i.source === "notice" && i.raw?.id != null && String(i.raw.id) === String(initialNoticeId),
+    );
+    const fromList = (notices || []).find((n) => n?.id != null && String(n.id) === String(initialNoticeId));
+    const target = fromFeed?.raw || fromList || null;
+
+    const open = (notice) => {
+      if (cancelled || !notice) return;
+      deepLinkOpenedRef.current = String(initialNoticeId);
+      setViewNotice(notice);
+      onNoticeDeepLinkConsumed?.();
+    };
+
+    if (target) {
+      open(target);
+      return () => { cancelled = true; };
+    }
+
+    (async () => {
+      const { data, error } = await supabase
+        .from("notices")
+        .select("*, institutions(id, name)")
+        .eq("id", initialNoticeId)
+        .maybeSingle();
+      if (!cancelled && !error && data) open(data);
+    })();
+
+    return () => { cancelled = true; };
+  }, [initialNoticeId, feedItems, feedLoading, notices, onNoticeDeepLinkConsumed]);
 
   const handleAdd = async () => {
     if (kind === "event") {
@@ -7483,7 +7521,12 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
     }
   };
 
-  const alertCount = canManage ? 0 : buildDueReturns(buildCurrentRentals(me, reqs || [], ris || [], items || [], rets || [])).length;
+  const currentRentals = useMemo(
+    () => buildCurrentRentals(me, reqs || [], ris || [], items || [], rets || []),
+    [me, reqs, ris, items, rets],
+  );
+  const heldCount = useMemo(() => sumHeldQuantity(currentRentals), [currentRentals]);
+  const alertCount = canManage ? 0 : buildDueReturns(currentRentals).length;
 
   return (
     <PageShell>
@@ -7492,6 +7535,13 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         subtitle={canManage ? PAGE_META.notices.sub : "대여·반납과 예약 현황을 한눈에 확인하세요."}
         alertCount={alertCount}
       />
+
+      {canPersonalGearRental(me) ? (
+        <ReturnPromptBanner
+          heldCount={heldCount}
+          onGoReturn={() => setPage("return-request")}
+        />
+      ) : null}
 
       <div className="notices-hub-top notices-hub-top--unified">
         <UnifiedNoticesFeed
@@ -7619,9 +7669,10 @@ function RentalManageHubPage({me,setPage}) {
       desc: "내가 대여한 교구 반납 신청",
       color: "#7c3aed",
     }] : []),
-    { id: "rental-approval", label: "대여승인", desc: "선생님 대여 신청 승인", color: "#d97706" },
     { id: "rental-status", label: "대여현황", desc: "선생님별 대여 현황", color: DS.primary },
+    { id: "rental-approval", label: "대여승인", desc: "선생님 대여 신청 승인", color: "#d97706" },
     { id: "returns-approval", label: "반납승인", desc: "반납 신청 승인", color: "#2563eb" },
+    { id: "reservation-approval", label: "예약승인", desc: "예약 신청 승인", color: "#0d9488" },
     { id: "overdue", label: "연체관리", desc: "연체 건 조회", color: "#dc2626" },
   ];
   return (
@@ -7732,6 +7783,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onReturn
           action={selectedItemIds.size > 0 ? startMultiReturn : undefined}
           actionLabel={selectedItemIds.size > 0 ? `선택 ${selectedItemIds.size}건 반납 ›` : undefined}
         >
+          <div className="gts-rental-cards-grid">
           {holdings.map(group => {
             const item = group.item;
             const pendingRets = (rets || []).filter(
@@ -7739,26 +7791,23 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onReturn
             );
             const checked = selectedItemIds.has(group.item_id);
             return (
-              <div key={group.item_id} style={{
-                padding: "14px 0",
-                borderTop: "1px solid #f1f5f9",
-              }}>
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div key={group.item_id} className="gts-rental-holding-card">
+                <div className="gts-rental-holding-card__top">
                   <input
                     type="checkbox"
                     checked={checked}
                     disabled={group.totalReturnable <= 0}
                     onChange={() => toggleHold(group.item_id)}
-                    style={{ marginTop: 18 }}
+                    style={{ marginTop: 14 }}
                     aria-label={`${item?.name || "교구"} 선택`}
                   />
                   {item?.photo_url ? (
-                    <div style={{ width: 56, height: 56, borderRadius: 10, overflow: "hidden", flexShrink: 0 }}>
-                      <GearItemImg item={item} style={{ width: 56, height: 56 }}/>
+                    <div style={{ width: 48, height: 48, borderRadius: 10, overflow: "hidden", flexShrink: 0 }}>
+                      <GearItemImg item={item} style={{ width: 48, height: 48 }}/>
                     </div>
                   ) : (
                     <div style={{
-                      width: 56, height: 56, borderRadius: 10, background: "#f8fafc",
+                      width: 48, height: 48, borderRadius: 10, background: "#f8fafc",
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 10, fontWeight: 700, color: DS.textMuted, border: "1px solid #e2e8f0",
                       flexShrink: 0,
@@ -7766,20 +7815,22 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onReturn
                       {item?.code?.slice(0, 4) || "—"}
                     </div>
                   )}
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <div style={{ fontWeight: 800, fontSize: 15, color: DS.textPrimary }}>{item?.name || "-"}</div>
-                    <div style={{ fontFamily: "monospace", fontSize: 11, color: DS.textMuted, marginTop: 3 }}>
+                  <div className="gts-rental-holding-card__meta">
+                    <div style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary, lineHeight: 1.35 }}>
+                      {item?.name || "-"}
+                    </div>
+                    <div style={{ fontFamily: "monospace", fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
                       {item?.code}
                     </div>
                     {item?.last_return_location && (
                       <div style={{ fontSize: 11, color: "#0f766e", marginTop: 4, fontWeight: 600 }}>
-                        최근 반납 위치: {item.last_return_location}
+                        최근 반납: {item.last_return_location}
                       </div>
                     )}
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
                       <span style={{
-                        fontSize: 13, fontWeight: 800, color: RETURN_THEME.text,
-                        background: RETURN_THEME.light, padding: "4px 10px", borderRadius: 8,
+                        fontSize: 12, fontWeight: 800, color: RETURN_THEME.text,
+                        background: RETURN_THEME.light, padding: "3px 8px", borderRadius: 8,
                       }}>
                         대여 중 {group.totalHeld}개
                       </span>
@@ -7787,44 +7838,45 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onReturn
                         <Badge s="return_pending" tone="return"/>
                       )}
                     </div>
-                    <div style={{ marginTop: 10, fontSize: 11, color: DS.textSecondary, lineHeight: 1.6 }}>
-                      {group.lines.map(line => {
-                        const dd = ddayTag(line.due_date);
-                        return (
-                          <div key={line.ri.id}>
-                            · {line.req?.dispatch_location || "파견지"} — 보유 {line.held}개
-                            {line.pendingRet > 0 && (
-                              <span style={{ color: RETURN_THEME.text, fontWeight: 600 }}> (반납 대기 {line.pendingRet}개)</span>
-                            )}
-                            {dd && <span style={{ color: dd.color, marginLeft: 6 }}>{dd.text}</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {pendingRets.length > 0 && (
-                      <div style={{ marginTop: 8 }}>
-                        {pendingRets.map(ret => (
-                          <div key={ret.id} style={{ fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
-                            └ 반납 요청 {ret.quantity}개 · <Badge s={ret.status} tone="return"/>
-                          </div>
-                        ))}
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: DS.textSecondary, lineHeight: 1.55 }}>
+                  {group.lines.map(line => {
+                    const dd = ddayTag(line.due_date);
+                    return (
+                      <div key={line.ri.id}>
+                        · {line.req?.dispatch_location || "파견지"} — 보유 {line.held}개
+                        {line.pendingRet > 0 && (
+                          <span style={{ color: RETURN_THEME.text, fontWeight: 600 }}> (반납 대기 {line.pendingRet}개)</span>
+                        )}
+                        {dd && <span style={{ color: dd.color, marginLeft: 6 }}>{dd.text}</span>}
                       </div>
-                    )}
+                    );
+                  })}
+                </div>
+                {pendingRets.length > 0 && (
+                  <div>
+                    {pendingRets.map(ret => (
+                      <div key={ret.id} style={{ fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
+                        └ 반납 요청 {ret.quantity}개 · <Badge s={ret.status} tone="return"/>
+                      </div>
+                    ))}
                   </div>
-                  <div style={{ flexShrink: 0 }}>
-                    <Btn
-                      sm
-                      color={RETURN_THEME.primary}
-                      disabled={group.totalReturnable <= 0}
-                      onClick={() => onReturnItem(group)}
-                    >
-                      {group.totalReturnable > 0 ? "반납 신청" : "반납 승인 대기"}
-                    </Btn>
-                  </div>
+                )}
+                <div className="gts-rental-holding-card__actions">
+                  <Btn
+                    sm
+                    color={RETURN_THEME.primary}
+                    disabled={group.totalReturnable <= 0}
+                    onClick={() => onReturnItem(group)}
+                  >
+                    {group.totalReturnable > 0 ? "반납 신청" : "반납 승인 대기"}
+                  </Btn>
                 </div>
               </div>
             );
           })}
+          </div>
         </PanelSection>
       )}
     </>
@@ -8928,11 +8980,12 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
 // 대여 신청 관리
 // ═══════════════════════════════════════════════════════════════════════
 function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCancelRequest,onEditRequest,embedded=false}) {
-  const admin=isItemAdmin(me);
+  // 내 대여·반납(embedded)에서는 role과 무관하게 본인 신청만 표시. 관리자 전체 목록은 대여승인 등 별도 화면.
+  const manageAll = isItemAdmin(me) && !embedded;
   const[tab,setTab]=useState("active");
   const[rejectId,setRejectId]=useState(null);
   const[reason,setReason]=useState("");
-  const mine=admin?reqs:reqs.filter(r=>r.teacher_id===me.id);
+  const mine=manageAll?reqs:reqs.filter(r=>r.teacher_id===me.id);
   const active=mine.filter(r=>["pending","approved","partial"].includes(r.status));
   const done=mine.filter(r=>["rejected","completed","cancelled"].includes(r.status));
   const list=tab==="active"?active:done;
@@ -8946,10 +8999,10 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCance
       }}>
         <DashStatCard label="진행 중" value={active.length} iconMark="진행" iconBg={DS.primaryLight} iconColor={DS.primary}/>
         <DashStatCard label="완료·거절" value={done.length} iconMark="완료" iconBg="#f1f5f9" iconColor="#64748b"/>
-        {admin&&<DashStatCard label="승인 대기" value={pendingCount} iconMark="대기" iconBg="#fef3c7" iconColor="#d97706"/>}
+        {manageAll&&<DashStatCard label="승인 대기" value={pendingCount} iconMark="대기" iconBg="#fef3c7" iconColor="#d97706"/>}
       </div>
 
-      {!admin && !embedded && active.length > 0 && (
+      {!manageAll && !embedded && active.length > 0 && (
         <div style={{
           background: "#fff7ed",
           border: "1px solid #fed7aa",
@@ -8979,19 +9032,24 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCance
       </div>
 
       {!list.length&&<Empty text="해당하는 대여 기록이 없습니다"/>}
+      {!!list.length && (
+      <div className="gts-rental-cards-grid">
       {list.map(req=>{
         const t=teachers.find(x=>x.id===req.teacher_id);
         const reqRIs=ris.filter(ri=>ri.request_id===req.id);
         return(
-          <div key={req.id} style={{...card,borderLeft:`3px solid ${SC[req.status]?.c||"#e2e8f0"}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-              <div>
-                {admin&&(
+          <div key={req.id} className="gts-rental-req-card" style={{...card,borderLeft:`3px solid ${SC[req.status]?.c||"#e2e8f0"}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
+              <div style={{minWidth:0,flex:1}}>
+                {manageAll&&(
                   <div style={{fontSize:11,fontWeight:700,color:DS.primary,marginBottom:3}}>
                     {t?.name} <RoleBadge role={t?.role} isItemAdmin={t?.is_item_admin}/>
                   </div>
                 )}
-                <div style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{req.dispatch_location}</div>
+                <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8}}>
+                  <div style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{req.dispatch_location}</div>
+                  <Badge s={req.status}/>
+                </div>
                 <div style={{fontSize:11,color:DS.textSecondary,marginTop:2}}>{fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}</div>
                 {req.memo&&<div style={{fontSize:11,color:DS.textMuted,marginTop:1}}>{req.memo}</div>}
                 {req.rejection_reason&&(
@@ -9000,16 +9058,15 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCance
                   </div>
                 )}
               </div>
-              <Badge s={req.status}/>
             </div>
             {reqRIs.map(ri=>{const dd=ddayTag(ri.due_date);const relRets=rets.filter(r=>r.rental_item_id===ri.id);return(
               <div key={ri.id} style={{padding:"7px 0",borderTop:"1px solid #f8fafc"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{fontSize:13,fontWeight:600,color:DS.textPrimary}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:13,fontWeight:600,color:DS.textPrimary,minWidth:0}}>
                     {iname(ri.item_id,items)} ×{ri.quantity}개
                     {ri.due_date && <span style={{ fontSize: 11, color: DS.textMuted, marginLeft: 6 }}>반납예정 {fmt(ri.due_date)}</span>}
                   </span>
-                  <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                  <div style={{display:"flex",gap:5,alignItems:"center",flexShrink:0}}>
                     {dd&&<span style={{fontSize:11,color:dd.color,fontWeight:dd.urgent?800:500}}>{dd.text}</span>}
                     <Badge s={ri.status}/>
                   </div>
@@ -9021,13 +9078,13 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCance
                 ))}
               </div>
             );})}
-            {!admin && req.status === "pending" && (
+            {!manageAll && req.status === "pending" && (
               <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                 <Btn sm onClick={() => onEditRequest?.(req)}>신청 수정</Btn>
                 <Btn sm ghost danger onClick={() => onCancelRequest?.(req.id)}>신청 취소</Btn>
               </div>
             )}
-            {admin&&req.status==="pending"&&(
+            {manageAll&&req.status==="pending"&&(
               <div style={{display:"flex",gap:8,marginTop:10}}>
                 <Btn sm color={DS.primary} onClick={()=>onApprove(req.id)}>승인</Btn>
                 <Btn sm danger onClick={()=>{setRejectId(req.id);setReason("");}}>거절</Btn>
@@ -9036,6 +9093,8 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCance
           </div>
         );
       })}
+      </div>
+      )}
 
       {rejectId&&(
         <Modal title="거절 사유 입력" onClose={()=>setRejectId(null)}>
@@ -9050,7 +9109,7 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCance
   if (embedded) return body;
   return (
     <PageShell>
-      <PageHeader me={me} subtitle={PAGE_META.rentals.sub} alertCount={admin ? pendingCount : 0}/>
+      <PageHeader me={me} subtitle={PAGE_META.rentals.sub} alertCount={manageAll ? pendingCount : 0}/>
       {body}
     </PageShell>
   );
@@ -10425,9 +10484,11 @@ function HubPage({ me, onSelect, onLogout }) {
   const [feedLoading, setFeedLoading] = useState(true);
   const [viewNotice, setViewNotice] = useState(null);
   const [readNoticeIds, setReadNoticeIds] = useState(() => new Set());
+  const [heldCount, setHeldCount] = useState(0);
 
   const showTodo = isItemAdmin(me);
   const showUnreadStyles = isGearTeacher(me) || me?.role === "teacher";
+  const showReturnBanner = canPersonalGearRental(me);
   const [todos, setTodos] = useState([]);
   const [todoTeachers, setTodoTeachers] = useState([]);
   const [todoReqs, setTodoReqs] = useState([]);
@@ -10446,6 +10507,53 @@ function HubPage({ me, onSelect, onLogout }) {
       });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!showReturnBanner || !me?.id) {
+      setHeldCount(0);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: reqRows, error: reqErr } = await supabase
+          .from("rental_requests")
+          .select("id,teacher_id,status,dispatch_start,dispatch_end,dispatch_location,created_at")
+          .eq("teacher_id", me.id);
+        if (reqErr) throw reqErr;
+        const reqs = reqRows || [];
+        const reqIds = reqs.map((r) => r.id).filter(Boolean);
+        if (!reqIds.length) {
+          if (!cancelled) setHeldCount(0);
+          return;
+        }
+        const { data: riRows, error: riErr } = await supabase
+          .from("rental_items")
+          .select("id,quantity,status,request_id,item_id,due_date,approved_at,created_at")
+          .in("request_id", reqIds)
+          .in("status", ["rented", "partial_returned"]);
+        if (riErr) throw riErr;
+        const ris = riRows || [];
+        const riIds = ris.map((r) => r.id).filter(Boolean);
+        let rets = [];
+        if (riIds.length) {
+          const { data: retRows, error: retErr } = await supabase
+            .from("return_requests")
+            .select("rental_item_id,quantity,status")
+            .in("rental_item_id", riIds);
+          if (retErr) throw retErr;
+          rets = retRows || [];
+        }
+        if (cancelled) return;
+        const rentals = buildCurrentRentals(me, reqs, ris, [], rets);
+        setHeldCount(sumHeldQuantity(rentals));
+      } catch (e) {
+        console.warn("허브 대여 건수 로드 실패", e);
+        if (!cancelled) setHeldCount(0);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showReturnBanner, me?.id]);
 
   useEffect(() => {
     if (!showUnreadStyles || !me?.id) return;
@@ -10581,6 +10689,13 @@ function HubPage({ me, onSelect, onLogout }) {
             </p>
           </div>
 
+          {showReturnBanner ? (
+            <ReturnPromptBanner
+              heldCount={heldCount}
+              onGoReturn={() => navigate("/gear?page=return-request")}
+            />
+          ) : null}
+
           <div className="hub-modules hub-modules--core">
             {HUB_MODULES.map(mod => (
               <div key={mod.id} className="hub-module-cell" data-module-id={mod.id}>
@@ -10710,16 +10825,21 @@ function parseGearAppUrl(search, me) {
     page,
     itemId: params.get("item"),
     from: params.get("from") || "items",
+    noticeId: params.get("notice") || null,
   };
 }
 
-function buildGearAppUrl(page, { itemId, from, me } = {}) {
+function buildGearAppUrl(page, { itemId, from, noticeId, me } = {}) {
   const home = gearHomePage(me);
   const params = new URLSearchParams();
   if (page && page !== home) params.set("page", page);
   if (page === "item-detail" && itemId) {
     params.set("item", String(itemId));
     if (from && from !== "items") params.set("from", from);
+  }
+  if (page === "notices" && noticeId) {
+    if (!params.has("page")) params.set("page", "notices");
+    params.set("notice", String(noticeId));
   }
   const qs = params.toString();
   return qs ? `/gear?${qs}` : "/gear";
@@ -10728,7 +10848,7 @@ function buildGearAppUrl(page, { itemId, from, me } = {}) {
 function EquipmentApp({ onBack, me, session }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { page, itemId, from } = useMemo(
+  const { page, itemId, from, noticeId } = useMemo(
     () => parseGearAppUrl(location.search, me),
     [location.search, me?.id, me?.role],
   );
@@ -10775,6 +10895,10 @@ function EquipmentApp({ onBack, me, session }) {
     }
     navigate(buildGearAppUrl(nextPage, { ...meta, me }), { replace });
   }, [navigate, me]);
+
+  const clearNoticeDeepLink = useCallback(() => {
+    setPage("notices", {}, { replace: true });
+  }, [setPage]);
 
   useEffect(() => {
     if (!me?.id) return;
@@ -10959,6 +11083,7 @@ function EquipmentApp({ onBack, me, session }) {
     if (savedToDb) {
       void sendPushEvent(supabase, "notice_posted", {
         title: row.title,
+        notice_id: saved?.id,
         audience_type: saved?.audience_type || row.audience_type,
         institution_id: saved?.institution_id || row.institution_id,
         audience_teacher_ids: saved?.audience_teacher_ids || row.audience_teacher_ids,
@@ -11803,6 +11928,8 @@ function EquipmentApp({ onBack, me, session }) {
           onToggleTodo={toggleAdminTodo}
           onDeleteTodo={deleteAdminTodo}
           onUpdateTodo={updateAdminTodo}
+          initialNoticeId={noticeId}
+          onNoticeDeepLinkConsumed={clearNoticeDeepLink}
         />
       );
     }
@@ -11967,6 +12094,8 @@ function EquipmentApp({ onBack, me, session }) {
             onToggleTodo={toggleAdminTodo}
             onDeleteTodo={deleteAdminTodo}
             onUpdateTodo={updateAdminTodo}
+            initialNoticeId={noticeId}
+            onNoticeDeepLinkConsumed={clearNoticeDeepLink}
           />
         )}
         {page==="settings"&&<SettingsPage me={me} onChangePw={()=>setShowPwModal(true)} onLogout={logout} onDataExport={superA ? () => navigate("/admin/data-export") : undefined}/>}

@@ -9,6 +9,19 @@ import { preloadVapidPublicKey } from './pushNotifications.js'
 
 if ('serviceWorker' in navigator) {
   registerSW({ immediate: true })
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const data = event?.data
+    if (data?.type === 'GTS_NAVIGATE' && typeof data.url === 'string' && data.url) {
+      try {
+        const next = new URL(data.url, window.location.origin)
+        if (next.origin === window.location.origin) {
+          window.location.assign(next.pathname + next.search + next.hash)
+        }
+      } catch {
+        // ignore
+      }
+    }
+  })
 }
 
 preloadVapidPublicKey()

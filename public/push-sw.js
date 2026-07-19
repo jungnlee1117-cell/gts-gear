@@ -78,6 +78,19 @@ async function handleNotificationClick(event) {
   for (const client of windowClients) {
     if ('focus' in client) {
       await client.focus()
+      if (typeof client.navigate === 'function') {
+        try {
+          await client.navigate(targetUrl)
+          return
+        } catch {
+          // navigate 미지원/실패 시 postMessage로 폴백
+        }
+      }
+      try {
+        client.postMessage({ type: 'GTS_NAVIGATE', url: targetUrl })
+      } catch {
+        // ignore
+      }
       return
     }
   }
