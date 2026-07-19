@@ -64,7 +64,6 @@ CREATE POLICY "notices_select" ON public.notices
           WHERE a.institution_id = notices.institution_id
             AND a.teacher_id = auth.uid()
             AND a.is_active = true
-            AND COALESCE(a.role, 'teacher') = 'teacher'
         )
         OR EXISTS (
           SELECT 1

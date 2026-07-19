@@ -1,6 +1,8 @@
 -- notices: 기관 공개 범위 (institution_id) + 행사 일정 기간/유형
 -- Supabase SQL Editor에서 실행
--- 선행: schedule_payroll_patch_16 (is_schedule_superadmin, manages_institution)
+--
+-- notices_select RLS는 이 파일에서 만들지 않음.
+-- (manages_institution 의존) → notices_audience_patch.sql 의 select 정책을 사용.
 
 ALTER TABLE public.notices
   ADD COLUMN IF NOT EXISTS institution_id uuid REFERENCES public.institutions(id) ON DELETE SET NULL;
@@ -21,25 +23,3 @@ COMMENT ON COLUMN public.notices.exception_type IS
 CREATE INDEX IF NOT EXISTS idx_notices_institution_id
   ON public.notices (institution_id)
   WHERE institution_id IS NOT NULL;
-
-DROP POLICY IF EXISTS "notices_select" ON public.notices;
-CREATE POLICY "notices_select" ON public.notices
-  FOR SELECT TO authenticated
-  USING (
-    institution_id IS NULL
-    OR public.is_schedule_superadmin()
-    OR public.manages_institution(institution_id)
-    OR EXISTS (
-      SELECT 1
-      FROM public.institution_teacher_assignments a
-      WHERE a.institution_id = notices.institution_id
-        AND a.teacher_id = auth.uid()
-        AND a.is_active = true
-    )
-    OR EXISTS (
-      SELECT 1
-      FROM public.institution_weekly_schedule w
-      WHERE w.institution_id = notices.institution_id
-        AND w.teacher_id = auth.uid()
-    )
-  );

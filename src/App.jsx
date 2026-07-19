@@ -13,7 +13,7 @@ import {
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import { QRCodeCanvas } from "qrcode.react";
-import { PersonStanding, ChevronLeft, ChevronRight } from "lucide-react";
+import { PersonStanding, MapPin, ChevronLeft, ChevronRight } from "lucide-react";
 import GrowthApp from "./GrowthApp.jsx";
 import ScheduleApp from "./ScheduleApp.jsx";
 import PlatformMainButton from "./PlatformMainButton.jsx";
@@ -73,6 +73,12 @@ import {
   splitReadUnreadTeachers,
 } from "./noticeReads.js";
 import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin, canPersonalGearRental } from "./authRoles.js";
+import {
+  RETURN_PHOTO_REQUIRED,
+  compressReturnPhoto,
+  uploadReturnPhoto,
+  validateReturnLocationGroups,
+} from "./returnPhoto.js";
 import { useMediaQuery } from "./useMediaQuery.js";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { fetchInstitutions } from "./schedule/api.js";
@@ -4391,7 +4397,33 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
             transition:"all 0.15s",
           }}>
             <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10}}>
-              <GearItemThumbnail item={item} size={80}/>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0, alignItems: "center" }}>
+                <GearItemThumbnail item={item} size={80}/>
+                {(item.last_return_location || item.last_return_photo_url) && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, maxWidth: 80 }}>
+                    {item.last_return_photo_url ? (
+                      <img
+                        src={item.last_return_photo_url}
+                        alt="최근 반납"
+                        style={{
+                          width: 28, height: 28, borderRadius: 6, objectFit: "cover",
+                          border: "1px solid #99f6e4", flexShrink: 0,
+                        }}
+                      />
+                    ) : null}
+                    {item.last_return_location ? (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, color: "#0f766e", lineHeight: 1.25,
+                        wordBreak: "keep-all",
+                      }}>
+                        반납 {item.last_return_location}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "#0f766e" }}>반납 사진</span>
+                    )}
+                  </div>
+                )}
+              </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                   <div style={{flex:1}}>
@@ -4531,6 +4563,103 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
   );
 }
 
+function hasLastReturnInfo(item) {
+  return Boolean(item?.last_return_location || item?.last_return_photo_url || item?.last_return_at);
+}
+
+/** 최근 반납 위치 카드 (상세·둘러보기 모달 공용) */
+function LastReturnLocationCard({ item, teachers, style }) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  if (!hasLastReturnInfo(item)) return null;
+  const photoUrl = item.last_return_photo_url || null;
+  return (
+    <>
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+        padding: "12px 14px",
+        borderRadius: 12,
+        border: "1px solid #99f6e4",
+        background: "#f0fdfa",
+        ...style,
+      }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#0f766e", marginBottom: 4 }}>
+            최근 반납 위치
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: DS.textPrimary }}>
+            {item.last_return_location || "위치 미기록"}
+          </div>
+          <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 4, lineHeight: 1.5 }}>
+            {item.last_return_at ? fmtdt(item.last_return_at) : "일시 없음"}
+            {" · "}
+            반납자 {item.last_returned_by ? tname(item.last_returned_by, teachers) : "-"}
+          </div>
+        </div>
+
+        {photoUrl ? (
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(true)}
+            aria-label="반납 위치 사진 크게 보기"
+            title="클릭하면 크게 보기"
+            style={{
+              display: "block",
+              width: "100%",
+              margin: 0,
+              padding: 0,
+              border: "1px solid #99f6e4",
+              borderRadius: 12,
+              background: "#fff",
+              cursor: "zoom-in",
+              overflow: "hidden",
+              fontFamily: "inherit",
+            }}
+          >
+            <img
+              src={photoUrl}
+              alt="최근 반납 위치 사진"
+              style={{
+                display: "block",
+                width: "100%",
+                maxHeight: 360,
+                height: "auto",
+                objectFit: "contain",
+                objectPosition: "center",
+                background: "#ecfeff",
+              }}
+            />
+          </button>
+        ) : (
+          <div style={{
+            width: "100%",
+            minHeight: 96,
+            borderRadius: 12,
+            background: "#ccfbf1",
+            border: "1px dashed #99f6e4",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 12,
+            fontWeight: 700,
+            color: "#0f766e",
+          }}>
+            반납 사진 없음
+          </div>
+        )}
+      </div>
+      {lightboxOpen && photoUrl && (
+        <ImageLightbox
+          src={photoUrl}
+          alt="최근 반납 위치 사진"
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservations, teachers, onDetail, onOpenCart, onSubmitReservation, onCancelReservation, onSaveItem }) {
   const { categoryMap, categoryKeys } = useGearCategories();
   const [q, setQ] = useState("");
@@ -4540,6 +4669,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
   const [lightbox, setLightbox] = useState(null);
   const [reserveItem, setReserveItem] = useState(null);
   const [editItem, setEditItem] = useState(null);
+  const [returnLocItem, setReturnLocItem] = useState(null);
 
   const list = useMemo(() => {
     let r = [...items];
@@ -4807,6 +4937,26 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                     NEW
                   </span>
                 )}
+                {item.last_return_location && (
+                  <span style={{
+                    position: "absolute",
+                    top: 10,
+                    right: 10,
+                    background: "rgba(15,118,110,0.92)",
+                    color: "#fff",
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    maxWidth: "70%",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
+                  }}>
+                    최근 반납: {item.last_return_location}
+                  </span>
+                )}
                 </div>
 
                 <div style={{ padding: "14px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
@@ -4882,6 +5032,30 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
                         <PersonStanding size={14} strokeWidth={2} />
                       </button>
                     )}
+                    {hasLastReturnInfo(item) && (
+                      <button
+                        type="button"
+                        onClick={() => setReturnLocItem(item)}
+                        title="반납 위치 찾기"
+                        aria-label={`${item.name} 반납 위치 찾기`}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 26,
+                          height: 26,
+                          padding: 0,
+                          borderRadius: 6,
+                          border: "1px solid #99f6e4",
+                          background: "#fff",
+                          color: "#0f766e",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        <MapPin size={14} strokeWidth={2} />
+                      </button>
+                    )}
                   </div>
                   <div style={{
                     marginTop: 10,
@@ -4939,6 +5113,15 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
           alt={lightbox.alt}
           onClose={() => setLightbox(null)}
         />
+      )}
+
+      {returnLocItem && (
+        <Modal title="반납 위치 찾기" onClose={() => setReturnLocItem(null)} center>
+          <div style={{ fontSize: 13, fontWeight: 700, color: DS.textPrimary, marginBottom: 12 }}>
+            {returnLocItem.name}
+          </div>
+          <LastReturnLocationCard item={returnLocItem} teachers={teachers} />
+        </Modal>
       )}
 
       {reserveItem && (
@@ -5013,7 +5196,7 @@ function ImageLightbox({ src, alt, images, index: initialIndex = 0, onClose }) {
     position: "fixed",
     top: "50%",
     transform: "translateY(-50%)",
-    zIndex: 502,
+    zIndex: 1102,
     width: 44,
     height: 44,
     borderRadius: 10,
@@ -5036,7 +5219,7 @@ function ImageLightbox({ src, alt, images, index: initialIndex = 0, onClose }) {
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 500,
+        zIndex: 1100,
         background: "rgba(15, 23, 42, 0.88)",
         display: "flex",
         alignItems: "center",
@@ -5052,7 +5235,7 @@ function ImageLightbox({ src, alt, images, index: initialIndex = 0, onClose }) {
           position: "fixed",
           top: 16,
           right: 16,
-          zIndex: 502,
+          zIndex: 1102,
           width: 44,
           height: 44,
           borderRadius: 10,
@@ -5089,7 +5272,7 @@ function ImageLightbox({ src, alt, images, index: initialIndex = 0, onClose }) {
             bottom: 20,
             left: "50%",
             transform: "translateX(-50%)",
-            zIndex: 502,
+            zIndex: 1102,
             color: "rgba(255,255,255,0.85)",
             fontSize: 13,
             fontWeight: 600,
@@ -5285,6 +5468,7 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLab
             )}
           </>
         )}
+        <LastReturnLocationCard item={item} teachers={teachers} style={{ marginBottom: 14 }} />
         <div style={{display:"flex",gap:12,marginBottom:14}}>
           {!item.photo_url&&(
             <div style={{width:56,height:56,borderRadius:12,background:"#f8fafc",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:DS.textMuted,flexShrink:0,border:"1px solid #e2e8f0"}}>
@@ -7458,12 +7642,13 @@ function RentalManageHubPage({me,setPage}) {
   );
 }
 
-function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancelRequest, onEditRequest, embedded = false }) {
+function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onReturnItems, onCancelRequest, onEditRequest, embedded = false }) {
   const currentYmd = useTodayYmd();
   const holdings = useMemo(
     () => buildTeacherHoldingsByItem(me, reqs, ris, items, rets),
     [me, reqs, ris, items, rets, currentYmd]
   );
+  const [selectedItemIds, setSelectedItemIds] = useState(() => new Set());
   const pendingReqs = useMemo(
     () => reqs.filter(r => r.teacher_id === me.id && r.status === "pending")
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
@@ -7471,6 +7656,21 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancel
   );
   const totalHeld = holdings.reduce((s, h) => s + h.totalHeld, 0);
   const totalPending = holdings.reduce((s, h) => s + h.totalPendingReturn, 0);
+
+  const toggleHold = (itemId) => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const startMultiReturn = () => {
+    const selected = holdings.filter(h => selectedItemIds.has(h.item_id) && h.totalReturnable > 0);
+    if (!selected.length) return alert("반납할 교구를 선택하세요");
+    onReturnItems?.(selected);
+  };
 
   const renderPendingActions = (req) => (
     <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -7527,18 +7727,31 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancel
           <Empty text="현재 대여 중인 교구가 없습니다"/>
         </PanelSection>
       ) : (
-        <PanelSection title={`대여 중인 교구 (${holdings.length})`}>
+        <PanelSection
+          title={`대여 중인 교구 (${holdings.length})`}
+          action={selectedItemIds.size > 0 ? startMultiReturn : undefined}
+          actionLabel={selectedItemIds.size > 0 ? `선택 ${selectedItemIds.size}건 반납 ›` : undefined}
+        >
           {holdings.map(group => {
             const item = group.item;
             const pendingRets = (rets || []).filter(
               r => r.status === "return_pending" && group.lines.some(l => l.ri.id === r.rental_item_id)
             );
+            const checked = selectedItemIds.has(group.item_id);
             return (
               <div key={group.item_id} style={{
                 padding: "14px 0",
                 borderTop: "1px solid #f1f5f9",
               }}>
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={group.totalReturnable <= 0}
+                    onChange={() => toggleHold(group.item_id)}
+                    style={{ marginTop: 18 }}
+                    aria-label={`${item?.name || "교구"} 선택`}
+                  />
                   {item?.photo_url ? (
                     <div style={{ width: 56, height: 56, borderRadius: 10, overflow: "hidden", flexShrink: 0 }}>
                       <GearItemImg item={item} style={{ width: 56, height: 56 }}/>
@@ -7558,6 +7771,11 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancel
                     <div style={{ fontFamily: "monospace", fontSize: 11, color: DS.textMuted, marginTop: 3 }}>
                       {item?.code}
                     </div>
+                    {item?.last_return_location && (
+                      <div style={{ fontSize: 11, color: "#0f766e", marginTop: 4, fontWeight: 600 }}>
+                        최근 반납 위치: {item.last_return_location}
+                      </div>
+                    )}
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
                       <span style={{
                         fontSize: 13, fontWeight: 800, color: RETURN_THEME.text,
@@ -7622,7 +7840,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onCancel
 }
 
 function TeacherRentalReturnPage({
-  me, reqs, ris, items, rets, teachers, onReturnItem, onCancelRequest, onUpdateRequest, initialTab = "rent",
+  me, reqs, ris, items, rets, teachers, onReturnItem, onReturnItems, onCancelRequest, onUpdateRequest, initialTab = "rent",
 }) {
   const [tab, setTab] = useState(initialTab);
   const [editReq, setEditReq] = useState(null);
@@ -7690,6 +7908,7 @@ function TeacherRentalReturnPage({
           items={items}
           rets={rets}
           onReturnItem={onReturnItem}
+          onReturnItems={onReturnItems}
           onCancelRequest={onCancelRequest}
           onEditRequest={setEditReq}
           embedded
@@ -9263,68 +9482,340 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClo
   );
 }
 
-function ItemReturnModal({ group, onSubmit, onClose }) {
-  const max = group.totalReturnable;
-  const [f, setF] = useState({ quantity: max || 1, condition: "normal", memo: "", idea: "" });
+function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
+  const initialGroups = useMemo(() => {
+    const list = groupsProp?.length ? groupsProp : (group ? [group] : []);
+    return list.map(g => ({
+      item_id: g.item_id,
+      item: g.item,
+      lines: g.lines,
+      totalReturnable: g.totalReturnable,
+      totalHeld: g.totalHeld,
+      quantity: g.totalReturnable || 1,
+      location: "",
+      idea: "",
+      condition: "normal",
+      memo: "",
+    }));
+  }, [groupsProp, group]);
+
+  const [rows, setRows] = useState(initialGroups);
+  const [step, setStep] = useState("location"); // location | photo
+  const [bulkLocation, setBulkLocation] = useState(BRANCHES[0] || "");
+  const [selectedIds, setSelectedIds] = useState(() => new Set(initialGroups.map(g => g.item_id)));
+  const [photoByLocation, setPhotoByLocation] = useState({}); // loc -> { file, preview, skipped }
+  const [photoLocIndex, setPhotoLocIndex] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const fileRef = useRef(null);
 
   useEffect(() => {
-    setF({ quantity: max || 1, condition: "normal", memo: "", idea: "" });
-  }, [max, group.item_id]);
+    setRows(initialGroups);
+    setSelectedIds(new Set(initialGroups.map(g => g.item_id)));
+    setStep("location");
+    setPhotoByLocation({});
+    setPhotoLocIndex(0);
+  }, [initialGroups]);
+
+  const locationGroups = useMemo(() => {
+    const map = new Map();
+    for (const r of rows) {
+      const loc = String(r.location || "").trim();
+      if (!loc) continue;
+      if (!map.has(loc)) map.set(loc, []);
+      map.get(loc).push(r);
+    }
+    return [...map.entries()].map(([location, items]) => ({ location, items }));
+  }, [rows]);
+
+  const updateRow = (itemId, patch) => {
+    setRows(prev => prev.map(r => (r.item_id === itemId ? { ...r, ...patch } : r)));
+  };
+
+  const toggleSelect = (itemId) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const applyBulkLocation = () => {
+    if (!bulkLocation) return alert("위치를 선택하세요");
+    setRows(prev => prev.map(r => (
+      selectedIds.has(r.item_id) ? { ...r, location: bulkLocation } : r
+    )));
+  };
+
+  const goPhotoStep = () => {
+    for (const r of rows) {
+      const q = parseInt(r.quantity, 10) || 0;
+      if (q < 1 || q > r.totalReturnable) {
+        return alert(`${r.item?.name || "교구"}: 수량을 1~${r.totalReturnable}개로 입력하세요`);
+      }
+      if (!String(r.location || "").trim()) {
+        return alert("모든 교구의 반납 위치를 선택해 주세요");
+      }
+    }
+    const locs = locationGroups.map(g => g.location);
+    setPhotoByLocation(prev => {
+      const next = { ...prev };
+      for (const loc of locs) {
+        if (!next[loc]) next[loc] = { file: null, preview: null, skipped: false };
+      }
+      return next;
+    });
+    setPhotoLocIndex(0);
+    setStep("photo");
+  };
+
+  const currentLocGroup = locationGroups[photoLocIndex];
+  const currentPhoto = currentLocGroup ? photoByLocation[currentLocGroup.location] : null;
+
+  const setCurrentPhoto = (patch) => {
+    if (!currentLocGroup) return;
+    const loc = currentLocGroup.location;
+    setPhotoByLocation(prev => ({
+      ...prev,
+      [loc]: { ...(prev[loc] || { file: null, preview: null, skipped: false }), ...patch },
+    }));
+  };
+
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("이미지 파일만 업로드할 수 있습니다");
+      return;
+    }
+    try {
+      const blob = await compressReturnPhoto(file);
+      const preview = URL.createObjectURL(blob);
+      setCurrentPhoto({ file: blob, preview, skipped: false });
+    } catch (err) {
+      alert("사진 처리 오류: " + (err.message || "알 수 없는 오류"));
+    }
+    e.target.value = "";
+  };
+
+  const finishCurrentLocAndMaybeNext = (skipped) => {
+    if (!currentLocGroup) return;
+    const loc = currentLocGroup.location;
+    const state = photoByLocation[loc] || {};
+    let nextPhotos = photoByLocation;
+    if (skipped) {
+      if (RETURN_PHOTO_REQUIRED) {
+        return alert("사진이 필수입니다. 촬영하거나 업로드해 주세요.");
+      }
+      const patch = { skipped: true, file: null, preview: null };
+      nextPhotos = { ...photoByLocation, [loc]: { ...(state), ...patch } };
+      setPhotoByLocation(nextPhotos);
+    } else if (!state.file && !state.skipped) {
+      if (RETURN_PHOTO_REQUIRED) {
+        return alert("사진을 촬영하거나 업로드해 주세요.");
+      }
+      return alert("사진을 업로드하거나 「사진 없이 이 위치 반납」을 눌러 주세요.");
+    }
+
+    if (photoLocIndex < locationGroups.length - 1) {
+      setPhotoLocIndex(i => i + 1);
+      return;
+    }
+    submitAll(nextPhotos);
+  };
+
+  const submitAll = async (photosMap = photoByLocation) => {
+    const groupsForValidate = locationGroups.map(g => {
+      const st = photosMap[g.location] || {};
+      return {
+        location: g.location,
+        photoFile: st.file || null,
+        skippedPhoto: Boolean(st.skipped) && !st.file,
+      };
+    });
+    const err = validateReturnLocationGroups(groupsForValidate);
+    if (err) return alert(err);
+
+    setSaving(true);
+    try {
+      const payloads = [];
+      for (const locGroup of locationGroups) {
+        const st = photosMap[locGroup.location] || {};
+        const sharedBlob = st.file || null;
+        for (const row of locGroup.items) {
+          let photoUrl = null;
+          if (sharedBlob) {
+            photoUrl = await uploadReturnPhoto(supabase, row.item_id, sharedBlob);
+          }
+          payloads.push({
+            itemId: row.item_id,
+            quantity: parseInt(row.quantity, 10) || 0,
+            condition: row.condition || "normal",
+            memo: row.memo || "",
+            idea: row.idea || "",
+            lines: row.lines,
+            return_location: locGroup.location,
+            return_photo_url: photoUrl,
+          });
+        }
+      }
+      await onSubmit(payloads);
+    } catch (e) {
+      alert("반납 처리 오류: " + (e.message || "알 수 없는 오류"));
+    }
+    setSaving(false);
+  };
+
+  if (!rows.length) return null;
 
   return (
-    <Modal title={`반납 신청 — ${group.item?.name || ""}`} onClose={onClose}>
-      <div style={{
-        background: RETURN_THEME.light,
-        border: `1px solid ${RETURN_THEME.border}`,
-        borderRadius: 10,
-        padding: "10px 13px",
-        marginBottom: 13,
-        fontSize: 12,
-        color: RETURN_THEME.text,
-        fontWeight: 600,
-        lineHeight: 1.6,
-      }}>
-        교구 종류 기준 반납 · 반납 가능 <strong>{max}개</strong>
-        <div style={{ fontWeight: 500, marginTop: 4, fontSize: 11 }}>
-          대여 중 {group.totalHeld}개
-          {group.totalPendingReturn > 0 && ` · 승인 대기 ${group.totalPendingReturn}개`}
-        </div>
-      </div>
-      <Fld label={`반납 수량 (최대 ${max})`}>
-        <QuantityInput
-          value={f.quantity}
-          min={1}
-          max={max}
-          onChange={quantity => setF(p => ({ ...p, quantity }))}
-        />
-      </Fld>
-      <Sel2 label="반납 상태" value={f.condition} onChange={e => setF(p => ({ ...p, condition: e.target.value }))}>
-        <option value="normal">정상</option>
-        <option value="damaged">파손</option>
-        <option value="lost">분실</option>
-        <option value="shortage">수량부족</option>
-      </Sel2>
-      <Txa2 label="메모" value={f.memo} onChange={e => setF(p => ({ ...p, memo: e.target.value }))}/>
-      <Txa2
-        label="이 교구로 했던 활동 아이디어가 있다면 공유해주세요 (선택)"
-        value={f.idea}
-        onChange={e => setF(p => ({ ...p, idea: e.target.value }))}
-        placeholder="수업에서 활용한 게임·활동 방법을 다른 선생님과 나눠 주세요"
-      />
-      <Btn full color={RETURN_THEME.primary} onClick={() => {
-        const q = parseInt(f.quantity, 10) || 0;
-        if (q < 1 || q > max) return alert(`1~${max}개 사이로 입력하세요`);
-        onSubmit({
-          itemId: group.item_id,
-          quantity: q,
-          condition: f.condition,
-          memo: f.memo,
-          idea: f.idea,
-          lines: group.lines,
-        });
-      }}>
-        반납 신청하기
-      </Btn>
+    <Modal title={rows.length > 1 ? `반납 신청 (${rows.length}종)` : `반납 신청 — ${rows[0].item?.name || ""}`} onClose={onClose}>
+      {step === "location" ? (
+        <>
+          <div style={{
+            background: RETURN_THEME.light, border: `1px solid ${RETURN_THEME.border}`,
+            borderRadius: 10, padding: "10px 13px", marginBottom: 14, fontSize: 12, color: RETURN_THEME.text, lineHeight: 1.55,
+          }}>
+            반납 위치는 필수입니다. 같은 위치로 가는 교구는 묶어서 사진 1장으로 처리할 수 있습니다.
+            {RETURN_PHOTO_REQUIRED
+              ? " 사진은 필수입니다."
+              : " 사진은 권장이며, 다음 단계에서 건너뛸 수 있습니다."}
+          </div>
+
+          {rows.length > 1 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "flex-end" }}>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <Sel2 label="선택한 항목에 위치 일괄 적용" value={bulkLocation} onChange={e => setBulkLocation(e.target.value)}>
+                  {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                </Sel2>
+              </div>
+              <Btn sm color={RETURN_THEME.primary} onClick={applyBulkLocation} style={{ marginBottom: 14 }}>일괄 적용</Btn>
+            </div>
+          )}
+
+          {rows.map(r => (
+            <div key={r.item_id} style={{
+              border: "1px solid #e2e8f0", borderRadius: 12, padding: 12, marginBottom: 10, background: "#fff",
+            }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                {rows.length > 1 && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(r.item_id)}
+                    onChange={() => toggleSelect(r.item_id)}
+                    style={{ marginTop: 4 }}
+                    aria-label="일괄 위치 적용 대상"
+                  />
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14 }}>{r.item?.name || "-"}</div>
+                  <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
+                    반납 가능 {r.totalReturnable}개 · 대여 중 {r.totalHeld}개
+                  </div>
+                  <Fld label={`반납 수량 (최대 ${r.totalReturnable})`}>
+                    <QuantityInput
+                      value={r.quantity}
+                      min={1}
+                      max={r.totalReturnable}
+                      onChange={quantity => updateRow(r.item_id, { quantity })}
+                    />
+                  </Fld>
+                  <Sel2
+                    label="반납 위치 *"
+                    value={r.location}
+                    onChange={e => updateRow(r.item_id, { location: e.target.value })}
+                  >
+                    <option value="">위치 선택</option>
+                    {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                  </Sel2>
+                  {rows.length === 1 && (
+                    <>
+                      <Sel2 label="반납 상태" value={r.condition} onChange={e => updateRow(r.item_id, { condition: e.target.value })}>
+                        <option value="normal">정상</option>
+                        <option value="damaged">파손</option>
+                        <option value="lost">분실</option>
+                        <option value="shortage">수량부족</option>
+                      </Sel2>
+                      <Txa2 label="메모" value={r.memo} onChange={e => updateRow(r.item_id, { memo: e.target.value })}/>
+                      <Txa2
+                        label="이 교구로 했던 활동 아이디어가 있다면 공유해주세요 (선택)"
+                        value={r.idea}
+                        onChange={e => updateRow(r.item_id, { idea: e.target.value })}
+                        placeholder="수업에서 활용한 게임·활동 방법을 다른 선생님과 나눠 주세요"
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <Btn full color={RETURN_THEME.primary} onClick={goPhotoStep}>
+            다음 · 사진 {RETURN_PHOTO_REQUIRED ? "(필수)" : "(권장)"}
+          </Btn>
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: DS.textSecondary, marginBottom: 10 }}>
+            위치 그룹 {photoLocIndex + 1} / {locationGroups.length}
+          </div>
+          {currentLocGroup && (
+            <>
+              <div style={{
+                background: RETURN_THEME.light, borderRadius: 10, padding: "10px 12px", marginBottom: 12,
+                fontSize: 13, fontWeight: 700, color: RETURN_THEME.text,
+              }}>
+                위치: {currentLocGroup.location}
+                <div style={{ fontWeight: 500, fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+                  {currentLocGroup.items.map(it => it.item?.name).filter(Boolean).join(" · ")}
+                </div>
+              </div>
+
+              <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={onPickFile}/>
+
+              {currentPhoto?.preview ? (
+                <div style={{ marginBottom: 12 }}>
+                  <img src={currentPhoto.preview} alt="반납 사진 미리보기" style={{ width: "100%", maxHeight: 240, objectFit: "cover", borderRadius: 12, border: "1px solid #e2e8f0" }}/>
+                  <Btn sm ghost onClick={() => fileRef.current?.click()} style={{ marginTop: 8 }}>사진 다시 선택</Btn>
+                </div>
+              ) : (
+                <div
+                  onClick={() => fileRef.current?.click()}
+                  style={{
+                    width: "100%", height: 160, borderRadius: 14, border: `2px dashed ${DS.inputBorder}`,
+                    background: "#fafafa", display: "flex", flexDirection: "column",
+                    alignItems: "center", justifyContent: "center", cursor: "pointer", marginBottom: 12,
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700, color: DS.textSecondary }}>사진 촬영 / 업로드</div>
+                  <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 4 }}>자동 압축 · JPEG</div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Btn ghost onClick={() => setStep("location")} disabled={saving}>이전</Btn>
+                {!RETURN_PHOTO_REQUIRED && (
+                  <Btn ghost onClick={() => finishCurrentLocAndMaybeNext(true)} disabled={saving}>
+                    사진 없이 이 위치 반납
+                  </Btn>
+                )}
+                <Btn
+                  color={RETURN_THEME.primary}
+                  onClick={() => finishCurrentLocAndMaybeNext(false)}
+                  disabled={saving}
+                  style={{ flex: 1 }}
+                >
+                  {saving
+                    ? "처리 중..."
+                    : (photoLocIndex < locationGroups.length - 1
+                      ? "다음 위치"
+                      : (RETURN_PHOTO_REQUIRED || currentPhoto?.file ? "반납 완료" : "사진 확인 후 완료"))}
+                </Btn>
+              </div>
+            </>
+          )}
+        </>
+      )}
     </Modal>
   );
 }
@@ -10258,6 +10749,7 @@ function EquipmentApp({ onBack, me, session }) {
   const [detailBackPage, setDetailBackPage] = useState("items");
   const [scanRentItem,setScanRentItem]= useState(null);
   const [itemReturnGroup,setItemReturnGroup] = useState(null);
+  const [itemReturnGroups,setItemReturnGroups] = useState(null);
   const [showPwModal,setShowPwModal]= useState(false);
   const [showProfile,setShowProfile]= useState(false);
   const [showMobileMore,setShowMobileMore] = useState(false);
@@ -10960,100 +11452,122 @@ function EquipmentApp({ onBack, me, session }) {
     return true;
   };
 
-  const submitReturnByItem = async ({ quantity, condition, memo, lines, itemId, idea }) => {
+  const submitReturnByItem = async (payloadOrList) => {
+    const list = Array.isArray(payloadOrList) ? payloadOrList : [payloadOrList];
     const autoApprove = isItemAdmin(me);
     const now = new Date().toISOString();
-    let remaining = quantity;
-    const sorted = [...lines].sort(
-      (a, b) => new Date(a.ri.approved_at || a.req?.created_at || 0) - new Date(b.ri.approved_at || b.req?.created_at || 0)
-    );
-    const payloads = [];
-    for (const line of sorted) {
-      if (remaining <= 0) break;
-      if (line.returnable <= 0) continue;
-      const q = Math.min(remaining, line.returnable);
-      payloads.push({
-        rental_item_id: line.ri.id,
-        quantity: q,
-        condition,
-        memo: memo || "",
-        teacher_id: me.id,
-        status: autoApprove ? "return_approved" : "return_pending",
-        ...(autoApprove ? { approved_by: me.id, approved_at: now } : {}),
-      });
-      remaining -= q;
-    }
-    if (remaining > 0) {
-      alert("반납 가능 수량을 초과했습니다.");
-      return;
-    }
-    const created = [];
-    for (const row of payloads) {
-      const { data, error } = await supabase.from("return_requests").insert(row).select().single();
-      if (error) {
-        alert("반납 신청 오류: " + error.message);
+    const allCreated = [];
+
+    for (const { quantity, condition, memo, lines, itemId, idea, return_location, return_photo_url } of list) {
+      if (!String(return_location || "").trim()) {
+        alert("반납 위치가 없습니다.");
         return;
       }
-      created.push(data);
+      let remaining = quantity;
+      const sorted = [...lines].sort(
+        (a, b) => new Date(a.ri.approved_at || a.req?.created_at || 0) - new Date(b.ri.approved_at || b.req?.created_at || 0)
+      );
+      const payloads = [];
+      for (const line of sorted) {
+        if (remaining <= 0) break;
+        if (line.returnable <= 0) continue;
+        const q = Math.min(remaining, line.returnable);
+        payloads.push({
+          rental_item_id: line.ri.id,
+          quantity: q,
+          condition,
+          memo: memo || "",
+          teacher_id: me.id,
+          status: autoApprove ? "return_approved" : "return_pending",
+          return_location: return_location || null,
+          return_photo_url: return_photo_url || null,
+          ...(autoApprove ? { approved_by: me.id, approved_at: now } : {}),
+        });
+        remaining -= q;
+      }
+      if (remaining > 0) {
+        alert("반납 가능 수량을 초과했습니다.");
+        return;
+      }
+      const created = [];
+      for (const row of payloads) {
+        const { data, error } = await supabase.from("return_requests").insert(row).select().single();
+        if (error) {
+          alert("반납 신청 오류: " + error.message);
+          return;
+        }
+        created.push(data);
+        allCreated.push(data);
 
-      if (autoApprove) {
-        const ri = ris.find(r => r.id === row.rental_item_id);
-        if (ri) {
-          const approved = [
-            ...rets.filter(r => r.rental_item_id === row.rental_item_id && r.status === "return_approved"),
-            data,
-          ].reduce((s, r) => s + r.quantity, 0);
-          const ns = approved >= ri.quantity ? "returned" : "partial_returned";
-          const { error: riErr } = await supabase.from("rental_items").update({ status: ns }).eq("id", ri.id);
-          if (riErr) {
-            alert("반납 처리 오류: " + riErr.message);
-            return;
+        if (autoApprove) {
+          const ri = ris.find(r => r.id === row.rental_item_id);
+          if (ri) {
+            const approved = [
+              ...rets.filter(r => r.rental_item_id === row.rental_item_id && r.status === "return_approved"),
+              data,
+            ].reduce((s, r) => s + r.quantity, 0);
+            const ns = approved >= ri.quantity ? "returned" : "partial_returned";
+            const { error: riErr } = await supabase.from("rental_items").update({ status: ns }).eq("id", ri.id);
+            if (riErr) {
+              alert("반납 처리 오류: " + riErr.message);
+              return;
+            }
+            setRIs(p => p.map(r => (r.id === ri.id ? { ...r, status: ns } : r)));
+            const allRI = ris.filter(r => r.request_id === ri.request_id);
+            const allDone = allRI.every(r => (r.id === ri.id ? ns === "returned" : r.status === "returned"));
+            const rs = allDone ? "completed" : "partial";
+            await supabase.from("rental_requests").update({ status: rs }).eq("id", ri.request_id);
+            setReqs(p => p.map(r => (r.id === ri.request_id && r.status !== "rejected" ? { ...r, status: rs } : r)));
           }
-          setRIs(p => p.map(r => (r.id === ri.id ? { ...r, status: ns } : r)));
-          const allRI = ris.filter(r => r.request_id === ri.request_id);
-          const allDone = allRI.every(r => (r.id === ri.id ? ns === "returned" : r.status === "returned"));
-          const rs = allDone ? "completed" : "partial";
-          await supabase.from("rental_requests").update({ status: rs }).eq("id", ri.request_id);
-          setReqs(p => p.map(r => (r.id === ri.request_id && r.status !== "rejected" ? { ...r, status: rs } : r)));
         }
       }
-    }
-    setRets(p => [...created, ...p]);
 
-    if (!autoApprove) {
-      const returnItemName = items.find(i => i.id === itemId)?.name;
-      sendPushEvent(supabase, "return_submitted", {
-        teacher_id: me.id,
-        teacher_name: me.name,
-        item_names: formatPushItemNames([returnItemName]),
-      });
-    }
+      // 교구 최신 반납 스냅샷 (사진 스킵 시 이전 사진은 유지, 위치만 갱신)
+      if (itemId) {
+        const itemPatch = {
+          last_return_location: return_location,
+          last_return_at: now,
+          last_returned_by: me.id,
+          ...(return_photo_url ? { last_return_photo_url: return_photo_url } : {}),
+        };
+        const { error: itemErr } = await supabase.from("items").update(itemPatch).eq("id", itemId);
+        if (itemErr) console.warn("items last_return update:", itemErr.message);
+        else setItems(p => p.map(it => (it.id === itemId ? { ...it, ...itemPatch } : it)));
+      }
 
-    const ideaText = (idea || "").trim();
-    if (ideaText && itemId) {
-      const { error: ideaErr } = await insertItemIdea(supabase, {
-        itemId,
-        teacherId: me.id,
-        teacherName: me.name,
-        content: ideaText,
-      });
-      if (ideaErr) {
-        alert(
-          autoApprove
-            ? "반납은 완료되었으나 활용 아이디어 저장에 실패했습니다.\n" + ideaErr.message
-            : "반납은 접수되었으나 활용 아이디어 저장에 실패했습니다.\n" + ideaErr.message
-        );
+      const ideaText = (idea || "").trim();
+      if (ideaText && itemId) {
+        const { error: ideaErr } = await insertItemIdea(supabase, {
+          itemId,
+          teacherId: me.id,
+          teacherName: me.name,
+          content: ideaText,
+        });
+        if (ideaErr) {
+          console.warn("item idea save failed", ideaErr.message);
+        }
+      }
+
+      if (!autoApprove) {
+        const returnItemName = items.find(i => i.id === itemId)?.name;
+        sendPushEvent(supabase, "return_submitted", {
+          teacher_id: me.id,
+          teacher_name: me.name,
+          item_names: formatPushItemNames([returnItemName]),
+        });
       }
     }
 
+    setRets(p => [...allCreated, ...p]);
     setItemReturnGroup(null);
+    setItemReturnGroups(null);
     alert(
       autoApprove
-        ? (created.length > 1
-          ? `반납 ${created.length}건이 처리되었습니다.\n재고가 반영되었습니다.`
+        ? (allCreated.length > 1
+          ? `반납 ${allCreated.length}건이 처리되었습니다.\n재고가 반영되었습니다.`
           : "반납이 완료되었습니다.\n재고가 반영되었습니다.")
-        : (created.length > 1
-          ? `반납 신청 ${created.length}건이 접수되었습니다.\n상태: 반납 승인 대기 · 관리자 승인 후 재고가 복구됩니다.`
+        : (allCreated.length > 1
+          ? `반납 신청 ${allCreated.length}건이 접수되었습니다.\n상태: 반납 승인 대기 · 관리자 승인 후 재고가 복구됩니다.`
           : "반납 신청이 접수되었습니다.\n상태: 반납 승인 대기 · 관리자 승인 후 재고가 복구됩니다.")
     );
   };
@@ -11420,6 +11934,7 @@ function EquipmentApp({ onBack, me, session }) {
             rets={rets}
             teachers={teachers}
             onReturnItem={setItemReturnGroup}
+            onReturnItems={setItemReturnGroups}
             onCancelRequest={cancelRentalRequest}
             onUpdateRequest={updateRentalRequest}
             initialTab={page==="my-rental-status"||page==="return-request"?"return":"rent"}
@@ -11620,7 +12135,14 @@ function EquipmentApp({ onBack, me, session }) {
             onClose={() => setExtPrompt(null)}
           />
         )}
-        {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
+        {(itemReturnGroups?.length || itemReturnGroup) && (
+          <ItemReturnModal
+            groups={itemReturnGroups}
+            group={itemReturnGroup}
+            onSubmit={submitReturnByItem}
+            onClose={() => { setItemReturnGroup(null); setItemReturnGroups(null); }}
+          />
+        )}
         {showPwModal&&<ChangePwModal email={session.user.email} onClose={()=>setShowPwModal(false)}/>}
       </div>
       </GearCategoriesProvider>
@@ -11941,7 +12463,14 @@ function EquipmentApp({ onBack, me, session }) {
           onClose={() => setExtPrompt(null)}
         />
       )}
-      {itemReturnGroup&&<ItemReturnModal group={itemReturnGroup} onSubmit={submitReturnByItem} onClose={()=>setItemReturnGroup(null)}/>}
+      {(itemReturnGroups?.length || itemReturnGroup) && (
+        <ItemReturnModal
+          groups={itemReturnGroups}
+          group={itemReturnGroup}
+          onSubmit={submitReturnByItem}
+          onClose={() => { setItemReturnGroup(null); setItemReturnGroups(null); }}
+        />
+      )}
       {showPwModal&&<ChangePwModal email={session.user.email} onClose={()=>setShowPwModal(false)}/>}
     </div>
     </GearCategoriesProvider>
