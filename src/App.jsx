@@ -43,7 +43,6 @@ import {
   normalizeCategoryKey,
 } from "./gearCategoryData.js";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
-import ReturnPromptBanner, { sumHeldQuantity } from "./ReturnPromptBanner.jsx";
 import UnifiedNoticesFeed from "./UnifiedNoticesFeed.jsx";
 import TeacherAccountsPage from "./TeacherAccountsPage.jsx";
 import { getTeacherAccessBlock } from "./teacherResign.js";
@@ -7525,7 +7524,6 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
     () => buildCurrentRentals(me, reqs || [], ris || [], items || [], rets || []),
     [me, reqs, ris, items, rets],
   );
-  const heldCount = useMemo(() => sumHeldQuantity(currentRentals), [currentRentals]);
   const alertCount = canManage ? 0 : buildDueReturns(currentRentals).length;
 
   return (
@@ -7535,13 +7533,6 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         subtitle={canManage ? PAGE_META.notices.sub : "대여·반납과 예약 현황을 한눈에 확인하세요."}
         alertCount={alertCount}
       />
-
-      {canPersonalGearRental(me) ? (
-        <ReturnPromptBanner
-          heldCount={heldCount}
-          onGoReturn={() => setPage("return-request")}
-        />
-      ) : null}
 
       <div className="notices-hub-top notices-hub-top--unified">
         <UnifiedNoticesFeed
@@ -10484,11 +10475,9 @@ function HubPage({ me, onSelect, onLogout }) {
   const [feedLoading, setFeedLoading] = useState(true);
   const [viewNotice, setViewNotice] = useState(null);
   const [readNoticeIds, setReadNoticeIds] = useState(() => new Set());
-  const [heldCount, setHeldCount] = useState(0);
 
   const showTodo = isItemAdmin(me);
   const showUnreadStyles = isGearTeacher(me) || me?.role === "teacher";
-  const showReturnBanner = canPersonalGearRental(me);
   const [todos, setTodos] = useState([]);
   const [todoTeachers, setTodoTeachers] = useState([]);
   const [todoReqs, setTodoReqs] = useState([]);
@@ -10507,53 +10496,6 @@ function HubPage({ me, onSelect, onLogout }) {
       });
     return () => { cancelled = true; };
   }, []);
-
-  useEffect(() => {
-    if (!showReturnBanner || !me?.id) {
-      setHeldCount(0);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data: reqRows, error: reqErr } = await supabase
-          .from("rental_requests")
-          .select("id,teacher_id,status,dispatch_start,dispatch_end,dispatch_location,created_at")
-          .eq("teacher_id", me.id);
-        if (reqErr) throw reqErr;
-        const reqs = reqRows || [];
-        const reqIds = reqs.map((r) => r.id).filter(Boolean);
-        if (!reqIds.length) {
-          if (!cancelled) setHeldCount(0);
-          return;
-        }
-        const { data: riRows, error: riErr } = await supabase
-          .from("rental_items")
-          .select("id,quantity,status,request_id,item_id,due_date,approved_at,created_at")
-          .in("request_id", reqIds)
-          .in("status", ["rented", "partial_returned"]);
-        if (riErr) throw riErr;
-        const ris = riRows || [];
-        const riIds = ris.map((r) => r.id).filter(Boolean);
-        let rets = [];
-        if (riIds.length) {
-          const { data: retRows, error: retErr } = await supabase
-            .from("return_requests")
-            .select("rental_item_id,quantity,status")
-            .in("rental_item_id", riIds);
-          if (retErr) throw retErr;
-          rets = retRows || [];
-        }
-        if (cancelled) return;
-        const rentals = buildCurrentRentals(me, reqs, ris, [], rets);
-        setHeldCount(sumHeldQuantity(rentals));
-      } catch (e) {
-        console.warn("허브 대여 건수 로드 실패", e);
-        if (!cancelled) setHeldCount(0);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [showReturnBanner, me?.id]);
 
   useEffect(() => {
     if (!showUnreadStyles || !me?.id) return;
@@ -10688,13 +10630,6 @@ function HubPage({ me, onSelect, onLogout }) {
                 : "하나의 계정으로 모든 GTS 서비스를 이용할 수 있습니다."}
             </p>
           </div>
-
-          {showReturnBanner ? (
-            <ReturnPromptBanner
-              heldCount={heldCount}
-              onGoReturn={() => navigate("/gear?page=return-request")}
-            />
-          ) : null}
 
           <div className="hub-modules hub-modules--core">
             {HUB_MODULES.map(mod => (
