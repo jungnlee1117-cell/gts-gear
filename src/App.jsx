@@ -28,7 +28,12 @@ import LessonScriptDataAdminPage from "./LessonScriptDataAdminPage.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
 import { formatPushItemNames, sendPushEvent } from "./pushNotifications.js";
-import MyGearRotationPage, { checkRotationRentalConflicts } from "./MyGearRotationPage.jsx";
+import MyGearRotationPage, {
+  checkRotationRentalConflicts,
+  earliestRotationConflictByItem,
+  formatRotationConflictConfirmMessage,
+  ymdAddDays,
+} from "./MyGearRotationPage.jsx";
 import GearRotationManagePage from "./GearRotationManagePage.jsx";
 import GearCategoryManagePage from "./GearCategoryManagePage.jsx";
 import { GearCategoriesProvider, useGearCategories } from "./GearCategoriesContext.jsx";
@@ -10583,14 +10588,8 @@ function EquipmentApp({ onBack, me, session }) {
       me, cartItems: ci, items, dispatch_start, dispatch_end, teachers,
     });
     if (conflicts.length) {
-      const lines = conflicts.map(c =>
-        `• ${c.itemName}: ${c.teacherName} 선생님 (${c.dateRange}, ${c.targetType})`,
-      );
-      const hasSingleStock = conflicts.some(c => (c.totalQuantity ?? 1) <= 1);
-      const msg = `이 교구는 순환 배정과 겹칩니다:\n\n${lines.join("\n")}`;
-      if (hasSingleStock) {
-        if (!confirm(`${msg}\n\n재고가 1개인 교구입니다. 그래도 신청하시겠습니까?`)) return;
-      } else if (!confirm(`${msg}\n\n계속 신청하시겠습니까?`)) return;
+      const msg = formatRotationConflictConfirmMessage(conflicts, { actionLabel: "대여" });
+      if (!confirm(msg)) return;
     }
     const {data:newReq,error}=await supabase.from("rental_requests").insert({teacher_id:me.id,dispatch_location,dispatch_start,dispatch_end,memo,status:"pending"}).select().single();
     if(error||!newReq){alert("신청 오류: "+error?.message);return;}
@@ -10658,6 +10657,19 @@ function EquipmentApp({ onBack, me, session }) {
     if (existing) {
       alert("이미 예약 대기 중인 교구입니다.");
       return false;
+    }
+
+    const conflicts = await checkRotationRentalConflicts(supabase, {
+      me,
+      cartItems: [{ item_id, quantity }],
+      items,
+      dispatch_start: start_date,
+      dispatch_end: end_date,
+      teachers,
+    });
+    if (conflicts.length) {
+      const msg = formatRotationConflictConfirmMessage(conflicts, { actionLabel: "예약" });
+      if (!confirm(msg)) return false;
     }
 
     const { data, error } = await supabase.from("reservations").insert({
@@ -10755,6 +10767,13 @@ function EquipmentApp({ onBack, me, session }) {
         ? { ...r, status: "confirmed", approved_by: me.id, approved_at: now, rental_request_id: newReq.id }
         : r
     )));
+    notifyRotationDueAfterApproval({
+      teacherId: res.teacher_id,
+      teacherForConflictCheck: { id: res.teacher_id },
+      cartItems: [{ item_id: res.item_id, quantity: res.quantity }],
+      dispatch_start: res.start_date,
+      dispatch_end: res.end_date,
+    });
     alert(
       itemStatus === "rented"
         ? "예약이 승인되어 대여가 시작되었습니다."
@@ -10791,6 +10810,41 @@ function EquipmentApp({ onBack, me, session }) {
       .map(ri => items.find(i => i.id === ri.item_id)?.name),
   );
 
+  /** 승인 직후: 순환 겹침이 있으면 반납기한 안내 푸시 (기능 B) */
+  const notifyRotationDueAfterApproval = async ({
+    teacherId,
+    teacherForConflictCheck,
+    cartItems,
+    dispatch_start,
+    dispatch_end,
+  }) => {
+    if (!teacherId || !cartItems?.length || !dispatch_start || !dispatch_end) return;
+    try {
+      const conflicts = await checkRotationRentalConflicts(supabase, {
+        me: teacherForConflictCheck || { id: teacherId },
+        cartItems,
+        items,
+        dispatch_start,
+        dispatch_end,
+        teachers,
+      });
+      const earliest = earliestRotationConflictByItem(conflicts);
+      for (const c of earliest) {
+        const returnBy = ymdAddDays(c.weekStart, -1) || c.weekStart;
+        await sendPushEvent(supabase, "rental_rotation_due_notice", {
+          teacher_id: teacherId,
+          item_name: c.itemName,
+          return_by: returnBy,
+          next_teacher_name: c.teacherName,
+          week_start: c.weekStart,
+          week_end: c.weekEnd,
+        });
+      }
+    } catch (e) {
+      console.warn("rotation due notice failed", e);
+    }
+  };
+
   const approveReq = async (reqId) => {
     if (!canManage(me)) return;
     const req = reqs.find(r => r.id === reqId);
@@ -10805,6 +10859,16 @@ function EquipmentApp({ onBack, me, session }) {
       sendPushEvent(supabase, "rental_approved", {
         teacher_id: req.teacher_id,
         item_names: pushItemNamesForRequest(reqId),
+      });
+      const cartItems = ris
+        .filter(ri => ri.request_id === reqId)
+        .map(ri => ({ item_id: ri.item_id, quantity: ri.quantity, due_date: ri.due_date }));
+      notifyRotationDueAfterApproval({
+        teacherId: req.teacher_id,
+        teacherForConflictCheck: { id: req.teacher_id },
+        cartItems,
+        dispatch_start: req.dispatch_start,
+        dispatch_end: req.dispatch_end,
       });
     }
     alert("대여 신청이 승인되었습니다.");

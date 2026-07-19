@@ -763,8 +763,12 @@ export async function checkRotationRentalConflicts(client, {
       for (const row of assignedRows) {
         const mw = weeksForMonth.find(w => w.week_number === row.week_number);
         let overlaps = true;
+        let weekStart = null;
+        let weekEnd = null;
         let dateRange = `${row.week_number}주차`;
         if (mw) {
+          weekStart = mw.week_start_date;
+          weekEnd = mw.week_end_date;
           const ws = new Date(`${mw.week_start_date}T12:00:00`);
           const we = new Date(`${mw.week_end_date}T12:00:00`);
           dateRange = formatWeekRange(mw.week_start_date, mw.week_end_date) || dateRange;
@@ -773,9 +777,13 @@ export async function checkRotationRentalConflicts(client, {
         if (!overlaps) continue;
 
         conflicts.push({
+          itemId: item.id,
           itemName: item.name,
+          teacherId: sched.teacher_id,
           teacherName: teacherMap.get(sched.teacher_id) || "다른 강사",
           dateRange,
+          weekStart,
+          weekEnd,
           targetType: row.target_type,
           totalQuantity: item.total_quantity ?? 1,
         });
@@ -785,9 +793,57 @@ export async function checkRotationRentalConflicts(client, {
 
   const seen = new Set();
   return conflicts.filter(c => {
-    const k = `${c.itemName}|${c.teacherName}|${c.dateRange}`;
+    const k = `${c.itemName}|${c.teacherName}|${c.weekStart || c.dateRange}|${c.weekEnd || ""}`;
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
   });
+}
+
+/** 예: 2026-07-20 → 7월 20일 */
+export function formatKoMonthDay(ymd) {
+  if (!ymd) return "";
+  const parts = String(ymd).slice(0, 10).split("-").map(Number);
+  if (parts.length < 3 || !parts[1] || !parts[2]) return String(ymd);
+  return `${parts[1]}월 ${parts[2]}일`;
+}
+
+/** ymd 하루 전 (KST 달력 기준, 로컬 noon 파싱) */
+export function ymdAddDays(ymd, deltaDays) {
+  if (!ymd) return null;
+  const d = new Date(`${String(ymd).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + deltaDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * 순환 충돌 경고 문구 (재고 수와 무관, 확인 후 진행 허용용)
+ * actionLabel: "대여" | "예약"
+ */
+export function formatRotationConflictConfirmMessage(conflicts, { actionLabel = "대여" } = {}) {
+  if (!conflicts?.length) return "";
+  const lines = conflicts.map(c => {
+    const range = (c.weekStart && c.weekEnd)
+      ? `${formatKoMonthDay(c.weekStart)} ~ ${formatKoMonthDay(c.weekEnd)}`
+      : (c.dateRange || "");
+    return `${c.itemName}은(는) ${c.teacherName} 선생님의 ${range} 정규수업(순환) 교구입니다.`;
+  });
+  return `${lines.join("\n")}\n\n그래도 ${actionLabel}하시겠습니까?`;
+}
+
+/** 승인 직후 반납기한 안내용: 교구별 가장 빠른 순환 겹침 */
+export function earliestRotationConflictByItem(conflicts) {
+  const byItem = new Map();
+  for (const c of conflicts || []) {
+    if (!c.itemName || !c.weekStart) continue;
+    const prev = byItem.get(c.itemId || c.itemName);
+    if (!prev || c.weekStart < prev.weekStart) {
+      byItem.set(c.itemId || c.itemName, c);
+    }
+  }
+  return [...byItem.values()];
 }
