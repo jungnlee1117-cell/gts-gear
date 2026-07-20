@@ -8688,9 +8688,22 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
 
   useEffect(() => { setFilter(initialFilter); }, [initialFilter]);
 
+  /** 카드/통계용: active만. 비활성이어도 현재 대여 중이면 유지. 이름 조회(tname)는 전체 teachers 사용 */
+  const rosterTeachers = useMemo(() => {
+    const currentTeacherIds = new Set();
+    for (const ri of ris || []) {
+      if (!["rented", "partial_returned"].includes(ri.status)) continue;
+      const req = (reqs || []).find((r) => r.id === ri.request_id);
+      if (req?.teacher_id) currentTeacherIds.add(req.teacher_id);
+    }
+    return (teachers || []).filter(
+      (t) => t.active === true || currentTeacherIds.has(t.id),
+    );
+  }, [teachers, reqs, ris]);
+
   const summaries=useMemo(
-    ()=>buildTeacherSummaries(teachers,reqs,ris,items,rets),
-    [teachers,reqs,ris,items,rets]
+    ()=>buildTeacherSummaries(rosterTeachers,reqs,ris,items,rets),
+    [rosterTeachers,reqs,ris,items,rets]
   );
 
   useEffect(() => {
