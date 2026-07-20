@@ -356,7 +356,33 @@ const SERVICE_ROLE_EVENTS = new Set([
   "cron_return_due_reminders",
   "cron_overdue_return_reminders",
   "todo_due_today",
+  "todo_recurrence_spawn",
 ]);
+
+/** KST 기준 이번 달 YYYY-MM */
+function kstYm(addMonths = 0) {
+  const ymd = kstYmd(0);
+  const [y, m] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1 + addMonths, 1));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  return `${yy}-${mm}`;
+}
+
+function daysInMonth(year: number, month1to12: number) {
+  return new Date(Date.UTC(year, month1to12, 0)).getUTCDate();
+}
+
+function clampDay(day: number, year: number, month1to12: number) {
+  const last = daysInMonth(year, month1to12);
+  return Math.min(Math.max(1, Number(day) || 1), last);
+}
+
+function ymdInPeriod(periodYm: string, day: number) {
+  const [y, m] = String(periodYm).split("-").map(Number);
+  const d = clampDay(day, y, m);
+  return `${periodYm}-${String(d).padStart(2, "0")}`;
+}
 
 function extractBearerToken(authHeader: string | null) {
   if (!authHeader) return "";
@@ -642,27 +668,22 @@ async function runReturnDueReminders(adminClient, vapid) {
   return jsonResponse(summary);
 }
 
-/** 매일 KST 오늘 마감 할 일 → 담당자 + 슈퍼관리자 푸시 */
+/** 매일 KST — 일회성 마감일 알림 + 반복 할 일 기간 창 알림 */
 async function runTodoDueTodayReminders(adminClient, vapid) {
   const dueDate = kstYmd(0);
-  console.log("[send-push] cron todo due today", { dueDate });
+  console.log("[send-push] cron todo daily reminders", { dueDate });
 
-  const { data: rows, error } = await adminClient
+  // 1) 일회성: due_date = 오늘, recurrence 아님
+  const { data: oneShotRows, error: oneShotErr } = await adminClient
     .from("admin_todos")
-    .select("id, content, assignee_id, due_date, is_completed")
+    .select("id, content, assignee_id, due_date, is_completed, recurrence_id")
     .eq("is_completed", false)
-    .eq("due_date", dueDate);
+    .eq("due_date", dueDate)
+    .is("recurrence_id", null);
 
-  if (error) {
-    console.error("[send-push] admin_todos query failed", error.message);
-    return jsonResponse({ error: error.message }, 500);
-  }
-
-  const todos = rows || [];
-  if (!todos.length) {
-    const empty = { dueDate, todos: 0, sent: 0, failed: 0, results: [] };
-    console.log("[send-push] cron todo due today: none", empty);
-    return jsonResponse(empty);
+  if (oneShotErr) {
+    console.error("[send-push] admin_todos one-shot query failed", oneShotErr.message);
+    return jsonResponse({ error: oneShotErr.message }, 500);
   }
 
   const superIds = await getSuperAdminIds(adminClient);
@@ -675,9 +696,10 @@ async function runTodoDueTodayReminders(adminClient, vapid) {
     content: string;
     recipients: string[];
     sent: number;
+    kind: string;
   }> = [];
 
-  for (const todo of todos) {
+  for (const todo of oneShotRows || []) {
     const recipients = new Set<string>(superIds);
     if (todo.assignee_id) {
       recipients.add(todo.assignee_id);
@@ -699,17 +721,151 @@ async function runTodoDueTodayReminders(adminClient, vapid) {
       content: titleText,
       recipients: teacherIds,
       sent: result.sent,
+      kind: "one_shot_due",
+    });
+  }
+
+  // 2) 반복 인스턴스: start_date <= 오늘 <= due_date, 미완료
+  const { data: windowRows, error: windowErr } = await adminClient
+    .from("admin_todos")
+    .select("id, content, assignee_id, start_date, due_date, is_completed, recurrence_id")
+    .eq("is_completed", false)
+    .not("recurrence_id", "is", null)
+    .lte("start_date", dueDate)
+    .gte("due_date", dueDate);
+
+  if (windowErr) {
+    console.error("[send-push] admin_todos window query failed", windowErr.message);
+    return jsonResponse({ error: windowErr.message }, 500);
+  }
+
+  for (const todo of windowRows || []) {
+    if (!todo.assignee_id) continue;
+    const titleText = String(todo.content || "").trim() || "할 일";
+    const result = await deliverPushNotifications(adminClient, vapid, "todo_due_today", {
+      teacherIds: [todo.assignee_id],
+      title: "반복 할 일",
+      body: `오늘 할 일: ${titleText}`,
+      url: "/gear?page=notices",
+    });
+    totalSent += result.sent;
+    totalFailed += result.failed;
+    results.push({
+      todo_id: todo.id,
+      content: titleText,
+      recipients: [todo.assignee_id],
+      sent: result.sent,
+      kind: "recurrence_window",
     });
   }
 
   const summary = {
     dueDate,
-    todos: todos.length,
+    oneShot: (oneShotRows || []).length,
+    window: (windowRows || []).length,
     sent: totalSent,
     failed: totalFailed,
     results,
   };
-  console.log("[send-push] cron todo due today complete", summary);
+  console.log("[send-push] cron todo daily reminders complete", summary);
+  return jsonResponse(summary);
+}
+
+/** 활성 반복 템플릿 → 해당 월 admin_todos 인스턴스 생성(멱등) */
+async function runTodoRecurrenceSpawn(adminClient, payload: Record<string, unknown> = {}) {
+  const periodYm = String(payload.period_ym || kstYm(0)).slice(0, 7);
+  const [y, m] = periodYm.split("-").map(Number);
+  if (!y || !m) {
+    return jsonResponse({ error: "invalid period_ym" }, 400);
+  }
+
+  console.log("[send-push] todo_recurrence_spawn", { periodYm });
+
+  const { data: templates, error } = await adminClient
+    .from("todo_recurrences")
+    .select("*")
+    .eq("active", true);
+
+  if (error) {
+    console.error("[send-push] todo_recurrences query failed", error.message);
+    return jsonResponse({ error: error.message }, 500);
+  }
+
+  let created = 0;
+  let skipped = 0;
+  const details: Array<Record<string, unknown>> = [];
+
+  for (const tmpl of templates || []) {
+    const startDate = ymdInPeriod(periodYm, tmpl.start_day);
+    const endDate = ymdInPeriod(periodYm, tmpl.end_day);
+    if (startDate > endDate) {
+      details.push({ id: tmpl.id, error: "invalid day range after clamp" });
+      continue;
+    }
+
+    let assigneeIds: string[] = [];
+    if (tmpl.audience_type === "assignee") {
+      if (tmpl.assignee_id) assigneeIds = [tmpl.assignee_id];
+    } else if (tmpl.audience_type === "all_teachers") {
+      assigneeIds = await getActiveTeacherRoleIds(adminClient);
+    }
+
+    let tmplCreated = 0;
+    let tmplSkipped = 0;
+    for (const assigneeId of assigneeIds) {
+      const { data: existing } = await adminClient
+        .from("admin_todos")
+        .select("id")
+        .eq("recurrence_id", tmpl.id)
+        .eq("period_ym", periodYm)
+        .eq("assignee_id", assigneeId)
+        .maybeSingle();
+      if (existing?.id) {
+        tmplSkipped += 1;
+        skipped += 1;
+        continue;
+      }
+      const row = {
+        content: tmpl.content,
+        assignee_id: assigneeId,
+        start_date: startDate,
+        due_date: endDate,
+        priority: tmpl.priority || "important",
+        checklist: [],
+        is_completed: false,
+        completed_at: null,
+        created_by: tmpl.created_by || null,
+        recurrence_id: tmpl.id,
+        period_ym: periodYm,
+      };
+      const { error: insErr } = await adminClient.from("admin_todos").insert(row);
+      if (insErr) {
+        // race: unique hit
+        if (/duplicate|unique/i.test(insErr.message || "")) {
+          tmplSkipped += 1;
+          skipped += 1;
+          continue;
+        }
+        details.push({ recurrence_id: tmpl.id, assignee_id: assigneeId, error: insErr.message });
+        continue;
+      }
+      tmplCreated += 1;
+      created += 1;
+    }
+
+    details.push({
+      recurrence_id: tmpl.id,
+      content: tmpl.content,
+      assignees: assigneeIds.length,
+      created: tmplCreated,
+      skipped: tmplSkipped,
+      start_date: startDate,
+      due_date: endDate,
+    });
+  }
+
+  const summary = { periodYm, templates: (templates || []).length, created, skipped, details };
+  console.log("[send-push] todo_recurrence_spawn complete", summary);
   return jsonResponse(summary);
 }
 
@@ -1035,6 +1191,9 @@ Deno.serve(async (req) => {
       if (event === "todo_due_today") {
         return await runTodoDueTodayReminders(adminClient, vapid);
       }
+      if (event === "todo_recurrence_spawn") {
+        return await runTodoRecurrenceSpawn(adminClient, payload || {});
+      }
     }
 
     if (isServiceRole) {
@@ -1055,6 +1214,14 @@ Deno.serve(async (req) => {
     if (userError || !user) {
       console.error("[send-push] getUser failed", userError?.message);
       return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    // 슈퍼관리자: 이번 달 인스턴스 즉시 생성
+    if (event === "todo_recurrence_spawn") {
+      if (!(await isScheduleSuperAdmin(adminClient, user.id))) {
+        return jsonResponse({ error: "Forbidden" }, 403);
+      }
+      return await runTodoRecurrenceSpawn(adminClient, payload || {});
     }
 
     console.log("[send-push] invoke", { event, callerUserId: user.id, payload });

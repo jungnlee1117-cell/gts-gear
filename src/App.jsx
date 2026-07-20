@@ -43,6 +43,7 @@ import {
   normalizeCategoryKey,
 } from "./gearCategoryData.js";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
+import RecurringTodosSection, { MyAssignedTodosSection } from "./RecurringTodosSection.jsx";
 import UnifiedNoticesFeed from "./UnifiedNoticesFeed.jsx";
 import TeacherAccountsPage from "./TeacherAccountsPage.jsx";
 import { getTeacherAccessBlock } from "./teacherResign.js";
@@ -7572,6 +7573,18 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         </Modal>
       ) : null}
 
+      {canManage && isSuperAdmin(me) && (
+        <RecurringTodosSection
+          me={me}
+          supabase={supabase}
+          teachers={teachers}
+          Btn={Btn}
+          Modal={Modal}
+          DS={DS}
+          card={card}
+        />
+      )}
+
       {canManage && (
         <AdminTodoSection
           me={me}
@@ -7585,6 +7598,16 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
           onToggle={onToggleTodo}
           onDelete={onDeleteTodo}
           onUpdate={onUpdateTodo}
+        />
+      )}
+
+      {!canManage && canPersonalGearRental(me) && (
+        <MyAssignedTodosSection
+          me={me}
+          todos={adminTodos}
+          onToggle={onToggleTodo}
+          DS={DS}
+          card={card}
         />
       )}
 
@@ -10918,6 +10941,13 @@ function EquipmentApp({ onBack, me, session }) {
         } else {
           setAdminTodos(todoRes.data || []);
         }
+      } else if (canPersonalGearRental(me) && me?.id) {
+        const todoRes = await supabase
+          .from("admin_todos")
+          .select("*")
+          .eq("assignee_id", me.id)
+          .order("created_at", { ascending: false });
+        if (!todoRes.error) setAdminTodos(todoRes.data || []);
       }
     } catch (e) {
       console.error("loadAll failed", e);

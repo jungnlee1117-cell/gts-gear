@@ -132,9 +132,28 @@ supabase/push_cron_todo_due_today.sql
 ```
 
 - 매일 **UTC 23:30** (= KST **08:30**) `send-push` 호출 (`todo_due_today`)
-- 오늘(`due_date`) 마감 · 미완료 할 일 → 담당자 + 슈퍼관리자 푸시
+- 오늘(`due_date`) 마감 · 미완료 **일회성** 할 일 → 담당자 + 슈퍼관리자 푸시
 - 담당자 미지정(전체)이면 관리자 전체 + 슈퍼관리자
-- 메시지: `오늘 마감: [할 일 제목]`
+- **반복 할 일**: `start_date`~`due_date` 기간 창에 있는 미완료 인스턴스 → 담당자 개인에게 매일 푸시
+- 메시지: `오늘 마감: …` / `오늘 할 일: …`
+
+## 6-1. 반복 할 일 (월간 spawn)
+
+스키마:
+
+```
+supabase/todo_recurrences.sql
+```
+
+크론 (매월 1일 KST 00:10):
+
+```
+supabase/push_cron_todo_recurrence.sql
+```
+
+- `todo_recurrence_spawn` — active 템플릿으로 그달 `admin_todos` 인스턴스 생성
+- `assignee` = 1명 / `all_teachers` = 선생님마다 개별 행(개인 완료)
+- 템플릿 수정·삭제는 다음 달부터 반영, 이번 달 인스턴스는 유지
 
 ## 문제 해결
 
