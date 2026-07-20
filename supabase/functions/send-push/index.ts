@@ -803,23 +803,30 @@ async function runTodoRecurrenceSpawn(adminClient, payload: Record<string, unkno
       continue;
     }
 
-    let assigneeIds: string[] = [];
+    let assigneeIds: Array<string | null> = [];
     if (tmpl.audience_type === "assignee") {
       if (tmpl.assignee_id) assigneeIds = [tmpl.assignee_id];
     } else if (tmpl.audience_type === "all_teachers") {
       assigneeIds = await getActiveTeacherRoleIds(adminClient);
+    } else if (tmpl.audience_type === "selected_teachers") {
+      const raw = Array.isArray(tmpl.teacher_ids) ? tmpl.teacher_ids : [];
+      assigneeIds = [...new Set(raw.filter(Boolean).map(String))];
+    } else if (tmpl.audience_type === "shared") {
+      assigneeIds = [null];
     }
 
     let tmplCreated = 0;
     let tmplSkipped = 0;
     for (const assigneeId of assigneeIds) {
-      const { data: existing } = await adminClient
+      let existingQuery = adminClient
         .from("admin_todos")
         .select("id")
         .eq("recurrence_id", tmpl.id)
-        .eq("period_ym", periodYm)
-        .eq("assignee_id", assigneeId)
-        .maybeSingle();
+        .eq("period_ym", periodYm);
+      existingQuery = assigneeId == null
+        ? existingQuery.is("assignee_id", null)
+        : existingQuery.eq("assignee_id", assigneeId);
+      const { data: existing } = await existingQuery.maybeSingle();
       if (existing?.id) {
         tmplSkipped += 1;
         skipped += 1;
@@ -856,6 +863,7 @@ async function runTodoRecurrenceSpawn(adminClient, payload: Record<string, unkno
     details.push({
       recurrence_id: tmpl.id,
       content: tmpl.content,
+      audience_type: tmpl.audience_type,
       assignees: assigneeIds.length,
       created: tmplCreated,
       skipped: tmplSkipped,

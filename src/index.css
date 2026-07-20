@@ -15247,6 +15247,126 @@ button.pe-res-resource-youtube-thumb:hover {
   padding: 10px 0 2px;
   font-family: inherit;
 }
+
+/* 선생님 반복 업무 현황 (그룹 요약) */
+.admin-todo-teacher-status {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #eef2f6;
+}
+.admin-todo-teacher-status__head {
+  margin-bottom: 10px;
+}
+.admin-todo-teacher-status__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.admin-todo-teacher-status__hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.admin-todo-teacher-status__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.admin-todo-teacher-group {
+  border: 1px solid #e8ecee;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.admin-todo-teacher-group__summary {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: none;
+  background: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.admin-todo-teacher-group.is-open .admin-todo-teacher-group__summary {
+  background: #f1f5f9;
+  border-bottom: 1px solid #eef2f6;
+}
+.admin-todo-teacher-group__chev {
+  flex-shrink: 0;
+  width: 16px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+.admin-todo-teacher-group__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.admin-todo-teacher-group__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.admin-todo-teacher-group__meta {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+.admin-todo-teacher-group__detail {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px 10px;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.admin-todo-teacher-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.admin-todo-teacher-person:hover {
+  background: #f8fafc;
+}
+.admin-todo-teacher-person.is-done {
+  opacity: 0.55;
+}
+.admin-todo-teacher-person input {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: #16a34a;
+}
+.admin-todo-teacher-person__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+}
+.admin-todo-teacher-person.is-done .admin-todo-teacher-person__name {
+  text-decoration: line-through;
+}
+.admin-todo-teacher-person__status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+
 .admin-todo-compose--panel {
   margin-top: 14px;
   border: 1px dashed #d7dee6;

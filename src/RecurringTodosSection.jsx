@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { isItemAdmin } from "./authRoles.js";
 import { sendPushEvent } from "./pushNotifications.js";
+import {
+  TODO_AUDIENCE_OPTIONS,
+  audienceTypeLabel,
+  selectableTodoTeachers,
+} from "./todoAudience.js";
 
 /**
  * 슈퍼관리자 — 매달 반복 할 일 템플릿 CRUD
@@ -24,10 +30,19 @@ export default function RecurringTodosSection({
     () => (teachers || []).filter((t) => t?.active !== false),
     [teachers],
   );
+  const singleAssigneeOptions = useMemo(
+    () => teacherOptions.filter((t) => isItemAdmin(t) || t.role === "admin"),
+    [teacherOptions],
+  );
+  const multiTeacherOptions = useMemo(
+    () => selectableTodoTeachers(teachers),
+    [teachers],
+  );
   const superAdmins = useMemo(
     () => teacherOptions.filter((t) => t.role === "superadmin"),
     [teacherOptions],
   );
+  const assigneeSelectPool = superAdmins.length ? superAdmins : (singleAssigneeOptions.length ? singleAssigneeOptions : teacherOptions);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,12 +69,16 @@ export default function RecurringTodosSection({
   };
 
   const openEdit = (row) => {
+    const type = ["assignee", "all_teachers", "selected_teachers", "shared"].includes(row.audience_type)
+      ? row.audience_type
+      : "assignee";
     setForm({
       content: row.content || "",
       start_day: String(row.start_day ?? 1),
       end_day: String(row.end_day ?? 1),
-      audience_type: row.audience_type === "all_teachers" ? "all_teachers" : "assignee",
+      audience_type: type,
       assignee_id: row.assignee_id || "",
+      teacher_ids: Array.isArray(row.teacher_ids) ? row.teacher_ids.filter(Boolean) : [],
       priority: row.priority || "important",
       active: row.active !== false,
     });
@@ -90,6 +109,9 @@ export default function RecurringTodosSection({
     if (form.audience_type === "assignee" && !form.assignee_id) {
       return alert("담당자를 선택하세요.");
     }
+    if (form.audience_type === "selected_teachers" && !(form.teacher_ids || []).length) {
+      return alert("선생님을 한 명 이상 선택하세요.");
+    }
 
     const payload = {
       content,
@@ -98,6 +120,9 @@ export default function RecurringTodosSection({
       end_day: endDay,
       audience_type: form.audience_type,
       assignee_id: form.audience_type === "assignee" ? form.assignee_id : null,
+      teacher_ids: form.audience_type === "selected_teachers"
+        ? [...new Set((form.teacher_ids || []).filter(Boolean))]
+        : [],
       priority: form.priority || "important",
       active: form.active !== false,
       updated_at: new Date().toISOString(),
@@ -159,10 +184,27 @@ export default function RecurringTodosSection({
     await load();
   };
 
-  const audienceLabel = (row) => {
-    if (row.audience_type === "all_teachers") return "전체 선생님(개인별)";
-    const name = teacherOptions.find((t) => t.id === row.assignee_id)?.name;
-    return name ? `담당: ${name}` : "담당: (미지정)";
+  const audienceLabel = (row) => audienceTypeLabel(row.audience_type, {
+    assigneeName: teacherOptions.find((t) => t.id === row.assignee_id)?.name,
+    selectedCount: Array.isArray(row.teacher_ids) ? row.teacher_ids.length : 0,
+  });
+
+  const setAudienceType = (nextType) => {
+    setForm((f) => ({
+      ...f,
+      audience_type: nextType,
+      assignee_id: nextType === "assignee" ? f.assignee_id : "",
+      teacher_ids: nextType === "selected_teachers" ? (f.teacher_ids || []) : [],
+    }));
+  };
+
+  const toggleTeacherId = (id) => {
+    setForm((f) => {
+      const cur = new Set(f.teacher_ids || []);
+      if (cur.has(id)) cur.delete(id);
+      else cur.add(id);
+      return { ...f, teacher_ids: [...cur] };
+    });
   };
 
   return (
@@ -268,21 +310,29 @@ export default function RecurringTodosSection({
                 />
               </label>
             </div>
-            <label style={labelStyle}>
-              대상
-              <select
-                value={form.audience_type}
-                onChange={(e) => setForm((f) => ({
-                  ...f,
-                  audience_type: e.target.value,
-                  assignee_id: e.target.value === "all_teachers" ? "" : f.assignee_id,
-                }))}
-                style={inputStyle}
-              >
-                <option value="assignee">지정 1명</option>
-                <option value="all_teachers">전체 선생님 (각자 완료)</option>
-              </select>
-            </label>
+            <div style={{ marginBottom: 4 }}>
+              <span style={{ ...labelStyle, marginBottom: 8 }}>대상</span>
+              <div className="notice-audience-radios" role="radiogroup" aria-label="담당자 대상">
+                {TODO_AUDIENCE_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`notice-audience-radio${form.audience_type === opt.value ? " is-active" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="recurring-todo-audience"
+                      value={opt.value}
+                      checked={form.audience_type === opt.value}
+                      onChange={() => setAudienceType(opt.value)}
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="sch-muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
+                {TODO_AUDIENCE_OPTIONS.find((o) => o.value === form.audience_type)?.hint}
+              </p>
+            </div>
             {form.audience_type === "assignee" ? (
               <label style={labelStyle}>
                 담당자
@@ -292,11 +342,32 @@ export default function RecurringTodosSection({
                   style={inputStyle}
                 >
                   <option value="">선택</option>
-                  {(superAdmins.length ? superAdmins : teacherOptions).map((t) => (
+                  {assigneeSelectPool.map((t) => (
                     <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
                   ))}
                 </select>
               </label>
+            ) : null}
+            {form.audience_type === "selected_teachers" ? (
+              <div className="notice-audience-teachers" style={{ marginTop: 4 }}>
+                <div className="notice-audience-teachers__count">
+                  {(form.teacher_ids || []).length}명 선택됨
+                </div>
+                <div className="notice-audience-teachers__list">
+                  {multiTeacherOptions.length === 0 ? (
+                    <p className="sch-muted" style={{ margin: 0 }}>선택 가능한 선생님이 없습니다.</p>
+                  ) : multiTeacherOptions.map((t) => (
+                    <label key={t.id} className="notice-audience-teachers__item">
+                      <input
+                        type="checkbox"
+                        checked={(form.teacher_ids || []).includes(t.id)}
+                        onChange={() => toggleTeacherId(t.id)}
+                      />
+                      <span>{t.name || "이름 없음"}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             ) : null}
             <label style={labelStyle}>
               우선순위
@@ -415,6 +486,7 @@ function emptyForm() {
     end_day: "10",
     audience_type: "assignee",
     assignee_id: "",
+    teacher_ids: [],
     priority: "important",
     active: true,
   };

@@ -44,6 +44,12 @@ import {
 } from "./gearCategoryData.js";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
 import RecurringTodosSection, { MyAssignedTodosSection } from "./RecurringTodosSection.jsx";
+import {
+  TODO_AUDIENCE_OPTIONS,
+  isMultiAudienceType,
+  newSpawnGroupId,
+  selectableTodoTeachers,
+} from "./todoAudience.js";
 import UnifiedNoticesFeed from "./UnifiedNoticesFeed.jsx";
 import TeacherAccountsPage from "./TeacherAccountsPage.jsx";
 import { getTeacherAccessBlock } from "./teacherResign.js";
@@ -6915,7 +6921,9 @@ function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemC
 function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd, onToggle, onDelete, onUpdate, hideAuto = false, readOnly = false }) {
   const canEditTodo = isSuperAdmin(me);
   const [content, setContent] = useState("");
-  const [assignee, setAssignee] = useState("all");
+  const [audienceMode, setAudienceMode] = useState("shared"); // assignee | selected_teachers | all_teachers | shared
+  const [assignee, setAssignee] = useState("");
+  const [selectedTeacherIds, setSelectedTeacherIds] = useState([]);
   const [priority, setPriority] = useState("normal");
   const [start, setStart] = useState("");
   const [due, setDue] = useState("");
@@ -6929,7 +6937,35 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   const [visibleCount, setVisibleCount] = useState(6);
   const [menuId, setMenuId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+  const [recurrenceMap, setRecurrenceMap] = useState(() => new Map());
+  const [recurrencesLoaded, setRecurrencesLoaded] = useState(false);
+  const [expandedGroupKeys, setExpandedGroupKeys] = useState(() => new Set());
   const modalOpen = composing || Boolean(editingTodo);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("todo_recurrences")
+      .select("id, content, audience_type, start_day, end_day, teacher_ids")
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error) {
+          const map = new Map();
+          for (const row of data || []) map.set(row.id, row);
+          setRecurrenceMap(map);
+        }
+        setRecurrencesLoaded(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const multiAudienceRecurrenceIds = useMemo(() => {
+    const ids = new Set();
+    for (const row of recurrenceMap.values()) {
+      if (isMultiAudienceType(row.audience_type)) ids.add(row.id);
+    }
+    return ids;
+  }, [recurrenceMap]);
 
   const overdueN = useMemo(() => (ris || []).filter(r => ["rented","partial_returned"].includes(r.status) && dday(r.due_date)!==null && dday(r.due_date)<0).length, [ris]);
   const pendingN = useMemo(() => (reqs || []).filter(r => r.status==="pending").length, [reqs]);
@@ -6955,13 +6991,92 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
     () => (teachers || []).filter(t => isItemAdmin(t) || t.role==="admin"),
     [teachers]
   );
+  const multiTeacherOptions = useMemo(
+    () => selectableTodoTeachers(teachers),
+    [teachers],
+  );
   const assigneeName = (id) => (teachers || []).find(t => t.id===id)?.name || null;
+
+  /** 일회성 단일/공용 + 개인지정 반복 (그룹 인스턴스 제외) */
+  const myVisibleTodos = useMemo(
+    () => visibleTodos.filter((t) => {
+      if (t.spawn_group_id) return false;
+      if (!t.recurrence_id) return true;
+      if (!recurrencesLoaded) return false;
+      return !multiAudienceRecurrenceIds.has(t.recurrence_id);
+    }),
+    [visibleTodos, multiAudienceRecurrenceIds, recurrencesLoaded],
+  );
+
+  /** 그룹 N/총 — 24h 완료 숨김과 무관하게 전체 인스턴스 기준 */
+  const groupedTeacherTodos = useMemo(
+    () => (todos || []).filter((t) => {
+      if (t.spawn_group_id) return true;
+      if (!recurrencesLoaded) return false;
+      return Boolean(t.recurrence_id && multiAudienceRecurrenceIds.has(t.recurrence_id));
+    }),
+    [todos, multiAudienceRecurrenceIds, recurrencesLoaded],
+  );
+
+  const teacherStatusGroups = useMemo(() => {
+    const nameOf = (id) => (teachers || []).find((t) => t.id === id)?.name || "";
+    const map = new Map();
+    for (const t of groupedTeacherTodos) {
+      const key = t.spawn_group_id
+        ? `spawn::${t.spawn_group_id}`
+        : `rec::${t.recurrence_id}::${t.period_ym || ""}`;
+      if (!map.has(key)) {
+        const tmpl = t.recurrence_id ? recurrenceMap.get(t.recurrence_id) : null;
+        map.set(key, {
+          key,
+          recurrenceId: t.recurrence_id || null,
+          spawnGroupId: t.spawn_group_id || null,
+          periodYm: t.period_ym || "",
+          content: tmpl?.content || t.content || "그룹 할 일",
+          dueDate: t.due_date || null,
+          startDate: t.start_date || null,
+          items: [],
+        });
+      }
+      const g = map.get(key);
+      g.items.push(t);
+      if (!g.dueDate && t.due_date) g.dueDate = t.due_date;
+      if (!g.startDate && t.start_date) g.startDate = t.start_date;
+    }
+    return [...map.values()]
+      .map((g) => {
+        const doneN = g.items.filter((i) => i.is_completed).length;
+        const totalN = g.items.length;
+        const dd = g.dueDate != null ? dday(g.dueDate) : null;
+        const ddLabel = dd === null ? "" : (dd < 0 ? `D+${Math.abs(dd)}` : dd === 0 ? "D-Day" : `D-${dd}`);
+        return {
+          ...g,
+          doneN,
+          totalN,
+          dd,
+          ddLabel,
+          items: [...g.items].sort((a, b) => nameOf(a.assignee_id).localeCompare(nameOf(b.assignee_id), "ko")),
+        };
+      })
+      .sort((a, b) => String(b.periodYm).localeCompare(String(a.periodYm)) || a.content.localeCompare(b.content, "ko"));
+  }, [groupedTeacherTodos, recurrenceMap, teachers]);
+
+  const toggleGroup = (key) => {
+    setExpandedGroupKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const resetModalForm = () => {
     setContent("");
     setStart("");
     setDue("");
-    setAssignee("all");
+    setAudienceMode("shared");
+    setAssignee("");
+    setSelectedTeacherIds([]);
     setPriority("normal");
     setDraftItems([]);
     setSubDraft("");
@@ -6974,7 +7089,9 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
     setContent("");
     setStart("");
     setDue("");
-    setAssignee("all");
+    setAudienceMode("shared");
+    setAssignee("");
+    setSelectedTeacherIds([]);
     setPriority("normal");
     setDraftItems([]);
     setSubDraft("");
@@ -6987,7 +7104,9 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
     setMenuId(null);
     setEditingTodo(todo);
     setContent(todo.content || "");
-    setAssignee(todo.assignee_id || "all");
+    setAudienceMode(todo.assignee_id ? "assignee" : "shared");
+    setAssignee(todo.assignee_id || "");
+    setSelectedTeacherIds([]);
     setPriority(
       todo.priority === "urgent" ? "urgent"
         : todo.priority === "important" ? "important"
@@ -7003,6 +7122,21 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
       })),
     );
     setSubDraft("");
+  };
+
+  const setAudienceModeSafe = (next) => {
+    setAudienceMode(next);
+    if (next !== "assignee") setAssignee("");
+    if (next !== "selected_teachers") setSelectedTeacherIds([]);
+  };
+
+  const toggleSelectedTeacher = (id) => {
+    setSelectedTeacherIds((prev) => {
+      const cur = new Set(prev);
+      if (cur.has(id)) cur.delete(id);
+      else cur.add(id);
+      return [...cur];
+    });
   };
 
   const addDraftItem = () => {
@@ -7027,6 +7161,20 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
     const c = content.trim();
     if (!c) return;
     if (start && due && due < start) { alert("종료일이 시작일보다 빠릅니다."); return; }
+    if (!editingTodo) {
+      if (audienceMode === "assignee" && !assignee) {
+        alert("담당자를 선택하세요.");
+        return;
+      }
+      if (audienceMode === "selected_teachers" && selectedTeacherIds.length === 0) {
+        alert("선생님을 한 명 이상 선택하세요.");
+        return;
+      }
+      if (audienceMode === "all_teachers" && multiTeacherOptions.length === 0) {
+        alert("등록할 활성 선생님이 없습니다.");
+        return;
+      }
+    }
     const checklist = draftItems
       .map(it => ({ id: it.id, text: String(it.text || "").trim(), done: !!it.done }))
       .filter(it => it.text);
@@ -7039,7 +7187,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
         }
         await onUpdate?.(editingTodo.id, {
           content: c,
-          assignee_id: assignee === "all" ? null : assignee,
+          assignee_id: audienceMode === "shared" ? null : (assignee || editingTodo.assignee_id || null),
           priority: priority === "urgent" ? "urgent" : priority === "important" ? "important" : "normal",
           start_date: toKstDateOnly(start),
           due_date: toKstDateOnly(due),
@@ -7048,7 +7196,13 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
       } else {
         await onAdd({
           content: c,
-          assignee_id: assignee === "all" ? null : assignee,
+          audience_mode: audienceMode,
+          assignee_id: audienceMode === "assignee" ? assignee : null,
+          teacher_ids: audienceMode === "selected_teachers"
+            ? selectedTeacherIds
+            : audienceMode === "all_teachers"
+              ? multiTeacherOptions.map((t) => t.id)
+              : [],
           priority: priority === "urgent" ? "urgent" : priority === "important" ? "important" : "normal",
           start_date: toKstDateOnly(start),
           due_date: toKstDateOnly(due),
@@ -7064,10 +7218,10 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   };
 
   const priRank = { urgent: 0, important: 1, normal: 2, low: 3 };
-  const sortedTodos = useMemo(() => [...visibleTodos].sort((a, b) => {
+  const sortedTodos = useMemo(() => [...myVisibleTodos].sort((a, b) => {
     if (!!a.is_completed !== !!b.is_completed) return a.is_completed ? 1 : -1;
     return (priRank[a.priority] ?? 1) - (priRank[b.priority] ?? 1);
-  }), [visibleTodos]);
+  }), [myVisibleTodos]);
 
   const openTodos = sortedTodos.filter(t => !t.is_completed);
   const doneTodos = sortedTodos.filter(t => t.is_completed);
@@ -7111,7 +7265,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
       <div className="admin-todo-table-card__head">
         <div className="admin-todo-table-card__title-row">
           <span className="admin-todo-table-card__icon" aria-hidden>✓</span>
-          <h2 className="admin-todo-table-card__title">할 일</h2>
+          <h2 className="admin-todo-table-card__title">내 할 일</h2>
           {allCount > 0 && <span className="admin-todo-table-card__count">{allCount}</span>}
         </div>
         <div className="admin-todo-table-card__toolbar">
@@ -7253,6 +7407,64 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
         </button>
       )}
 
+      {teacherStatusGroups.length > 0 ? (
+        <div className="admin-todo-teacher-status">
+          <div className="admin-todo-teacher-status__head">
+            <h3 className="admin-todo-teacher-status__title">선생님 업무 현황</h3>
+            <span className="admin-todo-teacher-status__hint">클릭하면 선생님별 완료 현황을 볼 수 있습니다</span>
+          </div>
+          <div className="admin-todo-teacher-status__list">
+            {teacherStatusGroups.map((g) => {
+              const open = expandedGroupKeys.has(g.key);
+              const overdue = g.dd != null && g.dd < 0 && g.doneN < g.totalN;
+              return (
+                <div key={g.key} className={`admin-todo-teacher-group${open ? " is-open" : ""}`}>
+                  <button
+                    type="button"
+                    className="admin-todo-teacher-group__summary"
+                    onClick={() => toggleGroup(g.key)}
+                    aria-expanded={open}
+                  >
+                    <span className="admin-todo-teacher-group__chev" aria-hidden>{open ? "▾" : "▸"}</span>
+                    <span className="admin-todo-teacher-group__body">
+                      <span className="admin-todo-teacher-group__name">{g.content}</span>
+                      <span className="admin-todo-teacher-group__meta">
+                        {g.doneN}/{g.totalN} 완료
+                        {g.ddLabel ? ` · ${g.ddLabel}` : ""}
+                        {g.periodYm ? ` · ${g.periodYm}` : ""}
+                        {g.spawnGroupId ? " · 일회성" : ""}
+                        {overdue ? " · 지연" : ""}
+                      </span>
+                    </span>
+                  </button>
+                  {open ? (
+                    <div className="admin-todo-teacher-group__detail">
+                      {g.items.map((t) => {
+                        const who = assigneeName(t.assignee_id) || "선생님";
+                        return (
+                          <label key={t.id} className={`admin-todo-teacher-person${t.is_completed ? " is-done" : ""}`}>
+                            <input
+                              type="checkbox"
+                              checked={!!t.is_completed}
+                              disabled={readOnly}
+                              onChange={(e) => !readOnly && onToggle?.(t.id, e.target.checked)}
+                            />
+                            <span className="admin-todo-teacher-person__name">{who}</span>
+                            <span className="admin-todo-teacher-person__status">
+                              {t.is_completed ? "완료" : "미완료"}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {((!readOnly && composing) || (canEditTodo && editingTodo)) && (
         <div className="admin-todo-modal-backdrop" onClick={resetModalForm}>
           <div className="admin-todo-modal-card" onClick={e => e.stopPropagation()}>
@@ -7278,13 +7490,6 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
                 </select>
               </div>
               <div>
-                <label style={fieldLabel}>담당자</label>
-                <select value={assignee} onChange={e=>setAssignee(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}>
-                  <option value="all">담당: 전체</option>
-                  {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-              <div>
                 <label style={fieldLabel}>시작일</label>
                 <input type="date" value={start} max={due || undefined} onChange={e=>setStart(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}/>
               </div>
@@ -7292,6 +7497,81 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
                 <label style={fieldLabel}>종료일</label>
                 <input type="date" value={due} min={start || undefined} onChange={e=>setDue(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}/>
               </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={fieldLabel}>담당자</label>
+              {editingTodo ? (
+                <select
+                  value={audienceMode === "shared" ? "shared" : (assignee || "")}
+                  onChange={(e) => {
+                    if (e.target.value === "shared") {
+                      setAudienceMode("shared");
+                      setAssignee("");
+                    } else {
+                      setAudienceMode("assignee");
+                      setAssignee(e.target.value);
+                    }
+                  }}
+                  style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}
+                >
+                  <option value="shared">담당: 전체(공용 1건)</option>
+                  {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              ) : (
+                <>
+                  <div className="notice-audience-radios" role="radiogroup" aria-label="담당자">
+                    {TODO_AUDIENCE_OPTIONS.map((opt) => (
+                      <label
+                        key={opt.value}
+                        className={`notice-audience-radio${audienceMode === opt.value ? " is-active" : ""}`}
+                      >
+                        <input
+                          type="radio"
+                          name="admin-todo-audience"
+                          value={opt.value}
+                          checked={audienceMode === opt.value}
+                          onChange={() => setAudienceModeSafe(opt.value)}
+                        />
+                        <span>{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="sch-muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
+                    {TODO_AUDIENCE_OPTIONS.find((o) => o.value === audienceMode)?.hint}
+                  </p>
+                  {audienceMode === "assignee" ? (
+                    <select
+                      value={assignee}
+                      onChange={(e) => setAssignee(e.target.value)}
+                      style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44, marginTop: 8 }}
+                    >
+                      <option value="">담당자 선택</option>
+                      {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  ) : null}
+                  {audienceMode === "selected_teachers" ? (
+                    <div className="notice-audience-teachers" style={{ marginTop: 8 }}>
+                      <div className="notice-audience-teachers__count">
+                        {selectedTeacherIds.length}명 선택됨
+                      </div>
+                      <div className="notice-audience-teachers__list">
+                        {multiTeacherOptions.length === 0 ? (
+                          <p className="sch-muted" style={{ margin: 0 }}>선택 가능한 선생님이 없습니다.</p>
+                        ) : multiTeacherOptions.map((t) => (
+                          <label key={t.id} className="notice-audience-teachers__item">
+                            <input
+                              type="checkbox"
+                              checked={selectedTeacherIds.includes(t.id)}
+                              onChange={() => toggleSelectedTeacher(t.id)}
+                            />
+                            <span>{t.name || "이름 없음"}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
             <div style={fieldLabel}>하위 체크리스트 <span style={{ fontWeight:600, color:DS.textMuted }}>(선택)</span></div>
             <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
@@ -10579,10 +10859,20 @@ function HubPage({ me, onSelect, onLogout }) {
     return () => { cancelled = true; };
   }, [showTodo]);
 
-  const addTodo = async ({ content, assignee_id, priority, start_date, due_date, checklist }) => {
-    const row = {
+  const addTodo = async ({
+    content,
+    audience_mode,
+    assignee_id,
+    teacher_ids,
+    priority,
+    start_date,
+    due_date,
+    checklist,
+  }) => {
+    const mode = audience_mode
+      || (assignee_id ? "assignee" : (Array.isArray(teacher_ids) && teacher_ids.length ? "selected_teachers" : "shared"));
+    const base = {
       content: content.trim(),
-      assignee_id: assignee_id || null,
       priority: priority === "urgent" ? "urgent" : (priority === "important" ? "important" : (priority === "low" ? "low" : "normal")),
       start_date: toKstDateOnly(start_date),
       due_date: toKstDateOnly(due_date),
@@ -10591,14 +10881,37 @@ function HubPage({ me, onSelect, onLogout }) {
       created_by: me.id,
       created_at: new Date().toISOString(),
     };
-    const { data, error } = await supabase.from("admin_todos").insert(row).select().single();
+
+    let assigneeIds = [];
+    let spawnGroupId = null;
+    if (mode === "assignee") {
+      if (!assignee_id) { alert("담당자를 선택하세요."); return; }
+      assigneeIds = [assignee_id];
+    } else if (mode === "selected_teachers" || mode === "all_teachers") {
+      assigneeIds = [...new Set((teacher_ids || []).filter(Boolean))];
+      if (!assigneeIds.length) { alert("대상 선생님이 없습니다."); return; }
+      spawnGroupId = newSpawnGroupId();
+    } else {
+      // shared — 공용 1건
+      assigneeIds = [null];
+    }
+
+    const rows = assigneeIds.map((aid) => ({
+      ...base,
+      assignee_id: aid,
+      spawn_group_id: spawnGroupId,
+    }));
+    const { data, error } = await supabase.from("admin_todos").insert(rows).select();
     if (error) { alert(error.message || "할 일 추가에 실패했습니다."); return; }
-    setTodos(prev => [data, ...prev]);
-    void sendPushEvent(supabase, "task_assigned", {
-      assignee_id: assignee_id || null,
-      title: row.content,
-      priority: row.priority,
-    });
+    const inserted = data || [];
+    setTodos(prev => [...inserted, ...prev]);
+    for (const row of inserted) {
+      void sendPushEvent(supabase, "task_assigned", {
+        assignee_id: row.assignee_id || null,
+        title: row.content,
+        priority: row.priority,
+      });
+    }
   };
 
   const toggleTodo = async (id, isCompleted) => {
@@ -11062,10 +11375,20 @@ function EquipmentApp({ onBack, me, session }) {
     setNotices(noticeList);
   };
 
-  const addAdminTodo = async ({ content, assignee_id, priority, start_date, due_date, checklist }) => {
-    const row = {
+  const addAdminTodo = async ({
+    content,
+    audience_mode,
+    assignee_id,
+    teacher_ids,
+    priority,
+    start_date,
+    due_date,
+    checklist,
+  }) => {
+    const mode = audience_mode
+      || (assignee_id ? "assignee" : (Array.isArray(teacher_ids) && teacher_ids.length ? "selected_teachers" : "shared"));
+    const base = {
       content: content.trim(),
-      assignee_id: assignee_id || null,
       priority: priority === "urgent" ? "urgent" : (priority === "important" ? "important" : (priority === "low" ? "low" : "normal")),
       start_date: toKstDateOnly(start_date),
       due_date: toKstDateOnly(due_date),
@@ -11074,14 +11397,36 @@ function EquipmentApp({ onBack, me, session }) {
       created_by: me.id,
       created_at: new Date().toISOString(),
     };
-    const { data, error } = await supabase.from("admin_todos").insert(row).select().single();
+
+    let assigneeIds = [];
+    let spawnGroupId = null;
+    if (mode === "assignee") {
+      if (!assignee_id) { alert("담당자를 선택하세요."); return; }
+      assigneeIds = [assignee_id];
+    } else if (mode === "selected_teachers" || mode === "all_teachers") {
+      assigneeIds = [...new Set((teacher_ids || []).filter(Boolean))];
+      if (!assigneeIds.length) { alert("대상 선생님이 없습니다."); return; }
+      spawnGroupId = newSpawnGroupId();
+    } else {
+      assigneeIds = [null];
+    }
+
+    const rows = assigneeIds.map((aid) => ({
+      ...base,
+      assignee_id: aid,
+      spawn_group_id: spawnGroupId,
+    }));
+    const { data, error } = await supabase.from("admin_todos").insert(rows).select();
     if (error) { alert(error.message || "할 일 추가에 실패했습니다."); return; }
-    setAdminTodos(prev => [data, ...prev]);
-    void sendPushEvent(supabase, "task_assigned", {
-      assignee_id: assignee_id || null,
-      title: row.content,
-      priority: row.priority,
-    });
+    const inserted = data || [];
+    setAdminTodos(prev => [...inserted, ...prev]);
+    for (const row of inserted) {
+      void sendPushEvent(supabase, "task_assigned", {
+        assignee_id: row.assignee_id || null,
+        title: row.content,
+        priority: row.priority,
+      });
+    }
   };
 
   const toggleAdminTodo = async (id, isCompleted) => {
