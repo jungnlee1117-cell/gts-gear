@@ -44,6 +44,7 @@ import {
 } from "./gearCategoryData.js";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
 import RecurringTodosSection, { MyAssignedTodosSection } from "./RecurringTodosSection.jsx";
+import TeacherMultiSelect from "./TeacherMultiSelect.jsx";
 import {
   TODO_AUDIENCE_OPTIONS,
   isMultiAudienceType,
@@ -6433,9 +6434,7 @@ function NoticeImportanceBadge({ importance, noticeType }) {
 
 function NoticeAudienceField({ audience, setAudience, institutions = [], teachers = [] }) {
   const type = audience?.audience_type || "all";
-  const selectedIds = new Set(audience?.audience_teacher_ids || []);
   const teacherRows = useMemo(() => selectableNoticeTeachers(teachers), [teachers]);
-  const selectedCount = selectedIds.size;
   const hint = NOTICE_AUDIENCE_OPTIONS.find(o => o.value === type)?.hint;
 
   const setType = (nextType) => {
@@ -6445,15 +6444,6 @@ function NoticeAudienceField({ audience, setAudience, institutions = [], teacher
       institution_id: nextType === "institution_teachers" ? (prev.institution_id || "") : "",
       audience_teacher_ids: nextType === "specific" ? (prev.audience_teacher_ids || []) : [],
     }));
-  };
-
-  const toggleTeacher = (id) => {
-    setAudience((prev) => {
-      const cur = new Set(prev.audience_teacher_ids || []);
-      if (cur.has(id)) cur.delete(id);
-      else cur.add(id);
-      return { ...prev, audience_teacher_ids: [...cur] };
-    });
   };
 
   return (
@@ -6491,24 +6481,13 @@ function NoticeAudienceField({ audience, setAudience, institutions = [], teacher
       ) : null}
 
       {type === "specific" ? (
-        <div className="notice-audience-teachers" style={{ marginTop: 8 }}>
-          <div className="notice-audience-teachers__count">
-            {selectedCount}명 선택됨
-          </div>
-          <div className="notice-audience-teachers__list">
-            {teacherRows.length === 0 ? (
-              <p className="sch-muted" style={{ margin: 0 }}>선택 가능한 선생님이 없습니다.</p>
-            ) : teacherRows.map((t) => (
-              <label key={t.id} className="notice-audience-teachers__item">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(t.id)}
-                  onChange={() => toggleTeacher(t.id)}
-                />
-                <span>{t.name || "이름 없음"}</span>
-              </label>
-            ))}
-          </div>
+        <div style={{ marginTop: 8 }}>
+          <TeacherMultiSelect
+            teachers={teacherRows}
+            selectedIds={audience?.audience_teacher_ids || []}
+            onChange={(ids) => setAudience((prev) => ({ ...prev, audience_teacher_ids: ids }))}
+            emptyText="선택 가능한 선생님이 없습니다."
+          />
         </div>
       ) : null}
     </div>
@@ -7130,15 +7109,6 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
     if (next !== "selected_teachers") setSelectedTeacherIds([]);
   };
 
-  const toggleSelectedTeacher = (id) => {
-    setSelectedTeacherIds((prev) => {
-      const cur = new Set(prev);
-      if (cur.has(id)) cur.delete(id);
-      else cur.add(id);
-      return [...cur];
-    });
-  };
-
   const addDraftItem = () => {
     const txt = subDraft.trim();
     if (!txt) return;
@@ -7550,24 +7520,13 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
                     </select>
                   ) : null}
                   {audienceMode === "selected_teachers" ? (
-                    <div className="notice-audience-teachers" style={{ marginTop: 8 }}>
-                      <div className="notice-audience-teachers__count">
-                        {selectedTeacherIds.length}명 선택됨
-                      </div>
-                      <div className="notice-audience-teachers__list">
-                        {multiTeacherOptions.length === 0 ? (
-                          <p className="sch-muted" style={{ margin: 0 }}>선택 가능한 선생님이 없습니다.</p>
-                        ) : multiTeacherOptions.map((t) => (
-                          <label key={t.id} className="notice-audience-teachers__item">
-                            <input
-                              type="checkbox"
-                              checked={selectedTeacherIds.includes(t.id)}
-                              onChange={() => toggleSelectedTeacher(t.id)}
-                            />
-                            <span>{t.name || "이름 없음"}</span>
-                          </label>
-                        ))}
-                      </div>
+                    <div style={{ marginTop: 8 }}>
+                      <TeacherMultiSelect
+                        teachers={multiTeacherOptions}
+                        selectedIds={selectedTeacherIds}
+                        onChange={setSelectedTeacherIds}
+                        emptyText="선택 가능한 선생님이 없습니다."
+                      />
                     </div>
                   ) : null}
                 </>

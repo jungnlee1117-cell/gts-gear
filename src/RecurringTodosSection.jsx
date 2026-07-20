@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isItemAdmin } from "./authRoles.js";
 import { sendPushEvent } from "./pushNotifications.js";
+import TeacherMultiSelect from "./TeacherMultiSelect.jsx";
 import {
   TODO_AUDIENCE_OPTIONS,
   audienceTypeLabel,
@@ -198,15 +199,6 @@ export default function RecurringTodosSection({
     }));
   };
 
-  const toggleTeacherId = (id) => {
-    setForm((f) => {
-      const cur = new Set(f.teacher_ids || []);
-      if (cur.has(id)) cur.delete(id);
-      else cur.add(id);
-      return { ...f, teacher_ids: [...cur] };
-    });
-  };
-
   return (
     <div className="admin-todo-table-card" style={{ marginTop: 16 }}>
       <div className="admin-todo-table-card__head">
@@ -349,24 +341,13 @@ export default function RecurringTodosSection({
               </label>
             ) : null}
             {form.audience_type === "selected_teachers" ? (
-              <div className="notice-audience-teachers" style={{ marginTop: 4 }}>
-                <div className="notice-audience-teachers__count">
-                  {(form.teacher_ids || []).length}명 선택됨
-                </div>
-                <div className="notice-audience-teachers__list">
-                  {multiTeacherOptions.length === 0 ? (
-                    <p className="sch-muted" style={{ margin: 0 }}>선택 가능한 선생님이 없습니다.</p>
-                  ) : multiTeacherOptions.map((t) => (
-                    <label key={t.id} className="notice-audience-teachers__item">
-                      <input
-                        type="checkbox"
-                        checked={(form.teacher_ids || []).includes(t.id)}
-                        onChange={() => toggleTeacherId(t.id)}
-                      />
-                      <span>{t.name || "이름 없음"}</span>
-                    </label>
-                  ))}
-                </div>
+              <div style={{ marginTop: 4 }}>
+                <TeacherMultiSelect
+                  teachers={multiTeacherOptions}
+                  selectedIds={form.teacher_ids || []}
+                  onChange={(ids) => setForm((f) => ({ ...f, teacher_ids: ids }))}
+                  emptyText="선택 가능한 선생님이 없습니다."
+                />
               </div>
             ) : null}
             <label style={labelStyle}>
