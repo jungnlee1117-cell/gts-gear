@@ -243,6 +243,7 @@ export function buildBulkRevenueDrafts({
       mode: "contract",
       institutionId: inst.id,
       amount: draft.source !== "empty" ? String(draft.amount ?? 0) : "",
+      externalInstructorCost: draft.source !== "empty" ? String(draft.externalInstructorCost ?? 0) : "0",
       existingId: draft.contract?.id ?? null,
       source: draft.source,
       previousYearMonth: draft.previousYearMonth,

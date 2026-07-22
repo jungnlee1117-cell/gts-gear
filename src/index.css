@@ -10228,6 +10228,29 @@ button.pe-res-resource-youtube-thumb:hover {
   justify-content: space-between;
   gap: 12px 16px;
 }
+.sch-bulk-revenue-check {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  min-width: 20px;
+}
+.sch-bulk-revenue-check input {
+  width: auto;
+  margin: 0;
+  accent-color: #16a34a;
+}
+.sch-bulk-revenue-row--deselected {
+  opacity: 0.55;
+}
+.sch-table-check-col {
+  width: 36px;
+  text-align: center;
+}
+.sch-table-check-col input {
+  width: auto;
+  margin: 0;
+  accent-color: #16a34a;
+}
 .sch-bulk-revenue-row-info {
   display: grid;
   gap: 2px;

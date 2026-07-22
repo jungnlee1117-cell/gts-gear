@@ -43,6 +43,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
   const [loading, setLoading] = useState(true);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [yearMonth, setYearMonth] = useState(yearMonthKey());
+  const [selectedBulkIds, setSelectedBulkIds] = useState(() => new Set());
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({
@@ -93,19 +94,48 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
     () => listBulkPrefillTargets(rows, contracts, yearMonth),
     [rows, contracts, yearMonth],
   );
+  const bulkTargetIds = useMemo(
+    () => new Set(bulkTargets.map((t) => t.institution.id)),
+    [bulkTargets],
+  );
+
+  useEffect(() => {
+    setSelectedBulkIds(new Set(bulkTargets.map((t) => t.institution.id)));
+  }, [bulkTargets]);
+
+  const selectedBulkCount = useMemo(
+    () => [...selectedBulkIds].filter((id) => bulkTargetIds.has(id)).length,
+    [selectedBulkIds, bulkTargetIds],
+  );
+
+  const toggleBulkId = (id) => {
+    setSelectedBulkIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const setAllBulkSelected = (on) => {
+    setSelectedBulkIds(on ? new Set(bulkTargets.map((t) => t.institution.id)) : new Set());
+  };
 
   const handleBulkApply = async () => {
-    if (!bulkTargets.length) {
-      return alert(`${yearMonth}에 직전 달 금액을 적용할 월 고정 원이 없습니다. (이미 입력됐거나 직전 달 데이터 없음)`);
+    const selectedTargets = bulkTargets.filter((t) => selectedBulkIds.has(t.institution.id));
+    if (!selectedTargets.length) {
+      return alert("적용할 원을 한 곳 이상 선택하세요.");
     }
     const prevYm = previousYearMonth(yearMonth);
-    const names = bulkTargets.map(t => t.institution.name).join(", ");
+    const names = selectedTargets.map((t) => t.institution.name).join(", ");
     if (!confirm(
-      `${yearMonth} 월 고정 매출 ${bulkTargets.length}개 원에 ${prevYm} 금액을 일괄 적용할까요?\n\n${names}`,
+      `${yearMonth} 월 고정 매출 ${selectedTargets.length}개 원에 ${prevYm} 금액을 일괄 적용할까요?\n\n${names}`,
     )) return;
     setBulkSaving(true);
     try {
-      const { applied } = await bulkApplyPreviousMonthContracts(yearMonth);
+      const { applied } = await bulkApplyPreviousMonthContracts(yearMonth, {
+        institutionIds: selectedTargets.map((t) => t.institution.id),
+      });
       await load();
       alert(`${applied.length}개 원에 ${prevYm} 금액을 적용했습니다.`);
     } catch (err) {
@@ -203,13 +233,23 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
           <button
             type="button"
             className="sch-btn sch-btn--primary"
-            disabled={bulkSaving || loading || bulkTargets.length === 0}
+            disabled={bulkSaving || loading || selectedBulkCount === 0}
             onClick={handleBulkApply}
           >
-            {bulkSaving ? "적용 중…" : `직전 달 금액 일괄 적용 (${bulkTargets.length})`}
+            {bulkSaving
+              ? "적용 중…"
+              : `선택 ${selectedBulkCount}개에 일괄 적용`}
           </button>
           <p className="sch-muted sch-toolbar-hint">
-            월 고정({BILLING_TYPES.monthly_fixed}) 원만 대상 · 회당과금·파트너 제외
+            월 고정({BILLING_TYPES.monthly_fixed}) · 직전 달 있음 · 이번 달 미입력 {bulkTargets.length}곳
+            {bulkTargets.length > 0 ? (
+              <>
+                {" · "}
+                <button type="button" className="sch-link-btn" onClick={() => setAllBulkSelected(true)}>전체 선택</button>
+                {" / "}
+                <button type="button" className="sch-link-btn" onClick={() => setAllBulkSelected(false)}>전체 해제</button>
+              </>
+            ) : null}
           </p>
         </div>
       ) : admin ? (
@@ -231,6 +271,17 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
           <table className="sch-table">
             <thead>
               <tr>
+                {superAdmin ? (
+                  <th className="sch-table-check-col" title="일괄 적용 대상">
+                    <input
+                      type="checkbox"
+                      aria-label="일괄 적용 대상 전체 선택"
+                      checked={bulkTargets.length > 0 && selectedBulkCount === bulkTargets.length}
+                      disabled={bulkTargets.length === 0}
+                      onChange={(e) => setAllBulkSelected(e.target.checked)}
+                    />
+                  </th>
+                ) : null}
                 <th>이름</th>
                 <th>담당 관리자</th>
                 <th>과금</th>
@@ -254,12 +305,27 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                   && canViewInstitutionRevenue(me, inst)
                   && canEditInstitutionRevenue(inst, sessionRates, sessionCounts);
                 const finalized = finalizedIds.has(inst.id);
+                const isBulkTarget = bulkTargetIds.has(inst.id);
 
                 return (
                   <tr
                     key={inst.id}
                     className={pending && isMonthlyFixedBilling(inst) ? "sch-row-warn" : ""}
                   >
+                    {superAdmin ? (
+                      <td className="sch-table-check-col">
+                        {isBulkTarget ? (
+                          <input
+                            type="checkbox"
+                            aria-label={`${inst.name} 일괄 적용 대상`}
+                            checked={selectedBulkIds.has(inst.id)}
+                            onChange={() => toggleBulkId(inst.id)}
+                          />
+                        ) : (
+                          <span className="sch-muted">—</span>
+                        )}
+                      </td>
+                    ) : null}
                     <td>
                       <button type="button" className="sch-link-btn" onClick={() => onOpenDetail(inst.id)}>
                         {inst.name}

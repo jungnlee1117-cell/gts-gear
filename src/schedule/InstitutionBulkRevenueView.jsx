@@ -29,6 +29,9 @@ function BulkRevenueRow({
   sessionRates,
   yearMonth,
   onDraftChange,
+  selected,
+  onToggleSelect,
+  selectable,
 }) {
   const mode = draft?.mode ?? getInstitutionRevenueInputMode(institution, sessionRates);
   const hint = (mode === "per_session" || mode === "per_capita")
@@ -63,9 +66,22 @@ function BulkRevenueRow({
         "sch-bulk-revenue-row",
         pending ? "sch-bulk-revenue-row--warn" : "",
         draft?.source === "previous_month" ? "sch-bulk-revenue-row--prefill" : "",
+        selectable && !selected ? "sch-bulk-revenue-row--deselected" : "",
       ].filter(Boolean).join(" ")}
     >
       <div className="sch-bulk-revenue-row-main">
+        <label className="sch-bulk-revenue-check">
+          {selectable ? (
+            <input
+              type="checkbox"
+              checked={!!selected}
+              onChange={() => onToggleSelect?.(institution.id)}
+              aria-label={`${institution.name} 저장 대상`}
+            />
+          ) : (
+            <span className="sch-muted" title="입력 불필요">—</span>
+          )}
+        </label>
         <div className="sch-bulk-revenue-row-info">
           <strong className="sch-bulk-revenue-name">{institution.name}</strong>
           <span className="sch-muted sch-bulk-revenue-meta">
@@ -155,6 +171,7 @@ export default function InstitutionBulkRevenueView({ onBack, me }) {
   const [drafts, setDrafts] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [selectedSaveIds, setSelectedSaveIds] = useState(() => new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -167,6 +184,12 @@ export default function InstitutionBulkRevenueView({ onBack, me }) {
       setSessionRates(data.sessionRates);
       setManagerMap(data.managerMap);
       setDrafts(data.drafts);
+      const selectable = scoped.filter((inst) => {
+        const mode = data.drafts[inst.id]?.mode
+          ?? getInstitutionRevenueInputMode(inst, data.sessionRates);
+        return mode !== "partner";
+      });
+      setSelectedSaveIds(new Set(selectable.map((i) => i.id)));
     } catch (e) {
       console.error(e);
       alert("데이터를 불러오지 못했습니다.");
@@ -181,6 +204,33 @@ export default function InstitutionBulkRevenueView({ onBack, me }) {
     () => [...institutions].sort((a, b) => a.name.localeCompare(b.name, "ko")),
     [institutions],
   );
+
+  const selectableIds = useMemo(() => {
+    const ids = [];
+    for (const inst of institutions) {
+      const mode = drafts[inst.id]?.mode ?? getInstitutionRevenueInputMode(inst, sessionRates);
+      if (mode !== "partner") ids.push(inst.id);
+    }
+    return ids;
+  }, [institutions, drafts, sessionRates]);
+
+  const selectedSaveCount = useMemo(
+    () => selectableIds.filter((id) => selectedSaveIds.has(id)).length,
+    [selectableIds, selectedSaveIds],
+  );
+
+  const toggleSaveId = (id) => {
+    setSelectedSaveIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const setAllSaveSelected = (on) => {
+    setSelectedSaveIds(on ? new Set(selectableIds) : new Set());
+  };
 
   const stats = useMemo(() => {
     let contractInput = 0;
@@ -205,20 +255,24 @@ export default function InstitutionBulkRevenueView({ onBack, me }) {
       }
     }
     return { contractInput, sessionInput, capitaInput, partner, pendingFixed };
-  }, [institutions, drafts]);
+  }, [institutions, drafts, sessionRates]);
 
   const handleDraftChange = (institutionId, nextDraft) => {
     setDrafts(prev => ({ ...prev, [institutionId]: nextDraft }));
   };
 
   const handleSaveAll = async () => {
-    if (!confirm(`${yearMonth} 매출·진행횟수를 전체 저장할까요?`)) return;
+    if (!selectedSaveCount) {
+      return alert("저장할 원을 한 곳 이상 선택하세요.");
+    }
+    if (!confirm(`${yearMonth} 매출·진행횟수를 선택 ${selectedSaveCount}개 원에 저장할까요?`)) return;
     setSaving(true);
     try {
       const { contractCount, sessionCount } = await bulkSaveMonthlyRevenue({
         yearMonth,
         institutions,
         drafts,
+        institutionIds: [...selectedSaveIds],
       });
       await load();
       alert(`저장 완료 — 계약 ${contractCount}건, 진행횟수 ${sessionCount}건`);
@@ -249,7 +303,8 @@ export default function InstitutionBulkRevenueView({ onBack, me }) {
 
       <p className="sch-muted sch-bulk-revenue-desc">
         모든 원의 이번 달 매출·진행횟수를 한 화면에서 입력합니다.
-        월 고정 원은 직전 달 금액이 미리 채워집니다 — 맞으면 그대로 두고 전체 저장하세요.
+        월 고정 원은 직전 달 금액이 미리 채워집니다 — 맞으면 체크된 원만 저장하세요.
+        제외한 원은 나중에 개별 수정으로 등록할 수 있습니다.
       </p>
 
       <div className="sch-toolbar sch-toolbar--inst-list">
@@ -265,6 +320,10 @@ export default function InstitutionBulkRevenueView({ onBack, me }) {
         <p className="sch-muted sch-toolbar-hint">
           계약 {stats.contractInput} · 회당 {stats.sessionInput} · 입력불필요 {stats.partner}
           {stats.pendingFixed > 0 ? ` · 미입력 ${stats.pendingFixed}` : ""}
+          {" · "}
+          <button type="button" className="sch-link-btn" onClick={() => setAllSaveSelected(true)}>전체 선택</button>
+          {" / "}
+          <button type="button" className="sch-link-btn" onClick={() => setAllSaveSelected(false)}>전체 해제</button>
         </p>
       </div>
 
@@ -273,27 +332,35 @@ export default function InstitutionBulkRevenueView({ onBack, me }) {
       ) : (
         <>
           <ul className="sch-bulk-revenue-list">
-            {sortedInstitutions.map(inst => (
-              <BulkRevenueRow
-                key={inst.id}
-                institution={inst}
-                draft={drafts[inst.id]}
-                managerName={managerMap[inst.manager_id]?.name || "본사"}
-                sessionRates={sessionRates}
-                yearMonth={yearMonth}
-                onDraftChange={handleDraftChange}
-              />
-            ))}
+            {sortedInstitutions.map(inst => {
+              const mode = drafts[inst.id]?.mode
+                ?? getInstitutionRevenueInputMode(inst, sessionRates);
+              const selectable = mode !== "partner";
+              return (
+                <BulkRevenueRow
+                  key={inst.id}
+                  institution={inst}
+                  draft={drafts[inst.id]}
+                  managerName={managerMap[inst.manager_id]?.name || "본사"}
+                  sessionRates={sessionRates}
+                  yearMonth={yearMonth}
+                  onDraftChange={handleDraftChange}
+                  selectable={selectable}
+                  selected={selectedSaveIds.has(inst.id)}
+                  onToggleSelect={toggleSaveId}
+                />
+              );
+            })}
           </ul>
 
           <div className="sch-bulk-revenue-footer">
             <button
               type="button"
               className="sch-btn sch-btn--primary sch-btn--lg"
-              disabled={saving}
+              disabled={saving || selectedSaveCount === 0}
               onClick={handleSaveAll}
             >
-              {saving ? "저장 중…" : "전체 저장"}
+              {saving ? "저장 중…" : `선택 ${selectedSaveCount}개 저장`}
             </button>
           </div>
         </>

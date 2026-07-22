@@ -763,12 +763,16 @@ export async function saveMonthlyContract(payload) {
   return data;
 }
 
-export async function bulkApplyPreviousMonthContracts(yearMonth) {
+export async function bulkApplyPreviousMonthContracts(yearMonth, { institutionIds } = {}) {
   const [institutions, contracts] = await Promise.all([
     fetchInstitutions({ activeOnly: false }),
     fetchMonthlyContracts(),
   ]);
-  const targets = listBulkPrefillTargets(institutions, contracts, yearMonth);
+  let targets = listBulkPrefillTargets(institutions, contracts, yearMonth);
+  if (Array.isArray(institutionIds)) {
+    const allow = new Set(institutionIds.filter(Boolean));
+    targets = targets.filter((t) => allow.has(t.institution.id));
+  }
   const applied = [];
   for (const t of targets) {
     const saved = await saveMonthlyContract(buildMonthlyContractPayload({
@@ -776,6 +780,7 @@ export async function bulkApplyPreviousMonthContracts(yearMonth) {
       yearMonth,
       amount: t.amount,
       studentCount: t.studentCount,
+      externalInstructorCost: t.prevContract?.external_instructor_cost ?? 0,
     }));
     applied.push({ institution: t.institution, contract: saved });
   }
@@ -875,10 +880,14 @@ export async function loadBulkRevenueData(yearMonth) {
   };
 }
 
-export async function bulkSaveMonthlyRevenue({ yearMonth, institutions, drafts }) {
+export async function bulkSaveMonthlyRevenue({ yearMonth, institutions, drafts, institutionIds }) {
   let contractCount = 0;
   let sessionCount = 0;
+  const allow = Array.isArray(institutionIds)
+    ? new Set(institutionIds.filter(Boolean))
+    : null;
   for (const inst of institutions) {
+    if (allow && !allow.has(inst.id)) continue;
     const draft = drafts[inst.id];
     if (!draft || draft.mode === "partner") continue;
     if (draft.mode === "contract") {
@@ -889,6 +898,7 @@ export async function bulkSaveMonthlyRevenue({ yearMonth, institutions, drafts }
         yearMonth,
         amount,
         studentCount: "",
+        externalInstructorCost: draft.externalInstructorCost,
         existingId: draft.existingId,
       }));
       contractCount += 1;
