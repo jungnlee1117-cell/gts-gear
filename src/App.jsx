@@ -27,6 +27,7 @@ import LessonScriptBuilderApp from "./LessonScriptBuilderApp.jsx";
 import LessonScriptDataAdminPage from "./LessonScriptDataAdminPage.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
+import GitiAssistant from "./GitiAssistant.jsx";
 import { formatPushItemNames, sendPushEvent } from "./pushNotifications.js";
 import MyGearRotationPage, {
   checkRotationRentalConflicts,
@@ -10234,6 +10235,7 @@ function AuthenticatedRoutes({ me, session, logout }) {
   return (
     <>
       <PushNotificationPrompt supabase={supabase} teacherId={me?.id}/>
+      <GitiAssistant teacherName={me?.name || ""}/>
       <RouteTracker/>
       <RestoreRouteAfterLogin/>
       <Routes>

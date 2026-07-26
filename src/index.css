@@ -15851,3 +15851,274 @@ button.pe-res-resource-youtube-thumb:hover {
   }
 }
 
+
+/* ── 지티(GiTi) AI 어시스턴트 ── */
+.giti-fab {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  z-index: 1400;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 12px 14px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #15803d 0%, #166534 55%, #14532d 100%);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(22, 101, 52, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.giti-fab:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 32px rgba(22, 101, 52, 0.42);
+}
+.giti-fab:active { transform: translateY(0); }
+.giti-fab__label { letter-spacing: -0.02em; }
+
+.giti-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 12px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.giti-panel {
+  width: min(100%, 420px);
+  height: min(88vh, 680px);
+  max-height: calc(100vh - 24px);
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: inherit;
+}
+
+.giti-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  background: linear-gradient(180deg, #ecfdf5 0%, #fff 100%);
+  border-bottom: 1px solid #e2e8f0;
+}
+.giti-panel__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.giti-panel__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #dcfce7;
+  color: #166534;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.giti-panel__title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+.giti-panel__sub {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.giti-panel__close {
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 12px;
+  background: #f1f5f9;
+  color: #334155;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: inherit;
+}
+
+.giti-panel__messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #f8fafc;
+  -webkit-overflow-scrolling: touch;
+}
+
+.giti-bubble {
+  max-width: 92%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.giti-bubble--user {
+  align-self: flex-end;
+}
+.giti-bubble--assistant {
+  align-self: flex-start;
+}
+.giti-bubble__name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #166534;
+  padding-left: 4px;
+}
+.giti-bubble__text {
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #0f172a;
+}
+.giti-bubble--user .giti-bubble__text {
+  background: #166534;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.giti-bubble--assistant .giti-bubble__text {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-bottom-left-radius: 4px;
+}
+
+.giti-bubble__typing {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-height: 18px;
+}
+.giti-bubble__typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #86efac;
+  animation: giti-dot 1s ease-in-out infinite;
+}
+.giti-bubble__typing span:nth-child(2) { animation-delay: 0.15s; }
+.giti-bubble__typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes giti-dot {
+  0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+.giti-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 10px;
+  background: #f8fafc;
+}
+.giti-suggestion {
+  border: 1px solid #bbf7d0;
+  background: #fff;
+  color: #166534;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1.3;
+  text-align: left;
+}
+.giti-suggestion:hover { background: #ecfdf5; }
+
+.giti-error {
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b45309;
+  background: #fffbeb;
+  border-top: 1px solid #fde68a;
+}
+
+.giti-panel__composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #e2e8f0;
+  background: #fff;
+}
+.giti-panel__input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  background: #f8fafc;
+  color: #0f172a;
+}
+.giti-panel__input:focus {
+  border-color: #86efac;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+}
+.giti-panel__send {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 12px;
+  background: #16a34a;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+}
+.giti-panel__send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@media (max-width: 640px) {
+  .giti-overlay {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+  .giti-panel {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+  }
+  .giti-fab {
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(16px, calc(env(safe-area-inset-bottom) + 64px));
+  }
+}
