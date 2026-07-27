@@ -28,6 +28,7 @@ import LessonScriptDataAdminPage from "./LessonScriptDataAdminPage.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
 import GitiAssistant from "./GitiAssistant.jsx";
+import GitiReportSection from "./GitiReportSection.jsx";
 import { formatPushItemNames, sendPushEvent } from "./pushNotifications.js";
 import MyGearRotationPage, {
   checkRotationRentalConflicts,
@@ -10754,6 +10755,7 @@ function HubPage({ me, onSelect, onLogout }) {
   const [readNoticeIds, setReadNoticeIds] = useState(() => new Set());
 
   const showTodo = isItemAdmin(me);
+  const showGitiReport = isSuperAdmin(me);
   const showUnreadStyles = isGearTeacher(me) || me?.role === "teacher";
   const [todos, setTodos] = useState([]);
   const [todoTeachers, setTodoTeachers] = useState([]);
@@ -10964,6 +10966,12 @@ function HubPage({ me, onSelect, onLogout }) {
               unreadCount={noticeUnreadCount}
             />
           </div>
+
+          {showGitiReport ? (
+            <div className="hub-giti-report-wrap">
+              <GitiReportSection supabase={supabase} />
+            </div>
+          ) : null}
 
           <div className="hub-notices-section hub-notices-section--aside">
             <UnifiedNoticesFeed

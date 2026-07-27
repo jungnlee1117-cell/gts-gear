@@ -336,6 +336,25 @@ async function getSuperAdminIds(client) {
   return [...ids];
 }
 
+/** 지티 리포트 생성 완료 → 슈퍼관리자 푸시 */
+async function runGitiReportReady(adminClient, vapid, payload = {}) {
+  const teacherIds = await getSuperAdminIds(adminClient);
+  const docUrl = String(payload.doc_url || "/").trim() || "/";
+  const period = payload.period_start && payload.period_end
+    ? `${payload.period_start}~${payload.period_end}`
+    : "";
+  const result = await deliverPushNotifications(adminClient, vapid, "giti_report_ready", {
+    teacherIds,
+    title: "새 지티 리포트가 도착했어요!",
+    body: period
+      ? `지난 15일(${period}) 사용 통계 리포트가 준비되었습니다.`
+      : "지난 15일 사용 통계 리포트가 준비되었습니다.",
+    url: docUrl.startsWith("http") ? docUrl : "/",
+  });
+  console.log("[send-push] giti_report_ready complete", result);
+  return jsonResponse(result);
+}
+
 function consultationBrandLabel(brand) {
   const normalized = String(brand || "gts")
     .trim()
@@ -357,6 +376,7 @@ const SERVICE_ROLE_EVENTS = new Set([
   "cron_overdue_return_reminders",
   "todo_due_today",
   "todo_recurrence_spawn",
+  "giti_report_ready",
 ]);
 
 /** KST 기준 이번 달 YYYY-MM */
@@ -1201,6 +1221,9 @@ Deno.serve(async (req) => {
       }
       if (event === "todo_recurrence_spawn") {
         return await runTodoRecurrenceSpawn(adminClient, payload || {});
+      }
+      if (event === "giti_report_ready") {
+        return await runGitiReportReady(adminClient, vapid, payload || {});
       }
     }
 

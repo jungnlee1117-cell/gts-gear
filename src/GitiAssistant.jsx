@@ -9,6 +9,7 @@ import {
 import { MessageCircle, Send, X, Sparkles } from "lucide-react";
 import { askGiti, getGitiApiKey } from "./giti/gitiApi.js";
 import { buildGitiMinimalContext, loadGitiTeacherContext } from "./giti/gitiContext.js";
+import { logGitiUsage } from "./giti/gitiUsageLog.js";
 import { GITI_WELCOME } from "./giti/gitiSystemPrompt.js";
 
 const SUGGESTIONS = [
@@ -92,6 +93,7 @@ function GitiAssistant({ me = null, session = null, supabase = null }) {
   const messagesRef = useRef(messages);
   const busyRef = useRef(false);
   const inputValueRef = useRef("");
+  const chatSessionIdRef = useRef(`giti-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const listRef = useRef(null);
   const inputRef = useRef(null);
   const shouldStickRef = useRef(true);
@@ -132,6 +134,7 @@ function GitiAssistant({ me = null, session = null, supabase = null }) {
     const minimal = buildGitiMinimalContext(me);
     contextRef.current = minimal;
     contextDataRef.current = null;
+    chatSessionIdRef.current = `giti-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const loadPromise = loadGitiTeacherContext({
       me,
@@ -185,18 +188,29 @@ function GitiAssistant({ me = null, session = null, supabase = null }) {
       const history = [...messagesRef.current, userMsg]
         .filter((m) => m.id !== "welcome")
         .map((m) => ({ role: m.role, content: m.content }));
-      const reply = await askGiti(history.slice(0, -1), text, { appContextText });
+      const result = await askGiti(history.slice(0, -1), text, { appContextText });
+      const reply = result?.text || "";
       setMessages((prev) => [
         ...prev,
         { id: `a-${Date.now()}`, role: "assistant", content: reply },
       ]);
+      if (supabase && me?.id && reply) {
+        void logGitiUsage(supabase, {
+          teacherId: me.id,
+          sessionId: chatSessionIdRef.current,
+          question: text,
+          answer: reply,
+          model: result?.model,
+          usage: result?.usage,
+        });
+      }
     } catch (err) {
       setError(err?.message || "잠시 후 다시 시도해주세요.");
     } finally {
       busyRef.current = false;
       setBusy(false);
     }
-  }, [me]);
+  }, [me, supabase]);
 
   const onSuggestion = useCallback(async (s) => {
     if (s !== GEAR_ACTIVITY_SUGGESTION) {

@@ -7,3 +7,6 @@ verify_jwt = false
 
 [functions.vapid-public-key]
 verify_jwt = false
+
+[functions.giti-biweekly-report]
+verify_jwt = false

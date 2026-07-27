@@ -36,7 +36,7 @@ export function buildGitiSystemBlocks(appContextText = "") {
  * @param {{ role: "user"|"assistant", content: string }[]} history
  * @param {string} userText
  * @param {{ appContextText?: string }} [options]
- * @returns {Promise<string>}
+ * @returns {Promise<{ text: string, usage: object, model: string }>}
  */
 export async function askGiti(history, userText, options = {}) {
   const apiKey = getGitiApiKey();
@@ -111,5 +111,9 @@ export async function askGiti(history, userText, options = {}) {
     .trim();
 
   if (!text) throw new Error("답변을 받지 못했어요. 다시 시도해주세요.");
-  return text;
+  return {
+    text,
+    usage,
+    model: data?.model || GITI_MODEL,
+  };
 }
