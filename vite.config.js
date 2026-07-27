@@ -13,11 +13,16 @@ export default defineConfig(({ mode }) => {
     env.VITE_VAPID_PUBLIC_KEY
     || process.env.VITE_VAPID_PUBLIC_KEY
     || ''
+  const anthropicApiKey =
+    env.VITE_ANTHROPIC_API_KEY
+    || process.env.VITE_ANTHROPIC_API_KEY
+    || ''
 
   return {
     define: {
       // import.meta.env 치환 누락 시에도 빌드 타임 키 주입
       __GTS_VAPID_PUBLIC_KEY__: JSON.stringify(vapidPublicKey),
+      'import.meta.env.VITE_ANTHROPIC_API_KEY': JSON.stringify(anthropicApiKey),
     },
     plugins: [
       react(),

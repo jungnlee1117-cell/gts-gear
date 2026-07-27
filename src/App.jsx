@@ -10235,7 +10235,7 @@ function AuthenticatedRoutes({ me, session, logout }) {
   return (
     <>
       <PushNotificationPrompt supabase={supabase} teacherId={me?.id}/>
-      <GitiAssistant teacherName={me?.name || ""}/>
+      <GitiAssistant me={me} session={session} supabase={supabase}/>
       <RouteTracker/>
       <RestoreRouteAfterLogin/>
       <Routes>
