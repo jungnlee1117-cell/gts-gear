@@ -4,7 +4,7 @@ import { fetchInstitutions, fetchPayRates, fetchTeachers } from "./api.js";
 import { registerOneoffLesson, saveOneoffLesson } from "./oneoffLessonService.js";
 import { oneoffLessonMinutes } from "./oneoffLessons.js";
 import { listInstitutionsForOneoffLesson } from "./oneoffInstitutions.js";
-import { pickRateForDate } from "./settlement.js";
+import { pickRateForDate, payAmountFromMinutesAndRate } from "./settlement.js";
 import InstitutionSearchSelect from "./InstitutionSearchSelect.jsx";
 
 const EMPTY_FORM = {
@@ -122,7 +122,7 @@ export default function OneoffLessonModal({
 
   const autoPayAmount = useMemo(() => {
     if (!form.link_payroll || previewMinutes <= 0 || ratePerMinute <= 0) return null;
-    return Math.round(previewMinutes * ratePerMinute);
+    return Math.round(payAmountFromMinutesAndRate(previewMinutes, ratePerMinute));
   }, [form.link_payroll, previewMinutes, ratePerMinute]);
 
   const handleSubmit = async (e) => {

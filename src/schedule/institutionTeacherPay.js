@@ -20,8 +20,9 @@ export const INSTITUTION_ADDITIONAL_PAYMENT_RULES = [
   {
     institutionPattern: /수지폴리\s*본관/,
     teacherName: "김종현",
-    reasonPattern: /추가금액|수지폴리/,
-    label: "추가금액",
+    // 수지폴리 본관 귀속 추가금 = 교통비지원 10만 (별도 '추가금액' 행 아님)
+    reasonPattern: /교통비지원|수지폴리/,
+    label: "교통비지원",
   },
   {
     institutionPattern: /프랜시스파커/,

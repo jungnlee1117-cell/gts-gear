@@ -4,6 +4,7 @@ import {
   scheduleSupabase,
   upsertPayrollSlot,
 } from "./api.js";
+import { formatWon } from "./constants.js";
 import { sendPushEvent } from "../pushNotifications.js";
 import {
   buildExtraAddedNotificationRow,
@@ -11,6 +12,12 @@ import {
   shouldNotifyExtraAdded,
   shouldNotifyScheduleChange,
 } from "./scheduleChangeNotifications.js";
+
+function formatClassDateShort(dateStr) {
+  const [, m, d] = String(dateStr || "").split("-").map(Number);
+  if (!m || !d) return dateStr || "";
+  return `${m}월 ${d}일`;
+}
 
 async function pushScheduleChangeAlert(planned, payload, { institutionName } = {}) {
   const inst = institutionName
@@ -20,6 +27,28 @@ async function pushScheduleChangeAlert(planned, payload, { institutionName } = {
     teacher_id: payload.teacher_id,
     institution_name: inst,
     class_date: payload.class_date,
+  });
+}
+
+async function pushExtraLessonRegistered({
+  teacherId,
+  teacherName,
+  classDate,
+  classType,
+  amount,
+}) {
+  const name = String(teacherName || "").trim() || "선생님";
+  const dateLabel = formatClassDateShort(classDate);
+  const typeLabel = String(classType || "수업").trim() || "수업";
+  const amountLabel = Number(amount) > 0 ? formatWon(Number(amount)) : "금액 미정";
+  const body = `${name}님이 추가수업/수당을 등록했어요: ${dateLabel} ${typeLabel} ${amountLabel}`;
+  await sendPushEvent(scheduleSupabase, "extra_lesson_registered", {
+    teacher_id: teacherId,
+    teacher_name: name,
+    class_date: classDate,
+    class_type: typeLabel,
+    amount: Number(amount) || 0,
+    body,
   });
 }
 
@@ -52,14 +81,32 @@ export async function bulkUpsertPayrollSlotsWithNotifications(items) {
   return results;
 }
 
-export async function createManualExtraEntryWithNotification(payload, { institutionName, changeReason } = {}) {
+export async function createManualExtraEntryWithNotification(
+  payload,
+  {
+    institutionName,
+    changeReason,
+    teacherName = "",
+    classType = "",
+    amount = 0,
+    skipPush = false,
+  } = {},
+) {
   const entry = await upsertPayrollSlot(payload);
   if (shouldNotifyExtraAdded(payload)) {
     try {
       await createScheduleChangeNotification(
         buildExtraAddedNotificationRow(payload, { institutionName, changeReason }),
       );
-      await pushScheduleChangeAlert(null, payload, { institutionName });
+      if (!skipPush) {
+        await pushExtraLessonRegistered({
+          teacherId: payload.teacher_id,
+          teacherName,
+          classDate: payload.class_date,
+          classType: classType || payload.pay_type || "수업",
+          amount,
+        });
+      }
     } catch (err) {
       console.error("extra added notification failed:", err);
     }

@@ -1,6 +1,7 @@
 /** 원별 월간 정산 계산 */
 
 import { computeManagerThresholdSplitSettlement } from "./thresholdSplitSettlement.js";
+import { PAYROLL_SUMMARY_TYPES, resolvePayrollSummaryType } from "./constants.js";
 
 /** 회당 단가 — effective_from 기준 최신 단가 */
 export function pickSessionRate(rates, sessionType, asOfDate) {
@@ -156,7 +157,7 @@ export function sumPayrollCost(entries, ratesByTeacherPayType) {
   for (const entry of entries) {
     const key = `${entry.teacher_id}:${entry.pay_type}`;
     const rate = ratesByTeacherPayType[key] ?? 0;
-    total += entry.minutes * rate;
+    total += payAmountFromMinutesAndRate(entry.minutes, rate);
   }
   return Math.round(total);
 }
@@ -230,6 +231,16 @@ function matchesFlatPayRule(entry) {
   ) ?? null;
 }
 
+/** 분당 단가(소수 2자리 truncate)를 시간당으로 복원해 분 단위 급여 계산.
+ *  예: 833.33 → 50,000원/시간, 30분 = 25,000원 (833.33×30=24,999.9 오차 제거) */
+export function payAmountFromMinutesAndRate(minutes, ratePerMinute) {
+  const mins = Number(minutes) || 0;
+  const rate = Number(ratePerMinute) || 0;
+  if (mins <= 0 || rate <= 0) return 0;
+  const hourly = Math.round(rate * 60);
+  return (mins * hourly) / 60;
+}
+
 /** 항목별 급여 — flat 규칙·슬롯 label 우선, 없으면 분×단가.
  *  substitute_teacher_id가 있으면 대체 선생님 단가로 계산.
  *  기관별 단가 > 기본 단가. */
@@ -249,7 +260,7 @@ export function entryPayAmount(entry, rates, slotById = {}) {
     entry.class_date,
     entry.institution_id || null,
   )) || 0;
-  return entry.minutes * rate;
+  return payAmountFromMinutesAndRate(entry.minutes, rate);
 }
 
 /** 해당 선생님 급여에 포함될 항목만 (대체 배정 시 원래 선생님 제외) */
@@ -282,11 +293,12 @@ export function ratesRowsToMap(rows) {
 
 export function groupPayrollByType(entries) {
   const groups = {};
-  for (const t of ["정규", "방과후", "가정방문", "센터", "센터보조"]) {
+  for (const t of PAYROLL_SUMMARY_TYPES) {
     groups[t] = 0;
   }
   for (const e of entries) {
-    groups[e.pay_type] = (groups[e.pay_type] || 0) + e.minutes;
+    const summaryType = resolvePayrollSummaryType(e);
+    groups[summaryType] = (groups[summaryType] || 0) + e.minutes;
   }
   return groups;
 }

@@ -1,6 +1,6 @@
 import { resolveTeacherMonthlyGross } from "./additionalPayments.js";
 import { createClient } from "@supabase/supabase-js";
-import { yearMonthFirstDay, yearMonthLastDay } from "./constants.js";
+import { yearMonthFirstDay, yearMonthKey, yearMonthLastDay } from "./constants.js";
 import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, isPerCapitaBilling, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
 import {
   computeInstitutionInstructorCost,
@@ -22,6 +22,10 @@ import {
   expandMonthSchedule,
   groupPayrollByTypeConfirmed,
 } from "./payrollCalendar.js";
+import {
+  filterTeachersVisibleInYearMonth,
+  isTeacherVisibleInYearMonth,
+} from "./teacherEmployment.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -87,15 +91,56 @@ async function enrichWeeklySlotsWithInstitutions(slots) {
   });
 }
 
-export async function fetchTeachers() {
+/**
+ * 스케줄·급여용 선생님 목록.
+ * @param {{ yearMonth?: string, allowBeforeHire?: boolean }} [opts]
+ * - yearMonth: 표시 기준 월 (기본: 이번 달). 입사 월~퇴사 월만 포함.
+ * - allowBeforeHire: true면 입사 전 달에도 포함 (단가 등록 등)
+ */
+export async function fetchTeachers({ yearMonth, allowBeforeHire = false } = {}) {
+  const ym = yearMonth || yearMonthKey();
   const { data, error } = await scheduleSupabase
     .from("teachers")
-    .select("id, name, role, active")
-    .eq("active", true)
+    .select("id, name, role, active, hire_date, resigned_at")
     .order("name");
-  if (error) throw error;
-  return data || [];
+  if (error) {
+    // hire_date 미적용 DB 호환
+    if (/hire_date/i.test(error.message || "")) {
+      const fallback = await scheduleSupabase
+        .from("teachers")
+        .select("id, name, role, active, resigned_at")
+        .order("name");
+      if (fallback.error) throw fallback.error;
+      const rows = (fallback.data || []).filter((t) => t.active !== false || t.resigned_at);
+      return filterTeachersVisibleInYearMonth(rows, ym, { allowBeforeHire });
+    }
+    throw error;
+  }
+  const rows = (data || []).filter((t) => t.active !== false || t.resigned_at);
+  return filterTeachersVisibleInYearMonth(rows, ym, { allowBeforeHire });
 }
+
+/** 월 필터 없이 (활성+퇴직이력) 전체 — 이름 조회 등 */
+export async function fetchTeachersUnfiltered() {
+  const { data, error } = await scheduleSupabase
+    .from("teachers")
+    .select("id, name, role, active, hire_date, resigned_at")
+    .order("name");
+  if (error) {
+    if (/hire_date/i.test(error.message || "")) {
+      const fallback = await scheduleSupabase
+        .from("teachers")
+        .select("id, name, role, active, resigned_at")
+        .order("name");
+      if (fallback.error) throw fallback.error;
+      return (fallback.data || []).filter((t) => t.active !== false || t.resigned_at);
+    }
+    throw error;
+  }
+  return (data || []).filter((t) => t.active !== false || t.resigned_at);
+}
+
+export { isTeacherVisibleInYearMonth, filterTeachersVisibleInYearMonth };
 
 export async function fetchTemporaryEngagementsForMonth(yearMonth) {
   const { data, error } = await scheduleSupabase
@@ -857,7 +902,7 @@ export async function loadBulkRevenueData(yearMonth) {
     fetchMonthlySessionCounts(null, yearMonth),
     fetchMonthlySessionCounts(null, prevYm),
     fetchSessionRates(),
-    fetchTeachers(),
+    fetchTeachersUnfiltered(),
   ]);
   const managerMap = {};
   teachers.forEach(t => { managerMap[t.id] = t; });
@@ -1104,11 +1149,11 @@ export async function savePayrollEntry(payload) {
 /** schedule_slot_id 또는 home_visit_pattern_id + class_date 기준 upsert */
 export async function upsertPayrollSlot(payload) {
   const { teacher_id, class_date, schedule_slot_id, home_visit_pattern_id } = payload;
+  // 스케줄 슬롯은 날짜당 전역 1건 (원강사/대체가 각자 행을 만들지 않음)
   if (schedule_slot_id) {
     const { data: existing, error: findErr } = await scheduleSupabase
       .from("payroll_entries")
       .select("id")
-      .eq("teacher_id", teacher_id)
       .eq("class_date", class_date)
       .eq("schedule_slot_id", schedule_slot_id)
       .maybeSingle();
@@ -1449,13 +1494,31 @@ export async function deleteAdditionalPayment(id) {
 export async function fetchAdditionalPaymentRequests({ teacherId, yearMonth, status } = {}) {
   let q = scheduleSupabase
     .from("additional_payment_requests")
-    .select("*, teachers(id, name)")
+    // teacher_id / reviewed_by 둘 다 teachers FK → 관계를 명시해야 함
+    .select("*, teachers!additional_payment_requests_teacher_id_fkey(id, name)")
     .order("created_at", { ascending: false });
   if (teacherId) q = q.eq("teacher_id", teacherId);
   if (yearMonth) q = q.eq("year_month", yearMonthFirstDay(yearMonth));
   if (status) q = q.eq("status", status);
   const { data, error } = await q;
   if (error) {
+    // 구스키마 FK 이름 다를 때 폴백
+    if (/more than one relationship|could not find/i.test(error.message || "")) {
+      const fallback = scheduleSupabase
+        .from("additional_payment_requests")
+        .select("*")
+        .order("created_at", { ascending: false });
+      let fq = fallback;
+      if (teacherId) fq = fq.eq("teacher_id", teacherId);
+      if (yearMonth) fq = fq.eq("year_month", yearMonthFirstDay(yearMonth));
+      if (status) fq = fq.eq("status", status);
+      const retry = await fq;
+      if (retry.error) {
+        if (isSchemaMissingError(retry.error)) return [];
+        throw retry.error;
+      }
+      return retry.data || [];
+    }
     if (isSchemaMissingError(error)) return [];
     throw error;
   }
@@ -1480,26 +1543,52 @@ export async function insertAdditionalPaymentRequest({
   start_time = null,
   end_time = null,
   location = null,
+  request_kind = "allowance",
+  expense_type = null,
+  receipt_url = null,
 }) {
   const eventDate = event_date ? String(event_date).slice(0, 10) : null;
   const ymSource = eventDate || year_month;
+  const row = {
+    teacher_id,
+    year_month: toYearMonthDate(ymSource),
+    event_date: eventDate,
+    start_time: normalizeTimeValue(start_time),
+    end_time: normalizeTimeValue(end_time),
+    location: location?.trim() || null,
+    amount: Number(amount),
+    reason: reason.trim(),
+    memo: memo?.trim() || null,
+    status: "pending",
+    request_kind: request_kind || "allowance",
+    expense_type: expense_type || null,
+    receipt_url: receipt_url || null,
+  };
   const { data, error } = await scheduleSupabase
     .from("additional_payment_requests")
-    .insert({
-      teacher_id,
-      year_month: yearMonthFirstDay(ymSource),
-      event_date: eventDate,
-      start_time: normalizeTimeValue(start_time),
-      end_time: normalizeTimeValue(end_time),
-      location: location?.trim() || null,
-      amount: Number(amount),
-      reason: reason.trim(),
-      memo: memo?.trim() || null,
-      status: "pending",
-    })
+    .insert(row)
     .select()
     .single();
   if (error) {
+    // 컬럼 미적용 DB 호환
+    if (/request_kind|expense_type|receipt_url/i.test(error.message || "")) {
+      const legacy = { ...row };
+      delete legacy.request_kind;
+      delete legacy.expense_type;
+      delete legacy.receipt_url;
+      const retry = await scheduleSupabase
+        .from("additional_payment_requests")
+        .insert(legacy)
+        .select()
+        .single();
+      if (retry.error) {
+        if (isSchemaMissingError(retry.error)) {
+          throw new Error("추가 급여 신청 기능이 아직 준비되지 않았습니다. 관리자에게 문의해 주세요.");
+        }
+        throw retry.error;
+      }
+      return retry.data;
+    }
     if (isSchemaMissingError(error)) {
       throw new Error("추가 급여 신청 기능이 아직 준비되지 않았습니다. 관리자에게 문의해 주세요.");
     }
@@ -1517,26 +1606,47 @@ export async function approveAdditionalPaymentRequest(requestId, { reviewed_by, 
   if (fetchErr || !req) throw fetchErr || new Error("신청을 찾을 수 없습니다.");
   if (req.status !== "pending") throw new Error("이미 처리된 신청입니다.");
 
+  let paymentReason = req.reason;
+  if (req.request_kind === "expense" || req.expense_type) {
+    const type = req.expense_type || req.reason;
+    const detail = req.memo || "";
+    paymentReason = detail ? `[${type}] ${detail}` : (String(req.reason).startsWith("[") ? req.reason : `[${type}]`);
+  }
+
   const payment = await insertAdditionalPayment({
     teacher_id: req.teacher_id,
     year_month: req.year_month,
     amount: req.amount,
-    reason: req.reason,
+    reason: paymentReason,
     created_by: created_by || reviewed_by,
   });
 
   const now = new Date().toISOString();
-  const { data, error } = await scheduleSupabase
+  const updatePayload = {
+    status: "approved",
+    reviewed_by,
+    reviewed_at: now,
+    additional_payment_id: payment.id,
+  };
+  let { data, error } = await scheduleSupabase
     .from("additional_payment_requests")
-    .update({
-      status: "approved",
-      reviewed_by,
-      reviewed_at: now,
-      additional_payment_id: payment.id,
-    })
+    .update(updatePayload)
     .eq("id", requestId)
     .select()
     .single();
+
+  // 컬럼 미적용 캐시/스키마 호환
+  if (error && /additional_payment_id/i.test(error.message || "")) {
+    const { additional_payment_id: _omit, ...withoutId } = updatePayload;
+    const retry = await scheduleSupabase
+      .from("additional_payment_requests")
+      .update(withoutId)
+      .eq("id", requestId)
+      .select()
+      .single();
+    if (retry.error) throw retry.error;
+    return retry.data;
+  }
   if (error) throw error;
   return data;
 }
@@ -1545,20 +1655,114 @@ export async function rejectAdditionalPaymentRequest(requestId, { reviewed_by, r
   const reason = (rejection_reason || "").trim();
   if (!reason) throw new Error("거절 사유를 입력하세요.");
   const now = new Date().toISOString();
-  const { data, error } = await scheduleSupabase
+  const base = {
+    status: "rejected",
+    reviewed_by,
+    reviewed_at: now,
+  };
+  // rejection_reason / rejected_reason 둘 다 시도
+  let { data, error } = await scheduleSupabase
     .from("additional_payment_requests")
-    .update({
-      status: "rejected",
-      rejection_reason: reason,
-      reviewed_by,
-      reviewed_at: now,
-    })
+    .update({ ...base, rejection_reason: reason })
     .eq("id", requestId)
     .eq("status", "pending")
     .select()
     .single();
+  if (error && /rejection_reason/i.test(error.message || "")) {
+    const retry = await scheduleSupabase
+      .from("additional_payment_requests")
+      .update({ ...base, rejected_reason: reason })
+      .eq("id", requestId)
+      .eq("status", "pending")
+      .select()
+      .single();
+    if (retry.error) throw retry.error;
+    return retry.data;
+  }
   if (error) throw error;
   return data;
+}
+
+/**
+ * 슈퍼관리자 비용/추가수당 — 추가지급 즉시 반영 + 신청 목록에 승인 건으로 기록
+ */
+export async function insertApprovedAdditionalPaymentRequest({
+  teacher_id,
+  year_month,
+  amount,
+  reason,
+  memo = null,
+  event_date = null,
+  start_time = null,
+  end_time = null,
+  location = null,
+  request_kind = "allowance",
+  expense_type = null,
+  receipt_url = null,
+  reviewed_by,
+  created_by,
+}) {
+  const eventDate = event_date ? String(event_date).slice(0, 10) : null;
+  const ymSource = eventDate || year_month;
+  const ym = toYearMonthDate(ymSource);
+
+  let paymentReason = reason.trim();
+  if (request_kind === "expense" || expense_type) {
+    const type = expense_type || reason;
+    const detail = (memo || "").trim();
+    paymentReason = detail ? `[${type}] ${detail}` : `[${type}]`;
+  }
+
+  const payment = await insertAdditionalPayment({
+    teacher_id,
+    year_month: ym,
+    amount,
+    reason: paymentReason,
+    created_by: created_by || reviewed_by,
+  });
+
+  const now = new Date().toISOString();
+  const row = {
+    teacher_id,
+    year_month: ym,
+    event_date: eventDate,
+    start_time: normalizeTimeValue(start_time),
+    end_time: normalizeTimeValue(end_time),
+    location: location?.trim() || null,
+    amount: Number(amount),
+    reason: reason.trim(),
+    memo: memo?.trim() || null,
+    status: "approved",
+    request_kind: request_kind || "allowance",
+    expense_type: expense_type || null,
+    receipt_url: receipt_url || null,
+    reviewed_by: reviewed_by || created_by,
+    reviewed_at: now,
+    additional_payment_id: payment.id,
+  };
+
+  let { data, error } = await scheduleSupabase
+    .from("additional_payment_requests")
+    .insert(row)
+    .select()
+    .single();
+
+  if (error && /additional_payment_id|request_kind|expense_type|receipt_url/i.test(error.message || "")) {
+    const legacy = { ...row };
+    if (/additional_payment_id/i.test(error.message || "")) delete legacy.additional_payment_id;
+    if (/request_kind/i.test(error.message || "")) delete legacy.request_kind;
+    if (/expense_type/i.test(error.message || "")) delete legacy.expense_type;
+    if (/receipt_url/i.test(error.message || "")) delete legacy.receipt_url;
+    const retry = await scheduleSupabase
+      .from("additional_payment_requests")
+      .insert(legacy)
+      .select()
+      .single();
+    if (retry.error) throw retry.error;
+    return { request: retry.data, payment };
+  }
+  if (error) throw error;
+  return { request: data, payment };
 }
 
 export async function fetchSettlements(yearMonth) {
@@ -1778,7 +1982,7 @@ export async function loadPayrollDashboard(yearMonth) {
   const [y, m] = yearMonth.split("-").map(Number);
 
   const [teachers, entries, rates, institutions, allWeekly, exceptionsRes, teacherNotes, additionalPayments, substituteLessons, oneoffLessons] = await Promise.all([
-    fetchTeachers(),
+    fetchTeachers({ yearMonth }),
     fetchPayrollEntries({ yearMonth }),
     fetchPayRates(),
     fetchInstitutions({ activeOnly: false }),
@@ -1928,7 +2132,7 @@ export async function loadPayrollDashboard(yearMonth) {
         payMode: eng.pay_mode,
         rateAmount: Number(eng.rate_amount) || 0,
         payType: eng.pay_type || "정규",
-        byType: { 정규: 0, 방과후: 0, 가정방문: 0, 센터: 0, 센터보조: 0 },
+        byType: { 정규: 0, 방과후: 0, 어린이집: 0, 가정방문: 0, 센터: 0, 센터보조: 0 },
         paySummaryLabel: `대체수업 ${lessons.length}회`,
         isSubstitute: false,
         substituteTeacherName: null,

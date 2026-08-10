@@ -9,11 +9,12 @@ export default function ChangeReasonField({
   onPresetChange,
   onCustomChange,
   required = true,
+  label = "사유",
 }) {
   return (
     <>
       <label className="sch-field">
-        <span>변동 사유 {required ? "*" : "(선택)"}</span>
+        <span>{label} {required ? <em className="sch-req">*</em> : "(선택)"}</span>
         <select
           className="sch-input"
           value={preset}
@@ -35,7 +36,7 @@ export default function ChangeReasonField({
             className="sch-input"
             value={customText}
             onChange={e => onCustomChange(e.target.value)}
-            placeholder="변동 사유를 입력하세요"
+            placeholder="사유를 입력하세요"
             required={required}
           />
         </label>

@@ -1,12 +1,12 @@
--- 2026-06 기관별 추가금 보정
--- 윤한경: 프랜시스파커 5만 + 관악SLP 5만 (합산 '추가수당' → 분리)
+-- 2026-07 기관별 추가금 보정
+-- 윤한경: 합산 '추가수당' 100,000 → 프랜시스파커 5만 + 관악SLP 5만
 -- 김종현 수지폴리 본관 10만 = 기존 '교통비지원' 행 (별도 '추가금액' 두지 않음)
 
 DO $$
 DECLARE
   admin_id uuid;
   yoon_id uuid;
-  seed_month date := '2026-06-01'::date;
+  seed_month date := '2026-07-01'::date;
 BEGIN
   SELECT id INTO admin_id
   FROM public.teachers
@@ -29,7 +29,7 @@ BEGIN
     AND ap.year_month = seed_month
     AND ap.reason = '추가금액';
 
-  -- 윤한경: 6월 합산 '추가수당' 제거 (분리 등록으로 대체)
+  -- 윤한경: 합산 '추가수당' 제거 (분리 등록으로 대체)
   DELETE FROM public.additional_payments ap
   WHERE ap.teacher_id = yoon_id
     AND ap.year_month = seed_month

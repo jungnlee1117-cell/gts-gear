@@ -9,6 +9,7 @@ import {
   fetchPayRates,
   fetchPayrollEntries,
   fetchTeachers,
+  fetchTeachersUnfiltered,
   finalizeMonthSettlements,
 } from "./api.js";
 import { sortSettlementRows } from "./institutionSort.js";
@@ -108,7 +109,7 @@ export default function MonthlySettlementView({ me, onBack }) {
     try {
       const [institutions, teachers] = await Promise.all([
         fetchInstitutions({ activeOnly: false }),
-        fetchTeachers(),
+        fetchTeachersUnfiltered(),
       ]);
       const mgr = {};
       teachers.forEach(t => { mgr[t.id] = t.name; });

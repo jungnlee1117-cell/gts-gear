@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft } from "lucide-react";
+import { AlertCircle, ChevronLeft, ClipboardList, Users, Wallet } from "lucide-react";
 import { CONTRACT_TYPES, formatMinutes, formatWon, grossToNetPay, yearMonthKey, yearMonthLastDay } from "./constants.js";
 import {
   fetchPayrollEntries,
@@ -10,7 +10,6 @@ import {
 import PayrollDebugPanel from "./PayrollDebugPanel.jsx";
 import PayrollTeacherView from "./PayrollTeacherView.jsx";
 import TempTeacherPayrollDetail, { TempTeacherPayrollTableRow } from "./TempTeacherPayrollDetail.jsx";
-import AdditionalPaymentsAdminSection from "./AdditionalPaymentsAdminSection.jsx";
 import AdditionalPaymentRequestsAdminSection from "./AdditionalPaymentRequestsAdminSection.jsx";
 import { AdminTeacherNotesSection } from "./TeacherNotesPanel.jsx";
 import { groupNotesByTeacher } from "./teacherNotes.js";
@@ -36,7 +35,6 @@ import {
 } from "./managerScope.js";
 import {
   expandScopedTeacherRows,
-  filterAdditionalPaymentsForScope,
   filterTeacherAdditionalForScope,
   formatInstructorCostBreakdown,
   sumScopedAdditionalPayments,
@@ -310,6 +308,27 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   const [institutionSearch, setInstitutionSearch] = useState("");
   const [viewingTeacher, setViewingTeacher] = useState(null);
   const [viewingTempTeacher, setViewingTempTeacher] = useState(null);
+  const [requestStats, setRequestStats] = useState({
+    total: 0,
+    pendingTotal: 0,
+    pendingExpense: 0,
+    pendingAllowance: 0,
+  });
+
+  const handleRequestStatsChange = useCallback((stats) => {
+    setRequestStats(stats || {
+      total: 0,
+      pendingTotal: 0,
+      pendingExpense: 0,
+      pendingAllowance: 0,
+    });
+  }, []);
+
+  const scrollToSection = useCallback((sectionId) => {
+    const el = document.getElementById(sectionId);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -324,6 +343,15 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   }, [yearMonth]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    setRequestStats({
+      total: 0,
+      pendingTotal: 0,
+      pendingExpense: 0,
+      pendingAllowance: 0,
+    });
+  }, [yearMonth]);
 
   const openPayrollDebug = useCallback(async (teacher) => {
     setDebugTeacher(teacher);
@@ -422,16 +450,6 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
       + scopedTempTeacherRows.filter(r => r.inputMissing).length,
     [scopedTeacherRows, scopedTempTeacherRows],
   );
-
-  const scopedTeacherIds = useMemo(
-    () => new Set(scopedTeacherRows.map(r => r.teacher.id)),
-    [scopedTeacherRows],
-  );
-
-  const scopedAdditionalPayments = useMemo(() => {
-    if (isScheduleSuperAdmin(me)) return data?.additionalPayments ?? [];
-    return filterAdditionalPaymentsForScope(data?.additionalPayments, scopedTeacherIds);
-  }, [me, data?.additionalPayments, scopedTeacherIds]);
 
   const filteredCanonicalRows = useMemo(() => {
     const rows = data?.institutionRows || [];
@@ -537,119 +555,226 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
         <>
           {showTeacherTab && activeTab === "teachers" ? (
             <div className="sch-admin-dash-panel" role="tabpanel">
-              <section className="sch-admin-dash-section">
-                <h3 className="sch-admin-dash-section-title">강사별 입력 현황</h3>
-                <p className="sch-muted sch-admin-dash-section-desc">
-                  미확인 일수가 있거나 이번 달 입력 이력이 없는 강사는 강조 표시됩니다.
-                  {scopedTempTeacherRows.length > 0
-                    ? ` 이번 달 근무 임시 선생님 ${scopedTempTeacherRows.length}명이 함께 표시됩니다.`
-                    : ""}
-                </p>
-                <div className="sch-table-wrap sch-admin-table-wrap">
-                  <table className="sch-table sch-admin-table sch-admin-table--teachers">
-                    <thead>
-                      <tr>
-                        <th>강사</th>
-                        <th className="sch-th-num">정규</th>
-                        <th className="sch-th-num">방과후</th>
-                        <th className="sch-th-num">가정방문</th>
-                        <th className="sch-th-num">센터</th>
-                        <th className="sch-th-num">센터보조</th>
-                        <th className="sch-th-num">예상 급여</th>
-                        <th className="sch-th-num">실수령액 (3.3% 제외)</th>
-                        <th className="sch-th-num">미확인 일수</th>
-                        {superAdmin ? <th className="sch-th-action">디버그</th> : null}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {displayTeacherRows.map(row => {
-                        const alertRow = row.unconfirmedDays > 0 || row.inputMissing;
-                        return (
-                        <tr
-                          key={row.teacher.id}
-                          className={alertRow ? "sch-admin-row--alert" : ""}
-                        >
-                          <td className="sch-td-name">
-                            <button
-                              type="button"
-                              className="sch-admin-teacher-link"
-                              onClick={() => setViewingTeacher(row.teacher)}
-                            >
-                              <strong>{row.teacher.name}</strong>
-                            </button>
-                            {alertRow ? (
-                              <span className="sch-admin-row-alert-label">입력 누락</span>
-                            ) : null}
-                          </td>
-                          <td className="sch-td-num">{formatMinutes(row.byType.정규 || 0)}</td>
-                          <td className="sch-td-num">{formatMinutes(row.byType.방과후 || 0)}</td>
-                          <td className="sch-td-num">{formatMinutes(row.byType.가정방문 || 0)}</td>
-                          <td className="sch-td-num">{formatMinutes(row.byType.센터 || 0)}</td>
-                          <td className="sch-td-num">{formatMinutes(row.byType.센터보조 || 0)}</td>
-                          <td className="sch-td-num">{formatWon(row.estimatedPay)}</td>
-                          <td className="sch-td-num sch-pay-net-cell">
-                            <div className="sch-admin-cell-num">
-                              {formatWon(grossToNetPay(row.estimatedPay))}
-                            </div>
-                            {row.additionalTotal > 0 ? (
-                              <div className="sch-admin-cell-hint">
-                                {(row.additionalPayments || []).map(p => (
-                                  <p key={p.id}>{p.reason} +{Number(p.amount).toLocaleString("ko-KR")}원</p>
-                                ))}
-                              </div>
-                            ) : null}
-                          </td>
-                          <td className="sch-td-num">
-                            {row.unconfirmedDays > 0 ? (
-                              <span className="sch-admin-status-warn">{row.unconfirmedDays}일</span>
-                            ) : "—"}
-                          </td>
-                          {superAdmin ? (
-                            <td className="sch-td-action">
-                              <button
-                                type="button"
-                                className="sch-btn sch-btn--ghost sch-btn--sm"
-                                onClick={() => openPayrollDebug(row.teacher)}
-                              >
-                                집계 디버그
-                              </button>
-                            </td>
-                          ) : null}
-                        </tr>
-                        );
-                      })}
-                      {scopedTempTeacherRows.map(row => (
-                        <TempTeacherPayrollTableRow
-                          key={row.teacher.id}
-                          row={row}
-                          onSelect={setViewingTempTeacher}
-                          superAdmin={superAdmin}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
-              <AdditionalPaymentsAdminSection
-                yearMonth={yearMonth}
-                teachers={isScheduleSuperAdmin(me) ? data.teachers : scopedTeacherRows.map(r => r.teacher)}
-                allTeachers={data.teachers}
-                payments={scopedAdditionalPayments}
-                createdById={me.id}
-                isSuperAdmin={superAdmin}
-                onSaved={load}
-              />
-
               {superAdmin ? (
-                <AdditionalPaymentRequestsAdminSection
-                  yearMonth={yearMonth}
-                  reviewerId={me.id}
-                  onSaved={load}
-                />
+                <div className="sch-admin-attention" aria-label="오늘 확인할 것">
+                  <div className="sch-admin-attention-head">
+                    <ClipboardList size={16} aria-hidden />
+                    <strong>오늘 확인할 것</strong>
+                  </div>
+                  <div className="sch-admin-attention-cards">
+                    <button
+                      type="button"
+                      className={`sch-admin-attention-card${requestStats.pendingExpense > 0 ? " sch-admin-attention-card--alert" : ""}`}
+                      onClick={() => scrollToSection("sch-admin-section-requests")}
+                    >
+                      <span className="sch-admin-attention-card-icon" aria-hidden>
+                        <Wallet size={16} />
+                      </span>
+                      <span className="sch-admin-attention-card-body">
+                        <span className="sch-admin-attention-card-label">비용 신청 대기</span>
+                        <span className="sch-admin-attention-card-value">
+                          <strong>{requestStats.pendingExpense}</strong>건
+                        </span>
+                      </span>
+                      {requestStats.pendingExpense > 0 ? (
+                        <span className="sch-admin-section-alert-dot" aria-hidden />
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      className={`sch-admin-attention-card${requestStats.pendingAllowance > 0 ? " sch-admin-attention-card--alert" : ""}`}
+                      onClick={() => scrollToSection("sch-admin-section-requests")}
+                    >
+                      <span className="sch-admin-attention-card-icon" aria-hidden>
+                        <AlertCircle size={16} />
+                      </span>
+                      <span className="sch-admin-attention-card-body">
+                        <span className="sch-admin-attention-card-label">추가수당 신청 대기</span>
+                        <span className="sch-admin-attention-card-value">
+                          <strong>{requestStats.pendingAllowance}</strong>건
+                        </span>
+                      </span>
+                      {requestStats.pendingAllowance > 0 ? (
+                        <span className="sch-admin-section-alert-dot" aria-hidden />
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      className={`sch-admin-attention-card${missingInputCount > 0 ? " sch-admin-attention-card--warn" : ""}`}
+                      onClick={() => scrollToSection("sch-admin-section-teachers")}
+                    >
+                      <span className="sch-admin-attention-card-icon" aria-hidden>
+                        <Users size={16} />
+                      </span>
+                      <span className="sch-admin-attention-card-body">
+                        <span className="sch-admin-attention-card-label">입력 누락 강사</span>
+                        <span className="sch-admin-attention-card-value">
+                          <strong>{missingInputCount}</strong>명
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
               ) : null}
 
-              <AdminTeacherNotesSection noteGroups={noteGroups} />
+              {(() => {
+                const teacherSection = (
+                  <section
+                    key="teachers"
+                    id="sch-admin-section-teachers"
+                    className={[
+                      "sch-admin-dash-section",
+                      "sch-admin-dash-section--teachers",
+                      missingInputCount > 0 ? "sch-admin-dash-section--warn" : "",
+                    ].filter(Boolean).join(" ")}
+                  >
+                    <div className="sch-admin-section-head">
+                      <div className="sch-admin-section-head-main">
+                        <span className="sch-admin-section-icon sch-admin-section-icon--users" aria-hidden>
+                          <Users size={18} />
+                        </span>
+                        <div>
+                          <h3 className="sch-admin-dash-section-title">
+                            강사별 입력 현황
+                            {missingInputCount > 0 ? (
+                              <span className="sch-admin-section-alert-dot" aria-hidden />
+                            ) : null}
+                          </h3>
+                          <p className="sch-muted sch-admin-dash-section-desc">
+                            미확인 일수가 있거나 이번 달 입력 이력이 없는 강사는 강조 표시됩니다.
+                            {scopedTempTeacherRows.length > 0
+                              ? ` 이번 달 근무 임시 선생님 ${scopedTempTeacherRows.length}명이 함께 표시됩니다.`
+                              : ""}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="sch-admin-section-badges">
+                        {missingInputCount > 0 ? (
+                          <span className="sch-admin-count-badge sch-admin-count-badge--danger">
+                            입력 누락 {missingInputCount}명
+                          </span>
+                        ) : (
+                          <span className="sch-admin-count-badge sch-admin-count-badge--ok">입력 완료</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="sch-table-wrap sch-admin-table-wrap">
+                      <table className="sch-table sch-admin-table sch-admin-table--teachers">
+                        <thead>
+                          <tr>
+                            <th>강사</th>
+                            <th className="sch-th-num">정규</th>
+                            <th className="sch-th-num">방과후</th>
+                            <th className="sch-th-num">어린이집</th>
+                            <th className="sch-th-num">가정방문</th>
+                            <th className="sch-th-num">센터</th>
+                            <th className="sch-th-num">센터보조</th>
+                            <th className="sch-th-num">예상 급여</th>
+                            <th className="sch-th-num">실수령액 (3.3% 제외)</th>
+                            <th className="sch-th-num">미확인 일수</th>
+                            {superAdmin ? <th className="sch-th-action">디버그</th> : null}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayTeacherRows.map(row => {
+                            const alertRow = row.unconfirmedDays > 0 || row.inputMissing;
+                            return (
+                            <tr
+                              key={row.teacher.id}
+                              className={alertRow ? "sch-admin-row--alert" : ""}
+                            >
+                              <td className="sch-td-name">
+                                <button
+                                  type="button"
+                                  className="sch-admin-teacher-link"
+                                  onClick={() => setViewingTeacher(row.teacher)}
+                                >
+                                  <strong>{row.teacher.name}</strong>
+                                </button>
+                                {alertRow ? (
+                                  <span className="sch-admin-row-alert-label">입력 누락</span>
+                                ) : null}
+                              </td>
+                              <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.정규 || 0)}</td>
+                              <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.방과후 || 0)}</td>
+                              <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.어린이집 || 0)}</td>
+                              <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.가정방문 || 0)}</td>
+                              <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.센터 || 0)}</td>
+                              <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.센터보조 || 0)}</td>
+                              <td className="sch-td-num sch-td-money">{formatWon(row.estimatedPay)}</td>
+                              <td className="sch-td-num sch-pay-net-cell">
+                                <div className="sch-admin-cell-num sch-td-money">
+                                  {formatWon(grossToNetPay(row.estimatedPay))}
+                                </div>
+                                {row.additionalTotal > 0 ? (
+                                  <div className="sch-admin-cell-hint">
+                                    {(row.additionalPayments || []).map(p => (
+                                      <p key={p.id}>{p.reason} <strong>+{Number(p.amount).toLocaleString("ko-KR")}원</strong></p>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </td>
+                              <td className="sch-td-num">
+                                {row.unconfirmedDays > 0 ? (
+                                  <span className="sch-admin-status-badge sch-admin-status-badge--warn">{row.unconfirmedDays}일</span>
+                                ) : (
+                                  <span className="sch-admin-status-badge sch-admin-status-badge--ok">완료</span>
+                                )}
+                              </td>
+                              {superAdmin ? (
+                                <td className="sch-td-action">
+                                  <button
+                                    type="button"
+                                    className="sch-btn sch-btn--ghost sch-btn--sm"
+                                    onClick={() => openPayrollDebug(row.teacher)}
+                                  >
+                                    집계 디버그
+                                  </button>
+                                </td>
+                              ) : null}
+                            </tr>
+                            );
+                          })}
+                          {scopedTempTeacherRows.map(row => (
+                            <TempTeacherPayrollTableRow
+                              key={row.teacher.id}
+                              row={row}
+                              onSelect={setViewingTempTeacher}
+                              superAdmin={superAdmin}
+                            />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                );
+
+                const requestSection = superAdmin ? (
+                  <AdditionalPaymentRequestsAdminSection
+                    key="requests"
+                    yearMonth={yearMonth}
+                    reviewerId={me.id}
+                    onSaved={load}
+                    onStatsChange={handleRequestStatsChange}
+                    sectionId="sch-admin-section-requests"
+                  />
+                ) : null;
+
+                const notesSection = (
+                  <AdminTeacherNotesSection
+                    key="notes"
+                    noteGroups={noteGroups}
+                    defaultCollapsed
+                    sectionId="sch-admin-section-notes"
+                  />
+                );
+
+                const ordered = requestStats.pendingTotal > 0
+                  ? [requestSection, teacherSection, notesSection]
+                  : [teacherSection, requestSection, notesSection];
+
+                return ordered.filter(Boolean);
+              })()}
             </div>
           ) : (
             <div className="sch-admin-dash-panel" role="tabpanel">

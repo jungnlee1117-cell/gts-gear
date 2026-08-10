@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import TeacherResignModal from "./TeacherResignModal.jsx";
 import {
   isResignedTeacher,
+  isTeacherVisibleInYearMonth,
   reactivateTeacher,
   updateResignationInfo,
 } from "./teacherResign.js";
+import { yearMonthKey } from "./schedule/constants.js";
 
 /**
  * 선생님관리 — 목록 + 상세 + 퇴직 처리
@@ -40,7 +42,7 @@ export default function TeacherAccountsPage({
   const [addOpen, setAddOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [logs, setLogs] = useState([]);
-  const [f, setF] = useState({ name: "", phone: "", email: "", password: "", role: "teacher" });
+  const [f, setF] = useState({ name: "", phone: "", email: "", password: "", role: "teacher", hire_date: "" });
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -49,6 +51,13 @@ export default function TeacherAccountsPage({
   const [resignOpen, setResignOpen] = useState(false);
   const [editResign, setEditResign] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [hireDateEdit, setHireDateEdit] = useState("");
+  const [savingHire, setSavingHire] = useState(false);
+
+  useEffect(() => {
+    const t = teachers.find(x => x.id === detailId);
+    setHireDateEdit(t?.hire_date ? String(t.hire_date).slice(0, 10) : "");
+  }, [detailId, teachers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,6 +162,7 @@ export default function TeacherAccountsPage({
         email: f.email.trim(),
         role: f.role,
         active: true,
+        hire_date: f.hire_date || null,
       });
     } else {
       await supabase.from("teachers").update({
@@ -161,6 +171,7 @@ export default function TeacherAccountsPage({
         email: f.email.trim(),
         role: f.role,
         active: true,
+        hire_date: f.hire_date || null,
       }).eq("id", data.user.id);
     }
     const { data: newT } = await supabase.from("teachers").select("*").eq("id", data.user.id).single();
@@ -172,14 +183,17 @@ export default function TeacherAccountsPage({
       if (newT) setTeachers(p => [...p.filter(x => x.id !== newT.id), { ...newT, email: f.email.trim() }]);
     }
     await logAction("account_create", "계정 생성", { id: data.user.id, name: f.name });
-    setF({ name: "", phone: "", email: "", password: "", role: "teacher" });
+    setF({ name: "", phone: "", email: "", password: "", role: "teacher", hire_date: "" });
     setAddOpen(false); setLoading(false);
     alert(`${f.name} 계정이 생성되었습니다!\n\n이메일: ${f.email}\n비밀번호: ${f.password}\n\n선생님께 직접 전달해 주세요.`);
   };
 
-  const admins = teachers.filter(t => t.role === "admin" && (showResigned || !isResignedTeacher(t)));
-  const itemAdmins = teachers.filter(t => t.is_item_admin && t.role !== "superadmin" && (showResigned || !isResignedTeacher(t)));
-  const tList = teachers.filter(t => t.role === "teacher" && (showResigned || !isResignedTeacher(t)));
+  const listVisible = (t) =>
+    showResigned || isTeacherVisibleInYearMonth(t, yearMonthKey(), { allowBeforeHire: true });
+
+  const admins = teachers.filter(t => t.role === "admin" && listVisible(t));
+  const itemAdmins = teachers.filter(t => t.is_item_admin && t.role !== "superadmin" && listVisible(t));
+  const tList = teachers.filter(t => t.role === "teacher" && listVisible(t));
   const resignedCount = teachers.filter(isResignedTeacher).length;
 
   const detail = useMemo(
@@ -213,6 +227,9 @@ export default function TeacherAccountsPage({
         <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 5, lineHeight: 1.55 }}>
           <div>{t.phone || "-"}</div>
           <div style={{ color: DS.textMuted, marginTop: 2, wordBreak: "break-all" }}>{email}</div>
+          {t.hire_date ? (
+            <div style={{ color: DS.textMuted, marginTop: 2 }}>입사일: {String(t.hire_date).slice(0, 10)}</div>
+          ) : null}
         </div>
       </div>
     );
@@ -259,6 +276,23 @@ export default function TeacherAccountsPage({
     }
   };
 
+  const handleSaveHireDate = async () => {
+    if (!detail) return;
+    setSavingHire(true);
+    try {
+      const next = hireDateEdit || null;
+      const { error } = await supabase.from("teachers").update({ hire_date: next }).eq("id", detail.id);
+      if (error) throw error;
+      setTeachers(p => p.map(x => x.id === detail.id ? { ...x, hire_date: next } : x));
+      await logAction("account_status", "입사일 수정", detail);
+      alert("입사일이 저장되었습니다.");
+    } catch (e) {
+      alert(e.message || "저장 실패");
+    } finally {
+      setSavingHire(false);
+    }
+  };
+
   // ── 상세 페이지 ──
   if (detail) {
     const held = ris.filter(ri =>
@@ -289,6 +323,9 @@ export default function TeacherAccountsPage({
           <AccountTeacherInfo t={detail} showSelfBadge />
           <div style={{ marginTop: 14, fontSize: 13, color: DS.textSecondary, lineHeight: 1.6 }}>
             <div>보유 교구: {held.reduce((s, r) => s + r.quantity, 0)}개</div>
+            <div>
+              입사일: {detail.hire_date ? String(detail.hire_date).slice(0, 10) : "미입력"}
+            </div>
             {isResignedTeacher(detail) ? (
               <>
                 <div>퇴직일: {String(detail.resigned_at).slice(0, 10)}</div>
@@ -297,6 +334,25 @@ export default function TeacherAccountsPage({
             ) : null}
           </div>
         </div>
+
+        {isSuperAdmin(me) ? (
+          <div style={{ ...card, marginBottom: 16 }}>
+            <div style={{ fontWeight: 800, marginBottom: 10 }}>입사일</div>
+            <p style={{ fontSize: 12, color: DS.textMuted, marginBottom: 12 }}>
+              급여·스케줄 목록은 입사일이 속한 달부터 표시됩니다. 비우면 입사 제한 없이 표시됩니다.
+            </p>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 4 }}>입사일</label>
+            <input
+              type="date"
+              value={hireDateEdit}
+              onChange={e => setHireDateEdit(e.target.value)}
+              style={{ ...inp, marginBottom: 12 }}
+            />
+            <Btn sm onClick={handleSaveHireDate} disabled={savingHire}>
+              {savingHire ? "저장 중..." : "입사일 저장"}
+            </Btn>
+          </div>
+        ) : null}
 
         {isResignedTeacher(detail) && isSuperAdmin(me) ? (
           <div style={{ ...card, marginBottom: 16 }}>
@@ -489,6 +545,7 @@ export default function TeacherAccountsPage({
             <Inp2 label="연락처" value={f.phone} onChange={e => setF(p => ({ ...p, phone: e.target.value }))} placeholder="010-0000-0000" />
           </div>
           <Inp2 label="이메일 *" type="email" value={f.email} onChange={e => setF(p => ({ ...p, email: e.target.value }))} placeholder="example@gts.com" />
+          <Inp2 label="입사일" type="date" value={f.hire_date} onChange={e => setF(p => ({ ...p, hire_date: e.target.value }))} />
           <Fld label="초기 비밀번호 * (6자 이상)">
             <div style={{ position: "relative" }}>
               <input type={showPw ? "text" : "password"} value={f.password} onChange={e => setF(p => ({ ...p, password: e.target.value }))}

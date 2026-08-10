@@ -231,17 +231,7 @@ BEGIN
         AND ap.reason = '관악SLP 추가수당'
     );
 
-  -- 김종현 · 수지폴리 본관 추가금 10만
-  INSERT INTO public.additional_payments (
-    teacher_id, year_month, amount, reason, created_by
-  )
-  SELECT t.id, seed_month, 100000, '추가금액', admin_id
-  FROM public.teachers t
-  WHERE t.name = '김종현'
-    AND NOT EXISTS (
-      SELECT 1 FROM public.additional_payments ap
-      WHERE ap.teacher_id = t.id
-        AND ap.year_month = seed_month
-        AND ap.reason = '추가금액'
-    );
+  -- 김종현 수지폴리 본관 10만은 '교통비지원' 행으로 관리
+  -- (institutionTeacherPay.js reasonPattern: /교통비지원|수지폴리/)
+  -- 별도 '추가금액' 시드하지 않음.
 END $$;

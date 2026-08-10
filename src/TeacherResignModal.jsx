@@ -3,7 +3,9 @@ import {
   completeTeacherResignation,
   fetchActiveRentalsForTeacher,
   fetchUpcomingClassesByInstitution,
+  isTeacherVisibleInYearMonth,
   todayLocalDateStr,
+  toYearMonth,
 } from "./teacherResign.js";
 
 const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -40,10 +42,9 @@ export default function TeacherResignModal({
     () => (teachers || []).filter(t =>
       t.id !== teacher.id
       && t.role !== "superadmin"
-      && t.active !== false
-      && !t.resigned_at,
+      && isTeacherVisibleInYearMonth(t, toYearMonth(resignDate) || todayLocalDateStr()),
     ).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko")),
-    [teachers, teacher.id],
+    [teachers, teacher.id, resignDate],
   );
 
   useEffect(() => {

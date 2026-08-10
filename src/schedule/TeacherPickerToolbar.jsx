@@ -3,7 +3,7 @@ import { Search } from "lucide-react";
 import { fetchTeachers } from "./api.js";
 import { isScheduleAdmin } from "./roles.js";
 
-export function useTeacherPicker(me) {
+export function useTeacherPicker(me, { yearMonth } = {}) {
   const admin = isScheduleAdmin(me);
   const [teachers, setTeachers] = useState([]);
   const [teacherSearch, setTeacherSearch] = useState("");
@@ -19,10 +19,10 @@ export function useTeacherPicker(me) {
 
   useEffect(() => {
     if (!admin) return;
-    fetchTeachers()
+    fetchTeachers({ yearMonth })
       .then(rows => setTeachers(rows.filter(t => t.role === "teacher")))
       .catch(console.error);
-  }, [admin]);
+  }, [admin, yearMonth]);
 
   const filteredTeachers = useMemo(() => {
     const q = teacherSearch.trim().toLowerCase();

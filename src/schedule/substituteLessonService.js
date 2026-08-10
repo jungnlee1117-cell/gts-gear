@@ -3,7 +3,6 @@ import {
   createScheduleChangeNotification,
   deletePayrollEntry,
   fetchPayRates,
-  findPayrollEntryBySlot,
   insertSubstituteLesson,
   scheduleSupabase,
   updateSubstituteLessonStatus,
@@ -114,14 +113,15 @@ export async function registerSubstituteLesson({
 }
 
 async function revertSubstitutePayroll(lesson) {
-  for (const teacherId of [lesson.original_teacher_id, lesson.substitute_teacher_id].filter(Boolean)) {
-    const existing = await findPayrollEntryBySlot({
-      teacher_id: teacherId,
-      class_date: lesson.lesson_date,
-      schedule_slot_id: lesson.schedule_slot_id,
-    });
-    if (existing?.id) await deletePayrollEntry(existing.id);
-  }
+  if (!lesson?.schedule_slot_id || !lesson?.lesson_date) return;
+  const { data: existing, error } = await scheduleSupabase
+    .from("payroll_entries")
+    .select("id")
+    .eq("class_date", lesson.lesson_date)
+    .eq("schedule_slot_id", lesson.schedule_slot_id)
+    .maybeSingle();
+  if (error) throw error;
+  if (existing?.id) await deletePayrollEntry(existing.id);
 }
 
 export async function cancelSubstituteLesson(lesson) {

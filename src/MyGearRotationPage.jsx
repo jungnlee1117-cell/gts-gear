@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Search, X } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import {
   assignedLetterForMonth,
@@ -11,7 +11,6 @@ import {
   getWeekItemsForLetter,
   resolveItemRecord,
   resolveRotationSchedules,
-  rotationSubjectTeacherId,
   rotationWeekLabelForSlot,
   rotationWeekRangeForSlot,
   schoolYearMonths,
@@ -26,6 +25,7 @@ import {
 } from "./lessonPlan.js";
 import { itemPhotoStyle } from "./gearPhoto.js";
 import { buildCurrentRentals } from "./teacherGearStatus.js";
+import { isItemAdmin } from "./authRoles.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -199,7 +199,10 @@ function LessonPlanPanel({ plan }) {
   );
 }
 
-function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, lessonPlans, aliases, yearMonth, weekNumber, onRent, onOpenGear }) {
+function WeekHighlightCard({
+  variant, label, dateRange, gear, items, heldIds, lessonPlans, aliases,
+  yearMonth, weekNumber, onRent, onOpenGear, readOnly = false,
+}) {
   const typeBadge = gearTypeBadge(gear);
   const photoEntries = useMemo(
     () => resolveGearPhotoEntries(gear, items),
@@ -250,8 +253,8 @@ function WeekHighlightCard({ variant, label, dateRange, gear, items, heldIds, le
           <LessonPlanPanel plan={lessonPlan} />
         </div>
         <GearPhotoGroup entries={photoEntries} />
-        <div className={`gear-rotation-highlight__actions${variant === "current" ? "" : " gear-rotation-highlight__actions--single"}`}>
-          {variant === "current" ? (
+        <div className={`gear-rotation-highlight__actions${variant === "current" && !readOnly ? "" : " gear-rotation-highlight__actions--single"}`}>
+          {variant === "current" && !readOnly ? (
             <button type="button" className="gear-rotation-highlight__cta" onClick={() => onRent(gear)}>
               이 교구 대여 신청 →
             </button>
@@ -391,6 +394,7 @@ export default function MyGearRotationPage({
   const startYear = schoolYearStartYear();
   const todayMonth = yearMonthKey();
   const schoolMonths = useMemo(() => schoolYearMonths(startYear), [startYear]);
+  const canInspectTeachers = isItemAdmin(me);
 
   const [viewMonth, setViewMonth] = useState(() => clampToSchoolYear(todayMonth, startYear));
   const [loading, setLoading] = useState(true);
@@ -403,15 +407,82 @@ export default function MyGearRotationPage({
   const [filter, setFilter] = useState("all");
   const [expanded, setExpanded] = useState(false);
   const [gearDetail, setGearDetail] = useState(null);
+  const [teacherOptions, setTeacherOptions] = useState([]);
+  const [teacherQuery, setTeacherQuery] = useState("");
+  const [teacherPickerOpen, setTeacherPickerOpen] = useState(false);
+  const [subjectTeacher, setSubjectTeacher] = useState(() => (
+    me ? { id: me.id, name: me.name || "" } : null
+  ));
+
+  useEffect(() => {
+    if (!me?.id) return;
+    setSubjectTeacher((prev) => {
+      if (!canInspectTeachers) return { id: me.id, name: me.name || "" };
+      if (!prev?.id || prev.id === me.id) {
+        return { id: me.id, name: me.name || "" };
+      }
+      return prev;
+    });
+  }, [me?.id, me?.name, canInspectTeachers]);
+
+  useEffect(() => {
+    if (!canInspectTeachers) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error: err } = await supabase
+        .from("teachers")
+        .select("id, name, role, active")
+        .eq("active", true)
+        .order("name");
+      if (cancelled) return;
+      if (err) {
+        console.warn("[gear-rotation] teachers load failed", err.message);
+        return;
+      }
+      setTeacherOptions(data || []);
+    })();
+    return () => { cancelled = true; };
+  }, [canInspectTeachers]);
+
+  const subject = subjectTeacher?.id
+    ? subjectTeacher
+    : (me ? { id: me.id, name: me.name || "" } : null);
+  const viewingOther = Boolean(
+    canInspectTeachers && subject?.id && me?.id && subject.id !== me.id,
+  );
+
+  const filteredTeachers = useMemo(() => {
+    const q = teacherQuery.trim().toLowerCase();
+    const list = teacherOptions;
+    if (!q) return list.slice(0, 20);
+    return list
+      .filter((t) => String(t.name || "").toLowerCase().includes(q))
+      .slice(0, 20);
+  }, [teacherOptions, teacherQuery]);
+
+  const selectSubjectTeacher = (teacher) => {
+    if (!teacher?.id) return;
+    setSubjectTeacher({ id: teacher.id, name: teacher.name || "" });
+    setTeacherQuery(teacher.name || "");
+    setTeacherPickerOpen(false);
+  };
+
+  const resetToSelf = () => {
+    if (!me?.id) return;
+    setSubjectTeacher({ id: me.id, name: me.name || "" });
+    setTeacherQuery("");
+    setTeacherPickerOpen(false);
+  };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (!subject?.id) return;
       setLoading(true);
       setError("");
       try {
         const ymKeys = schoolMonths.map(m => yearMonthFirstDay(m));
-        const subjectId = rotationSubjectTeacherId(me);
+        const subjectId = subject.id;
         const [schedRes, weeklyRes, weeksRes, plansRes, aliasRes] = await Promise.all([
           supabase.from("item_rotation_schedule")
             .select("year_month, assigned_letter, teacher_id")
@@ -440,7 +511,7 @@ export default function MyGearRotationPage({
         if (aliasRes.error && aliasRes.error.code !== "42P01") throw aliasRes.error;
 
         if (!cancelled) {
-          setSchedules(resolveRotationSchedules(schedRes.data || [], me, startYear));
+          setSchedules(resolveRotationSchedules(schedRes.data || [], subject, startYear));
           setWeeklyLists(weeklyRes.data || []);
           setAllMonthWeeks(weeksRes.data || []);
           setLessonPlans(plansRes.error?.code === "42P01" ? [] : (plansRes.data || []));
@@ -453,7 +524,7 @@ export default function MyGearRotationPage({
       }
     })();
     return () => { cancelled = true; };
-  }, [me, schoolMonths, startYear]);
+  }, [subject?.id, subject?.name, schoolMonths, startYear]);
 
   const [todayKey, setTodayKey] = useState(() => new Date().toDateString());
 
@@ -468,11 +539,12 @@ export default function MyGearRotationPage({
   }, []);
 
   const heldIds = useMemo(() => {
+    if (viewingOther) return new Set();
     const rentals = buildCurrentRentals(me, reqs || [], ris || [], items || [], rets || []);
     return new Set(rentals.map(r => r.itemId).filter(Boolean));
-  }, [me, reqs, ris, items, rets, todayKey]);
+  }, [me, reqs, ris, items, rets, todayKey, viewingOther]);
 
-  const letterForMonth = (monthKey) => assignedLetterForMonth(schedules, me, monthKey);
+  const letterForMonth = (monthKey) => assignedLetterForMonth(schedules, subject, monthKey);
 
   const weeksForMonth = (monthKey) =>
     allMonthWeeks.filter(w => w.year_month?.startsWith(String(monthKey).slice(0, 7)));
@@ -555,7 +627,7 @@ export default function MyGearRotationPage({
   useEffect(() => {
     setExpanded(false);
     setFilter("all");
-  }, [viewMonth]);
+  }, [viewMonth, subject?.id]);
 
   const openItemRecord = (item) => {
     if (item) {
@@ -590,6 +662,79 @@ export default function MyGearRotationPage({
         subtitle="이번 주 교구를 확인하고, 학년도 전체 월별 교구를 살펴볼 수 있습니다."
       />
 
+      {canInspectTeachers ? (
+        <div className="gear-rotation-teacher-bar">
+          <div className="gear-rotation-teacher-search">
+            <Search size={15} aria-hidden />
+            <input
+              type="search"
+              className="gear-rotation-teacher-search__input"
+              placeholder="선생님 이름 검색"
+              value={teacherQuery}
+              onChange={(e) => {
+                setTeacherQuery(e.target.value);
+                setTeacherPickerOpen(true);
+              }}
+              onFocus={() => setTeacherPickerOpen(true)}
+              onBlur={() => setTimeout(() => setTeacherPickerOpen(false), 150)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                if (filteredTeachers[0]) selectSubjectTeacher(filteredTeachers[0]);
+              }}
+              autoComplete="off"
+            />
+            {teacherQuery ? (
+              <button
+                type="button"
+                className="gear-rotation-teacher-search__clear"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setTeacherQuery("");
+                  setTeacherPickerOpen(true);
+                }}
+                aria-label="검색어 지우기"
+              >
+                <X size={14} />
+              </button>
+            ) : null}
+            {teacherPickerOpen && filteredTeachers.length > 0 ? (
+              <ul className="gear-rotation-teacher-search__list" role="listbox">
+                {filteredTeachers.map((t) => (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      className={`gear-rotation-teacher-search__option${subject?.id === t.id ? " is-active" : ""}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => selectSubjectTeacher(t)}
+                    >
+                      {t.name}
+                      {t.id === me?.id ? <span>나</span> : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {teacherPickerOpen && teacherQuery.trim() && filteredTeachers.length === 0 ? (
+              <div className="gear-rotation-teacher-search__empty" role="status">
+                선생님을 찾을 수 없습니다
+              </div>
+            ) : null}
+          </div>
+          <div className="gear-rotation-teacher-meta">
+            <span>
+              보는 중: <strong>{subject?.name || "—"}</strong>
+              {currentLetter ? <> · 이번 달 <strong>{currentLetter}</strong></> : null}
+            </span>
+            {viewingOther ? (
+              <button type="button" className="gear-rotation-teacher-reset" onClick={resetToSelf}>
+                내 교구로
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {loading && <Spinner text="순환 배정 불러오는 중..." />}
       {!loading && error && (
         <div className="gear-rotation-error">{error}</div>
@@ -611,6 +756,7 @@ export default function MyGearRotationPage({
               weekNumber={currentWeekSlot?.week_number}
               onRent={handleRent}
               onOpenGear={openGear}
+              readOnly={viewingOther}
             />
             <WeekHighlightCard
               variant="next"
@@ -625,6 +771,7 @@ export default function MyGearRotationPage({
               weekNumber={nextWeekSlot?.week_number}
               onRent={handleRent}
               onOpenGear={openGear}
+              readOnly={viewingOther}
             />
           </section>
 
@@ -643,7 +790,12 @@ export default function MyGearRotationPage({
 
           <section className="gear-rotation-list-section">
             <div className="gear-rotation-list-head">
-              <h2 className="gear-rotation-list-title">{monthLabel(viewMonth)} 전체 교구</h2>
+              <h2 className="gear-rotation-list-title">
+                {monthLabel(viewMonth)} 전체 교구
+                {viewLetter ? (
+                  <span className="gear-rotation-letter-pill">알파벳 {viewLetter}</span>
+                ) : null}
+              </h2>
               <div className="gear-rotation-filters">
                 {FILTERS.map(f => (
                   <button

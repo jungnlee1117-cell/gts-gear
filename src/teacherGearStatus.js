@@ -302,7 +302,7 @@ export async function fetchTeacherGearExtras(supabase, teacherUser) {
       .in("year_month", ymKeys)
       .order("week_number"),
     supabase.from("institution_weekly_schedule")
-      .select("day_of_week, institution_id, institutions(name)")
+      .select("day_of_week, institution_id, class_type, label, start_time, institutions(name)")
       .eq("teacher_id", teacherId),
   ]);
 
@@ -310,10 +310,27 @@ export async function fetchTeacherGearExtras(supabase, teacherUser) {
     return { schedules: [], weeklyLists: [], monthWeeks: [], weeklySlots: [], rotationMissing: true };
   }
 
+  if (weeklyRes.error) {
+    console.warn("[gear] item_weekly_lists error", weeklyRes.error.message || weeklyRes.error);
+  }
+  if (weeksRes.error) {
+    console.warn("[gear] item_rotation_month_weeks error", weeksRes.error.message || weeksRes.error);
+  }
+
+  const weeklyLists = weeklyRes.error ? [] : (weeklyRes.data || []);
+  const monthWeeks = weeksRes.error ? [] : (weeksRes.data || []);
+  console.log("[gear] fetchTeacherGearExtras", {
+    teacherId,
+    scheduleRows: (schedRes.data || []).length,
+    weeklyListRows: weeklyLists.length,
+    monthWeekRows: monthWeeks.length,
+    monthWeekMonths: [...new Set(monthWeeks.map((w) => String(w.year_month).slice(0, 7)))],
+  });
+
   return {
     schedules: resolveRotationSchedules(schedRes.data || [], teacherUser, startYear),
-    weeklyLists: weeklyRes.error ? [] : (weeklyRes.data || []),
-    monthWeeks: weeksRes.error ? [] : (weeksRes.data || []),
+    weeklyLists,
+    monthWeeks,
     weeklySlots: slotsRes.error ? [] : (slotsRes.data || []),
     rotationMissing: false,
   };

@@ -7,9 +7,9 @@ import {
   groupPayrollByTypeConfirmed,
 } from "./payrollCalendar.js";
 import { isKoreanHoliday } from "./koreanHolidays.js";
-import { DAY_LABELS, resolveInstitutionSlotPayType } from "./constants.js";
+import { DAY_LABELS, PAYROLL_SUMMARY_TYPES, resolveInstitutionSlotPayType } from "./constants.js";
 
-const PAY_TYPES = ["정규", "방과후", "가정방문", "센터", "센터보조"];
+const PAY_TYPES = PAYROLL_SUMMARY_TYPES;
 
 function emptyByType() {
   return Object.fromEntries(PAY_TYPES.map(t => [t, 0]));

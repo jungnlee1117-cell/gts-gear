@@ -47,6 +47,7 @@ export function formatPayTypeLabel(payType) {
   switch (payType) {
     case "정규": return "정규 수업";
     case "방과후": return "방과후 수업";
+    case "어린이집": return "어린이집 수업";
     case "가정방문": return "가정방문";
     case "센터": return "센터";
     case "센터보조": return "센터보조";

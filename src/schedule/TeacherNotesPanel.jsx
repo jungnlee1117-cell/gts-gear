@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, StickyNote } from "lucide-react";
 import {
   formatTeacherNoteDate,
   formatTeacherNoteLine,
@@ -131,35 +132,90 @@ export function TeacherNotesMonthList({
   );
 }
 
-export function AdminTeacherNotesSection({ noteGroups }) {
-  if (!noteGroups.length) {
+export function AdminTeacherNotesSection({
+  noteGroups,
+  defaultCollapsed = true,
+  sectionId = "sch-admin-section-notes",
+}) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const noteCount = useMemo(
+    () => (noteGroups || []).reduce((sum, g) => sum + (g.notes?.length || 0), 0),
+    [noteGroups],
+  );
+
+  if (!noteGroups?.length) {
     return (
-      <section className="sch-table-section">
-        <h3>강사 개인 메모</h3>
-        <p className="sch-muted">이번 달 등록된 강사 메모가 없습니다.</p>
+      <section
+        id={sectionId}
+        className="sch-admin-dash-section sch-admin-dash-section--notes"
+      >
+        <div className="sch-admin-section-head">
+          <div className="sch-admin-section-head-main">
+            <span className="sch-admin-section-icon sch-admin-section-icon--notes" aria-hidden>
+              <StickyNote size={18} />
+            </span>
+            <div>
+              <h3 className="sch-admin-dash-section-title">강사 개인 메모</h3>
+              <p className="sch-muted sch-admin-dash-section-desc">이번 달 등록된 강사 메모가 없습니다.</p>
+            </div>
+          </div>
+          <span className="sch-admin-count-badge">0건</span>
+        </div>
       </section>
     );
   }
 
   return (
-    <section className="sch-table-section">
-      <h3>강사 개인 메모</h3>
-      <p className="sch-muted">강사가 남긴 특이사항 참고용 (관리자 읽기 전용)</p>
-      <div className="sch-admin-notes-groups">
-        {noteGroups.map(group => (
-          <div key={group.teacherId} className="sch-admin-notes-group">
-            <h4 className="sch-admin-notes-teacher">{group.teacherName}</h4>
-            <ul className="sch-teacher-notes-list sch-teacher-notes-list--admin">
-              {group.notes.map(note => (
-                <li key={note.id} className="sch-teacher-notes-item sch-teacher-notes-item--static">
-                  <span className="sch-teacher-notes-date">{formatTeacherNoteDate(note.note_date)}</span>
-                  <span className="sch-teacher-notes-content">{note.content}</span>
-                </li>
-              ))}
-            </ul>
+    <section
+      id={sectionId}
+      className="sch-admin-dash-section sch-admin-dash-section--notes"
+    >
+      <button
+        type="button"
+        className="sch-admin-section-toggle"
+        onClick={() => setCollapsed(v => !v)}
+        aria-expanded={!collapsed}
+      >
+        <div className="sch-admin-section-head-main">
+          <span className="sch-admin-section-icon sch-admin-section-icon--notes" aria-hidden>
+            <StickyNote size={18} />
+          </span>
+          <div className="sch-admin-section-toggle-text">
+            <h3 className="sch-admin-dash-section-title">강사 개인 메모</h3>
+            <p className="sch-muted sch-admin-dash-section-desc">
+              강사가 남긴 특이사항 참고용 (관리자 읽기 전용)
+            </p>
           </div>
-        ))}
-      </div>
+        </div>
+        <div className="sch-admin-section-badges">
+          <span className="sch-admin-count-badge">{noteCount}건</span>
+          <span className={`sch-admin-section-chevron${collapsed ? "" : " sch-admin-section-chevron--open"}`}>
+            <ChevronDown size={18} aria-hidden />
+          </span>
+        </div>
+      </button>
+
+      {!collapsed ? (
+        <div className="sch-admin-notes-groups">
+          {noteGroups.map(group => (
+            <div key={group.teacherId} className="sch-admin-notes-group">
+              <h4 className="sch-admin-notes-teacher">{group.teacherName}</h4>
+              <ul className="sch-teacher-notes-list sch-teacher-notes-list--admin">
+                {group.notes.map(note => (
+                  <li key={note.id} className="sch-teacher-notes-item sch-teacher-notes-item--static">
+                    <span className="sch-teacher-notes-date">{formatTeacherNoteDate(note.note_date)}</span>
+                    <span className="sch-teacher-notes-content">{note.content}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="sch-muted sch-admin-section-collapsed-hint">
+          접혀 있습니다. 클릭하면 {noteCount}건의 메모를 볼 수 있습니다.
+        </p>
+      )}
     </section>
   );
 }

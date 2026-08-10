@@ -29,7 +29,7 @@ export function filterScheduleMenu(me) {
       title: admin ? "수업등록/변경" : "정규 수업",
       desc: admin
         ? "강사 스케줄 변경 알림 · 정규 수업 등록"
-        : "담당 기관 정규·방과후 수업 조회",
+        : "담당 기관 정규·방과후·어린이집 수업 조회",
       color: "#ef4444",
       roles: "all",
     },

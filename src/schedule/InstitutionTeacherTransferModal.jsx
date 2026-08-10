@@ -5,6 +5,8 @@ import { filterClassTeacherAssignments } from "./assignmentRoles.js";
 import { transferInstitutionTeacher } from "./transferInstitutionTeacher.js";
 import { sendPushEvent } from "../pushNotifications.js";
 import { scheduleSupabase } from "./api.js";
+import { isTeacherVisibleInYearMonth } from "./teacherEmployment.js";
+import { yearMonthKey } from "./constants.js";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -43,7 +45,7 @@ export default function InstitutionTeacherTransferModal({
   const managerCandidates = useMemo(() => {
     let list = (adminList.length ? adminList : teachers.filter(t =>
       t.role === "admin" || t.role === "superadmin",
-    )).filter(t => t.active !== false && !t.resigned_at);
+    )).filter(t => isTeacherVisibleInYearMonth(t, yearMonthKey()));
     if (managerSearch.trim()) {
       const q = managerSearch.trim().toLowerCase();
       list = list.filter(t => String(t.name || "").toLowerCase().includes(q));
@@ -139,8 +141,7 @@ export default function InstitutionTeacherTransferModal({
   const teacherCandidates = useMemo(() => {
     let list = teacherList.filter(t =>
       t.id !== fromTeacherId
-      && t.active !== false
-      && !t.resigned_at,
+      && isTeacherVisibleInYearMonth(t, yearMonthKey()),
     );
     if (search.trim()) {
       const q = search.trim().toLowerCase();

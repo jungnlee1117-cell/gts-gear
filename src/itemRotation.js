@@ -508,21 +508,36 @@ export function findWeekSlotForDate(monthWeeks, date = new Date()) {
   return matches[matches.length - 1];
 }
 
+/** DB 주차 미시드 시 classifyCalendarWeek 기반으로 가상 슬롯 생성 */
+export function syntheticRotationWeekSlot(date = new Date()) {
+  const { yearMonth, weekNumber, startYmd, endYmd } = classifyCalendarWeek(date);
+  if (!yearMonth || !weekNumber) return null;
+  return {
+    year_month: `${yearMonth}-01`,
+    week_number: weekNumber,
+    week_start_date: startYmd,
+    week_end_date: endYmd,
+    _synthetic: true,
+  };
+}
+
 /**
  * 이번 순환 주차 — 날짜 포함 슬롯 → 과반수 달 분류 매칭 → 달력 주 겹침
+ * → DB에 해당 월 주차가 없어도 classifyCalendarWeek 가상 슬롯으로 item_weekly_lists 조회 가능
  */
 export function findCurrentRotationWeekSlot(monthWeeks, date = new Date()) {
   const byDate = findWeekSlotForDate(monthWeeks, date);
   if (byDate) return byDate;
   const { yearMonth, weekNumber } = classifyCalendarWeek(date);
   return findSlotByClassification(monthWeeks, yearMonth, weekNumber)
-    || findRotationWeekForCalendarWeek(monthWeeks, date);
+    || findRotationWeekForCalendarWeek(monthWeeks, date)
+    || syntheticRotationWeekSlot(date);
 }
 
 /** 다음 순환 주차 슬롯 */
 export function findNextRotationWeekSlot(monthWeeks, date = new Date()) {
   const current = findCurrentRotationWeekSlot(monthWeeks, date);
-  if (current) {
+  if (current && !current._synthetic) {
     const next = findNextWeekSlot(monthWeeks, current);
     if (next) return next;
   }
@@ -532,7 +547,8 @@ export function findNextRotationWeekSlot(monthWeeks, date = new Date()) {
   const { yearMonth, weekNumber } = classifyCalendarWeek(nextMonday);
   return findSlotByClassification(monthWeeks, yearMonth, weekNumber)
     || findWeekSlotForDate(monthWeeks, nextMonday)
-    || findRotationWeekForCalendarWeek(monthWeeks, nextMonday);
+    || findRotationWeekForCalendarWeek(monthWeeks, nextMonday)
+    || syntheticRotationWeekSlot(nextMonday);
 }
 
 /** 현재 주차 다음 슬롯 */
@@ -579,12 +595,24 @@ export function mergeWeeklyItemsForWeek(kgRow, daycareRow) {
   };
 }
 
+function normalizeRotationLetter(letter) {
+  const s = String(letter ?? "").trim().toUpperCase();
+  return s || null;
+}
+
 export function getWeekItemsForLetter(weeklyLists, letter, weekNumber) {
-  const kg = weeklyLists.find(w =>
-    w.letter === letter && w.week_number === weekNumber && w.target_type === "유치원",
+  const L = normalizeRotationLetter(letter);
+  const wn = Number(weekNumber);
+  if (!L || !Number.isFinite(wn)) return null;
+  const kg = (weeklyLists || []).find(w =>
+    normalizeRotationLetter(w.letter) === L
+      && Number(w.week_number) === wn
+      && w.target_type === "유치원",
   );
-  const daycare = weeklyLists.find(w =>
-    w.letter === letter && w.week_number === weekNumber && w.target_type === "어린이집",
+  const daycare = (weeklyLists || []).find(w =>
+    normalizeRotationLetter(w.letter) === L
+      && Number(w.week_number) === wn
+      && w.target_type === "어린이집",
   );
   return mergeWeeklyItemsForWeek(kg, daycare);
 }

@@ -174,32 +174,34 @@ export function buildSubstituteChangeNotification(planned, lesson, { originalNam
 export function buildSubstitutePayrollPayloads(lesson, planned) {
   const minutes = Number(lesson.scheduled_minutes) || Number(planned?.scheduledMinutes) || 0;
   const payType = lesson.pay_type || planned?.payType || "정규";
-  const originalPayload = {
+  const base = {
     teacher_id: lesson.original_teacher_id,
     institution_id: lesson.institution_id,
     class_date: lesson.lesson_date,
     schedule_slot_id: lesson.schedule_slot_id,
     pay_type: payType,
-    minutes: 0,
-    entry_status: ENTRY_STATUS.skipped,
-    note: "대체수업",
   };
-  const payloads = [originalPayload];
 
+  // 슬롯당 1건만: 원 선생님 명의 + substitute_teacher_id 로 급여 귀속
+  // (대체 선생님 teacher_id로 두 번째 행을 만들면 이중 집계됨)
   if (lesson.substitute_teacher_id && minutes > 0) {
-    payloads.push({
-      teacher_id: lesson.substitute_teacher_id,
-      institution_id: lesson.institution_id,
-      class_date: lesson.lesson_date,
-      schedule_slot_id: lesson.schedule_slot_id,
-      pay_type: payType,
+    return [{
+      ...base,
       minutes,
       entry_status: ENTRY_STATUS.custom,
-      note: `대체수업 (${lesson.original_teacher?.name || "원래 선생님"})`,
-    });
+      substitute_teacher_id: lesson.substitute_teacher_id,
+      note: "대체수업",
+    }];
   }
 
-  return payloads;
+  // 임시 선생님 대체 등 — 원 슬롯은 휴강 처리
+  return [{
+    ...base,
+    minutes: 0,
+    entry_status: ENTRY_STATUS.skipped,
+    substitute_teacher_id: null,
+    note: "대체수업",
+  }];
 }
 
 export function sumSubstituteLessonPayForTeacher(lessons, teacherId) {

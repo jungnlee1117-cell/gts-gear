@@ -34,6 +34,7 @@ export function TempTeacherPayrollTableRow({ row, onSelect, superAdmin = false }
       </td>
       <td className="sch-td-num"><PayTypeCell row={row} payType="정규"/></td>
       <td className="sch-td-num"><PayTypeCell row={row} payType="방과후"/></td>
+      <td className="sch-td-num"><PayTypeCell row={row} payType="어린이집"/></td>
       <td className="sch-td-num"><PayTypeCell row={row} payType="가정방문"/></td>
       <td className="sch-td-num"><PayTypeCell row={row} payType="센터"/></td>
       <td className="sch-td-num"><PayTypeCell row={row} payType="센터보조"/></td>

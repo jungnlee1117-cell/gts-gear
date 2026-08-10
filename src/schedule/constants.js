@@ -1,5 +1,30 @@
-export const PAY_TYPES = ["정규", "방과후", "가정방문", "센터", "센터보조"];
-export const CLASS_TYPES = ["정규", "방과후"];
+export const PAY_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조"];
+/** 급여 요약 집계·표시 순서 */
+export const PAYROLL_SUMMARY_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조"];
+export const CLASS_TYPES = ["정규", "방과후", "어린이집"];
+
+const DAYCARE_INSTITUTION_NAME_KEYS = ["어린이집", "유치원"];
+
+/** 기관명에 어린이집·유치원이 포함되면 급여 요약의 「어린이집」 항목으로 집계 */
+export function isDaycareInstitution(institutionOrName) {
+  const name = typeof institutionOrName === "string"
+    ? institutionOrName
+    : institutionOrName?.name;
+  const n = String(name || "").trim();
+  if (!n) return false;
+  return DAYCARE_INSTITUTION_NAME_KEYS.some(k => n.includes(k));
+}
+
+/**
+ * 어린이집/유치원 기관 수업 → 「어린이집」 (정규·방과후 등 pay_type 무관)
+ * 그 외는 DB pay_type 그대로. 단가 계산은 pay_type을 그대로 씀.
+ */
+export function resolvePayrollSummaryType(entry) {
+  if (isDaycareInstitution(entry?.institutions || entry?.institution_name)) {
+    return "어린이집";
+  }
+  return entry?.pay_type || "";
+}
 
 export const CONTRACT_TYPES = {
   gts_official: "GTS 공식",
@@ -36,13 +61,17 @@ export function yearMonthKey(date = new Date()) {
   return `${y}-${m}`;
 }
 
+/** YYYY-MM 또는 YYYY-MM-DD → 해당 월 1일(YYYY-MM-01) */
 export function yearMonthFirstDay(key) {
-  return `${key}-01`;
+  const prefix = String(key || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(prefix)) return `${key}-01`;
+  return `${prefix}-01`;
 }
 
 /** YYYY-MM 해당 월 마지막 날 (로컬 타임존 — toISOString 사용 금지) */
 export function yearMonthLastDay(key) {
-  const [y, m] = key.split("-").map(Number);
+  const prefix = String(key || "").slice(0, 7);
+  const [y, m] = prefix.split("-").map(Number);
   return fmtLocalDate(new Date(y, m, 0));
 }
 
@@ -71,6 +100,18 @@ export function timeToMinutes(timeStr) {
 
 export function minutesBetween(start, end) {
   return Math.max(0, timeToMinutes(end) - timeToMinutes(start));
+}
+
+/** 시간 구간 겹침 여부 (끝=시작이면 비겹침) */
+export function timesOverlap(startA, endA, startB, endB) {
+  const a0 = timeToMinutes(startA);
+  const a1 = timeToMinutes(endA);
+  const b0 = timeToMinutes(startB);
+  const b1 = timeToMinutes(endB);
+  if (!a0 && !a1) return false;
+  if (!b0 && !b1) return false;
+  if (a1 <= a0 || b1 <= b0) return false;
+  return a0 < b1 && b0 < a1;
 }
 
 /** institution_weekly_schedule → payroll pay_type (label에 센터/센터보조 표기 가능) */

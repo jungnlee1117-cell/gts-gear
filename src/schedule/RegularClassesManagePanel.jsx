@@ -63,15 +63,25 @@ function emptyEdit(slot) {
 
 function periodLabel(classType, index) {
   if (classType === "방과후") return "방과후";
+  if (classType === "어린이집") {
+    return index === 0 ? "어린이집" : `어린이집 ${index + 1}`;
+  }
   return `${index + 1}교시`;
 }
 
 function classTypeTone(classType) {
   if (classType === "방과후") return "after-school";
+  if (classType === "어린이집") return "daycare";
   if (classType === "센터") return "center";
   if (classType === "센터보조") return "center-assist";
   if (classType === "가정방문") return "home-visit";
   return "regular";
+}
+
+function assignmentPayTypes(classType) {
+  if (classType === "방과후") return ["방과후"];
+  if (classType === "어린이집") return ["어린이집"];
+  return ["정규"];
 }
 
 export default function RegularClassesManagePanel({ me }) {
@@ -271,7 +281,7 @@ export default function RegularClassesManagePanel({ me }) {
         await saveAssignment({
           institution_id,
           teacher_id,
-          pay_types: [class_type === "방과후" ? "방과후" : "정규"],
+          pay_types: assignmentPayTypes(class_type),
         });
       } catch (assignErr) {
         console.warn("assignment save skipped:", assignErr);
@@ -393,8 +403,8 @@ export default function RegularClassesManagePanel({ me }) {
 
       <p className="sch-muted sch-regular-classes-hint">
         {canEdit
-          ? "등록된 정규·방과후 주간 수업입니다. 수업을 클릭하면 수정할 수 있습니다."
-          : "담당 기관의 정규·방과후 주간 수업을 조회합니다."}
+          ? "등록된 정규·방과후·어린이집 주간 수업입니다. 수업을 클릭하면 수정할 수 있습니다."
+          : "담당 기관의 정규·방과후·어린이집 주간 수업을 조회합니다."}
       </p>
 
       {loading ? (

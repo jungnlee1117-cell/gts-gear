@@ -1014,6 +1014,28 @@ async function resolveNotification(event, payload, userId, adminClient) {
         url: "/schedule",
       };
     }
+    case "extra_lesson_registered": {
+      const isSelf = userId === payload.teacher_id;
+      const isAdmin = await isScheduleAdmin(adminClient, userId);
+      if (!isSelf && !isAdmin) {
+        return { error: "Forbidden", status: 403 };
+      }
+      const name = String(payload.teacher_name || "").trim() || "선생님";
+      const dateLabel = formatClassDate(payload.class_date);
+      const typeLabel = String(payload.class_type || "수업").trim() || "수업";
+      const amountNum = Number(payload.amount) || 0;
+      const amountLabel = amountNum > 0
+        ? `${amountNum.toLocaleString("ko-KR")}원`
+        : "금액 미정";
+      const body = String(payload.body || "").trim()
+        || `${name}님이 추가수업/수당을 등록했어요: ${dateLabel} ${typeLabel} ${amountLabel}`;
+      return {
+        teacherIds: await getSuperAdminIds(adminClient),
+        title: "추가수업/수당 등록",
+        body,
+        url: "/schedule",
+      };
+    }
     case "notice_posted": {
       if (!(await isScheduleAdmin(adminClient, userId))) {
         return { error: "Forbidden", status: 403 };

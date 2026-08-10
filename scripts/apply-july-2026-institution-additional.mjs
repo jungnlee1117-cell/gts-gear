@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
- * 2026-06 기관별 추가금 DB 보정
+ * 2026-07 기관별 추가금 DB 보정
  *   윤한경: 합산 '추가수당' → 프랜시스파커 5만 + 관악SLP 5만
  *   김종현: 잘못 시드된 '추가금액' 제거 (수지폴리 귀속 = 교통비지원)
  *
- *   node scripts/apply-june-2026-institution-additional.mjs --dry-run
- *   node scripts/apply-june-2026-institution-additional.mjs
+ *   node scripts/apply-july-2026-institution-additional.mjs --dry-run
+ *   node scripts/apply-july-2026-institution-additional.mjs
  */
 
 import { createSeedSupabase } from "./lib/seed-env.mjs";
 
 const DRY = process.argv.includes("--dry-run");
-const YEAR_MONTH = "2026-06-01";
+const YEAR_MONTH = "2026-07-01";
 
 const sb = createSeedSupabase();
 
@@ -24,15 +24,17 @@ if (!kim?.id) throw new Error("김종현 not found");
 if (!yoon?.id) throw new Error("윤한경 not found");
 
 const { data: before } = await sb.from("additional_payments")
-  .select("id, teacher_id, amount, reason, teachers!additional_payments_teacher_id_fkey(name)")
+  .select("amount, reason, teachers!additional_payments_teacher_id_fkey(name)")
   .eq("year_month", YEAR_MONTH)
   .in("teacher_id", [kim.id, yoon.id])
   .order("reason");
 
 console.log(DRY ? "=== DRY RUN ===" : "=== APPLY ===");
-console.log("Before:", (before || []).map(p =>
-  `${p.teachers?.name} | ${p.reason} | ${Number(p.amount).toLocaleString()}`,
-).join("\n  ") || "(none)");
+console.log("Before (김종현·윤한경 2026-07):");
+for (const p of before || []) {
+  console.log(`  ${p.teachers?.name} | ${p.reason} | ${Number(p.amount).toLocaleString()}`);
+}
+if (!before?.length) console.log("  (none)");
 
 const { data: kimExtra } = await sb.from("additional_payments")
   .select("id")
@@ -63,7 +65,7 @@ console.log("\nDelete kim '추가금액':", kimExtra?.length || 0, "row(s)");
 console.log("Delete yoon lump '추가수당':", yoonLump?.length || 0, "row(s)");
 console.log("Insert:", inserts.length, "row(s)");
 for (const r of inserts) {
-  console.log(" ", yoon.name, r.reason, `+${r.amount.toLocaleString()}`);
+  console.log(`  ${yoon.name} | ${r.reason} +${r.amount.toLocaleString()}`);
 }
 
 if (DRY) process.exit(0);
@@ -97,7 +99,7 @@ const { data: after } = await sb.from("additional_payments")
   .in("teacher_id", [kim.id, yoon.id])
   .order("reason");
 
-console.log("\nAfter (김종현·윤한경):");
+console.log("\nAfter (김종현·윤한경 2026-07):");
 for (const p of after || []) {
-  console.log(" ", p.teachers?.name, "|", p.reason, "|", Number(p.amount).toLocaleString());
+  console.log(`  ${p.teachers?.name} | ${p.reason} | ${Number(p.amount).toLocaleString()}`);
 }

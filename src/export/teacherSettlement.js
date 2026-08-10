@@ -3,6 +3,9 @@ import {
   resolveTeacherMonthlyGross,
   sumAdditionalPayments,
 } from "../schedule/additionalPayments.js";
+import {
+  filterTeachersVisibleInYearMonth,
+} from "../schedule/teacherEmployment.js";
 
 function yearMonthFirstDay(key) {
   const ym = String(key || "").slice(0, 7);
@@ -154,14 +157,17 @@ function buildRowsForMonth({
 
 export async function fetchTeacherSettlementRows(supabase, { month, all }) {
   const [teachersRes, ratesRes] = await Promise.all([
-    supabase.from("teachers").select("id, name, role, active").eq("active", true).order("name"),
+    supabase
+      .from("teachers")
+      .select("id, name, role, active, hire_date, resigned_at")
+      .order("name"),
     supabase.from("teacher_pay_rates").select("*").order("effective_from", { ascending: false }),
   ]);
 
   if (teachersRes.error) throw teachersRes.error;
   if (ratesRes.error) throw ratesRes.error;
 
-  const teachers = teachersRes.data || [];
+  const allTeachers = (teachersRes.data || []).filter((t) => t.active !== false || t.resigned_at);
   const rates = ratesRes.data || [];
 
   if (all) {
@@ -196,6 +202,7 @@ export async function fetchTeacherSettlementRows(supabase, { month, all }) {
       const monthAdditional = (additionalRes.data || []).filter(
         p => ymFromDate(p.year_month) === yearMonth,
       );
+      const teachers = filterTeachersVisibleInYearMonth(allTeachers, yearMonth);
       rows.push(...buildRowsForMonth({
         yearMonth,
         entries: monthEntries,
@@ -208,6 +215,7 @@ export async function fetchTeacherSettlementRows(supabase, { month, all }) {
   }
 
   const yearMonth = month;
+  const teachers = filterTeachersVisibleInYearMonth(allTeachers, yearMonth);
   const [entriesRes, additionalRes] = await Promise.all([
     supabase
       .from("payroll_entries")

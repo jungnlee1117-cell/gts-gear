@@ -11,6 +11,7 @@ import { askGiti, getGitiApiKey } from "./giti/gitiApi.js";
 import { buildGitiMinimalContext, loadGitiTeacherContext } from "./giti/gitiContext.js";
 import { logGitiUsage } from "./giti/gitiUsageLog.js";
 import { GITI_WELCOME } from "./giti/gitiSystemPrompt.js";
+import { GITI_ASK_EVENT } from "./giti/weeklyBriefing.js";
 
 const SUGGESTIONS = [
   "만 1세 수업 어떻게 해요?",
@@ -80,6 +81,7 @@ const GitiMessageList = memo(function GitiMessageList({ messages, busy, listRef,
 function GitiAssistant({ me = null, session = null, supabase = null }) {
   const teacherName = me?.name || "";
   const [open, setOpen] = useState(false);
+  const [askTick, setAskTick] = useState(0);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -97,6 +99,8 @@ function GitiAssistant({ me = null, session = null, supabase = null }) {
   const listRef = useRef(null);
   const inputRef = useRef(null);
   const shouldStickRef = useRef(true);
+  const pendingAskRef = useRef(null);
+  const focusContextRef = useRef("");
 
   sessionRef.current = session;
   messagesRef.current = messages;
@@ -169,6 +173,20 @@ function GitiAssistant({ me = null, session = null, supabase = null }) {
     };
   }, [open, me?.id, me?.name, me?.role, supabase]);
 
+  useEffect(() => {
+    const onAsk = (event) => {
+      const prompt = String(event?.detail?.prompt || "").trim();
+      const focusContext = String(event?.detail?.focusContext || "").trim();
+      if (!prompt) return;
+      focusContextRef.current = focusContext;
+      pendingAskRef.current = prompt;
+      setOpen(true);
+      setAskTick((n) => n + 1);
+    };
+    window.addEventListener(GITI_ASK_EVENT, onAsk);
+    return () => window.removeEventListener(GITI_ASK_EVENT, onAsk);
+  }, []);
+
   const send = useCallback(async (raw) => {
     const text = String(raw ?? inputValueRef.current).trim();
     if (!text || busyRef.current) return;
@@ -211,6 +229,35 @@ function GitiAssistant({ me = null, session = null, supabase = null }) {
       setBusy(false);
     }
   }, [me, supabase]);
+
+  useEffect(() => {
+    if (!open || !askTick || !pendingAskRef.current) return undefined;
+    let cancelled = false;
+    const prompt = pendingAskRef.current;
+    pendingAskRef.current = null;
+    (async () => {
+      if (contextPromiseRef.current) {
+        await contextPromiseRef.current.catch(() => {});
+      }
+      // 열림과 동시에 컨텍스트 로드가 시작되므로 풀 로드도 짧게 대기
+      const start = Date.now();
+      while (Date.now() - start < 1500 && !cancelled) {
+        if (contextDataRef.current || (contextRef.current || "").includes("실시간 앱 데이터")) break;
+        await new Promise((r) => setTimeout(r, 80));
+      }
+      if (cancelled) return;
+      if (focusContextRef.current) {
+        const base = contextRef.current || "";
+        if (!base.includes("## 이번 주 브리핑 포커스")) {
+          contextRef.current = base
+            ? `${base}\n\n## 이번 주 브리핑 포커스\n${focusContextRef.current}`
+            : `## 이번 주 브리핑 포커스\n${focusContextRef.current}`;
+        }
+      }
+      void send(prompt);
+    })();
+    return () => { cancelled = true; };
+  }, [open, askTick, send]);
 
   const onSuggestion = useCallback(async (s) => {
     if (s !== GEAR_ACTIVITY_SUGGESTION) {

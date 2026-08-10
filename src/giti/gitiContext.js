@@ -3,6 +3,8 @@
  */
 import {
   assignedLetterForMonth,
+  classifyCalendarWeek,
+  enumerateMajorityMonthWeeks,
   findCurrentRotationWeekSlot,
   getWeekItemsForLetter,
   rotationWeekRangeForSlot,
@@ -95,15 +97,16 @@ function gearDisplayFromWeek(gear) {
 }
 
 function weekItemsByTarget(weeklyLists, letter, weekNumber) {
-  const kg = (weeklyLists || []).find(
-    (w) => w.letter === letter && w.week_number === weekNumber && w.target_type === "유치원",
-  );
-  const daycare = (weeklyLists || []).find(
-    (w) => w.letter === letter && w.week_number === weekNumber && w.target_type === "어린이집",
-  );
+  const gear = getWeekItemsForLetter(weeklyLists, letter, weekNumber);
+  if (!gear) return { kindergarten: null, daycare: null };
+  if (gear.merged) {
+    return { kindergarten: gear.item_name, daycare: gear.item_name };
+  }
+  const kg = gear.parts?.find((p) => p.label === "유치원")?.name || null;
+  const dc = gear.parts?.find((p) => p.label === "어린이집")?.name || null;
   return {
-    kindergarten: kg?.item_name || null,
-    daycare: daycare?.item_name || null,
+    kindergarten: kg || (gear.item_name && !dc ? gear.item_name : null),
+    daycare: dc || null,
   };
 }
 
@@ -554,9 +557,25 @@ export async function loadGitiTeacherContext({ me, session, supabase }) {
     me,
     gearYearMonthKey(today),
   );
-  const monthWeeks = (gearExtras.monthWeeks || []).filter((w) =>
+  const classified = classifyCalendarWeek(today);
+  let monthWeeks = (gearExtras.monthWeeks || []).filter((w) =>
     String(w.year_month || "").startsWith(yearMonth),
   );
+  if (!monthWeeks.length) {
+    // DB에 이번 달 주차 시드가 없으면 과반수 달 규칙으로 가상 주차 생성
+    monthWeeks = enumerateMajorityMonthWeeks(y, m).map((w) => ({
+      year_month: `${yearMonth}-01`,
+      week_number: w.week_number,
+      week_start_date: w.week_start_date,
+      week_end_date: w.week_end_date,
+      _synthetic: true,
+    }));
+    console.warn("[giti] month_weeks missing — using synthetic weeks", {
+      yearMonth,
+      syntheticCount: monthWeeks.length,
+      classified,
+    });
+  }
   const weeklyByWeek = monthWeeks.map((w) => {
     const byTarget = letter
       ? weekItemsByTarget(gearExtras.weeklyLists, letter, w.week_number)
@@ -571,18 +590,55 @@ export async function loadGitiTeacherContext({ me, session, supabase }) {
 
   const currentSlot = findCurrentRotationWeekSlot(gearExtras.monthWeeks || [], today);
   let thisWeek = null;
+  let matchedRows = [];
   if (currentSlot && letter) {
-    const gear = getWeekItemsForLetter(
-      gearExtras.weeklyLists || [],
-      letter,
-      currentSlot.week_number,
+    const lists = gearExtras.weeklyLists || [];
+    matchedRows = lists.filter(
+      (w) =>
+        String(w.letter || "").trim().toUpperCase() === String(letter).trim().toUpperCase()
+        && Number(w.week_number) === Number(currentSlot.week_number),
     );
+    const gear = getWeekItemsForLetter(lists, letter, currentSlot.week_number);
     thisWeek = {
       weekNumber: currentSlot.week_number,
       range: rotationWeekRangeForSlot(currentSlot),
       display: gearDisplayFromWeek(gear),
+      syntheticSlot: Boolean(currentSlot._synthetic),
     };
   }
+
+  console.log("[giti] gear week resolve", {
+    today: todayStr,
+    yearMonth,
+    letter,
+    classified: {
+      yearMonth: classified.yearMonth,
+      weekNumber: classified.weekNumber,
+      label: classified.label,
+      range: `${classified.startYmd}~${classified.endYmd}`,
+    },
+    currentSlot: currentSlot
+      ? {
+          year_month: currentSlot.year_month,
+          week_number: currentSlot.week_number,
+          range: `${currentSlot.week_start_date}~${currentSlot.week_end_date}`,
+          synthetic: Boolean(currentSlot._synthetic),
+        }
+      : null,
+    weeklyListRows: (gearExtras.weeklyLists || []).length,
+    matchedRows: matchedRows.map((w) => ({
+      letter: w.letter,
+      week_number: w.week_number,
+      target_type: w.target_type,
+      item_name: w.item_name,
+    })),
+    thisWeek,
+    weeklyByWeek: weeklyByWeek.map((w) => ({
+      week: w.weekNumber,
+      kg: w.kindergarten,
+      dc: w.daycare,
+    })),
+  });
 
   const rentals = rentalsRaw.map((r) => {
     const diff = daysUntilDue(r.dueDate);

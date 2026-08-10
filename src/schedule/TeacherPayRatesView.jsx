@@ -632,7 +632,7 @@ export default function TeacherPayRatesView({ onBack }) {
     setLoading(true);
     try {
       const [ts, inst, history] = await Promise.all([
-        fetchTeachers(),
+        fetchTeachers({ allowBeforeHire: true }),
         fetchInstitutions({ activeOnly: false }),
         fetchPayRates(),
       ]);

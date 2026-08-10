@@ -1,9 +1,17 @@
--- teachers 이메일 표시: teachers.email 없으면 auth.users.email 사용
--- hire_date 포함. OUT 시그니처 변경 시 DROP 필요 — 운영 반영은 teachers_hire_date_patch.sql
+-- teachers: 입사일(hire_date) 컬럼 + 목록 RPC 반영
+-- Supabase SQL Editor 또는 CLI에서 실행
 
-ALTER TABLE public.teachers ADD COLUMN IF NOT EXISTS email text;
-ALTER TABLE public.teachers ADD COLUMN IF NOT EXISTS hire_date date;
+ALTER TABLE public.teachers
+  ADD COLUMN IF NOT EXISTS hire_date date;
 
+COMMENT ON COLUMN public.teachers.hire_date IS
+  '입사일. 급여·스케줄 목록은 이 날짜가 속한 달부터 표시. NULL이면 입사 제한 없음';
+
+CREATE INDEX IF NOT EXISTS idx_teachers_hire_date
+  ON public.teachers (hire_date)
+  WHERE hire_date IS NOT NULL;
+
+-- OUT 파라미터 변경이므로 기존 함수 먼저 제거
 DROP FUNCTION IF EXISTS public.get_teachers_with_email();
 
 CREATE FUNCTION public.get_teachers_with_email()

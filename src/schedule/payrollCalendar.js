@@ -3,7 +3,9 @@ import {
   getMonthGrid,
   isSameDay,
   minutesBetween,
+  PAYROLL_SUMMARY_TYPES,
   resolveInstitutionSlotPayType,
+  resolvePayrollSummaryType,
   sortSlotsByTime,
   resolveInstitutionSlotBillableMinutes,
 } from "./constants.js";
@@ -155,6 +157,34 @@ export function getEffectiveSlotStatus(entry, dateStr) {
   return null;
 }
 
+/** YYYY-MM-DD → "7월 21일" */
+export function formatKoMonthDay(dateStr) {
+  const [, m, d] = String(dateStr || "").slice(0, 10).split("-").map(Number);
+  if (!m || !d) return dateStr || "";
+  return `${m}월 ${d}일`;
+}
+
+export function isMakeupRescheduled(entry) {
+  return Boolean(entry?.is_makeup && entry?.makeup_date);
+}
+
+function entryBelongsToTeacher(entry, teacherId) {
+  if (!teacherId) return true;
+  if (entry.substitute_teacher_id) return entry.substitute_teacher_id === teacherId;
+  return entry.teacher_id === teacherId;
+}
+
+/** 보강 진행일(makeup_date)에 해당하는 항목 */
+export function findMakeupEntriesForDate(entries, dateStr, teacherId = null) {
+  return (entries || []).filter((e) => {
+    if (!isMakeupRescheduled(e)) return false;
+    if (String(e.makeup_date).slice(0, 10) !== dateStr) return false;
+    if (!e.entry_status || e.entry_status === ENTRY_STATUS.skipped) return false;
+    if (!(Number(e.minutes) > 0)) return false;
+    return entryBelongsToTeacher(e, teacherId);
+  });
+}
+
 export function isSlotResolved(entries, planned) {
   return Boolean(getEffectiveSlotStatus(findEntryForPlanned(entries, planned), planned.dateStr));
 }
@@ -168,13 +198,8 @@ export function effectiveSlotStatusLabel(planned, entry, { teachersById } = {}) 
       || "대체 선생님";
     return `대체수업 · ${name}`;
   }
-  if (entry?.is_makeup && entry.makeup_date) {
-    const mk = String(entry.makeup_date).slice(0, 10);
-    const [, m, d] = mk.split("-");
-    const time = entry.makeup_start_time && entry.makeup_end_time
-      ? ` ${String(entry.makeup_start_time).slice(0, 5)}–${String(entry.makeup_end_time).slice(0, 5)}`
-      : "";
-    return `보강 · ${Number(m)}/${Number(d)}${time} · ${entry.minutes}분`;
+  if (isMakeupRescheduled(entry)) {
+    return `수업변경 → ${formatKoMonthDay(entry.makeup_date)}`;
   }
   if (status === ENTRY_STATUS.as_scheduled) {
     return `평소대로 · ${planned.scheduledMinutes}분`;
@@ -288,14 +313,15 @@ export function confirmedEntries(entries, teacherId = null) {
 
 export function groupPayrollByTypeConfirmed(entries, teacherId = null) {
   const groups = {};
-  for (const t of ["정규", "방과후", "가정방문", "센터", "센터보조"]) groups[t] = 0;
+  for (const t of PAYROLL_SUMMARY_TYPES) groups[t] = 0;
   for (const e of confirmedEntries(entries, teacherId)) {
-    groups[e.pay_type] = (groups[e.pay_type] || 0) + e.minutes;
+    const summaryType = resolvePayrollSummaryType(e);
+    groups[summaryType] = (groups[summaryType] || 0) + e.minutes;
   }
   return groups;
 }
 
-/** 달력 날짜 칸 — 대체/보강 뱃지 */
+/** 달력 날짜 칸 — 대체/보강/수업변경 뱃지 */
 export function calendarPayrollBadgesForDate(entries, dateStr) {
   if (!entries?.length || !dateStr) return [];
   const badges = [];
@@ -303,10 +329,7 @@ export function calendarPayrollBadgesForDate(entries, dateStr) {
     e.substitute_teacher_id && e.class_date === dateStr,
   );
   if (hasSub) badges.push({ kind: "substitute", label: "대체" });
-  const hasMakeup = entries.some(e =>
-    e.is_makeup && e.makeup_date === dateStr,
-  );
-  if (hasMakeup) badges.push({ kind: "makeup", label: "보강" });
+  // 보강/변경은 칸 안의 「수업변경 →」「(보강)」 줄로 이미 보이므로 뱃지는 두지 않음
   return badges;
 }
 
@@ -367,6 +390,260 @@ export function dayConfirmState(planned, entries) {
   if (skipped === planned.length) return "all_skipped";
   if (skipped > 0) return "mixed";
   return "done";
+}
+
+/** 해당 날짜 확정 수업 합산 분 (수업 안 함 제외).
+ *  보강은 makeup_date에만 분을 표시하고, 원래 class_date에서는 제외. */
+export function confirmedMinutesForDate(entries, dateStr, teacherId = null) {
+  return (entries || []).reduce((sum, e) => {
+    if (!e.entry_status || e.entry_status === ENTRY_STATUS.skipped) return sum;
+    if (!entryBelongsToTeacher(e, teacherId)) return sum;
+    const mins = Number(e.minutes) || 0;
+    if (isMakeupRescheduled(e)) {
+      if (String(e.makeup_date).slice(0, 10) !== dateStr) return sum;
+      return sum + mins;
+    }
+    if (e.class_date !== dateStr) return sum;
+    return sum + mins;
+  }, 0);
+}
+
+/**
+ * 급여 달력 날짜 표시
+ * - confirmed: 수업별 "기관명 유형 N분" 줄
+ * - skipped: ❌ (전부 수업 안 함)
+ * - null: 미확정/부분확정 — 표시 없음
+ */
+export function payrollCalendarDayMark(planned, entries, dateStr, {
+  isHoliday = false,
+  teacherId = null,
+} = {}) {
+  if (isHoliday || !dateStr) return null;
+
+  const list = planned || [];
+  const state = list.length ? dayConfirmState(list, entries) : "empty";
+  const dayEntries = (entries || []).filter((e) => {
+    if (!e.entry_status) return false;
+    if (!entryBelongsToTeacher(e, teacherId)) return false;
+    if (e.class_date === dateStr) return true;
+    if (isMakeupRescheduled(e) && String(e.makeup_date).slice(0, 10) === dateStr) return true;
+    return false;
+  });
+  const makeupArrivals = findMakeupEntriesForDate(entries, dateStr, teacherId);
+  const minutes = confirmedMinutesForDate(entries, dateStr, teacherId);
+
+  if (state === "done" || state === "mixed") {
+    return {
+      kind: "confirmed",
+      minutes,
+      lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId),
+    };
+  }
+
+  if (state === "all_skipped") {
+    const hasWorkExtra = dayEntries.some(
+      (e) => e.entry_status !== ENTRY_STATUS.skipped && Number(e.minutes) > 0,
+    );
+    if (hasWorkExtra || makeupArrivals.length) {
+      return {
+        kind: "confirmed",
+        minutes,
+        lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId),
+      };
+    }
+    return { kind: "skipped", minutes: 0, lines: [] };
+  }
+
+  // 스케줄 없는 날 — 직접 추가·보강 도착만 있는 경우
+  if (state === "empty" || !list.length) {
+    if (!dayEntries.length && !makeupArrivals.length) return null;
+    const workEntries = dayEntries.filter((e) => e.entry_status !== ENTRY_STATUS.skipped);
+    if (!workEntries.length && !makeupArrivals.length) {
+      return { kind: "skipped", minutes: 0, lines: [] };
+    }
+    return {
+      kind: "confirmed",
+      minutes,
+      lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId),
+    };
+  }
+
+  // pending / partial — 보강 도착만 있으면 표시
+  if (makeupArrivals.length) {
+    return {
+      kind: "confirmed",
+      minutes,
+      lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId),
+    };
+  }
+
+  return null;
+}
+
+/** 확정된 수업 줄 — 기관(또는 가정방문 학생)·유형별 합산 / 보강·수업변경 표기 */
+export function buildConfirmedPayrollDayLines(planned, entries, dateStr, teacherId = null) {
+  /** @type {Map<string, { key: string, name: string, payType: string, minutes: number, sort: string, label?: string, sublabel?: string, colorId: string, colorKind: string }>} */
+  const groups = new Map();
+  const usedEntryIds = new Set();
+
+  const addLine = ({
+    groupKey,
+    name,
+    payType,
+    minutes,
+    sort,
+    colorId,
+    colorKind,
+    label,
+    sublabel,
+  }) => {
+    const key = groupKey || `${name}::${payType}`;
+    const prev = groups.get(key);
+    if (prev && !label) {
+      prev.minutes += minutes;
+      return;
+    }
+    if (prev && label) return;
+    groups.set(key, {
+      key,
+      name,
+      payType,
+      minutes,
+      colorId: colorId || name,
+      colorKind: colorKind || "institution",
+      sort: sort || `${name}\0${payType}`,
+      label: label || null,
+      sublabel: sublabel || null,
+    });
+  };
+
+  for (const p of planned || []) {
+    const entry = findEntryForPlanned(entries, p);
+    const status = getEffectiveSlotStatus(entry, dateStr);
+    if (!status || status === ENTRY_STATUS.skipped) continue;
+    if (entry && !entryBelongsToTeacher(entry, teacherId)) continue;
+
+    // 원래 날짜: 보강으로 옮긴 수업 → "수업변경 → N월 D일"
+    if (entry && isMakeupRescheduled(entry) && entry.class_date === dateStr) {
+      if (entry.id) usedEntryIds.add(entry.id);
+      const mkLabel = formatKoMonthDay(entry.makeup_date);
+      addLine({
+        groupKey: `reschedule-out:${entry.id}`,
+        name: p.institutionName || "원",
+        payType: entry.pay_type || p.payType || "",
+        minutes: 0,
+        colorId: p.institutionId || entry.institution_id || "reschedule",
+        colorKind: "reschedule",
+        sort: `${p.startTime || "00:00"}\0reschedule`,
+        label: `수업변경 → ${mkLabel}`,
+        sublabel: null,
+      });
+      continue;
+    }
+
+    const minutes = Number(
+      entry?.minutes
+      ?? (status === ENTRY_STATUS.as_scheduled ? p.scheduledMinutes : 0),
+    ) || 0;
+    const payType = entry?.pay_type || p.payType || "";
+    const isHome = p.source === "home_visit" || Boolean(p.patternId);
+    const name = isHome
+      ? (p.studentName || p.institutionName || "가정방문")
+      : (p.institutionName || "원");
+    const colorId = isHome
+      ? (p.patternId || name)
+      : (p.institutionId || entry?.institution_id || name);
+    const groupKey = isHome
+      ? `hv:${p.patternId || name}:${payType}`
+      : `inst:${p.institutionId || name}:${payType}`;
+    if (entry?.id) usedEntryIds.add(entry.id);
+    addLine({
+      groupKey,
+      name,
+      payType,
+      minutes,
+      colorId,
+      colorKind: isHome ? "home_visit" : "institution",
+      sort: `${p.startTime || "99:99"}\0${name}\0${payType}`,
+    });
+  }
+
+  const extras = findManualExtraEntriesForDate(entries, dateStr, planned || []);
+  for (const e of extras) {
+    if (!entryBelongsToTeacher(e, teacherId)) continue;
+    if (e.entry_status === ENTRY_STATUS.skipped) continue;
+    if (usedEntryIds.has(e.id)) continue;
+    if (isMakeupRescheduled(e) && String(e.makeup_date).slice(0, 10) !== dateStr) {
+      // 원래 날짜에만 있는 보강 수동행은 위에서 처리되지 않을 수 있음
+      if (e.class_date === dateStr) {
+        usedEntryIds.add(e.id);
+        addLine({
+          groupKey: `reschedule-out:${e.id}`,
+          name: e.institutions?.name || "원",
+          payType: e.pay_type || "",
+          minutes: 0,
+          colorId: e.institution_id || "reschedule",
+          colorKind: "reschedule",
+          sort: `yy\0reschedule\0${e.id}`,
+          label: `수업변경 → ${formatKoMonthDay(e.makeup_date)}`,
+        });
+      }
+      continue;
+    }
+    const name = e.institutions?.name?.trim()
+      || (e.institution_id ? "원" : "개인레슨");
+    const payType = e.pay_type || "";
+    const minutes = Number(e.minutes) || 0;
+    const groupKey = e.institution_id
+      ? `inst:${e.institution_id}:${payType}`
+      : `extra:${name}:${payType}`;
+    usedEntryIds.add(e.id);
+    addLine({
+      groupKey,
+      name,
+      payType,
+      minutes,
+      colorId: e.institution_id || name,
+      colorKind: e.institution_id ? "institution" : "extra",
+      sort: `zz\0${name}\0${payType}`,
+    });
+  }
+
+  // 보강 진행일: "(보강) 기관 N분" + 원래 날짜 안내
+  for (const e of findMakeupEntriesForDate(entries, dateStr, teacherId)) {
+    if (usedEntryIds.has(e.id) && e.class_date === dateStr) {
+      // 같은 날 보강이면 아래에서만 표시하도록 used 무시 가능 — 드문 케이스
+    }
+    const name = e.institutions?.name?.trim()
+      || (e.institution_id ? "원" : "개인레슨");
+    const minutes = Number(e.minutes) || 0;
+    const origLabel = formatKoMonthDay(e.class_date);
+    addLine({
+      groupKey: `makeup-in:${e.id}`,
+      name,
+      payType: e.pay_type || "",
+      minutes,
+      colorId: e.institution_id || name,
+      colorKind: "makeup",
+      sort: `za\0${e.makeup_start_time || "00:00"}\0${name}`,
+      label: `(보강) ${name} ${minutes}분`,
+      sublabel: `${origLabel} 수업 보강`,
+    });
+  }
+
+  return [...groups.values()]
+    .sort((a, b) => a.sort.localeCompare(b.sort, "ko"))
+    .map((row) => ({
+      key: row.key,
+      name: row.name,
+      payType: row.payType,
+      minutes: row.minutes,
+      colorId: row.colorId,
+      colorKind: row.colorKind,
+      sublabel: row.sublabel || null,
+      label: row.label
+        || `${row.name} ${row.payType} ${row.minutes}분`.replace(/\s+/g, " ").trim(),
+    }));
 }
 
 export function isSlotUnconfirmed(entries, planned) {

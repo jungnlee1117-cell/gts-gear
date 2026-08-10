@@ -45,6 +45,7 @@ import {
   normalizeCategoryKey,
 } from "./gearCategoryData.js";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
+import WeeklyBriefingSection from "./WeeklyBriefingSection.jsx";
 import RecurringTodosSection, { MyAssignedTodosSection } from "./RecurringTodosSection.jsx";
 import TeacherMultiSelect from "./TeacherMultiSelect.jsx";
 import {
@@ -7853,15 +7854,18 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
       )}
 
       {canPersonalGearRental(me) && items && (
-        <TeacherGearStatusSection
-          me={me}
-          items={items}
-          reqs={reqs}
-          ris={ris}
-          rets={rets}
-          setPage={setPage}
-          onItemClick={onItemClick}
-        />
+        <>
+          <WeeklyBriefingSection me={me} items={items} />
+          <TeacherGearStatusSection
+            me={me}
+            items={items}
+            reqs={reqs}
+            ris={ris}
+            rets={rets}
+            setPage={setPage}
+            onItemClick={onItemClick}
+          />
+        </>
       )}
 
       {viewNotice && (
