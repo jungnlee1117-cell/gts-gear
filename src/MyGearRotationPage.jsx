@@ -25,7 +25,13 @@ import {
 } from "./lessonPlan.js";
 import { itemPhotoStyle } from "./gearPhoto.js";
 import { buildCurrentRentals } from "./teacherGearStatus.js";
-import { isItemAdmin } from "./authRoles.js";
+import { isScheduleAdmin } from "./authRoles.js";
+import TeacherRotationRentalStatusSection from "./TeacherRotationRentalStatusSection.jsx";
+import {
+  ROTATION_SEARCH_MODES,
+  buildTeacherMonthAssignmentSummary,
+  searchGearAssignmentsForMonth,
+} from "./rotationGearSearch.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -39,6 +45,11 @@ const FILTERS = [
   { id: "rental", label: "대여" },
   { id: "air", label: "에어" },
   { id: "prop", label: "소도구" },
+];
+
+const PAGE_TABS = [
+  { id: "mine", label: "내 교구" },
+  { id: "teachers", label: "선생님 교구" },
 ];
 
 function parseDay(value) {
@@ -394,12 +405,14 @@ export default function MyGearRotationPage({
   const startYear = schoolYearStartYear();
   const todayMonth = yearMonthKey();
   const schoolMonths = useMemo(() => schoolYearMonths(startYear), [startYear]);
-  const canInspectTeachers = isItemAdmin(me);
+  const canUseRotationSearch = isScheduleAdmin(me);
+  const canViewRotationRentalStatus = isScheduleAdmin(me);
 
   const [viewMonth, setViewMonth] = useState(() => clampToSchoolYear(todayMonth, startYear));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [schedules, setSchedules] = useState([]);
+  const [allSchedules, setAllSchedules] = useState([]);
   const [weeklyLists, setWeeklyLists] = useState([]);
   const [allMonthWeeks, setAllMonthWeeks] = useState([]);
   const [lessonPlans, setLessonPlans] = useState([]);
@@ -408,8 +421,11 @@ export default function MyGearRotationPage({
   const [expanded, setExpanded] = useState(false);
   const [gearDetail, setGearDetail] = useState(null);
   const [teacherOptions, setTeacherOptions] = useState([]);
+  const [searchMode, setSearchMode] = useState("gear");
+  const [gearQuery, setGearQuery] = useState("");
   const [teacherQuery, setTeacherQuery] = useState("");
   const [teacherPickerOpen, setTeacherPickerOpen] = useState(false);
+  const [pageTab, setPageTab] = useState("mine");
   const [subjectTeacher, setSubjectTeacher] = useState(() => (
     me ? { id: me.id, name: me.name || "" } : null
   ));
@@ -417,16 +433,16 @@ export default function MyGearRotationPage({
   useEffect(() => {
     if (!me?.id) return;
     setSubjectTeacher((prev) => {
-      if (!canInspectTeachers) return { id: me.id, name: me.name || "" };
+      if (!canUseRotationSearch) return { id: me.id, name: me.name || "" };
       if (!prev?.id || prev.id === me.id) {
         return { id: me.id, name: me.name || "" };
       }
       return prev;
     });
-  }, [me?.id, me?.name, canInspectTeachers]);
+  }, [me?.id, me?.name, canUseRotationSearch]);
 
   useEffect(() => {
-    if (!canInspectTeachers) return;
+    if (!canUseRotationSearch) return;
     let cancelled = false;
     (async () => {
       const { data, error: err } = await supabase
@@ -442,13 +458,32 @@ export default function MyGearRotationPage({
       setTeacherOptions(data || []);
     })();
     return () => { cancelled = true; };
-  }, [canInspectTeachers]);
+  }, [canUseRotationSearch]);
+
+  useEffect(() => {
+    if (!canUseRotationSearch) return;
+    let cancelled = false;
+    const ymKeys = schoolMonths.map((m) => yearMonthFirstDay(m));
+    (async () => {
+      const { data, error: err } = await supabase
+        .from("item_rotation_schedule")
+        .select("year_month, assigned_letter, teacher_id")
+        .in("year_month", ymKeys);
+      if (cancelled) return;
+      if (err && err.code !== "42P01") {
+        console.warn("[gear-rotation] all schedules load failed", err.message);
+        return;
+      }
+      setAllSchedules(data || []);
+    })();
+    return () => { cancelled = true; };
+  }, [canUseRotationSearch, schoolMonths]);
 
   const subject = subjectTeacher?.id
     ? subjectTeacher
     : (me ? { id: me.id, name: me.name || "" } : null);
   const viewingOther = Boolean(
-    canInspectTeachers && subject?.id && me?.id && subject.id !== me.id,
+    canUseRotationSearch && subject?.id && me?.id && subject.id !== me.id,
   );
 
   const filteredTeachers = useMemo(() => {
@@ -472,6 +507,40 @@ export default function MyGearRotationPage({
     setSubjectTeacher({ id: me.id, name: me.name || "" });
     setTeacherQuery("");
     setTeacherPickerOpen(false);
+  };
+
+  const gearSearchResults = useMemo(
+    () => searchGearAssignmentsForMonth({
+      query: gearQuery,
+      viewMonth,
+      allSchedules,
+      weeklyLists,
+      monthWeeks: allMonthWeeks,
+      teachers: teacherOptions,
+      items,
+      startYear,
+    }),
+    [gearQuery, viewMonth, allSchedules, weeklyLists, allMonthWeeks, teacherOptions, items, startYear],
+  );
+
+  const teacherAssignmentSummary = useMemo(
+    () => buildTeacherMonthAssignmentSummary({
+      teacher: subject,
+      viewMonth,
+      schedules,
+      weeklyLists,
+      monthWeeks: allMonthWeeks,
+      startYear,
+    }),
+    [subject, viewMonth, schedules, weeklyLists, allMonthWeeks, startYear],
+  );
+
+  const selectTeacherFromGearResult = (entry) => {
+    if (entry.teacherNames?.length !== 1) return;
+    const teacher = teacherOptions.find((t) => t.name === entry.teacherNames[0]);
+    if (!teacher) return;
+    selectSubjectTeacher(teacher);
+    setSearchMode("teacher");
   };
 
   useEffect(() => {
@@ -662,193 +731,329 @@ export default function MyGearRotationPage({
         subtitle="이번 주 교구를 확인하고, 학년도 전체 월별 교구를 살펴볼 수 있습니다."
       />
 
-      {canInspectTeachers ? (
-        <div className="gear-rotation-teacher-bar">
-          <div className="gear-rotation-teacher-search">
-            <Search size={15} aria-hidden />
-            <input
-              type="search"
-              className="gear-rotation-teacher-search__input"
-              placeholder="선생님 이름 검색"
-              value={teacherQuery}
-              onChange={(e) => {
-                setTeacherQuery(e.target.value);
-                setTeacherPickerOpen(true);
-              }}
-              onFocus={() => setTeacherPickerOpen(true)}
-              onBlur={() => setTimeout(() => setTeacherPickerOpen(false), 150)}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter") return;
-                e.preventDefault();
-                if (filteredTeachers[0]) selectSubjectTeacher(filteredTeachers[0]);
-              }}
-              autoComplete="off"
-            />
-            {teacherQuery ? (
-              <button
-                type="button"
-                className="gear-rotation-teacher-search__clear"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setTeacherQuery("");
-                  setTeacherPickerOpen(true);
-                }}
-                aria-label="검색어 지우기"
-              >
-                <X size={14} />
-              </button>
-            ) : null}
-            {teacherPickerOpen && filteredTeachers.length > 0 ? (
-              <ul className="gear-rotation-teacher-search__list" role="listbox">
-                {filteredTeachers.map((t) => (
-                  <li key={t.id}>
-                    <button
-                      type="button"
-                      className={`gear-rotation-teacher-search__option${subject?.id === t.id ? " is-active" : ""}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => selectSubjectTeacher(t)}
-                    >
-                      {t.name}
-                      {t.id === me?.id ? <span>나</span> : null}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {teacherPickerOpen && teacherQuery.trim() && filteredTeachers.length === 0 ? (
-              <div className="gear-rotation-teacher-search__empty" role="status">
-                선생님을 찾을 수 없습니다
-              </div>
-            ) : null}
-          </div>
-          <div className="gear-rotation-teacher-meta">
-            <span>
-              보는 중: <strong>{subject?.name || "—"}</strong>
-              {currentLetter ? <> · 이번 달 <strong>{currentLetter}</strong></> : null}
-            </span>
-            {viewingOther ? (
-              <button type="button" className="gear-rotation-teacher-reset" onClick={resetToSelf}>
-                내 교구로
-              </button>
-            ) : null}
-          </div>
+      {canViewRotationRentalStatus ? (
+        <div className="gear-rotation-page-tabs" role="tablist" aria-label="이번달 내 교구">
+          {PAGE_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={pageTab === tab.id}
+              className={`gear-rotation-page-tab${pageTab === tab.id ? " is-active" : ""}`}
+              onClick={() => setPageTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       ) : null}
 
-      {loading && <Spinner text="순환 배정 불러오는 중..." />}
-      {!loading && error && (
-        <div className="gear-rotation-error">{error}</div>
-      )}
-
-      {!loading && !error && (
-        <div className="gear-rotation-page">
-          <section className="gear-rotation-highlights-grid">
-            <WeekHighlightCard
-              variant="current"
-              label={thisWeekLabel}
-              dateRange={thisWeekRange}
-              gear={thisWeekGear}
-              items={items}
-              heldIds={heldIds}
-              lessonPlans={lessonPlans}
-              aliases={equipmentAliases}
-              yearMonth={currentMonthKey}
-              weekNumber={currentWeekSlot?.week_number}
-              onRent={handleRent}
-              onOpenGear={openGear}
-              readOnly={viewingOther}
-            />
-            <WeekHighlightCard
-              variant="next"
-              label={nextWeekLabel}
-              dateRange={nextWeekRange}
-              gear={nextWeekGear}
-              items={items}
-              heldIds={heldIds}
-              lessonPlans={lessonPlans}
-              aliases={equipmentAliases}
-              yearMonth={nextWeekMonthKey}
-              weekNumber={nextWeekSlot?.week_number}
-              onRent={handleRent}
-              onOpenGear={openGear}
-              readOnly={viewingOther}
-            />
-          </section>
-
-          {!currentWeekSlot && (
-            <p className="gear-rotation-hint">
-              이번 주({thisWeekRange})에 해당하는 순환 주차 데이터가 없습니다.
-            </p>
+      {pageTab === "mine" ? (
+        <>
+          {loading && <Spinner text="순환 배정 불러오는 중..." />}
+          {!loading && error && (
+            <div className="gear-rotation-error">{error}</div>
           )}
 
-          <SchoolYearTimeline
-            months={schoolMonths}
-            viewMonth={viewMonth}
-            todayMonth={todayMonth}
-            onSelect={setViewMonth}
-          />
+          {!loading && !error && (
+            <div className="gear-rotation-page">
+              <section className="gear-rotation-highlights-grid">
+                <WeekHighlightCard
+                  variant="current"
+                  label={thisWeekLabel}
+                  dateRange={thisWeekRange}
+                  gear={thisWeekGear}
+                  items={items}
+                  heldIds={heldIds}
+                  lessonPlans={lessonPlans}
+                  aliases={equipmentAliases}
+                  yearMonth={currentMonthKey}
+                  weekNumber={currentWeekSlot?.week_number}
+                  onRent={handleRent}
+                  onOpenGear={openGear}
+                  readOnly={viewingOther}
+                />
+                <WeekHighlightCard
+                  variant="next"
+                  label={nextWeekLabel}
+                  dateRange={nextWeekRange}
+                  gear={nextWeekGear}
+                  items={items}
+                  heldIds={heldIds}
+                  lessonPlans={lessonPlans}
+                  aliases={equipmentAliases}
+                  yearMonth={nextWeekMonthKey}
+                  weekNumber={nextWeekSlot?.week_number}
+                  onRent={handleRent}
+                  onOpenGear={openGear}
+                  readOnly={viewingOther}
+                />
+              </section>
 
-          <section className="gear-rotation-list-section">
-            <div className="gear-rotation-list-head">
-              <h2 className="gear-rotation-list-title">
-                {monthLabel(viewMonth)} 전체 교구
-                {viewLetter ? (
-                  <span className="gear-rotation-letter-pill">알파벳 {viewLetter}</span>
-                ) : null}
-              </h2>
-              <div className="gear-rotation-filters">
-                {FILTERS.map(f => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    className={`gear-rotation-filter${filter === f.id ? " gear-rotation-filter--active" : ""}`}
-                    onClick={() => setFilter(f.id)}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+              {!currentWeekSlot && (
+                <p className="gear-rotation-hint">
+                  이번 주({thisWeekRange})에 해당하는 순환 주차 데이터가 없습니다.
+                </p>
+              )}
 
-            {!viewLetter && (
-              <div className="gear-rotation-empty">{monthLabel(viewMonth)} 순환 배정이 없습니다.</div>
-            )}
+              {canUseRotationSearch ? (
+                <div className="gear-rotation-search-panel">
+                  <div className="gear-rotation-search-tabs" role="tablist" aria-label="검색 방식">
+                    {ROTATION_SEARCH_MODES.map((mode) => (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={searchMode === mode.id}
+                        className={`gear-rotation-search-tab${searchMode === mode.id ? " is-active" : ""}`}
+                        onClick={() => setSearchMode(mode.id)}
+                      >
+                        {mode.label}
+                      </button>
+                    ))}
+                  </div>
 
-            {viewLetter && filteredRows.length === 0 && (
-              <div className="gear-rotation-empty">해당 필터에 맞는 교구가 없습니다.</div>
-            )}
+                  {searchMode === "gear" ? (
+                    <div className="gear-rotation-search-body">
+                      <div className="gear-rotation-search-field">
+                        <Search size={15} aria-hidden />
+                        <input
+                          type="search"
+                          className="gear-rotation-search-field__input"
+                          placeholder="교구명 검색 (예: 에어브릿지, 훌라후프)"
+                          value={gearQuery}
+                          onChange={(e) => setGearQuery(e.target.value)}
+                          autoComplete="off"
+                          aria-label="교구명 검색"
+                        />
+                        {gearQuery ? (
+                          <button
+                            type="button"
+                            className="gear-rotation-search-field__clear"
+                            onClick={() => setGearQuery("")}
+                            aria-label="검색어 지우기"
+                          >
+                            <X size={14} />
+                          </button>
+                        ) : null}
+                      </div>
+                      <p className="gear-rotation-search-hint">
+                        {monthLabel(viewMonth)} 기준 — 교구가 배정된 알파벳·선생님·주차를 찾습니다.
+                      </p>
+                      {gearQuery.trim() ? (
+                        gearSearchResults.length === 0 ? (
+                          <p className="gear-rotation-search-empty" role="status">
+                            「{gearQuery.trim()}」에 맞는 {monthLabel(viewMonth)} 배정이 없습니다.
+                          </p>
+                        ) : (
+                          <ul className="gear-rotation-search-results">
+                            {gearSearchResults.map((entry) => (
+                              <li key={`${entry.letter}|${entry.weekNumber}|${entry.targetType}|${entry.itemName}`}>
+                                <button
+                                  type="button"
+                                  className="gear-rotation-search-result"
+                                  onClick={() => selectTeacherFromGearResult(entry)}
+                                  disabled={entry.teacherNames.length !== 1}
+                                >
+                                  <div className="gear-rotation-search-result__title">{entry.itemName}</div>
+                                  <div className="gear-rotation-search-result__meta">
+                                    알파벳 <strong>{entry.letter}</strong>
+                                    {" · "}
+                                    {entry.teacherNames.length
+                                      ? entry.teacherNames.join(", ")
+                                      : "담당 선생님 없음"}
+                                    {" · "}
+                                    {entry.weekNumber}주차 · {entry.targetType}
+                                    {entry.dateRange ? ` · ${entry.dateRange}` : ""}
+                                  </div>
+                                  {entry.simpleActivity ? (
+                                    <div className="gear-rotation-search-result__sub">{entry.simpleActivity}</div>
+                                  ) : null}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="gear-rotation-search-body">
+                      <div className="gear-rotation-search-field">
+                        <Search size={15} aria-hidden />
+                        <input
+                          type="search"
+                          className="gear-rotation-search-field__input"
+                          placeholder="선생님 이름 검색"
+                          value={teacherQuery}
+                          onChange={(e) => {
+                            setTeacherQuery(e.target.value);
+                            setTeacherPickerOpen(true);
+                          }}
+                          onFocus={() => setTeacherPickerOpen(true)}
+                          onBlur={() => setTimeout(() => setTeacherPickerOpen(false), 150)}
+                          onKeyDown={(e) => {
+                            if (e.key !== "Enter") return;
+                            e.preventDefault();
+                            if (filteredTeachers[0]) selectSubjectTeacher(filteredTeachers[0]);
+                          }}
+                          autoComplete="off"
+                          aria-label="선생님 이름 검색"
+                        />
+                        {teacherQuery ? (
+                          <button
+                            type="button"
+                            className="gear-rotation-search-field__clear"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setTeacherQuery("");
+                              setTeacherPickerOpen(true);
+                            }}
+                            aria-label="검색어 지우기"
+                          >
+                            <X size={14} />
+                          </button>
+                        ) : null}
+                        {teacherPickerOpen && filteredTeachers.length > 0 ? (
+                          <ul className="gear-rotation-search-field__list" role="listbox">
+                            {filteredTeachers.map((t) => (
+                              <li key={t.id}>
+                                <button
+                                  type="button"
+                                  className={`gear-rotation-search-field__option${subject?.id === t.id ? " is-active" : ""}`}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => selectSubjectTeacher(t)}
+                                >
+                                  {t.name}
+                                  {t.id === me?.id ? <span>나</span> : null}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {teacherPickerOpen && teacherQuery.trim() && filteredTeachers.length === 0 ? (
+                          <div className="gear-rotation-search-field__empty" role="status">
+                            선생님을 찾을 수 없습니다
+                          </div>
+                        ) : null}
+                      </div>
 
-            {viewLetter && filteredRows.length > 0 && (
-              <>
-                <div className="gear-rotation-list">
-                  {visibleRows.map(row => (
-                    <MonthGearRow
-                      key={row.weekNumber}
-                      row={row}
-                      items={items}
-                      status={row.status}
-                      heldIds={heldIds}
-                      lessonPlans={lessonPlans}
-                      aliases={equipmentAliases}
-                      viewMonth={viewMonth}
-                      onOpenGear={openGear}
-                    />
-                  ))}
+                      <div className="gear-rotation-search-meta">
+                        <span>
+                          보는 중: <strong>{subject?.name || "—"}</strong>
+                          {teacherAssignmentSummary.letter ? (
+                            <> · {teacherAssignmentSummary.monthLabel} 알파벳 <strong>{teacherAssignmentSummary.letter}</strong></>
+                          ) : null}
+                        </span>
+                        {viewingOther ? (
+                          <button type="button" className="gear-rotation-search-reset" onClick={resetToSelf}>
+                            내 교구로
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {teacherAssignmentSummary.letter && teacherAssignmentSummary.rows.length > 0 ? (
+                        <ul className="gear-rotation-teacher-summary">
+                          {teacherAssignmentSummary.rows.map((row) => (
+                            <li key={row.weekNumber} className="gear-rotation-teacher-summary__row">
+                              <span className="gear-rotation-teacher-summary__week">
+                                {row.weekNumber}주차
+                                {row.dateRange ? ` (${row.dateRange})` : ""}
+                              </span>
+                              <span className="gear-rotation-teacher-summary__gear">{row.gearLabel}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : subject?.name ? (
+                        <p className="gear-rotation-search-empty">
+                          {teacherAssignmentSummary.monthLabel} 순환 배정이 없습니다.
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
-                {hasMore && (
-                  <button
-                    type="button"
-                    className="gear-rotation-expand"
-                    onClick={() => setExpanded(v => !v)}
-                  >
-                    {expanded ? "접기" : "더 많은 교구 보기"}
-                    <ChevronDown size={16} className={expanded ? "gear-rotation-expand__icon--up" : ""} />
-                  </button>
+              ) : null}
+
+              <SchoolYearTimeline
+                months={schoolMonths}
+                viewMonth={viewMonth}
+                todayMonth={todayMonth}
+                onSelect={setViewMonth}
+              />
+
+              <section className="gear-rotation-list-section">
+                <div className="gear-rotation-list-head">
+                  <h2 className="gear-rotation-list-title">
+                    {monthLabel(viewMonth)} 전체 교구
+                    {viewLetter ? (
+                      <span className="gear-rotation-letter-pill">알파벳 {viewLetter}</span>
+                    ) : null}
+                  </h2>
+                  <div className="gear-rotation-filters">
+                    {FILTERS.map(f => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        className={`gear-rotation-filter${filter === f.id ? " gear-rotation-filter--active" : ""}`}
+                        onClick={() => setFilter(f.id)}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {!viewLetter && (
+                  <div className="gear-rotation-empty">{monthLabel(viewMonth)} 순환 배정이 없습니다.</div>
                 )}
-              </>
-            )}
-          </section>
-        </div>
+
+                {viewLetter && filteredRows.length === 0 && (
+                  <div className="gear-rotation-empty">해당 필터에 맞는 교구가 없습니다.</div>
+                )}
+
+                {viewLetter && filteredRows.length > 0 && (
+                  <>
+                    <div className="gear-rotation-list">
+                      {visibleRows.map(row => (
+                        <MonthGearRow
+                          key={row.weekNumber}
+                          row={row}
+                          items={items}
+                          status={row.status}
+                          heldIds={heldIds}
+                          lessonPlans={lessonPlans}
+                          aliases={equipmentAliases}
+                          viewMonth={viewMonth}
+                          onOpenGear={openGear}
+                        />
+                      ))}
+                    </div>
+                    {hasMore && (
+                      <button
+                        type="button"
+                        className="gear-rotation-expand"
+                        onClick={() => setExpanded(v => !v)}
+                      >
+                        {expanded ? "접기" : "더 많은 교구 보기"}
+                        <ChevronDown size={16} className={expanded ? "gear-rotation-expand__icon--up" : ""} />
+                      </button>
+                    )}
+                  </>
+                )}
+              </section>
+            </div>
+          )}
+        </>
+      ) : (
+        <TeacherRotationRentalStatusSection
+          items={items}
+          reqs={reqs}
+          ris={ris}
+          rets={rets}
+          weeklyLists={weeklyLists}
+          monthWeeks={allMonthWeeks}
+          weekSlot={currentWeekSlot}
+          weekRangeLabel={thisWeekRange}
+        />
       )}
 
       {gearDetail ? (

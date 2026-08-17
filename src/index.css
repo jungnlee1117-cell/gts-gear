@@ -15322,6 +15322,33 @@ button.pe-res-resource-youtube-thumb:hover {
 }
 
 /* ── 이번 달 내 교구 ── */
+.gear-rotation-page-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 4px;
+  background: #f1f5f9;
+  border-radius: 12px;
+  width: fit-content;
+  max-width: 100%;
+}
+.gear-rotation-page-tab {
+  border: 0;
+  background: transparent;
+  border-radius: 9px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #64748b;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.gear-rotation-page-tab.is-active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
 .gear-rotation-page {
   display: flex;
   flex-direction: column;
@@ -15337,6 +15364,233 @@ button.pe-res-resource-youtube-thumb:hover {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
 }
+
+/* ── 이번 달 내 교구 · 검색 (관리자) ── */
+.gear-rotation-search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+.gear-rotation-search-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gear-rotation-search-tab {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+  font-family: inherit;
+}
+.gear-rotation-search-tab.is-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.gear-rotation-search-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gear-rotation-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  min-height: 40px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.gear-rotation-search-field svg {
+  flex-shrink: 0;
+  color: #64748b;
+}
+.gear-rotation-search-field__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: #0f172a;
+  outline: none;
+  padding: 8px 0;
+}
+.gear-rotation-search-field__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+}
+.gear-rotation-search-field__clear:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.gear-rotation-search-field__list,
+.gear-rotation-search-field__empty {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.1);
+  max-height: 240px;
+  overflow: auto;
+}
+.gear-rotation-search-field__empty {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #b91c1c;
+}
+.gear-rotation-search-field__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: #0f172a;
+  cursor: pointer;
+  text-align: left;
+}
+.gear-rotation-search-field__option span {
+  font-size: 11px;
+  font-weight: 700;
+  color: #2563eb;
+}
+.gear-rotation-search-field__option:hover,
+.gear-rotation-search-field__option.is-active {
+  background: #eff6ff;
+}
+.gear-rotation-search-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.45;
+}
+.gear-rotation-search-empty {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+.gear-rotation-search-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #64748b;
+}
+.gear-rotation-search-reset {
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+}
+.gear-rotation-search-results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gear-rotation-search-result {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.gear-rotation-search-result:disabled {
+  cursor: default;
+}
+.gear-rotation-search-result:not(:disabled):hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+.gear-rotation-search-result__title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.gear-rotation-search-result__meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.45;
+}
+.gear-rotation-search-result__sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #64748b;
+}
+.gear-rotation-teacher-summary {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.gear-rotation-teacher-summary__row {
+  display: grid;
+  grid-template-columns: minmax(110px, 140px) 1fr;
+  gap: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.gear-rotation-teacher-summary__row:last-child {
+  border-bottom: 0;
+}
+.gear-rotation-teacher-summary__week {
+  color: #64748b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gear-rotation-teacher-summary__gear {
+  color: #0f172a;
+  font-weight: 700;
+}
+
 .gear-rotation-teacher-search {
   position: relative;
   display: flex;
@@ -16033,6 +16287,135 @@ button.pe-res-resource-youtube-thumb:hover {
   line-height: 1.55;
   color: #374151;
   white-space: pre-wrap;
+}
+
+/* ── 선생님별 이번 주 배정·대여 현황 (관리자) ── */
+.rotation-rental-status {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+.rotation-rental-status__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.rotation-rental-status__title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #111827;
+}
+.rotation-rental-status__sub {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.45;
+}
+.rotation-rental-status__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rotation-rental-status__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+  cursor: pointer;
+  font-family: inherit;
+}
+.rotation-rental-status__filter span {
+  font-variant-numeric: tabular-nums;
+  color: #94a3b8;
+}
+.rotation-rental-status__filter.is-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.rotation-rental-status__filter.is-active span {
+  color: #1d4ed8;
+}
+.rotation-rental-status__empty {
+  margin: 0;
+  padding: 18px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: #64748b;
+}
+.rotation-rental-status__table-wrap {
+  overflow-x: auto;
+}
+.rotation-rental-status__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.rotation-rental-status__table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.rotation-rental-status__table td {
+  padding: 10px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+  vertical-align: middle;
+}
+.rotation-rental-status__name {
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+}
+.rotation-rental-status__rented-warn {
+  font-weight: 800;
+  color: #c2410c;
+}
+.rotation-rental-status__badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.rotation-rental-status__badge--ok {
+  background: #dcfce7;
+  color: #15803d;
+}
+.rotation-rental-status__badge--mismatch {
+  background: #ffedd5;
+  color: #c2410c;
+}
+.rotation-rental-status__badge--missing {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.rotation-rental-status__row--mismatch {
+  background: #fff7ed;
+}
+@media (max-width: 720px) {
+  .rotation-rental-status__table th:nth-child(2),
+  .rotation-rental-status__table td:nth-child(2) {
+    min-width: 120px;
+  }
 }
 
 /* ── PWA 푸시 알림 허용 배너 ── */
@@ -17193,8 +17576,8 @@ button.pe-res-resource-youtube-thumb:hover {
     padding: 0;
   }
   .app-modal-backdrop--center {
-    align-items: center;
-    padding: 16px;
+    align-items: flex-end;
+    padding: 0;
   }
   .app-modal-sheet {
     position: fixed;
@@ -17211,16 +17594,17 @@ button.pe-res-resource-youtube-thumb:hover {
     box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.15);
   }
   .app-modal-sheet--center {
-    top: 50%;
-    left: 50%;
-    right: auto;
-    bottom: auto;
-    transform: translate(-50%, -50%);
-    border-radius: 16px;
-    width: min(96vw, 560px);
-    max-width: 560px;
-    padding: 24px 20px 28px;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    transform: none;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+    max-height: 92vh;
+    padding: 20px 16px calc(28px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.15);
   }
 
   .hub-modal-backdrop {

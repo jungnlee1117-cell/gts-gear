@@ -101,6 +101,22 @@ import {
   findItemNameConflict,
   isDuplicateItemNameError,
 } from "./itemNames.js";
+import ItemSetDetailPage from "./ItemSetDetailPage.jsx";
+import {
+  attachComponentsToSets,
+  cartLineKey,
+  findSetById,
+  findSetComponent,
+  findSetNameConflict,
+  isDuplicateSetNameError,
+  DUPLICATE_SET_NAME_MESSAGE,
+  nextSetCode,
+  rentalItemLabel,
+  setComponentAvailQty,
+  setAvailComponentCount,
+  setHasAnyAvail,
+  validateSetComponents,
+} from "./itemSets.js";
 import { buildCurrentRentals, buildDueReturns } from "./teacherGearStatus.js";
 import { fetchItemIdeas, insertItemIdea, toggleItemIdeaLike } from "./itemIdeas.js";
 import DataExportPage from "./DataExportPage.jsx";
@@ -879,7 +895,7 @@ function toDateInputValue(value) {
   return `${y}-${m}-${d}`;
 }
 
-function buildTeacherHoldingsByItem(me, reqs, ris, items, rets) {
+function buildTeacherHoldingsByItem(me, reqs, ris, items, rets, itemSets = []) {
   const currentYmd = todayYmd();
   const activeRis = ris.filter(ri => {
     const req = reqs.find(r => r.id === ri.request_id);
@@ -895,18 +911,33 @@ function buildTeacherHoldingsByItem(me, reqs, ris, items, rets) {
     const pendingRet = returnPendingQty(ri.id, rets);
     const returnable = returnableQtyForRi(ri, rets);
     const req = reqs.find(r => r.id === ri.request_id);
+    const groupKey = ri.set_id
+      ? `set:${ri.set_id}:${ri.component_name}`
+      : ri.item_id;
 
-    if (!byItem.has(ri.item_id)) {
-      byItem.set(ri.item_id, {
+    if (!byItem.has(groupKey)) {
+      const set = findSetById(itemSets, ri.set_id);
+      const virtualItem = ri.set_id
+        ? {
+          id: groupKey,
+          name: set ? `${set.name} · ${ri.component_name}` : ri.component_name,
+          photo_url: set?.photo_url || "",
+          code: set?.code || "",
+        }
+        : items.find(i => i.id === ri.item_id);
+      byItem.set(groupKey, {
         item_id: ri.item_id,
-        item: items.find(i => i.id === ri.item_id),
+        set_id: ri.set_id || null,
+        component_name: ri.component_name || null,
+        groupKey,
+        item: virtualItem,
         totalHeld: 0,
         totalReturnable: 0,
         totalPendingReturn: 0,
         lines: [],
       });
     }
-    const group = byItem.get(ri.item_id);
+    const group = byItem.get(groupKey);
     group.totalHeld += held;
     group.totalReturnable += returnable;
     group.totalPendingReturn += pendingRet;
@@ -917,6 +948,7 @@ function buildTeacherHoldingsByItem(me, reqs, ris, items, rets) {
 }
 function tname(id,ts)        { return ts.find(t=>t.id===id)?.name || "-"; }
 function iname(id,items)     { return items.find(i=>i.id===id)?.name || "-"; }
+function rname(ri, items, itemSets) { return rentalItemLabel(ri, items, itemSets); }
 
 function nextItemCode(category, items, { excludeId } = {}) {
   const prefix = category;
@@ -1194,8 +1226,8 @@ function computeExtendedDueDate(currentDue, weeks) {
 }
 
 /** 로그인 강사가 보유 중이면서 반납 기한이 임박(D-3 이내)하거나 지난 교구 목록 */
-function getExtensionCandidates(me, reqs, ris, items, rets) {
-  const groups = buildTeacherHoldingsByItem(me, reqs, ris, items, rets);
+function getExtensionCandidates(me, reqs, ris, items, rets, itemSets = []) {
+  const groups = buildTeacherHoldingsByItem(me, reqs, ris, items, rets, itemSets);
   const out = [];
   for (const g of groups) {
     for (const line of g.lines) {
@@ -2074,12 +2106,14 @@ const PAGE_META = {
   "return-request":   { title: "반납요청",    sub: "대여 중인 교구의 반납을 신청합니다." },
   "qr-rent":          { title: "QR 대여 신청", sub: "스캔한 교구의 대여 가능 수량을 확인하고 신청합니다." },
   "item-detail":      { title: "교구 상세",    sub: "교구 정보와 대여 이력을 확인합니다." },
+  "set-detail":       { title: "세트 교구 상세", sub: "세트 구성 품목별 재고를 확인하고 대여할 품목을 선택합니다." },
 };
 
 const DETAIL_BACK_LABELS = {
   items: "교구 검색",
   "items-register": "교구 관리",
   "items-browse": "교구 둘러보기",
+  "set-detail": "교구 둘러보기",
   "my-gear-rotation": "이번 달 내 교구",
   "qr-scan": "QR 스캔",
   "qr-rent": "QR 대여",
@@ -3053,6 +3087,41 @@ async function deleteItemRelatedRecords(itemId) {
   }
 }
 
+async function deleteSetRelatedRecords(setId) {
+  const { data: riRows, error: fetchErr } = await supabase
+    .from("rental_items")
+    .select("id, request_id")
+    .eq("set_id", setId);
+  if (fetchErr) throw new Error(fetchErr.message);
+
+  const riIds = (riRows || []).map(r => r.id);
+  const requestIds = [...new Set((riRows || []).map(r => r.request_id).filter(Boolean))];
+
+  if (riIds.length) {
+    const { error: retErr } = await supabase
+      .from("return_requests")
+      .delete()
+      .in("rental_item_id", riIds);
+    if (retErr) throw new Error(retErr.message);
+  }
+
+  const { error: riErr } = await supabase.from("rental_items").delete().eq("set_id", setId);
+  if (riErr) throw new Error(riErr.message);
+
+  for (const reqId of requestIds) {
+    const { data: remaining, error: remErr } = await supabase
+      .from("rental_items")
+      .select("id")
+      .eq("request_id", reqId)
+      .limit(1);
+    if (remErr) throw new Error(remErr.message);
+    if (!remaining?.length) {
+      const { error: reqErr } = await supabase.from("rental_requests").delete().eq("id", reqId);
+      if (reqErr) throw new Error(reqErr.message);
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // 사진 업로드
 // ═══════════════════════════════════════════════════════════════════════
@@ -3473,7 +3542,7 @@ function ItemForm({item, items, onSave, onClose}) {
   const catLabel = getCategoryMeta(f.category, categoryMap).label;
 
   return (
-    <Modal title={item?"교구 편집":"교구 추가"} onClose={onClose}>
+    <Modal title={item?"교구 편집":"교구 추가"} onClose={onClose} center>
       <PhotoUploader
         itemCode={f.code || "new"}
         currentUrl={f.photo_url}
@@ -3568,6 +3637,337 @@ function ItemForm({item, items, onSave, onClose}) {
         <Btn full onClick={handleSave} disabled={saving}>{saving?"저장 중...":"저장"}</Btn>
         <Btn full color="#94a3b8" onClick={onClose}>취소</Btn>
       </div>
+    </Modal>
+  );
+}
+
+function setToFormState(set, categoryKeys = [], categoryMap = {}) {
+  const normalized = normalizeCategoryKey(set?.category);
+  const keys = categoryKeys || [];
+  const map = categoryMap || {};
+  const defaultCat = (normalized && map[normalized]) ? normalized : (keys[0] || normalized || "");
+  return {
+    code: set?.code || "",
+    name: set?.name || "",
+    alias: set?.alias || "",
+    category: defaultCat,
+    branch: set?.branch || BRANCHES[0],
+    description: set?.description || "",
+    usage_description: set?.usage_description || "",
+    safety_notes: set?.safety_notes || "",
+    youtube_url: set?.youtube_url || "",
+    status: set?.status || "available",
+    photo_url: set?.photo_url || "",
+    photo_position: set?.photo_position || DEFAULT_PHOTO_POSITION,
+    activity_photos: parseActivityPhotos(set),
+    components: (set?.components || []).map(c => ({
+      name: c.name || "",
+      total_quantity: c.total_quantity ?? 0,
+    })),
+  };
+}
+
+function ItemSetForm({ set, itemSets, onSave, onClose }) {
+  const { categoryMap, categoryKeys } = useGearCategories();
+  const isNew = !set?.id;
+  const isEdit = Boolean(set?.id);
+  const [f, setF] = useState(() => setToFormState(set, categoryKeys, categoryMap));
+  const initialRef = useRef({
+    id: set?.id,
+    category: setToFormState(set, categoryKeys, categoryMap).category,
+    code: (set?.code || "").trim(),
+  });
+  const setField = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const [saving, setSaving] = useState(false);
+  const [autoCode, setAutoCode] = useState(isNew && !set?.code);
+
+  useEffect(() => {
+    const next = setToFormState(set, categoryKeys, categoryMap);
+    setF(next);
+    setAutoCode(!set?.id && !set?.code);
+    initialRef.current = {
+      id: set?.id,
+      category: next.category,
+      code: (set?.code || "").trim(),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [set?.id, categoryKeys, categoryMap]);
+
+  const applyAutoCode = useCallback((cat) => {
+    setF(p => ({
+      ...p,
+      code: nextSetCode(cat || p.category, itemSets, { excludeId: set?.id }),
+    }));
+  }, [itemSets, set?.id]);
+
+  useEffect(() => {
+    if (!isNew || !autoCode) return;
+    applyAutoCode(f.category);
+  }, [f.category, isNew, autoCode, applyAutoCode]);
+
+  const { category: initialCategory, code: initialCode } = initialRef.current;
+  const categoryChanged = isEdit && f.category !== initialCategory;
+
+  const onCategoryChange = (cat) => {
+    const normalized = normalizeCategoryKey(cat);
+    if (isEdit) {
+      if (normalized === initialCategory) {
+        setF(p => ({ ...p, category: normalized, code: initialCode }));
+        setAutoCode(false);
+        return;
+      }
+      setF(p => ({
+        ...p,
+        category: normalized,
+        code: nextSetCode(normalized, itemSets, { excludeId: set.id }),
+      }));
+      setAutoCode(true);
+      return;
+    }
+    setField("category", normalized);
+    if (autoCode) applyAutoCode(normalized);
+  };
+
+  const updateComponent = (idx, key, value) => {
+    setF(p => {
+      const components = [...(p.components || [])];
+      components[idx] = { ...components[idx], [key]: value };
+      return { ...p, components };
+    });
+  };
+
+  const addComponent = () => {
+    setF(p => ({
+      ...p,
+      components: [...(p.components || []), { name: "", total_quantity: 1 }],
+    }));
+  };
+
+  const removeComponent = (idx) => {
+    setF(p => ({
+      ...p,
+      components: (p.components || []).filter((_, i) => i !== idx),
+    }));
+  };
+
+  const handleSave = async () => {
+    if (!f.code.trim() || !f.name.trim()) {
+      alert("세트명과 코드는 필수입니다");
+      return;
+    }
+    if (findSetNameConflict(itemSets, f.name, set?.id)) {
+      alert(DUPLICATE_SET_NAME_MESSAGE);
+      return;
+    }
+    const compCheck = validateSetComponents(f.components);
+    if (!compCheck.ok) {
+      alert(compCheck.message);
+      return;
+    }
+    setSaving(true);
+    const payload = {
+      ...f,
+      code: f.code.trim(),
+      name: f.name.trim(),
+      alias: (f.alias || "").trim(),
+      activity_photos: parseActivityPhotos({ activity_photos: f.activity_photos }),
+      components: compCheck.components,
+      ...(isNew ? { status: "available" } : {}),
+    };
+    const row = await onSave(payload, set?.id);
+    setSaving(false);
+    if (!row) return;
+    onClose();
+  };
+
+  const catLabel = getCategoryMeta(f.category, categoryMap).label;
+
+  return (
+    <Modal title={set ? "세트 교구 편집" : "세트형 교구 추가"} onClose={onClose} center>
+      <div style={{ ...panelCard, padding: "12px 16px", marginBottom: 14, background: DS.primaryLight, border: `1px solid ${DS.primary}33` }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: DS.primaryText, marginBottom: 4 }}>세트형 교구</div>
+        <div style={{ fontSize: 11, color: DS.textSecondary, lineHeight: 1.5 }}>
+          세트 이름(예: 바다낚시 세트)을 등록하고, 하위 품목(꽃게, 낚시대 등)별 수량을 설정합니다.
+        </div>
+      </div>
+
+      <PhotoUploader
+        itemCode={f.code || "new-set"}
+        currentUrl={f.photo_url}
+        position={f.photo_position}
+        onUploaded={url => setField("photo_url", url)}
+        onPositionChange={pos => setField("photo_position", pos)}
+      />
+
+      <div style={{ ...panelCard, padding: "16px 18px", marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: DS.textSecondary, marginBottom: 10 }}>카테고리 · 코드</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+          <Sel2 label="카테고리 *" value={f.category} onChange={e => onCategoryChange(e.target.value)}>
+            {categoryKeys.map(c => (
+              <option key={c} value={c}>{categoryMap[c]?.label || c} ({c})</option>
+            ))}
+          </Sel2>
+          <Inp2
+            label="세트 코드 *"
+            value={f.code}
+            onChange={e => { setAutoCode(false); setField("code", e.target.value); }}
+            placeholder={`${f.category}-001`}
+          />
+        </div>
+        <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 8 }}>
+          {catLabel} 기준 · <span style={{ fontFamily: "monospace", fontWeight: 600 }}>{f.category}-###</span>
+          {categoryChanged && (
+            <span style={{ marginLeft: 6, color: DS.primary, fontWeight: 700 }}>· 카테고리 변경으로 코드 재생성</span>
+          )}
+        </div>
+      </div>
+
+      <Inp2 label="세트 이름 *" value={f.name} onChange={e => setField("name", e.target.value)} placeholder="예: 바다낚시 세트"/>
+      <Inp2 label="영어 별칭 (검색용)" value={f.alias} onChange={e => setField("alias", e.target.value)} placeholder="예: Sea Fishing Set"/>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+        <Sel2 label="보관 지점" value={f.branch} onChange={e => setField("branch", e.target.value)}>
+          {BRANCHES.map(b => <option key={b}>{b}</option>)}
+        </Sel2>
+        {isEdit && (
+          <Sel2 label="상태" value={f.status} onChange={e => setField("status", e.target.value)}>
+            <option value="available">사용가능</option>
+            <option value="maintenance">점검중</option>
+            <option value="retired">퇴역</option>
+          </Sel2>
+        )}
+      </div>
+
+      <div style={{ ...panelCard, padding: "16px 18px", marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: DS.textPrimary }}>하위 품목 *</div>
+          <button
+            type="button"
+            onClick={addComponent}
+            style={{
+              border: `1px solid ${DS.primary}`,
+              background: DS.primaryLight,
+              color: DS.primary,
+              borderRadius: 8,
+              padding: "6px 12px",
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            + 품목 추가
+          </button>
+        </div>
+        {(f.components || []).length === 0 && (
+          <div style={{ fontSize: 12, color: DS.textMuted, textAlign: "center", padding: "12px 0" }}>
+            하위 품목을 추가하세요 (예: 꽃게, 오징어, 낚시대)
+          </div>
+        )}
+        {(f.components || []).map((comp, idx) => (
+          <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 100px auto", gap: 8, marginBottom: 8, alignItems: "end" }}>
+            <Inp2
+              label={idx === 0 ? "품목명" : ""}
+              value={comp.name}
+              onChange={e => updateComponent(idx, "name", e.target.value)}
+              placeholder="품목명"
+            />
+            <Inp2
+              label={idx === 0 ? "수량" : ""}
+              type="number"
+              min={0}
+              value={comp.total_quantity}
+              onChange={e => updateComponent(idx, "total_quantity", e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => removeComponent(idx)}
+              style={{
+                border: "none",
+                background: "#fee2e2",
+                color: "#dc2626",
+                borderRadius: 8,
+                padding: "10px 12px",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                marginBottom: idx === 0 ? 0 : 0,
+              }}
+            >
+              삭제
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <Txa2 label="설명" value={f.description} onChange={e => setField("description", e.target.value)}/>
+      <ActivityPhotosUploader
+        itemCode={f.code || "new-set"}
+        photos={f.activity_photos}
+        onChange={urls => setField("activity_photos", urls)}
+      />
+      <Txa2 label="사용법" value={f.usage_description} onChange={e => setField("usage_description", e.target.value)}/>
+      <Txa2 label="안전 주의사항" value={f.safety_notes} onChange={e => setField("safety_notes", e.target.value)}/>
+      <Inp2 label="유튜브 URL" value={f.youtube_url} onChange={e => setField("youtube_url", e.target.value)}/>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+        <Btn full onClick={handleSave} disabled={saving}>{saving ? "저장 중..." : "저장"}</Btn>
+        <Btn full color="#94a3b8" onClick={onClose}>취소</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function AddGearTypeModal({ onPickItem, onPickSet, onClose }) {
+  const [picked, setPicked] = useState("item");
+  const options = [
+    { id: "item", title: "일반 교구", desc: "단일 품목 교구를 등록합니다." },
+    { id: "set", title: "세트형 교구", desc: "세트 이름 + 하위 품목(꽃게, 낚시대 등)별 수량을 등록합니다." },
+  ];
+  return (
+    <Modal title="교구 등록 유형" onClose={onClose} center>
+      <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+        {options.map(opt => {
+          const selected = picked === opt.id;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setPicked(opt.id)}
+              style={{
+                ...panelCard,
+                marginBottom: 0,
+                padding: "16px 16px",
+                textAlign: "left",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                border: selected ? `2px solid ${DS.primary}` : "1px solid #e2e8f0",
+                background: selected ? DS.primaryLight : "#fff",
+                boxShadow: selected ? "none" : panelCard.boxShadow,
+              }}
+            >
+              <div style={{
+                fontWeight: 800,
+                fontSize: 15,
+                color: selected ? DS.primaryText : DS.textPrimary,
+                marginBottom: 4,
+              }}>
+                {opt.title}
+              </div>
+              <div style={{ fontSize: 12, color: selected ? DS.primaryText : DS.textSecondary, lineHeight: 1.5 }}>
+                {opt.desc}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <Btn
+        full
+        onClick={() => (picked === "set" ? onPickSet() : onPickItem())}
+      >
+        다음
+      </Btn>
     </Modal>
   );
 }
@@ -4277,16 +4677,18 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 목록 — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
-function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reservations,onDetail,onSaveItem,onDeleteItem,onSubmitReservation,onCancelReservation,openAddOnMount=false,setPage}) {
+function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCart,reservations,onDetail,onSetDetail,onSaveItem,onSaveSet,onDeleteItem,onDeleteSet,onSubmitReservation,onCancelReservation,openAddOnMount=false,setPage}) {
   const { categoryMap, categoryKeys } = useGearCategories();
   const [q,setQ]=useState("");const[catF,setCatF]=useState("ALL");const[brF,setBrF]=useState("ALL");
   const[avOnly,setAvOnly]=useState(false);const[sortBy,setSortBy]=useState("code");
-  const[editItem,setEditItem]=useState(null);const[addOpen,setAddOpen]=useState(false);
+  const[editItem,setEditItem]=useState(null);const[editSet,setEditSet]=useState(null);
+  const[addOpen,setAddOpen]=useState(false);const[addSetOpen,setAddSetOpen]=useState(false);
+  const[addTypeOpen,setAddTypeOpen]=useState(false);
   const[reserveItem,setReserveItem]=useState(null);
   const [activityLightbox, setActivityLightbox] = useState(null);
 
   useEffect(() => {
-    if (openAddOnMount && canManage(me)) setAddOpen(true);
+    if (openAddOnMount && canManage(me)) setAddTypeOpen(true);
   }, [openAddOnMount, me]);
   const cats = categoryKeys;
   const list=useMemo(()=>{
@@ -4331,7 +4733,7 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
             {openAddOnMount && setPage ? (
               <Btn sm ghost onClick={() => setPage("gear-categories")}>카테고리 관리</Btn>
             ) : null}
-            <Btn sm onClick={()=>setAddOpen(true)}>교구 추가</Btn>
+            <Btn sm onClick={()=>setAddTypeOpen(true)}>교구 추가</Btn>
           </div>
         ) : null}
       />
@@ -4340,7 +4742,7 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
         display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",
         gap:14,marginBottom:24,
       }}>
-        <DashStatCard label="전체 품목" value={items.length} iconMark="품목" iconBg={DS.primaryLight} iconColor={DS.primary}/>
+        <DashStatCard label="전체 품목" value={items.length + (itemSets?.length || 0)} iconMark="품목" iconBg={DS.primaryLight} iconColor={DS.primary}/>
         <DashStatCard label="검색 결과" value={list.length} iconMark="검색" iconBg="#dbeafe" iconColor="#2563eb"/>
         <DashStatCard label="대여 가능 수량" value={availCount} iconMark="가능" iconBg="#dcfce7" iconColor="#16a34a"/>
         {cart.length>0&&(
@@ -4542,6 +4944,13 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
           </div>
         );
       }}/>
+      {(addTypeOpen)&&(
+        <AddGearTypeModal
+          onClose={()=>setAddTypeOpen(false)}
+          onPickItem={()=>{ setAddTypeOpen(false); setAddOpen(true); }}
+          onPickSet={()=>{ setAddTypeOpen(false); setAddSetOpen(true); }}
+        />
+      )}
       {(addOpen||editItem)&&(
         <ItemForm
           key={editItem?.id || "new-item"}
@@ -4549,6 +4958,15 @@ function ItemsPage({items,setItems,ris,rets,reqs,teachers,me,cart,setCart,reserv
           items={items}
           onSave={onSaveItem}
           onClose={()=>{ setAddOpen(false); setEditItem(null); }}
+        />
+      )}
+      {(addSetOpen||editSet)&&(
+        <ItemSetForm
+          key={editSet?.id || "new-set"}
+          set={editSet}
+          itemSets={itemSets}
+          onSave={onSaveSet}
+          onClose={()=>{ setAddSetOpen(false); setEditSet(null); }}
         />
       )}
 
@@ -4671,7 +5089,7 @@ function LastReturnLocationCard({ item, teachers, style }) {
   );
 }
 
-function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservations, teachers, onDetail, onOpenCart, onSubmitReservation, onCancelReservation, onSaveItem }) {
+function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, reservations, teachers, onDetail, onSetDetail, onOpenCart, onSubmitReservation, onCancelReservation, onSaveItem, onSaveSet }) {
   const { categoryMap, categoryKeys } = useGearCategories();
   const [q, setQ] = useState("");
   const [catF, setCatF] = useState("ALL");
@@ -4680,17 +5098,28 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
   const [lightbox, setLightbox] = useState(null);
   const [reserveItem, setReserveItem] = useState(null);
   const [editItem, setEditItem] = useState(null);
+  const [editSet, setEditSet] = useState(null);
   const [returnLocItem, setReturnLocItem] = useState(null);
 
   const list = useMemo(() => {
-    let r = [...items];
-    if (catF !== "ALL") r = r.filter(i => categoryMatchesFilter(i.category, catF));
-    if (brF !== "ALL") r = r.filter(i => i.branch === brF);
-    if (availF === "available") r = r.filter(i => availQty(i, ris, rets) > 0);
-    else if (availF === "unavailable") r = r.filter(i => availQty(i, ris, rets) === 0);
+    let regular = [...items].map(i => ({ kind: "item", data: i }));
+    let sets = [...(itemSets || [])].map(s => ({ kind: "set", data: s }));
+    let r = [...regular, ...sets];
+    if (catF !== "ALL") r = r.filter(entry => categoryMatchesFilter(entry.data.category, catF));
+    if (brF !== "ALL") r = r.filter(entry => entry.data.branch === brF);
+    if (availF === "available") {
+      r = r.filter(entry => entry.kind === "item"
+        ? availQty(entry.data, ris, rets) > 0
+        : setHasAnyAvail(entry.data, ris, rets));
+    } else if (availF === "unavailable") {
+      r = r.filter(entry => entry.kind === "item"
+        ? availQty(entry.data, ris, rets) === 0
+        : !setHasAnyAvail(entry.data, ris, rets));
+    }
     if (q.trim()) {
       const lq = q.trim().toLowerCase();
-      r = r.filter(i => {
+      r = r.filter(entry => {
+        const i = entry.data;
         const catMeta = getCategoryMeta(i.category, categoryMap);
         return (
           i.name.toLowerCase().includes(lq) ||
@@ -4702,13 +5131,13 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
     }
     if (availF === "newest") {
       return r.sort((a, b) => {
-        const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+        const ta = a.data.created_at ? new Date(a.data.created_at).getTime() : 0;
+        const tb = b.data.created_at ? new Date(b.data.created_at).getTime() : 0;
         return tb - ta;
       });
     }
-    return r.sort((a, b) => a.name.localeCompare(b.name, "ko"));
-  }, [items, catF, brF, availF, q, ris, rets, categoryMap]);
+    return r.sort((a, b) => a.data.name.localeCompare(b.data.name, "ko"));
+  }, [items, itemSets, catF, brF, availF, q, ris, rets, categoryMap]);
 
   const inCart = id => cart.some(c => c.item_id === id);
   const pendingRes = itemId => getTeacherPendingReservation(reservations, me.id, itemId);
@@ -4758,7 +5187,7 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
   };
 
   const emptyText = (() => {
-    if (!items.length) return "등록된 교구가 없습니다";
+    if (!items.length && !(itemSets?.length)) return "등록된 교구가 없습니다";
     if (q.trim()) return `"${q.trim()}" 검색 결과가 없습니다`;
     if (catF !== "ALL" || brF !== "ALL" || (availF !== "ALL" && availF !== "newest")) {
       return "해당 조건의 교구가 없습니다";
@@ -4870,7 +5299,105 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
         </PanelSection>
       ) : (
         <div className="gts-items-browse-grid">
-          {list.map(item => {
+          {list.map(entry => {
+            if (entry.kind === "set") {
+              const set = entry.data;
+              const availCount = setAvailComponentCount(set, ris, rets);
+              const compCount = set.components?.length || 0;
+              const anyAvail = availCount > 0;
+              const hasPhoto = Boolean(set.photo_url);
+              const isNewItem = isWithinLastWeek(set.created_at);
+              return (
+                <div
+                  key={`set-${set.id}`}
+                  style={{
+                    ...panelCard,
+                    marginBottom: 0,
+                    padding: 0,
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <div style={{ position: "relative" }}>
+                    <button
+                      type="button"
+                      onClick={() => onSetDetail?.(set)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "100%",
+                        height: 200,
+                        padding: 12,
+                        border: "none",
+                        borderBottom: "1px solid #e8ecee",
+                        background: "#f8fafc",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {hasPhoto ? (
+                        <img src={set.photo_url} alt={set.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}/>
+                      ) : (
+                        <CategoryIconFallback category={set.category} size={120}/>
+                      )}
+                    </button>
+                    <span style={{
+                      position: "absolute",
+                      top: 10,
+                      left: 10,
+                      background: "#7c3aed",
+                      color: "#fff",
+                      fontSize: 10,
+                      fontWeight: 800,
+                      padding: "3px 8px",
+                      borderRadius: 6,
+                    }}>
+                      세트
+                    </span>
+                    {isNewItem && (
+                      <span style={{
+                        position: "absolute",
+                        top: 10,
+                        right: 10,
+                        background: DS.primary,
+                        color: "#fff",
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: "3px 8px",
+                        borderRadius: 6,
+                      }}>
+                        NEW
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ padding: "14px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
+                    <button type="button" onClick={() => onSetDetail?.(set)} style={{ background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", fontFamily: "inherit" }}>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: DS.textPrimary, lineHeight: 1.35 }}>{set.name}</div>
+                      {set.alias && <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 3 }}>{set.alias}</div>}
+                    </button>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                      <CatTag cat={set.category}/>
+                      {canEditItems(me) && onSaveSet ? (
+                        <button type="button" onClick={() => setEditSet({ ...set })} style={{ marginLeft: "auto", background: "#f5f3ff", border: "1px solid #7c3aed", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontSize: 11, color: "#7c3aed", fontWeight: 700, fontFamily: "inherit" }}>
+                          편집
+                        </button>
+                      ) : null}
+                    </div>
+                    <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: anyAvail ? "#16a34a" : "#dc2626" }}>
+                      {anyAvail ? `품목 ${availCount}/${compCount} 대여 가능` : "대여 불가"}
+                    </div>
+                    <div style={{ marginTop: "auto", paddingTop: 14 }}>
+                      <Btn full color={DS.primary} onClick={() => onSetDetail?.(set)}>상세 보기 · 품목 선택</Btn>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            const item = entry.data;
             const avail = availQty(item, ris, rets);
             const added = inCart(item.id);
             const myRes = pendingRes(item.id);
@@ -5153,6 +5680,16 @@ function ItemsBrowsePage({ me, items, ris, rets, reqs, cart, setCart, reservatio
           items={items}
           onSave={onSaveItem}
           onClose={() => setEditItem(null)}
+        />
+      )}
+
+      {editSet && onSaveSet && (
+        <ItemSetForm
+          key={editSet.id}
+          set={editSet}
+          itemSets={itemSets}
+          onSave={onSaveSet}
+          onClose={() => setEditSet(null)}
         />
       )}
     </PageShell>
@@ -5801,7 +6338,7 @@ function ForceReturnButton({ ri, me, onForceReturn, itemName, onClick }) {
   );
 }
 
-function RentalApprovalPage({me,reqs,ris,items,teachers,onApprove,onReject}) {
+function RentalApprovalPage({me,reqs,ris,items,itemSets,teachers,onApprove,onReject}) {
   const [rejectId,setRejectId]=useState(null);
   const [reason,setReason]=useState("");
   const pendReqs=reqs.filter(r=>r.status==="pending");
@@ -5882,7 +6419,7 @@ function RentalApprovalPage({me,reqs,ris,items,teachers,onApprove,onReject}) {
                   fontSize:13,padding:"8px 0",borderTop:"1px solid #f1f5f9",
                   display:"flex",justifyContent:"space-between",color:DS.textPrimary,
                 }}>
-                  <span style={{fontWeight:600}}>{iname(ri.item_id,items)}</span>
+                  <span style={{fontWeight:600}}>{rname(ri, items, itemSets)}</span>
                   <span style={{color:DS.textSecondary}}>×{ri.quantity}개 · 반납예정 {ri.due_date?fmt(ri.due_date):"-"}</span>
                 </div>
               ))}
@@ -5909,7 +6446,7 @@ function RentalApprovalPage({me,reqs,ris,items,teachers,onApprove,onReject}) {
               <span>상태</span>
             </div>
             {approvedRows.map(({ req, reqRIs, teacherName, rentDate, approverName, approvedAt }) => {
-              const itemSummary = reqRIs.map(ri => `${iname(ri.item_id, items)} ×${ri.quantity}`).join(", ");
+              const itemSummary = reqRIs.map(ri => `${rname(ri, items, itemSets)} ×${ri.quantity}`).join(", ");
               const statusKey = req.status === "completed" ? "completed" : req.status === "partial" ? "partial" : "approved";
               return (
                 <div key={req.id} style={{ ...approvalTableRow, minWidth: 640 }}>
@@ -7952,11 +8489,11 @@ function RentalManageHubPage({me,setPage}) {
   );
 }
 
-function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onReturnItems, onCancelRequest, onEditRequest, embedded = false }) {
+function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem, onReturnItems, onCancelRequest, onEditRequest, embedded = false }) {
   const currentYmd = useTodayYmd();
   const holdings = useMemo(
-    () => buildTeacherHoldingsByItem(me, reqs, ris, items, rets),
-    [me, reqs, ris, items, rets, currentYmd]
+    () => buildTeacherHoldingsByItem(me, reqs, ris, items, rets, itemSets),
+    [me, reqs, ris, items, itemSets, rets, currentYmd]
   );
   const [selectedItemIds, setSelectedItemIds] = useState(() => new Set());
   const pendingReqs = useMemo(
@@ -8151,7 +8688,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, rets, onReturnItem, onReturn
 }
 
 function TeacherRentalReturnPage({
-  me, reqs, ris, items, rets, teachers, onReturnItem, onReturnItems, onCancelRequest, onUpdateRequest, initialTab = "rent",
+  me, reqs, ris, items, itemSets, rets, teachers, onReturnItem, onReturnItems, onCancelRequest, onUpdateRequest, initialTab = "rent",
 }) {
   const [tab, setTab] = useState(initialTab);
   const [editReq, setEditReq] = useState(null);
@@ -8159,9 +8696,9 @@ function TeacherRentalReturnPage({
   useEffect(() => { setTab(initialTab); }, [initialTab]);
 
   const pendingReturn = useMemo(() => {
-    const holdings = buildTeacherHoldingsByItem(me, reqs, ris, items, rets);
+    const holdings = buildTeacherHoldingsByItem(me, reqs, ris, items, rets, itemSets);
     return holdings.reduce((s, h) => s + h.totalPendingReturn, 0);
-  }, [me, reqs, ris, items, rets, currentYmd]);
+  }, [me, reqs, ris, items, itemSets, rets, currentYmd]);
 
   const editReqRIs = editReq ? ris.filter(ri => ri.request_id === editReq.id) : [];
 
@@ -8217,6 +8754,7 @@ function TeacherRentalReturnPage({
           reqs={reqs}
           ris={ris}
           items={items}
+          itemSets={itemSets}
           rets={rets}
           onReturnItem={onReturnItem}
           onReturnItems={onReturnItems}
@@ -9605,7 +10143,7 @@ function ExtensionPromptModal({ candidates, maxExtensions, onConfirm, onSkip, on
   );
 }
 
-function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
+function CartModal({cart,setCart,items,itemSets,ris,rets,onSubmit,onClose}) {
   const initialDates = useMemo(() => defaultRentalDates(), []);
   const[f,setF]=useState(()=>({
     dispatch_location:"",
@@ -9622,7 +10160,8 @@ function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
 
   useEffect(() => {
     setDetails(prev => cart.map(c => {
-      const existing = prev.find(p => p.item_id === c.item_id);
+      const key = cartLineKey(c);
+      const existing = prev.find(p => cartLineKey(p) === key);
       return {
         ...c,
         quantity: existing?.quantity ?? c.quantity ?? 1,
@@ -9632,29 +10171,50 @@ function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
     }));
   }, [cart, f.dispatch_end]);
 
-  const setD=(id,k,v)=>{
+  const cartAvail = (c) => {
+    if (c.set_id && c.component_name) {
+      const set = findSetById(itemSets, c.set_id);
+      const comp = findSetComponent(set, c.component_name);
+      return set ? setComponentAvailQty(c.set_id, c.component_name, comp?.total_quantity, ris, rets) : 0;
+    }
+    const item = items.find(i => i.id === c.item_id);
+    return item ? availQty(item, ris, rets) : 0;
+  };
+
+  const cartLabel = (c) => {
+    if (c.set_id && c.component_name) {
+      const set = findSetById(itemSets, c.set_id);
+      return set ? `${set.name} · ${c.component_name}` : c.component_name;
+    }
+    return items.find(i => i.id === c.item_id)?.name || "-";
+  };
+
+  const setD=(idKey,k,v)=>{
     if (k === "due_date") {
-      setDetails(p=>p.map(c=>c.item_id===id?{...c,due_date:v,due_date_custom:true}:c));
+      setDetails(p=>p.map(c=>cartLineKey(c)===idKey?{...c,due_date:v,due_date_custom:true}:c));
       return;
     }
     if (k === "quantity") {
-      setDetails(p => p.map(c => c.item_id === id ? { ...c, quantity: v } : c));
+      setDetails(p => p.map(c => cartLineKey(c) === idKey ? { ...c, quantity: v } : c));
       return;
     }
-    setDetails(p=>p.map(c=>c.item_id===id?{...c,[k]:v}:c));
+    setDetails(p=>p.map(c=>cartLineKey(c)===idKey?{...c,[k]:v}:c));
   };
   const handleEndDateChange=(value)=>{
     setF(p=>({...p,dispatch_end:value}));
     setDetails(p=>p.map(c=>c.due_date_custom?c:{...c,due_date:value}));
   };
-  const remove=(id)=>{setCart(p=>p.filter(c=>c.item_id!==id));setDetails(p=>p.filter(c=>c.item_id!==id));};
+  const remove=(idKey)=>{setCart(p=>p.filter(c=>cartLineKey(c)!==idKey));setDetails(p=>p.filter(c=>cartLineKey(c)!==idKey));};
   const submit=()=>{
     if(!f.dispatch_location.trim())return alert("사용 장소를 입력하세요");
     if(!f.dispatch_start||!f.dispatch_end)return alert("대여 기간을 입력하세요");
     if(!details.length)return alert("교구를 담아주세요");
     const dateErr = validateCartRentalDates(f.dispatch_start, f.dispatch_end, details);
     if (dateErr) return alert(dateErr);
-    for(const c of details){const item=items.find(i=>i.id===c.item_id);const av=item?availQty(item,ris,rets):0;if(c.quantity<1||c.quantity>av)return alert(`${item?.name} 수량 오류 (가능: ${av}개)`);}
+    for(const c of details){
+      const av = cartAvail(c);
+      if(c.quantity<1||c.quantity>av)return alert(`${cartLabel(c)} 수량 오류 (가능: ${av}개)`);
+    }
     onSubmit({...f,items:details.map(({ due_date_custom, ...c }) => c)});onClose();
   };
   return(
@@ -9668,24 +10228,30 @@ function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
       <div style={{borderTop:`1px solid ${DS.inputBorder}`,paddingTop:14,marginBottom:14}}>
         <div style={{fontWeight:800,fontSize:13,color:DS.textPrimary,marginBottom:10}}>신청 교구 ({details.length}종)</div>
         {!details.length&&<Empty text="교구를 담아주세요"/>}
-        {details.map(c=>{const item=items.find(i=>i.id===c.item_id);const av=item?availQty(item,ris,rets):0;return(
-          <div key={c.item_id} style={{...card,padding:"13px",marginBottom:9}}>
+        {details.map(c=>{
+          const lineKey = cartLineKey(c);
+          const av = cartAvail(c);
+          const label = cartLabel(c);
+          const item = c.item_id ? items.find(i => i.id === c.item_id) : null;
+          const set = c.set_id ? findSetById(itemSets, c.set_id) : null;
+          return(
+          <div key={lineKey} style={{...card,padding:"13px",marginBottom:9}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
               <div style={{display:"flex",alignItems:"center",gap:9}}>
-                {item?.photo_url
+                {(item?.photo_url || set?.photo_url)
                   ? (
                     <div style={{ width: 40, height: 40, borderRadius: 10, overflow: "hidden", flexShrink: 0 }}>
-                      <GearItemImg item={item} style={{ width: 40, height: 40, borderRadius: 10 }}/>
+                      <GearItemImg item={item || set} style={{ width: 40, height: 40, borderRadius: 10 }}/>
                     </div>
                   )
-                  :<div style={{width:40,height:40,borderRadius:8,background:"#f8fafc",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:DS.textMuted,border:"1px solid #e2e8f0"}}>{item?.code?.slice(0,3)||"—"}</div>
+                  :<div style={{width:40,height:40,borderRadius:8,background:"#f8fafc",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:DS.textMuted,border:"1px solid #e2e8f0"}}>{c.set_id?"세트":item?.code?.slice(0,3)||"—"}</div>
                 }
                 <div>
-                  <span style={{fontWeight:800,fontSize:13,color:DS.textPrimary}}>{item?.name}</span>
-                  <div style={{fontSize:10,color:DS.textMuted,marginTop:1}}>{item?.code}</div>
+                  <span style={{fontWeight:800,fontSize:13,color:DS.textPrimary}}>{label}</span>
+                  {c.set_id && <div style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700, marginTop: 1 }}>세트 품목</div>}
                 </div>
               </div>
-              <button onClick={()=>remove(c.item_id)} style={{background:"#fee2e2",border:"none",color:"#dc2626",cursor:"pointer",fontSize:12,borderRadius:8,padding:"4px 10px",fontWeight:600,fontFamily:"inherit"}}>삭제</button>
+              <button onClick={()=>remove(lineKey)} style={{background:"#fee2e2",border:"none",color:"#dc2626",cursor:"pointer",fontSize:12,borderRadius:8,padding:"4px 10px",fontWeight:600,fontFamily:"inherit"}}>삭제</button>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 9px"}}>
               <div>
@@ -9694,12 +10260,12 @@ function CartModal({cart,setCart,items,ris,rets,onSubmit,onClose}) {
                   value={c.quantity}
                   min={1}
                   max={av}
-                  onChange={quantity => setD(c.item_id, "quantity", quantity)}
+                  onChange={quantity => setD(lineKey, "quantity", quantity)}
                 />
               </div>
               <div>
                 <label style={lbl}>반납 예정일</label>
-                <input type="date" value={c.due_date} onChange={e=>setD(c.item_id,"due_date",e.target.value)} style={{...inp,padding:"9px 11px",fontSize:14}}/>
+                <input type="date" value={c.due_date} onChange={e=>setD(lineKey,"due_date",e.target.value)} style={{...inp,padding:"9px 11px",fontSize:14}}/>
               </div>
             </div>
           </div>
@@ -11081,17 +11647,22 @@ function parseGearAppUrl(search, me) {
   return {
     page,
     itemId: params.get("item"),
+    setId: params.get("set"),
     from: params.get("from") || "items",
     noticeId: params.get("notice") || null,
   };
 }
 
-function buildGearAppUrl(page, { itemId, from, noticeId, me } = {}) {
+function buildGearAppUrl(page, { itemId, setId, from, noticeId, me } = {}) {
   const home = gearHomePage(me);
   const params = new URLSearchParams();
   if (page && page !== home) params.set("page", page);
   if (page === "item-detail" && itemId) {
     params.set("item", String(itemId));
+    if (from && from !== "items") params.set("from", from);
+  }
+  if (page === "set-detail" && setId) {
+    params.set("set", String(setId));
     if (from && from !== "items") params.set("from", from);
   }
   if (page === "notices" && noticeId) {
@@ -11105,12 +11676,13 @@ function buildGearAppUrl(page, { itemId, from, noticeId, me } = {}) {
 function EquipmentApp({ onBack, me, session }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { page, itemId, from, noticeId } = useMemo(
+  const { page, itemId, setId, from, noticeId } = useMemo(
     () => parseGearAppUrl(location.search, me),
     [location.search, me?.id, me?.role],
   );
 
   const [items,      setItems]      = useState([]);
+  const [itemSets,   setItemSets]   = useState([]);
   const [teachers,   setTeachers]   = useState([]);
   const [reqs,       setReqs]       = useState([]);
   const [ris,        setRIs]        = useState([]);
@@ -11123,6 +11695,7 @@ function EquipmentApp({ onBack, me, session }) {
   const [showCart,   setShowCart]   = useState(false);
   const [extPrompt,  setExtPrompt]  = useState(null);
   const [detailItem, setDetailItem] = useState(null);
+  const [detailSet, setDetailSet] = useState(null);
   const [detailBackPage, setDetailBackPage] = useState("items");
   const [scanRentItem,setScanRentItem]= useState(null);
   const [itemReturnGroup,setItemReturnGroup] = useState(null);
@@ -11170,10 +11743,17 @@ function EquipmentApp({ onBack, me, session }) {
       const item = items.find(i => String(i.id) === String(itemId));
       setDetailItem(item ?? null);
       setDetailBackPage(from);
-    } else if (page !== "item-detail") {
+      setDetailSet(null);
+    } else if (page === "set-detail" && setId && itemSets.length) {
+      const set = itemSets.find(s => String(s.id) === String(setId));
+      setDetailSet(set ?? null);
+      setDetailBackPage(from);
       setDetailItem(null);
+    } else if (page !== "item-detail" && page !== "set-detail") {
+      setDetailItem(null);
+      setDetailSet(null);
     }
-  }, [page, itemId, from, items]);
+  }, [page, itemId, setId, from, items, itemSets]);
 
   useEffect(()=>{
     const handle = () => setIsPC(window.innerWidth >= 768);
@@ -11198,8 +11778,10 @@ function EquipmentApp({ onBack, me, session }) {
         errors.push(`선생님 목록: ${e?.message || e}`);
       }
 
-      const [itemsRes, reqsRes, riRes, retRes, resRes] = await Promise.all([
+      const [itemsRes, setsRes, compsRes, reqsRes, riRes, retRes, resRes] = await Promise.all([
         supabase.from("items").select("*").order("code"),
+        supabase.from("item_sets").select("*").order("code"),
+        supabase.from("item_set_components").select("*").order("sort_order"),
         supabase.from("rental_requests").select("*").order("created_at", { ascending: false }),
         supabase.from("rental_items").select("*"),
         supabase.from("return_requests").select("*").order("created_at", { ascending: false }),
@@ -11208,17 +11790,30 @@ function EquipmentApp({ onBack, me, session }) {
 
       const labeled = [
         ["교구", itemsRes],
+        ["세트교구", setsRes],
+        ["세트품목", compsRes],
         ["대여신청", reqsRes],
         ["대여항목", riRes],
         ["반납신청", retRes],
         ["예약", resRes],
       ];
       for (const [label, res] of labeled) {
-        if (res.error) errors.push(`${label}: ${res.error.message}`);
+        if (res.error) {
+          const code = res.error.code;
+          const msg = res.error.message || "";
+          const tableMissing = code === "42P01" || code === "PGRST205" || /schema cache|does not exist/i.test(msg);
+          if (tableMissing && (label === "세트교구" || label === "세트품목")) continue;
+          errors.push(`${label}: ${msg}`);
+        }
       }
 
       setTeachers(ts);
       if (!itemsRes.error) setItems(itemsRes.data || []);
+      if (!setsRes.error && !compsRes.error) {
+        setItemSets(attachComponentsToSets(setsRes.data || [], compsRes.data || []));
+      } else if (!setsRes.error) {
+        setItemSets((setsRes.data || []).map(s => ({ ...s, components: [] })));
+      }
       if (!reqsRes.error) setReqs(reqsRes.data || []);
       if (!riRes.error) setRIs(riRes.data || []);
       if (!retRes.error) setRets(retRes.data || []);
@@ -11506,12 +12101,26 @@ function EquipmentApp({ onBack, me, session }) {
     }
     const {data:newReq,error}=await supabase.from("rental_requests").insert({teacher_id:me.id,dispatch_location,dispatch_start,dispatch_end,memo,status:"pending"}).select().single();
     if(error||!newReq){alert("신청 오류: "+error?.message);return;}
-    const {data:newRIs}=await supabase.from("rental_items").insert(ci.map(c=>({request_id:newReq.id,item_id:c.item_id,quantity:c.quantity,due_date:c.due_date||dispatch_end,status:"pending"}))).select();
+    const {data:newRIs}=await supabase.from("rental_items").insert(ci.map(c=>({
+      request_id:newReq.id,
+      item_id:c.item_id||null,
+      set_id:c.set_id||null,
+      component_name:c.component_name||null,
+      quantity:c.quantity,
+      due_date:c.due_date||dispatch_end,
+      status:"pending",
+    }))).select();
     setReqs(p=>[newReq,...p]); setRIs(p=>[...p,...(newRIs||[])]); setCart([]);
     sendPushEvent(supabase, "rental_requested", {
       teacher_id: me.id,
       teacher_name: me.name,
-      item_names: formatPushItemNames(ci.map(c => items.find(i => i.id === c.item_id)?.name)),
+      item_names: formatPushItemNames(ci.map(c => {
+        if (c.set_id && c.component_name) {
+          const set = findSetById(itemSets, c.set_id);
+          return set ? `${set.name} · ${c.component_name}` : c.component_name;
+        }
+        return items.find(i => i.id === c.item_id)?.name;
+      })),
     }).catch(() => {});
     alert("대여 신청이 완료되었습니다.\n관리자 승인 후 대여가 확정됩니다.");
   };
@@ -11549,7 +12158,7 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   const submitRent = async (payload) => {
-    const candidates = getExtensionCandidates(me, reqs, ris, items, rets);
+    const candidates = getExtensionCandidates(me, reqs, ris, items, rets, itemSets);
     if (candidates.length) {
       setExtPrompt({ payload, candidates });
       return;
@@ -11720,7 +12329,7 @@ function EquipmentApp({ onBack, me, session }) {
   const pushItemNamesForRequest = (reqId) => formatPushItemNames(
     ris
       .filter(ri => ri.request_id === reqId)
-      .map(ri => items.find(i => i.id === ri.item_id)?.name),
+      .map(ri => rname(ri, items, itemSets)),
   );
 
   /** 승인 직후: 순환 겹침이 있으면 반납기한 안내 푸시 (기능 B) */
@@ -12143,6 +12752,95 @@ function EquipmentApp({ onBack, me, session }) {
     return row;
   };
 
+  const reloadItemSets = async () => {
+    const [setsRes, compsRes] = await Promise.all([
+      supabase.from("item_sets").select("*").order("code"),
+      supabase.from("item_set_components").select("*").order("sort_order"),
+    ]);
+    if (setsRes.error) {
+      console.error("세트 교구 목록 새로고침 실패", setsRes.error);
+      return;
+    }
+    setItemSets(attachComponentsToSets(setsRes.data || [], compsRes.error ? [] : (compsRes.data || [])));
+  };
+
+  const saveItemSet = async (data, editId) => {
+    if (!canManage(me)) {
+      alert("권한이 없습니다");
+      return null;
+    }
+    if (findSetNameConflict(itemSets, data.name, editId)) {
+      alert(DUPLICATE_SET_NAME_MESSAGE);
+      return null;
+    }
+    const compCheck = validateSetComponents(data.components);
+    if (!compCheck.ok) {
+      alert(compCheck.message);
+      return null;
+    }
+
+    const { components, ...setFields } = data;
+    const trySaveSet = async (payload) => {
+      if (editId) return supabase.from("item_sets").update(payload).eq("id", editId).select().single();
+      return supabase.from("item_sets").insert(payload).select().single();
+    };
+
+    let payload = { ...setFields };
+    let { data: row, error } = await trySaveSet(payload);
+    if (error?.message?.includes("photo_position")) {
+      const { photo_position, ...rest } = payload;
+      payload = rest;
+      ({ data: row, error } = await trySaveSet(payload));
+    }
+    if (error?.message?.includes("activity_photos")) {
+      const { activity_photos, ...rest } = payload;
+      payload = rest;
+      ({ data: row, error } = await trySaveSet(payload));
+    }
+    if (error) {
+      if (isDuplicateSetNameError(error)) {
+        alert(DUPLICATE_SET_NAME_MESSAGE);
+        return null;
+      }
+      alert("세트 저장 오류: " + error.message);
+      return null;
+    }
+    if (!row?.id) return null;
+
+    const { error: delCompErr } = await supabase.from("item_set_components").delete().eq("set_id", row.id);
+    if (delCompErr) {
+      alert("하위 품목 갱신 오류: " + delCompErr.message);
+      return null;
+    }
+
+    const compRows = compCheck.components.map((c, idx) => ({
+      set_id: row.id,
+      name: c.name,
+      total_quantity: c.total_quantity,
+      sort_order: idx,
+    }));
+    const { data: savedComps, error: compErr } = await supabase
+      .from("item_set_components")
+      .insert(compRows)
+      .select();
+    if (compErr) {
+      alert("하위 품목 저장 오류: " + compErr.message);
+      return null;
+    }
+
+    const fullRow = { ...row, components: savedComps || compRows };
+    if (!editId) {
+      sendPushEvent(supabase, "gear_registered", {
+        item_id: row.id,
+        item_name: row.name,
+        actor_name: me?.name || "관리자",
+      }).catch(() => {});
+    }
+    await reloadItemSets();
+    if (editId && detailSet?.id === editId) setDetailSet(fullRow);
+    return fullRow;
+  };
+
   const deleteItem = async (item) => {
     if (!item?.id) return false;
     if (!canEditItems(me)) {
@@ -12177,6 +12875,40 @@ function EquipmentApp({ onBack, me, session }) {
     return true;
   };
 
+  const deleteItemSet = async (set) => {
+    if (!set?.id) return false;
+    if (!canEditItems(me)) {
+      alert("관리자만 세트 교구를 삭제할 수 있습니다.");
+      return false;
+    }
+    const confirmed = window.confirm(
+      "정말 삭제하시겠습니까?\n\n연결된 대여·반납 기록도 함께 삭제됩니다."
+    );
+    if (!confirmed) return false;
+
+    try {
+      await deleteSetRelatedRecords(set.id);
+    } catch (e) {
+      alert("연결 기록 삭제 오류: " + (e?.message || e));
+      return false;
+    }
+
+    const { error } = await supabase.from("item_sets").delete().eq("id", set.id);
+    if (error) {
+      alert("세트 삭제 오류: " + error.message);
+      return false;
+    }
+
+    setCart(p => p.filter(c => c.set_id !== set.id));
+    if (detailSet?.id === set.id) {
+      setDetailSet(null);
+      setPage("items");
+    }
+    await loadAll();
+    alert("세트 교구와 연결된 대여 기록이 삭제되었습니다.");
+    return true;
+  };
+
   if (dataLoading) return (
     <div style={{minHeight:"100vh",background:DS.pageBg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Noto Sans KR',sans-serif"}}>
       <Spinner text="데이터 불러오는 중..."/>
@@ -12199,8 +12931,16 @@ function EquipmentApp({ onBack, me, session }) {
 
   const openItemDetail = (item, fromPage = page) => {
     setDetailItem(item);
+    setDetailSet(null);
     setDetailBackPage(fromPage);
     setPage("item-detail", { itemId: item.id, from: fromPage });
+  };
+
+  const openSetDetail = (set, fromPage = page) => {
+    setDetailSet(set);
+    setDetailItem(null);
+    setDetailBackPage(fromPage);
+    setPage("set-detail", { setId: set.id, from: fromPage });
   };
 
   const renderPage = () => {
@@ -12253,12 +12993,13 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} reservations={reservations} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss} onApproveReservation={approveReservation} onRejectReservation={rejectReservation} setPage={setPage} onForceReturn={forceReturnRentalItem} adminTodos={adminTodos} onAddTodo={addAdminTodo} onToggleTodo={toggleAdminTodo} onDeleteTodo={deleteAdminTodo} onUpdateTodo={updateAdminTodo}/>}
         {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} onForceReturn={forceReturnRentalItem}/>}
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} initialFilter="overdue" onForceReturn={forceReturnRentalItem}/>}
-        {page==="items"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items")} onSaveItem={saveItem} onDeleteItem={deleteItem} onSubmitReservation={submitReservation} onCancelReservation={cancelReservation}/>}
-        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items-register")} onSaveItem={saveItem} onDeleteItem={deleteItem} openAddOnMount setPage={setPage}/>}
+        {page==="items"&&<ItemsPage items={items} setItems={setItems} itemSets={itemSets} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items")} onSetDetail={set=>openSetDetail(set,"items")} onSaveItem={saveItem} onSaveSet={saveItemSet} onDeleteItem={deleteItem} onDeleteSet={deleteItemSet} onSubmitReservation={submitReservation} onCancelReservation={cancelReservation}/>}
+        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} itemSets={itemSets} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items-register")} onSetDetail={set=>openSetDetail(set,"items-register")} onSaveItem={saveItem} onSaveSet={saveItemSet} onDeleteItem={deleteItem} onDeleteSet={deleteItemSet} openAddOnMount setPage={setPage}/>}
         {page==="items-browse"&&(
           <ItemsBrowsePage
             me={me}
             items={items}
+            itemSets={itemSets}
             ris={ris}
             rets={rets}
             reqs={reqs}
@@ -12267,10 +13008,12 @@ function EquipmentApp({ onBack, me, session }) {
             setCart={setCart}
             reservations={reservations}
             onDetail={item=>openItemDetail(item,"items-browse")}
+            onSetDetail={set=>openSetDetail(set,"items-browse")}
             onOpenCart={()=>setShowCart(true)}
             onSubmitReservation={submitReservation}
             onCancelReservation={cancelReservation}
             onSaveItem={saveItem}
+            onSaveSet={saveItemSet}
           />
         )}
         {page==="my-gear-rotation"&&(
@@ -12332,6 +13075,35 @@ function EquipmentApp({ onBack, me, session }) {
             onForceReturn={forceReturnRentalItem}
           />
         )}
+        {page==="set-detail"&&!detailSet&&(
+          <PageShell>
+            <div style={{ display: "flex", justifyContent: "center", padding: "80px 20px" }}>
+              <Spinner text="세트 교구 정보 불러오는 중..."/>
+            </div>
+          </PageShell>
+        )}
+        {page==="set-detail"&&detailSet&&(
+          <ItemSetDetailPage
+            set={detailSet}
+            ris={ris}
+            rets={rets}
+            cart={cart}
+            setCart={setCart}
+            onBack={() => setPage(detailBackPage || "items-browse")}
+            backLabel={DETAIL_BACK_LABELS[detailBackPage] || "교구 둘러보기"}
+            me={me}
+            PageShell={PageShell}
+            PageHeader={PageHeader}
+            PAGE_META={PAGE_META}
+            Btn={Btn}
+            panelCard={panelCard}
+            parseActivityPhotos={parseActivityPhotos}
+            ItemActivityGallery={ItemActivityGallery}
+            ImageLightbox={ImageLightbox}
+            GearQrDisplay={GearQrDisplay}
+            CategoryIconFallback={CategoryIconFallback}
+          />
+        )}
         {page==="qr-rent"&&scanRentItem&&(
           <QrRentPage
             item={scanRentItem}
@@ -12354,6 +13126,7 @@ function EquipmentApp({ onBack, me, session }) {
             reqs={reqs}
             ris={ris}
             items={items}
+            itemSets={itemSets}
             rets={rets}
             teachers={teachers}
             onReturnItem={setItemReturnGroup}
@@ -12364,7 +13137,7 @@ function EquipmentApp({ onBack, me, session }) {
           />
         )}
         {page==="rentals"&&me?.role!=="teacher"&&<RentalsPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} rets={rets} onApprove={approveReq} onReject={rejectReq}/>}
-        {page==="rental-approval"&&<RentalApprovalPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} onApprove={approveReq} onReject={rejectReq}/>}
+        {page==="rental-approval"&&<RentalApprovalPage me={me} reqs={reqs} ris={ris} items={items} itemSets={itemSets} teachers={teachers} onApprove={approveReq} onReject={rejectReq}/>}
         {page==="reservation-approval"&&<ReservationApprovalPage me={me} reservations={reservations} items={items} teachers={teachers} onApprove={approveReservation} onReject={rejectReservation}/>}
         {page==="my-reservations"&&<MyReservationsPage me={me} reservations={reservations} items={items} ris={ris} rets={rets} onCancel={cancelReservation}/>}
         {page==="returns-approval"&&<ReturnsApprovalPage me={me} rets={rets} ris={ris} items={items} teachers={teachers} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
@@ -12540,7 +13313,7 @@ function EquipmentApp({ onBack, me, session }) {
           {renderPage()}
         </div>
 
-        {showCart&&<CartModal cart={cart} setCart={setCart} items={items} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
+        {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
         {extPrompt&&(
           <ExtensionPromptModal
             candidates={extPrompt.candidates}
@@ -12868,7 +13641,7 @@ function EquipmentApp({ onBack, me, session }) {
         </div>
       </nav>
 
-      {showCart&&<CartModal cart={cart} setCart={setCart} items={items} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
+      {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
       {extPrompt&&(
         <ExtensionPromptModal
           candidates={extPrompt.candidates}
