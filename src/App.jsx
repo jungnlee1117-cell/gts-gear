@@ -27,6 +27,7 @@ import LessonScriptBuilderApp from "./LessonScriptBuilderApp.jsx";
 import LessonScriptDataAdminPage from "./LessonScriptDataAdminPage.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import MyProfilePage from "./MyProfilePage.jsx";
+import KioskApp from "./KioskApp.jsx";
 import UserMenuDropdown from "./UserMenuDropdown.jsx";
 import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
 import GitiAssistant from "./GitiAssistant.jsx";
@@ -8841,7 +8842,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
 }
 
 function TeacherRentalReturnPage({
-  me, reqs, ris, items, itemSets, rets, teachers, onReturnItem, onReturnItems, onCancelRequest, onUpdateRequest, initialTab = "rent",
+  me, reqs, ris, items, itemSets, rets, teachers, onReturnItem, onReturnItems, onCancelRequest, onUpdateRequest, initialTab = "return",
 }) {
   const [tab, setTab] = useState(initialTab);
   const [editReq, setEditReq] = useState(null);
@@ -8859,7 +8860,7 @@ function TeacherRentalReturnPage({
     <PageShell>
       <PageHeader me={me} subtitle={PAGE_META["rental-return"].sub}/>
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {[["rent", "대여 신청"], ["return", pendingReturn > 0 ? `반납 신청 (${pendingReturn})` : "반납 신청"]].map(([v, l]) => {
+        {[["return", pendingReturn > 0 ? `반납신청 (${pendingReturn})` : "반납신청"], ["rent", "대여목록"]].map(([v, l]) => {
           const activeColor = v === "return" ? RETURN_THEME.primary : DS.primary;
           const inactiveBackground = v === "return" ? RETURN_THEME.light : DS.primaryLight;
           const inactiveText = v === "return" ? RETURN_THEME.hover : DS.primary;
@@ -11096,10 +11097,12 @@ function AuthenticatedRoutes({ me, session, logout, onMeUpdated }) {
 }
 
 export default function App() {
+  const location = useLocation();
   const [session,    setSession]    = useState(null);
   const [authReady,  setAuthReady]  = useState(false);
   const [me,         setMe]         = useState(null);
   const [meLoading,  setMeLoading]  = useState(false);
+  const isKioskRoute = location.pathname === "/kiosk" || location.pathname.startsWith("/kiosk/");
 
   useEffect(() => {
     const scan = parseGearScanFromLocation();
@@ -11110,6 +11113,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (isKioskRoute) {
+      setAuthReady(true);
+      return undefined;
+    }
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setAuthReady(true);
@@ -11122,9 +11129,10 @@ export default function App() {
       }
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, [isKioskRoute]);
 
   useEffect(() => {
+    if (isKioskRoute) return undefined;
     if (!session?.user?.id) {
       setMe(null);
       return;
@@ -11156,12 +11164,14 @@ export default function App() {
       });
 
     return () => { cancelled = true; };
-  }, [session?.user?.id, me?.id]);
+  }, [session?.user?.id, me?.id, isKioskRoute]);
 
   const logout = async () => {
     if (!confirm("로그아웃 하시겠습니까?")) return;
     await supabase.auth.signOut();
   };
+
+  if (isKioskRoute) return <KioskApp />;
 
   if (!authReady) return (
     <div style={{ minHeight: "100vh", background: "#0d1f12", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -13352,7 +13362,7 @@ function EquipmentApp({ onBack, me, session }) {
             onReturnItems={setItemReturnGroups}
             onCancelRequest={cancelRentalRequest}
             onUpdateRequest={updateRentalRequest}
-            initialTab={page==="my-rental-status"||page==="return-request"?"return":"rent"}
+            initialTab={page==="rentals"?"rent":"return"}
           />
         )}
         {page==="rentals"&&me?.role!=="teacher"&&<RentalsPage me={me} reqs={reqs} ris={ris} items={items} teachers={teachers} rets={rets} onApprove={approveReq} onReject={rejectReq}/>}

@@ -16,3 +16,7 @@ verify_jwt = false
 # CORS가 실패하고 "Failed to send a request to the Edge Function" 이 난다.
 [functions.teacher-hr]
 verify_jwt = false
+
+# kiosk: 기기 PIN / 개인 PIN 은 함수 내부에서 검증. JWT 없이 진입.
+[functions.kiosk]
+verify_jwt = false

@@ -100,7 +100,8 @@ body {
 #root:has(.schedule-app),
 #root:has(.pe-resources-app),
 #root:has(.flow-tips-page),
-#root:has(.eng-program-layout) {
+#root:has(.eng-program-layout),
+#root:has(.kiosk-page) {
   width: 100%;
   max-width: none;
   border: none;

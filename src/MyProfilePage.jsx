@@ -27,6 +27,7 @@ import {
   visibleMyProfileTabs,
 } from "./teacherProfile.js";
 import MyProfileSettlementCard from "./MyProfileSettlementCard.jsx";
+import MyProfileKioskPinCard from "./MyProfileKioskPinCard.jsx";
 import MyProfileContractsTab from "./MyProfileContractsTab.jsx";
 import { MyProfileCareersSection, MyProfileCertificationsSection } from "./MyProfileEntries.jsx";
 import {
@@ -608,6 +609,16 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
                       onSaved={refreshHrBadges}
                       editing={settlementEditing}
                       onEditingChange={setSettlementEditing}
+                    />
+                  </div>
+                ) : null}
+
+                {canEdit ? (
+                  <div className="my-profile-kiosk-pin-slot">
+                    <MyProfileKioskPinCard
+                      supabase={supabase}
+                      teacherId={requestedId}
+                      canEdit={canEdit}
                     />
                   </div>
                 ) : null}
