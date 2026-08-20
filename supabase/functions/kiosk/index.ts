@@ -181,6 +181,15 @@ async function listTeachers(admin) {
     }));
 }
 
+function kstTodayYmd() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 /** 이번 주 배정 교구 — 순환 스케줄/주간 리스트 원본 (클라이언트에서 주차 계산) */
 async function loadTeacherWeekGear(admin, teacherId: string) {
   const id = String(teacherId || "").trim();
@@ -707,21 +716,42 @@ Deno.serve(async (req) => {
     }
 
     if (action === "notices") {
-      const { data, error } = await admin
-        .from("notices")
-        .select("id, title, body, importance, author_name, created_at")
-        .order("created_at", { ascending: false })
-        .limit(12);
+      const [{ data, error }, { data: birthdayTeachers, error: birthdayError }] = await Promise.all([
+        admin
+          .from("notices")
+          .select("id, title, body, importance, author_name, created_at")
+          .order("created_at", { ascending: false })
+          .limit(12),
+        admin
+          .from("teachers")
+          .select("id, name, birth_date")
+          .eq("active", true)
+          .is("resigned_at", null)
+          .not("birth_date", "is", null),
+      ]);
       if (error) throw error;
+      if (birthdayError) throw birthdayError;
+      const today = kstTodayYmd();
+      const birthdaySlides = (birthdayTeachers || [])
+        .filter((teacher) => String(teacher.birth_date || "").slice(5) === today.slice(5))
+        .map((teacher) => ({
+          id: `birthday-${teacher.id}-${today}`,
+          title: "오늘의 특별한 소식 🎂",
+          body: `오늘은 ${teacher.name} 선생님 생일이에요! 다 함께 축하해 주세요. 🎉`,
+          importance: "normal",
+          author_name: "GTS",
+          created_at: `${today}T08:00:00+09:00`,
+          kind: "birthday",
+        }));
       return jsonResponse({
-        data: (data || []).map((n) => ({
+        data: [...birthdaySlides, ...(data || []).map((n) => ({
           id: n.id,
           title: n.title,
           body: n.body || "",
           importance: n.importance || "normal",
           author_name: n.author_name || null,
           created_at: n.created_at,
-        })),
+        }))],
       });
     }
 

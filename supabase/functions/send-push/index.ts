@@ -657,12 +657,56 @@ function consultationBrandLabel(brand) {
 }
 
 const SERVICE_ROLE_EVENTS = new Set([
+  "cron_teacher_birthday_reminders",
   "cron_return_due_reminders",
   "cron_overdue_return_reminders",
   "todo_due_today",
   "todo_recurrence_spawn",
   "giti_report_ready",
 ]);
+
+/** 오늘 생일인 활동 선생님을 찾아 슈퍼관리자에게 한 번씩 알립니다. */
+async function runTeacherBirthdayReminders(adminClient, vapid) {
+  const today = kstYmd(0);
+  const monthDay = today.slice(5);
+  const superAdminIds = await getSuperAdminIds(adminClient);
+  const { data: teachers, error } = await adminClient
+    .from("teachers")
+    .select("id, name, birth_date")
+    .eq("active", true)
+    .is("resigned_at", null)
+    .not("birth_date", "is", null);
+  if (error) throw new Error(error.message);
+
+  const birthdays = (teachers || []).filter((teacher) => String(teacher.birth_date || "").slice(5) === monthDay);
+  const { data: sentRows } = birthdays.length
+    ? await adminClient
+        .from("teacher_birthday_push_log")
+        .select("teacher_id")
+        .eq("birthday_date", today)
+        .in("teacher_id", birthdays.map((teacher) => teacher.id))
+    : { data: [] };
+  const alreadySent = new Set((sentRows || []).map((row) => row.teacher_id));
+  const results = [];
+
+  for (const teacher of birthdays) {
+    if (alreadySent.has(teacher.id)) continue;
+    const result = await deliverPushNotifications(adminClient, vapid, "teacher_birthday", {
+      teacherIds: superAdminIds,
+      title: "선생님 생일 알림 🎂",
+      body: `오늘은 ${teacher.name || "선생님"}님 생일이에요! 🎂`,
+      url: `/my-profile?teacherId=${teacher.id}`,
+    });
+    await adminClient.from("teacher_birthday_push_log").upsert({
+      teacher_id: teacher.id,
+      birthday_date: today,
+      recipient_count: result.sent || 0,
+    }, { onConflict: "teacher_id,birthday_date" });
+    results.push({ teacher_id: teacher.id, teacher_name: teacher.name, sent: result.sent || 0 });
+  }
+
+  return jsonResponse({ date: today, birthday_count: birthdays.length, results });
+}
 
 /** KST 기준 이번 달 YYYY-MM */
 function kstYm(addMonths = 0) {
@@ -1517,6 +1561,9 @@ Deno.serve(async (req) => {
 
     // ── pg_cron: service role만 ──
     if (isServiceRole && SERVICE_ROLE_EVENTS.has(event)) {
+      if (event === "cron_teacher_birthday_reminders") {
+        return await runTeacherBirthdayReminders(adminClient, vapid);
+      }
       if (event === "cron_return_due_reminders") {
         return await runReturnDueReminders(adminClient, vapid);
       }

@@ -19,9 +19,9 @@ export function MaskedValue({ value, revealed = false, locked = false }) {
   );
 }
 
-export function InfoCell({ icon: Icon, label, children }) {
+export function InfoCell({ icon: Icon, label, children, className = "" }) {
   return (
-    <div className="my-profile-info-cell">
+    <div className={`my-profile-info-cell${className ? ` ${className}` : ""}`}>
       <div className="my-profile-info-meta">
         {Icon ? <Icon size={15} strokeWidth={1.75} className="my-profile-info-icon" aria-hidden="true" /> : null}
         <span className="my-profile-label">{label}</span>

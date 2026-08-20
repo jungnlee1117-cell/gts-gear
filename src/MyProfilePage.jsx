@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronDown,
+  CalendarDays,
   KeyRound,
   Mail,
   Home,
@@ -48,6 +49,7 @@ function emptyForm() {
     name: "",
     english_name: "",
     phone: "",
+    birth_date: "",
     activity_status: "활동중",
     contract_type: "",
   };
@@ -58,6 +60,7 @@ function teacherToForm(teacher) {
     name: teacher?.name || "",
     english_name: teacher?.english_name || "",
     phone: teacher?.phone || "",
+    birth_date: teacher?.birth_date || "",
     activity_status: teacherActivityStatus(teacher),
     contract_type: teacher?.contract_type || "",
   };
@@ -344,6 +347,7 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
       const patch = {
         english_name: form.english_name.trim() || null,
         phone: form.phone.trim() || null,
+        birth_date: form.birth_date || null,
         contract_type: form.contract_type || null,
       };
       if (canEditStatus) {
@@ -549,6 +553,20 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
                     </InfoCell>
                     <InfoCell icon={Mail} label="이메일">
                       <ProfileValue>{displayEmail}</ProfileValue>
+                    </InfoCell>
+                    <InfoCell icon={CalendarDays} label="생년월일" className="my-profile-info-cell--full">
+                      {editingBasic ? (
+                        <input
+                          type="date"
+                          className="my-profile-input"
+                          value={form.birth_date}
+                          onChange={(e) => setField("birth_date", e.target.value)}
+                          max={todayYmd()}
+                          aria-label="생년월일"
+                        />
+                      ) : (
+                        <ProfileValue>{form.birth_date ? formatProfileDate(form.birth_date) : "—"}</ProfileValue>
+                      )}
                     </InfoCell>
                   </ProfileGrid>
                   {editingBasic ? (

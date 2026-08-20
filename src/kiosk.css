@@ -129,6 +129,16 @@
   background: linear-gradient(135deg, #fff 0%, #fef2f2 100%);
   border-color: #fecaca;
 }
+
+.kiosk-notice-slider.is-birthday {
+  border-color: #f9a8d4;
+  background: linear-gradient(135deg, #fff1f2 0%, #fdf2f8 54%, #fffbeb 100%);
+}
+
+.kiosk-notice-slider.is-birthday .kiosk-notice-slider-badge {
+  color: #be185d;
+  background: #fce7f3;
+}
 .kiosk-notice-slider--empty {
   color: #94a3b8;
   align-items: center;

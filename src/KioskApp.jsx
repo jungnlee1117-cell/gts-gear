@@ -57,8 +57,8 @@ function KioskInstallHint() {
       <strong>홈 화면에 키오스크로 추가</strong>
       <p>
         {ios
-          ? "반드시 /kiosk 주소에서 Safari 공유 → 「홈 화면에 추가」를 눌러 주세요. 메인(/)에서 추가하면 로그인 화면으로 열립니다."
-          : "반드시 /kiosk 페이지에서 「앱 설치」 또는 「홈 화면에 추가」를 해 주세요. 메인 앱과 별도 아이콘으로 설치됩니다."}
+          ? "기존 홈화면 아이콘을 삭제한 뒤, /kiosk 에서 Safari 공유 → 「홈 화면에 추가」를 다시 해 주세요. 홈화면 이름이 「키오스크」인지 확인하세요. 「GTS」이면 메인 앱입니다."
+          : "기존 아이콘을 지우고 /kiosk 에서 「앱 설치」를 다시 해 주세요. 아이콘 이름이 「키오스크」여야 하며, 메인 「GTS」와는 별도입니다."}
       </p>
       <code>{typeof window !== "undefined" ? `${window.location.origin}/kiosk` : "/kiosk"}</code>
     </div>
@@ -217,11 +217,12 @@ function KioskNoticeSlider({ notices }) {
 
   const n = list[idx] || list[0];
   const urgent = n.importance === "important";
+  const birthday = n.kind === "birthday";
 
   return (
-    <div className={`kiosk-notice-slider${urgent ? " is-urgent" : ""}`} aria-live="polite">
+    <div className={`kiosk-notice-slider${urgent ? " is-urgent" : ""}${birthday ? " is-birthday" : ""}`} aria-live="polite">
       <div className="kiosk-notice-slider-badge">
-        {urgent ? "공고" : "공지"}
+        {birthday ? "생일" : urgent ? "공고" : "공지"}
       </div>
       <div className="kiosk-notice-slider-content">
         <div className="kiosk-notice-slider-title">{n.title}</div>
@@ -454,6 +455,16 @@ export default function KioskApp() {
     refreshCatalog(token);
     return undefined;
   }, [token, refreshCatalog]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const timer = window.setInterval(() => {
+      invokeKioskPublic("notices", {}, token)
+        .then((noticeList) => setNotices(Array.isArray(noticeList) ? noticeList : []))
+        .catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [token]);
 
   const handleUnlock = async (pin) => {
     if (unlocking) return;

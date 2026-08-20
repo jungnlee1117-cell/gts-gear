@@ -113,7 +113,8 @@ clientsClaim()
 
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL('/index.html'), {
-    denylist: [/^\/api/],
+    // /kiosk 는 kiosk.html(키오스크 manifest)로 네트워크/플랫폼 라우팅
+    denylist: [/^\/api/, /^\/kiosk(\/|$|\?)/],
   }),
 )
 
