@@ -27,6 +27,29 @@ export function findSetComponent(set, componentName) {
   return (set?.components || []).find(c => c.name === componentName) || null;
 }
 
+export function findProgramComponentItem(component, items = []) {
+  if (!component?.item_id) return null;
+  return (items || []).find(item => String(item.id) === String(component.item_id)) || null;
+}
+
+function actualItemAvailQty(item, ris, rets = []) {
+  if (!item) return 0;
+  const rented = (ris || [])
+    .filter(r => String(r.item_id) === String(item.id) && ["rented", "partial_returned"].includes(r.status))
+    .reduce((sum, r) => sum + heldQtyForRi(r, rets), 0);
+  const pending = (ris || [])
+    .filter(r => String(r.item_id) === String(item.id) && r.status === "pending")
+    .reduce((sum, r) => sum + (r.quantity || 0), 0);
+  return Math.max(0, (item.total_quantity || 0) - rented - pending);
+}
+
+/** 프로그램에 연결된 실제 교구의 통합 가용 수량. 기존 자유입력 품목은 레거시 계산을 유지합니다. */
+export function programComponentAvailQty(set, component, items, ris, rets = []) {
+  const item = findProgramComponentItem(component, items);
+  if (item) return actualItemAvailQty(item, ris, rets);
+  return setComponentAvailQty(set?.id, component?.name, component?.total_quantity, ris, rets);
+}
+
 /** 세트 하위 품목 가용 수량 */
 export function setComponentAvailQty(setId, componentName, totalQty, ris, rets = []) {
   const rented = (ris || [])
@@ -42,14 +65,14 @@ export function setComponentAvailQty(setId, componentName, totalQty, ris, rets =
   return Math.max(0, (totalQty || 0) - rented - pending);
 }
 
-export function setAvailComponentCount(set, ris, rets = []) {
+export function setAvailComponentCount(set, ris, rets = [], items = []) {
   return (set?.components || []).filter(
-    c => setComponentAvailQty(set.id, c.name, c.total_quantity, ris, rets) > 0,
+    c => programComponentAvailQty(set, c, items, ris, rets) > 0,
   ).length;
 }
 
-export function setHasAnyAvail(set, ris, rets = []) {
-  return setAvailComponentCount(set, ris, rets) > 0;
+export function setHasAnyAvail(set, ris, rets = [], items = []) {
+  return setAvailComponentCount(set, ris, rets, items) > 0;
 }
 
 export function attachComponentsToSets(sets, components) {
@@ -105,6 +128,7 @@ export const DUPLICATE_SET_NAME_MESSAGE = "중복된 세트 이름입니다.";
 
 export function validateSetComponents(components) {
   const rows = (components || []).map(c => ({
+    item_id: c.item_id || null,
     name: (c.name || "").trim(),
     total_quantity: parseInt(c.total_quantity, 10) || 0,
   })).filter(c => c.name);
@@ -114,6 +138,7 @@ export function validateSetComponents(components) {
     const key = normalizeItemName(row.name);
     if (names.has(key)) return { ok: false, message: `중복 품목명: ${row.name}` };
     names.add(key);
+    if (!row.item_id) return { ok: false, message: `${row.name}을(를) 등록된 교구에서 선택하세요.` };
     if (row.total_quantity < 0) return { ok: false, message: `${row.name} 수량은 0 이상이어야 합니다.` };
   }
   return { ok: true, components: rows };

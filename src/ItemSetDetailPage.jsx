@@ -3,7 +3,8 @@ import { useGearCategories } from "./GearCategoriesContext.jsx";
 import { getCategoryMeta } from "./gearCategoryData.js";
 import {
   cartLineKey,
-  setComponentAvailQty,
+  findProgramComponentItem,
+  programComponentAvailQty,
   setAvailComponentCount,
   setHasAnyAvail,
 } from "./itemSets.js";
@@ -66,6 +67,7 @@ function QuantityInput({ value, min, max, onChange, disabled }) {
 
 export default function ItemSetDetailPage({
   set,
+  items,
   ris,
   rets,
   cart,
@@ -97,8 +99,8 @@ export default function ItemSetDetailPage({
   const activityPhotos = useMemo(() => parseActivityPhotos?.(set) || [], [set, parseActivityPhotos]);
 
   const componentCount = set?.components?.length || 0;
-  const availCount = setAvailComponentCount(set, ris, rets);
-  const anyAvail = setHasAnyAvail(set, ris, rets);
+  const availCount = setAvailComponentCount(set, ris, rets, items);
+  const anyAvail = setHasAnyAvail(set, ris, rets, items);
 
   const cartKeysForSet = useMemo(() => {
     const keys = new Set();
@@ -129,6 +131,7 @@ export default function ItemSetDetailPage({
       let next = [...prev];
       for (const row of rows) {
         const entry = {
+          item_id: row.item_id || null,
           set_id: set.id,
           component_name: row.name,
           quantity: row.quantity,
@@ -152,36 +155,30 @@ export default function ItemSetDetailPage({
     for (const sel of selections) {
       if (!sel.selected) continue;
       const comp = set.components.find(c => c.name === sel.name);
-      const av = setComponentAvailQty(set.id, sel.name, comp?.total_quantity, ris, rets);
+      const av = programComponentAvailQty(set, comp, items, ris, rets);
       if (av <= 0) {
         alert(`${sel.name}은(는) 현재 대여 불가입니다.`);
         return;
       }
       const qty = Math.min(Math.max(1, sel.quantity || 1), av);
-      rows.push({ name: sel.name, quantity: qty });
+      rows.push({ item_id: comp?.item_id || null, name: sel.name, quantity: qty });
     }
     addComponentsToCart(rows);
   };
 
-  const handleRentFullSet = () => {
-    const rows = [];
-    for (const comp of set.components) {
-      const av = setComponentAvailQty(set.id, comp.name, comp.total_quantity, ris, rets);
-      if (av <= 0) continue;
-      rows.push({ name: comp.name, quantity: av });
-    }
-    if (!rows.length) {
+  const handleSelectAvailable = () => {
+    const availableNames = new Set((set.components || [])
+      .filter(comp => programComponentAvailQty(set, comp, items, ris, rets) > 0)
+      .map(comp => comp.name));
+    if (!availableNames.size) {
       alert("대여 가능한 품목이 없습니다.");
       return;
     }
-    if (rows.length < set.components.length) {
-      const missing = set.components
-        .filter(c => setComponentAvailQty(set.id, c.name, c.total_quantity, ris, rets) <= 0)
-        .map(c => c.name)
-        .join(", ");
-      if (!confirm(`일부 품목(${missing})은 재고가 없어 제외하고 담습니다. 계속할까요?`)) return;
-    }
-    addComponentsToCart(rows);
+    setSelections(previous => previous.map(selection => ({
+      ...selection,
+      selected: availableNames.has(selection.name),
+      quantity: availableNames.has(selection.name) ? Math.max(1, selection.quantity || 1) : selection.quantity,
+    })));
   };
 
   const ytId = (url) => {
@@ -261,7 +258,7 @@ export default function ItemSetDetailPage({
             background: "#ede9fe",
             color: "#7c3aed",
           }}>
-            세트형
+            프로그램
           </span>
           <CatTag cat={set.category} categoryMap={categoryMap} />
           <span style={{ fontFamily: "monospace", fontSize: 10, color: DS.textMuted }}>{set.code}</span>
@@ -292,8 +289,8 @@ export default function ItemSetDetailPage({
         </div>
 
         {Btn && (
-          <Btn full color={anyAvail ? DS.primary : "#cbd5e1"} disabled={!anyAvail} onClick={handleRentFullSet}>
-            {anyAvail ? "프로그램 교구 한번에 대여" : "프로그램 교구 대여 불가"}
+          <Btn full color={anyAvail ? DS.primary : "#cbd5e1"} disabled={!anyAvail} onClick={handleSelectAvailable}>
+            {anyAvail ? "대여 가능한 교구 모두 선택" : "프로그램 교구 대여 불가"}
           </Btn>
         )}
       </div>
@@ -315,14 +312,15 @@ export default function ItemSetDetailPage({
       )}
 
       <div style={{ ...card, padding: "18px 16px" }}>
-        <div style={{ fontSize: 14, fontWeight: 800, color: DS.textPrimary, marginBottom: 4 }}>하위 품목 선택</div>
+        <div style={{ fontSize: 14, fontWeight: 800, color: DS.textPrimary, marginBottom: 4 }}>가져갈 교구와 수량 선택</div>
         <div style={{ fontSize: 12, color: DS.textSecondary, marginBottom: 14 }}>
-          원하는 품목을 선택하고 수량을 지정한 뒤 장바구니에 담으세요. 품목별 재고가 개별 관리됩니다.
+          수업에 필요한 교구만 골라 수량을 지정하세요. 다른 선생님의 대여 수량을 제외한 현재 재고만 선택할 수 있습니다.
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {(set.components || []).map(comp => {
-            const av = setComponentAvailQty(set.id, comp.name, comp.total_quantity, ris, rets);
+            const linkedItem = findProgramComponentItem(comp, items);
+            const av = programComponentAvailQty(set, comp, items, ris, rets);
             const sel = selections.find(s => s.name === comp.name);
             const inCart = cartKeysForSet.has(cartLineKey({ set_id: set.id, component_name: comp.name }));
             const unavailable = av <= 0;
@@ -346,6 +344,9 @@ export default function ItemSetDetailPage({
                     onChange={() => toggleSelect(comp.name)}
                     style={{ marginTop: 4, width: 18, height: 18, accentColor: DS.primary }}
                   />
+                  {linkedItem?.photo_url && (
+                    <img src={linkedItem.photo_url} alt="" style={{ width: 54, height: 54, objectFit: "contain", borderRadius: 9, background: "#f8fafc", border: "1px solid #eef2f7" }}/>
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                       <div style={{ fontWeight: 800, fontSize: 15, color: DS.textPrimary }}>{comp.name}</div>
@@ -355,7 +356,7 @@ export default function ItemSetDetailPage({
                         color: unavailable ? "#dc2626" : "#16a34a",
                       }}>
                         {unavailable ? "대여불가" : `대여 가능 ${av}개`}
-                        <span style={{ color: DS.textMuted, fontWeight: 500 }}> / 전체 {comp.total_quantity}개</span>
+                        <span style={{ color: DS.textMuted, fontWeight: 500 }}> / 전체 {linkedItem?.total_quantity ?? comp.total_quantity}개</span>
                       </div>
                     </div>
                     {!unavailable && sel?.selected && (

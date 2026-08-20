@@ -1465,7 +1465,7 @@ function buildSidebarNav(me) {
         type: "group", id: "gear", label: "교구관리", glyph: "items",
         children: [
           { id: "items", label: "전체교구" },
-          { id: "items-register", label: "교구등록" },
+          { id: "items-register", label: "교구·프로그램 등록" },
           { id: "gear-categories", label: "카테고리 관리" },
           { id: "gear-rotation-manage", label: "순환 교구 관리" },
           { id: "items-qr", label: "QR관리" },
@@ -2138,7 +2138,7 @@ const PAGE_META = {
   "rental-status":    { title: "대여현황",     sub: "선생님별 대여·반납 현황을 한눈에 확인하세요." },
   items:              { title: "전체교구",     sub: "교구 재고를 조회하고 관리합니다." },
   "items-browse":     { title: "교구 둘러보기", sub: "카테고리별 교구 사진과 대여 가능 수량을 확인합니다." },
-  "items-register":   { title: "교구등록",     sub: "새 교구를 등록합니다." },
+  "items-register":   { title: "교구·프로그램 등록", sub: "개별 교구와 여러 교구를 묶은 수업 프로그램을 등록하고 관리합니다." },
   "items-qr":         { title: "QR관리",       sub: "교구 QR 코드를 관리합니다." },
   "qr-scan":          { title: "QR 스캔",      sub: "교구 QR 코드를 스캔하여 상세 정보를 확인하고 대여 신청합니다." },
   rentals:            { title: "대여신청",     sub: "교구 대여 신청 내역을 확인합니다." },
@@ -3715,13 +3715,14 @@ function setToFormState(set, categoryKeys = [], categoryMap = {}) {
     photo_position: set?.photo_position || DEFAULT_PHOTO_POSITION,
     activity_photos: parseActivityPhotos(set),
     components: (set?.components || []).map(c => ({
+      item_id: c.item_id || null,
       name: c.name || "",
       total_quantity: c.total_quantity ?? 0,
     })),
   };
 }
 
-function ItemSetForm({ set, itemSets, onSave, onClose }) {
+function ItemSetForm({ set, itemSets, items, onSave, onClose }) {
   const { categoryMap, categoryKeys } = useGearCategories();
   const isNew = !set?.id;
   const isEdit = Boolean(set?.id);
@@ -3734,6 +3735,7 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
   const setField = (k, v) => setF(p => ({ ...p, [k]: v }));
   const [saving, setSaving] = useState(false);
   const [autoCode, setAutoCode] = useState(isNew && !set?.code);
+  const [gearQuery, setGearQuery] = useState("");
 
   useEffect(() => {
     const next = setToFormState(set, categoryKeys, categoryMap);
@@ -3782,20 +3784,29 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
     if (autoCode) applyAutoCode(normalized);
   };
 
-  const updateComponent = (idx, key, value) => {
-    setF(p => {
-      const components = [...(p.components || [])];
-      components[idx] = { ...components[idx], [key]: value };
-      return { ...p, components };
-    });
-  };
-
-  const addComponent = () => {
+  const addComponent = (item) => {
+    if (!item) return;
     setF(p => ({
       ...p,
-      components: [...(p.components || []), { name: "", total_quantity: 1 }],
+      components: (p.components || []).some(c => String(c.item_id) === String(item.id))
+        ? p.components
+        : [...(p.components || []), {
+            item_id: item.id,
+            name: item.name,
+            total_quantity: item.total_quantity || 0,
+          }],
     }));
+    setGearQuery("");
   };
+
+  const gearResults = useMemo(() => {
+    const selected = new Set((f.components || []).map(c => String(c.item_id)).filter(Boolean));
+    const query = gearQuery.trim().toLowerCase();
+    return (items || [])
+      .filter(item => !selected.has(String(item.id)))
+      .filter(item => !query || `${item.name} ${item.alias || ""} ${item.code || ""}`.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [items, f.components, gearQuery]);
 
   const removeComponent = (idx) => {
     setF(p => ({
@@ -3897,7 +3908,7 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
           <div style={{ fontSize: 13, fontWeight: 800, color: DS.textPrimary }}>필요 교구 *</div>
           <button
             type="button"
-            onClick={addComponent}
+            onClick={() => document.getElementById("program-gear-search")?.focus()}
             style={{
               border: `1px solid ${DS.primary}`,
               background: DS.primaryLight,
@@ -3910,29 +3921,42 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
               fontFamily: "inherit",
             }}
           >
-            + 교구 추가
+            + 기존 교구 연결
           </button>
+        </div>
+        <div style={{ position: "relative", marginBottom: 12 }}>
+          <input
+            id="program-gear-search"
+            type="search"
+            value={gearQuery}
+            onChange={e => setGearQuery(e.target.value)}
+            placeholder="등록된 교구명 또는 코드 검색"
+            style={{ ...inp, width: "100%", boxSizing: "border-box" }}
+          />
+          {gearQuery.trim() && (
+            <div style={{ ...panelCard, position: "absolute", zIndex: 20, left: 0, right: 0, top: "calc(100% + 4px)", padding: 6, maxHeight: 260, overflowY: "auto", boxShadow: "0 12px 30px rgba(15,23,42,.14)" }}>
+              {gearResults.length ? gearResults.map(item => (
+                <button key={item.id} type="button" onClick={() => addComponent(item)} style={{ display: "flex", width: "100%", alignItems: "center", gap: 10, padding: "9px 10px", border: 0, borderRadius: 8, background: "#fff", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+                  {item.photo_url ? <img src={item.photo_url} alt="" style={{ width: 38, height: 38, objectFit: "contain", borderRadius: 7, background: "#f8fafc" }}/> : <CategoryIconFallback category={item.category} size={32}/>}
+                  <span style={{ flex: 1, minWidth: 0 }}><b>{item.name}</b><span style={{ display: "block", fontSize: 11, color: DS.textMuted }}>{item.code || "코드 없음"} · 전체 {item.total_quantity || 0}개</span></span>
+                  <span style={{ color: DS.primary, fontWeight: 800, fontSize: 12 }}>연결</span>
+                </button>
+              )) : <div style={{ padding: 12, color: DS.textMuted, fontSize: 12, textAlign: "center" }}>검색되는 등록 교구가 없습니다.</div>}
+            </div>
+          )}
         </div>
         {(f.components || []).length === 0 && (
           <div style={{ fontSize: 12, color: DS.textMuted, textAlign: "center", padding: "12px 0" }}>
-            프로그램에 필요한 교구를 추가하세요 (예: 꽃게, 오징어, 낚시대)
+            위 검색창에서 이미 등록된 교구를 연결하세요.
           </div>
         )}
         {(f.components || []).map((comp, idx) => (
-          <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 100px auto", gap: 8, marginBottom: 8, alignItems: "end" }}>
-            <Inp2
-              label={idx === 0 ? "교구명" : ""}
-              value={comp.name}
-              onChange={e => updateComponent(idx, "name", e.target.value)}
-              placeholder="필요 교구명"
-            />
-            <Inp2
-              label={idx === 0 ? "수량" : ""}
-              type="number"
-              min={0}
-              value={comp.total_quantity}
-              onChange={e => updateComponent(idx, "total_quantity", e.target.value)}
-            />
+          <div key={comp.item_id || idx} style={{ display: "grid", gridTemplateColumns: "minmax(180px,1fr) auto", gap: 8, marginBottom: 8, alignItems: "end" }}>
+            <div style={{ minHeight: 58, padding: "9px 10px", border: "1px solid #e2e8f0", borderRadius: 9, background: "#f8fafc", boxSizing: "border-box" }}>
+              {idx === 0 && <div style={{ fontSize: 10, color: DS.textMuted, marginBottom: 4 }}>등록 교구</div>}
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{comp.name}</div>
+              <div style={{ fontSize: 10, color: DS.textMuted, marginTop: 2 }}>{comp.item_id ? `실제 재고 ${comp.total_quantity || 0}개와 연결` : "기존 품목 · 등록 교구로 다시 연결 필요"}</div>
+            </div>
             <button
               type="button"
               onClick={() => removeComponent(idx)}
@@ -4766,6 +4790,12 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
     if (ok && editItem?.id === item.id) setEditItem(null);
   };
 
+  const handleDeleteProgram = async (program) => {
+    if (!canEditItems(me) || !onDeleteSet) return;
+    const ok = await onDeleteSet(program);
+    if (ok && editSet?.id === program.id) setEditSet(null);
+  };
+
   const scheduleByItem = useMemo(() => {
     const map = new Map();
     items.forEach(item => {
@@ -4787,6 +4817,7 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
             {openAddOnMount && setPage ? (
               <Btn sm ghost onClick={() => setPage("gear-categories")}>카테고리 관리</Btn>
             ) : null}
+            <Btn sm ghost color="#7c3aed" onClick={()=>setAddSetOpen(true)}>프로그램 등록</Btn>
             <Btn sm onClick={()=>setAddTypeOpen(true)}>교구 추가</Btn>
           </div>
         ) : null}
@@ -4998,6 +5029,46 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
           </div>
         );
       }}/>
+
+      <div style={{ marginTop: 28 }}>
+        <PanelSection
+          title={`등록된 프로그램 ${itemSets?.length || 0}개`}
+          action={canManage(me) ? ()=>setAddSetOpen(true) : null}
+          actionLabel="+ 프로그램 등록"
+        >
+          {!itemSets?.length ? (
+            <Empty text="등록된 프로그램이 없습니다. 명절·할로윈처럼 여러 교구를 함께 사용하는 수업을 등록해 보세요."/>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+              {itemSets.map(program => (
+                <div key={program.id} style={{ ...panelCard, marginBottom: 0, padding: "16px 18px", borderTop: "3px solid #7c3aed" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 900, color: DS.textPrimary }}>{program.name}</div>
+                      {program.alias ? <div style={{ marginTop: 3, fontSize: 11, color: DS.textMuted }}>{program.alias}</div> : null}
+                    </div>
+                    <span style={{ flexShrink: 0, padding: "3px 8px", borderRadius: 99, background: "#f5f3ff", color: "#7c3aed", fontSize: 10, fontWeight: 800 }}>
+                      프로그램
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "#f8fafc", color: DS.textSecondary, fontSize: 12, lineHeight: 1.65 }}>
+                    {(program.components || []).length ? (program.components || []).map(component => (
+                      <span key={component.id || component.name} style={{ display: "inline-flex", margin: "2px 5px 2px 0", padding: "3px 8px", borderRadius: 7, background: "#fff", border: "1px solid #e2e8f0", color: DS.textPrimary, fontWeight: 700 }}>
+                        {component.name} · {component.total_quantity}개
+                      </span>
+                    )) : "연결된 교구가 없습니다."}
+                  </div>
+                  <div style={{ display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
+                    <Btn sm ghost color="#7c3aed" onClick={()=>onSetDetail?.(program)}>프로그램 보기</Btn>
+                    {canEditItems(me) ? <Btn sm ghost color={DS.primary} onClick={()=>setEditSet({ ...program })}>편집</Btn> : null}
+                    {canEditItems(me) ? <Btn sm ghost color="#dc2626" onClick={()=>handleDeleteProgram(program)}>삭제</Btn> : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </PanelSection>
+      </div>
       {(addTypeOpen)&&(
         <AddGearTypeModal
           onClose={()=>setAddTypeOpen(false)}
@@ -5019,6 +5090,7 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
           key={editSet?.id || "new-set"}
           set={editSet}
           itemSets={itemSets}
+          items={items}
           onSave={onSaveSet}
           onClose={()=>{ setAddSetOpen(false); setEditSet(null); }}
         />
@@ -5149,6 +5221,7 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
   const [catF, setCatF] = useState("ALL");
   const [brF, setBrF] = useState("ALL");
   const [availF, setAvailF] = useState("ALL");
+  const [kindF, setKindF] = useState("ALL");
   const [lightbox, setLightbox] = useState(null);
   const [reserveItem, setReserveItem] = useState(null);
   const [editItem, setEditItem] = useState(null);
@@ -5159,16 +5232,17 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
     let regular = [...items].map(i => ({ kind: "item", data: i }));
     let sets = [...(itemSets || [])].map(s => ({ kind: "set", data: s }));
     let r = [...regular, ...sets];
+    if (kindF !== "ALL") r = r.filter(entry => entry.kind === kindF);
     if (catF !== "ALL") r = r.filter(entry => categoryMatchesFilter(entry.data.category, catF));
     if (brF !== "ALL") r = r.filter(entry => entry.data.branch === brF);
     if (availF === "available") {
       r = r.filter(entry => entry.kind === "item"
         ? availQty(entry.data, ris, rets) > 0
-        : setHasAnyAvail(entry.data, ris, rets));
+        : setHasAnyAvail(entry.data, ris, rets, items));
     } else if (availF === "unavailable") {
       r = r.filter(entry => entry.kind === "item"
         ? availQty(entry.data, ris, rets) === 0
-        : !setHasAnyAvail(entry.data, ris, rets));
+        : !setHasAnyAvail(entry.data, ris, rets, items));
     }
     if (q.trim()) {
       const lq = q.trim().toLowerCase();
@@ -5191,7 +5265,7 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
       });
     }
     return r.sort((a, b) => a.data.name.localeCompare(b.data.name, "ko"));
-  }, [items, itemSets, catF, brF, availF, q, ris, rets, categoryMap]);
+  }, [items, itemSets, catF, brF, availF, kindF, q, ris, rets, categoryMap]);
 
   const inCart = id => cart.some(c => c.item_id === id);
   const pendingRes = itemId => getTeacherPendingReservation(reservations, me.id, itemId);
@@ -5243,6 +5317,7 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
   const emptyText = (() => {
     if (!items.length && !(itemSets?.length)) return "등록된 교구가 없습니다";
     if (q.trim()) return `"${q.trim()}" 검색 결과가 없습니다`;
+    if (kindF === "set") return "등록된 프로그램이 없습니다";
     if (catF !== "ALL" || brF !== "ALL" || (availF !== "ALL" && availF !== "newest")) {
       return "해당 조건의 교구가 없습니다";
     }
@@ -5277,15 +5352,15 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
       <div style={{ display: "flex", gap: 4, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
         <button
           type="button"
-          onClick={() => setCatF("ALL")}
+          onClick={() => { setCatF("ALL"); setKindF("ALL"); }}
           style={{
             padding: "10px 14px",
             border: "none",
-            borderBottom: catF === "ALL" ? `2px solid ${DS.primary}` : "2px solid transparent",
+            borderBottom: catF === "ALL" && kindF === "ALL" ? `2px solid ${DS.primary}` : "2px solid transparent",
             background: "transparent",
             whiteSpace: "nowrap",
-            color: catF === "ALL" ? DS.primary : DS.textSecondary,
-            fontWeight: catF === "ALL" ? 700 : 500,
+            color: catF === "ALL" && kindF === "ALL" ? DS.primary : DS.textSecondary,
+            fontWeight: catF === "ALL" && kindF === "ALL" ? 700 : 500,
             fontSize: 12,
             cursor: "pointer",
             flexShrink: 0,
@@ -5301,15 +5376,15 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
             <button
               key={c}
               type="button"
-              onClick={() => setCatF(c)}
+              onClick={() => { setCatF(c); setKindF("item"); }}
               style={{
                 padding: "10px 14px",
                 border: "none",
-                borderBottom: catF === c ? `2px solid ${DS.primary}` : "2px solid transparent",
+                borderBottom: kindF === "item" && catF === c ? `2px solid ${DS.primary}` : "2px solid transparent",
                 background: "transparent",
                 whiteSpace: "nowrap",
-                color: catF === c ? DS.primary : DS.textSecondary,
-                fontWeight: catF === c ? 700 : 500,
+                color: kindF === "item" && catF === c ? DS.primary : DS.textSecondary,
+                fontWeight: kindF === "item" && catF === c ? 700 : 500,
                 fontSize: 12,
                 cursor: "pointer",
                 flexShrink: 0,
@@ -5321,6 +5396,26 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
             </button>
           );
         })}
+        <button
+          type="button"
+          onClick={() => { setCatF("ALL"); setKindF("set"); }}
+          style={{
+            padding: "10px 14px",
+            border: "none",
+            borderBottom: kindF === "set" ? `2px solid ${DS.primary}` : "2px solid transparent",
+            background: "transparent",
+            whiteSpace: "nowrap",
+            color: kindF === "set" ? DS.primary : DS.textSecondary,
+            fontWeight: kindF === "set" ? 700 : 500,
+            fontSize: 12,
+            cursor: "pointer",
+            flexShrink: 0,
+            marginBottom: -1,
+            fontFamily: "inherit",
+          }}
+        >
+          프로그램
+        </button>
       </div>
 
       <div style={{ marginBottom: 12 }}>
@@ -5344,7 +5439,7 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
       </div>
 
       <div style={{ fontSize: 13, color: DS.textSecondary, marginBottom: 14, fontWeight: 600 }}>
-        {list.length}개 교구
+        {list.length}개 {kindF === "set" ? "프로그램" : "교구"}
       </div>
 
       {list.length === 0 ? (
@@ -5356,7 +5451,7 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
           {list.map(entry => {
             if (entry.kind === "set") {
               const set = entry.data;
-              const availCount = setAvailComponentCount(set, ris, rets);
+              const availCount = setAvailComponentCount(set, ris, rets, items);
               const compCount = set.components?.length || 0;
               const anyAvail = availCount > 0;
               const hasPhoto = Boolean(set.photo_url);
@@ -5743,6 +5838,7 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
           key={editSet.id}
           set={editSet}
           itemSets={itemSets}
+          items={items}
           onSave={onSaveSet}
           onClose={() => setEditSet(null)}
         />
@@ -10230,6 +10326,10 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,onSubmit,onClose}) {
 
   const cartAvail = (c) => {
     if (c.set_id && c.component_name) {
+      if (c.item_id) {
+        const linkedItem = items.find(i => String(i.id) === String(c.item_id));
+        return linkedItem ? availQty(linkedItem, ris, rets) : 0;
+      }
       const set = findSetById(itemSets, c.set_id);
       const comp = findSetComponent(set, c.component_name);
       return set ? setComponentAvailQty(c.set_id, c.component_name, comp?.total_quantity, ris, rets) : 0;
@@ -12929,6 +13029,7 @@ function EquipmentApp({ onBack, me, session }) {
 
     const compRows = compCheck.components.map((c, idx) => ({
       set_id: row.id,
+      item_id: c.item_id,
       name: c.name,
       total_quantity: c.total_quantity,
       sort_order: idx,
@@ -13202,6 +13303,7 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="set-detail"&&detailSet&&(
           <ItemSetDetailPage
             set={detailSet}
+            items={items}
             ris={ris}
             rets={rets}
             cart={cart}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
+  ChevronDown,
   KeyRound,
   Mail,
   Home,
@@ -410,24 +411,28 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
             <div className="my-profile-identity-main">
               {canBrowse ? (
                 <label className="my-profile-identity-select-wrap">
-                  <span className="sr-only">선생님 선택</span>
-                  <select
-                    className="my-profile-identity-select"
-                    value={requestedId || ""}
-                    aria-label="선생님 선택"
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setSettlementEditing(false);
-                      setPasswordOpen(false);
-                      setSearchParams(id && id !== me?.id ? { teacherId: id } : {});
-                    }}
-                  >
-                    {teacherOptions.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}{t.id === me?.id ? " (나)" : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="my-profile-identity-select-label">선생님 정보 보기</span>
+                  <span className="my-profile-identity-select-control">
+                    <User size={18} aria-hidden />
+                    <select
+                      className="my-profile-identity-select"
+                      value={requestedId || ""}
+                      aria-label="확인할 선생님 선택"
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setSettlementEditing(false);
+                        setPasswordOpen(false);
+                        setSearchParams(id && id !== me?.id ? { teacherId: id } : {});
+                      }}
+                    >
+                      {teacherOptions.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}{t.id === me?.id ? " (나)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={18} aria-hidden />
+                  </span>
                 </label>
               ) : (
                 <h1 className="my-profile-identity-name">{identityName}</h1>

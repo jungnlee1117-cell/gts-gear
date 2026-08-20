@@ -8,12 +8,12 @@ const AGE_GROUPS = [
 ];
 const ALL_GROUPS = [...AGE_GROUPS, { id: "en", label: "English" }];
 const EVENT_PRESETS = [
-  { id: "holiday", name: "명절놀이", englishName: "Korean Holiday Games", ko: "전통놀이의 움직임을 재미있게 경험하며 균형감각과 신체 조절력, 우리 문화에 대한 친밀감을 기릅니다.", en: "Children enjoy Korean traditional movement games and develop balance, body control, coordination, and cultural awareness." },
-  { id: "christmas", name: "크리스마스", englishName: "Christmas Activity Day", ko: "크리스마스 이야기를 활용한 신체 놀이와 협동 미션을 통해 전신 협응력과 표현력, 배려와 협동심을 기릅니다.", en: "Children enjoy Christmas-themed movement missions that develop whole-body coordination, creative expression, kindness, and teamwork." },
-  { id: "winter", name: "겨울놀이", englishName: "Winter Play Day", ko: "연탄 나르기와 이글루 만들기, 눈놀이를 신체 활동으로 표현하며 대근육과 공간 구성력, 협동심과 계절 인지력을 기릅니다.", en: "Children explore winter through coal-carrying, igloo-building, and snow-themed movement games that develop gross motor skills, spatial planning, and teamwork." },
-  { id: "halloween", name: "할로윈", englishName: "Halloween Activity Day", ko: "할로윈 이야기 속 인물과 장면을 다양한 움직임으로 표현하고 미션을 해결하며 민첩성과 상상력, 자신감을 기릅니다.", en: "Children act out Halloween characters and complete playful movement missions that develop agility, imagination, body control, and confidence." },
-  { id: "yellow", name: "옐로우데이", englishName: "Yellow Day", ko: "노란색 교구와 색깔 미션을 활용해 찾기, 옮기기, 협동 활동을 경험하며 색 인지와 집중력, 전신 협응력을 기릅니다.", en: "Children use yellow equipment in searching, carrying, and teamwork challenges that develop color recognition, concentration, and whole-body coordination." },
-  { id: "hero", name: "히어로데이", englishName: "Hero Day", ko: "히어로가 되어 장애물을 통과하고 친구를 돕는 미션을 수행하며 민첩성과 문제 해결력, 용기와 협동심을 기릅니다.", en: "Children become heroes, complete obstacle missions, and help their teammates while developing agility, problem-solving, courage, and cooperation." },
+  { id: "holiday", name: "명절", englishName: "Korean Holiday Games", ko: "우리나라 명절에 담긴 의미와 정겨운 문화를 아이들의 눈높이에서 함께 알아봅니다. 전통놀이와 명절 이야기를 활용한 즐거운 활동을 통해 자연스럽게 우리 문화와 가까워집니다.", en: "Children discover the meaning and warm traditions of Korean holidays through age-appropriate stories. They enjoy traditional games and playful activities that help them feel closer to Korean culture." },
+  { id: "christmas", name: "크리스마스", englishName: "Christmas Activity Day", ko: "크리스마스가 전하는 나눔과 따뜻한 마음을 이야기하며 특별한 계절의 분위기를 함께 느껴봅니다. 선물 배달과 겨울 이야기를 주제로 한 활동에 참여하며 친구들과 즐거움을 나눕니다.", en: "Children share stories about kindness, giving, and the special atmosphere of Christmas. Gift-delivery missions and winter-themed play create a joyful experience with friends." },
+  { id: "winter", name: "겨울놀이", englishName: "Winter Play Day", ko: "눈과 얼음, 이글루 등 겨울에 만날 수 있는 풍경을 이야기하며 계절의 특징을 재미있게 알아봅니다. 겨울을 주제로 한 다양한 놀이와 미션을 경험하며 따뜻하고 즐거운 수업을 만들어갑니다.", en: "Children explore winter scenery such as snow, ice, and igloos through stories and imaginative play. A variety of winter-themed games and missions create a warm and joyful lesson." },
+  { id: "halloween", name: "할로윈", englishName: "Halloween Activity Day", ko: "할로윈의 재미있는 이야기와 상징을 친근하게 알아보고, 신나는 음악과 다양한 미션을 함께 경험합니다. 아이들이 무서움을 느끼지 않도록 밝고 유쾌한 분위기에서 즐거운 추억을 만듭니다.", en: "Children discover friendly Halloween stories and symbols through music and playful missions. The lesson stays bright and cheerful so every child can enjoy a happy Halloween memory." },
+  { id: "yellow", name: "옐로우데이", englishName: "Yellow Day", ko: "노란 풍선과 징검다리, 매트 등 다양한 옐로우 교구를 활용하여 밝고 신나는 활동을 함께 즐겨봅니다. 주변이 온통 노란색으로 물든 특별한 공간에서 친구들과 재미있는 미션에 참여하며 유쾌한 추억을 만듭니다.", en: "Children enter a bright yellow world filled with balloons, stepping stones, mats, and playful equipment. They enjoy cheerful missions with friends and create lively memories in a space full of sunshine-like color." },
+  { id: "hero", name: "히어로데이", englishName: "Hero Day", ko: "멋진 히어로가 되어 친구들과 흥미진진한 대결과 협동 미션을 시작합니다. 줄다리기와 선생님 구하기, 파워댄스에 참여하며 서로 힘을 모아 진정한 히어로가 되는 즐거움을 경험합니다.", en: "Children become brave heroes and begin exciting team challenges with their friends. Through tug-of-war, rescue missions, and a lively power dance, they discover the joy of helping one another and working as a team." },
 ];
 
 function planDisplayName(value) {
@@ -21,10 +21,19 @@ function planDisplayName(value) {
 }
 
 function eventDescriptionForAge(description, ageGroup) {
-  if (!description) return "";
-  if (ageGroup === "3_4") return `${description} 익숙한 동작부터 천천히 참여하며 즐거운 성공 경험을 쌓도록 돕습니다.`;
-  if (ageGroup === "7") return `${description} 스스로 방법을 생각하고 친구와 역할을 나누는 도전 과제로 활동을 확장합니다.`;
-  return `${description} 친구와 순서를 지키고 서로 응원하며 다양한 방법으로 활동을 완성합니다.`;
+  void ageGroup;
+  return description || "";
+}
+
+function eventFamilyKey(value) {
+  const name = planDisplayName(value).replace(/\s+/g, "").toLowerCase();
+  if (/명절|전통|holiday/.test(name)) return "holiday";
+  if (/크리스마스|성탄|christmas/.test(name)) return "christmas";
+  if (/겨울|눈놀이|winter/.test(name)) return "winter";
+  if (/할로윈|halloween/.test(name)) return "halloween";
+  if (/옐로우|yellow/.test(name)) return "yellow";
+  if (/히어로|hero/.test(name)) return "hero";
+  return name;
 }
 
 function makeRows() {
@@ -303,6 +312,23 @@ export default function SuperadminMonthlyPlanEditor({
     requiredGear: Array.isArray(program?.requiredGear) ? program.requiredGear : [],
   })).filter((program) => program.id && program.name), [programSuggestions]);
 
+  const visibleEventPresets = useMemo(() => {
+    const registeredFamilies = new Set(normalizedPrograms.map((program) => eventFamilyKey(program.name)));
+    return EVENT_PRESETS.filter((preset) => !registeredFamilies.has(eventFamilyKey(preset.name)));
+  }, [normalizedPrograms]);
+
+  useEffect(() => {
+    if (eventChoice === "custom" || eventChoice.startsWith("program:")) return;
+    if (visibleEventPresets.some((preset) => preset.id === eventChoice)) return;
+    const hiddenPreset = EVENT_PRESETS.find((preset) => preset.id === eventChoice);
+    const replacement = hiddenPreset
+      ? normalizedPrograms.find((program) => eventFamilyKey(program.name) === eventFamilyKey(hiddenPreset.name))
+      : null;
+    if (replacement) setEventChoice(`program:${replacement.id}`);
+    else if (visibleEventPresets[0]) setEventChoice(visibleEventPresets[0].id);
+    else if (normalizedPrograms[0]) setEventChoice(`program:${normalizedPrograms[0].id}`);
+  }, [eventChoice, normalizedPrograms, visibleEventPresets]);
+
   useEffect(() => {
     if (!me?.id || !month) return undefined;
     let cancelled = false;
@@ -476,6 +502,9 @@ export default function SuperadminMonthlyPlanEditor({
       ? normalizedPrograms.find((item) => item.id === eventChoice.slice(8))
       : null;
     const preset = EVENT_PRESETS.find((item) => item.id === eventChoice);
+    const matchedPreset = preset || (program
+      ? EVENT_PRESETS.find((item) => eventFamilyKey(item.name) === eventFamilyKey(program.name))
+      : null);
     const koreanName = planDisplayName(program?.name || preset?.name || customEventName);
     if (!koreanName) {
       setMessage("이벤트데이 이름을 입력해 주세요.");
@@ -486,12 +515,12 @@ export default function SuperadminMonthlyPlanEditor({
       return;
     }
 
-    const baseDescription = program?.description || preset?.ko || customEventDescription
-      || `${koreanName}의 주제와 교구를 활용한 신체 활동을 즐겁고 안전하게 경험합니다.`;
-    const rawEnglishName = planDisplayName(program?.englishName || preset?.englishName || customEventName);
+    const baseDescription = matchedPreset?.ko || program?.description || customEventDescription
+      || `${koreanName}에 담긴 이야기와 특별한 분위기를 아이들의 눈높이에서 함께 알아봅니다. 주제와 어울리는 다양한 놀이와 미션에 참여하며 친구들과 즐거운 추억을 만듭니다.`;
+    const rawEnglishName = planDisplayName(program?.englishName || matchedPreset?.englishName || customEventName);
     const englishName = /[가-힣]/.test(rawEnglishName) ? "Special Activity Day" : rawEnglishName;
-    const englishDescription = preset?.en || (program
-      ? `Children take part in the ${englishName} using the required equipment in a safe and cooperative way. The activity develops coordination, confidence, creativity, and teamwork.`
+    const englishDescription = matchedPreset?.en || (program
+      ? `Children discover the story and special atmosphere of the ${englishName} through playful, age-appropriate experiences. They take part in themed games and missions while creating joyful memories with friends.`
       : customEventDescription);
 
     setRowsByGroup((previous) => Object.fromEntries(ALL_GROUPS.map(({ id }) => [
@@ -680,7 +709,7 @@ export default function SuperadminMonthlyPlanEditor({
           <div className="monthly-plan-event-picker__grid">
             <label><span>적용 주차</span><select value={eventWeek} onChange={(event) => setEventWeek(event.target.value)}>{[1, 2, 3, 4, 5].map((week) => <option key={week} value={week}>{week}주차</option>)}</select></label>
             <label><span>이벤트/프로그램</span><select value={eventChoice} onChange={(event) => setEventChoice(event.target.value)}>
-              <optgroup label="이벤트데이">{EVENT_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</optgroup>
+              {visibleEventPresets.length ? <optgroup label="기본 이벤트">{visibleEventPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</optgroup> : null}
               {normalizedPrograms.length ? <optgroup label="등록된 프로그램">{normalizedPrograms.map((program) => <option key={program.id} value={`program:${program.id}`}>{program.name}</option>)}</optgroup> : null}
               <option value="custom">직접 입력</option>
             </select></label>

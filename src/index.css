@@ -443,17 +443,44 @@ body {
   line-height: 1.25;
 }
 .my-profile-identity-select-wrap {
-  display: block;
+  display: inline-grid;
+  gap: 7px;
   margin: 0;
 }
+.my-profile-identity-select-label {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+.my-profile-identity-select-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 260px;
+  padding: 10px 13px;
+  border: 1px solid #d9e2dd;
+  border-radius: 12px;
+  background: #fff;
+  color: #34855f;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.my-profile-identity-select-control:focus-within,
+.my-profile-identity-select-control:hover {
+  border-color: #75b998;
+  box-shadow: 0 0 0 3px rgba(61, 154, 109, 0.09);
+}
 .my-profile-identity-select {
+  flex: 1;
+  min-width: 0;
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
-  background-image: linear-gradient(45deg, transparent 50%, #9ca3af 50%), linear-gradient(135deg, #9ca3af 50%, transparent 50%);
-  background-position: right 8px calc(50% - 3px), right 13px calc(50% - 3px);
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
+  padding: 0;
+  background: transparent;
+  font-size: 18px;
+  outline: none;
 }
 .my-profile-identity-badges {
   display: flex;
@@ -1146,6 +1173,17 @@ select.my-profile-input {
   font-weight: 750;
   line-height: 24px;
 }
+.my-profile-settlement-read-grid .my-profile-field:nth-child(n + 3) {
+  align-items: center;
+  text-align: center;
+}
+.my-profile-settlement-read-grid .my-profile-field:nth-child(n + 3) .my-profile-value {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+  font-weight: 850;
+  letter-spacing: .015em;
+}
 .my-profile-value--revealed {
   color: #166534;
 }
@@ -1345,6 +1383,8 @@ select.my-profile-input {
   .my-profile-toolbar { justify-content: flex-start; }
   .my-profile-hr-badges { justify-content: flex-start; }
   .my-profile-teacher-pick select.my-profile-input--compact { width: min(220px, 100%); }
+  .my-profile-identity-select-wrap,
+  .my-profile-identity-select-control { width: 100%; min-width: 0; box-sizing: border-box; }
   .my-profile-entry {
     flex-direction: column;
   }

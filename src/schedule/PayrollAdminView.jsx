@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, ChevronLeft, ClipboardList, Users, Wallet } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, ChevronLeft, ClipboardList, CloudUpload, FileSpreadsheet, Users, Wallet } from "lucide-react";
 import { CONTRACT_TYPES, formatMinutes, formatWon, grossToNetPay, yearMonthKey, yearMonthLastDay } from "./constants.js";
 import {
   fetchPayrollEntries,
@@ -43,6 +43,12 @@ import {
   resolveSettlementContractType,
 } from "./thresholdSplitSettlement.js";
 import { filterTempTeacherRowsForScope } from "./temporaryTeachers.js";
+import {
+  downloadPayrollTaxReport,
+  payrollTaxSnapshotRows,
+  savePayrollTaxSnapshot,
+  uploadPayrollTaxReportToDrive,
+} from "./payrollTaxReport.js";
 
 const MANAGER_FILTER_OPTIONS = [
   { id: "all", label: "전체" },
@@ -314,6 +320,8 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     pendingExpense: 0,
     pendingAllowance: 0,
   });
+  const [taxReportBusy, setTaxReportBusy] = useState("");
+  const lastTaxSnapshotSignature = useRef("");
 
   const handleRequestStatsChange = useCallback((stats) => {
     setRequestStats(stats || {
@@ -343,6 +351,48 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   }, [yearMonth]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!superAdmin || !data?.teacherRows?.length) return;
+    const rows = payrollTaxSnapshotRows(data);
+    const signature = `${yearMonth}:${rows.map((row) => `${row.teacher_id}:${row.gross_amount}`).join("|")}`;
+    if (signature === lastTaxSnapshotSignature.current) return;
+    lastTaxSnapshotSignature.current = signature;
+    savePayrollTaxSnapshot(yearMonth, data).catch((error) => {
+      lastTaxSnapshotSignature.current = "";
+      console.warn("[payroll-tax-report] snapshot sync failed", error?.message || error);
+    });
+  }, [data, superAdmin, yearMonth]);
+
+  const handleTaxReportDownload = useCallback(async () => {
+    if (!data || taxReportBusy) return;
+    setTaxReportBusy("download");
+    try {
+      const result = await downloadPayrollTaxReport(yearMonth, data);
+      if (result.missing_resident_ids?.length) {
+        alert(`엑셀은 생성했지만 주민등록번호 미등록 선생님이 있습니다.\n${result.missing_resident_ids.join(", ")}`);
+      }
+    } catch (error) {
+      alert(error?.message || "세무 엑셀을 생성하지 못했습니다.");
+    } finally {
+      setTaxReportBusy("");
+    }
+  }, [data, taxReportBusy, yearMonth]);
+
+  const handleTaxReportDriveUpload = useCallback(async () => {
+    if (!data || taxReportBusy) return;
+    if (!confirm(`${yearMonth} 사업소득 엑셀을 GTS Google Drive 폴더에 저장하시겠습니까?`)) return;
+    setTaxReportBusy("drive");
+    try {
+      const result = await uploadPayrollTaxReportToDrive(yearMonth, data);
+      alert(`${result.filename} 파일을 Google Drive에 저장했습니다.`);
+      if (result.web_view_link) window.open(result.web_view_link, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      alert(error?.message || "세무 엑셀을 Google Drive에 저장하지 못했습니다.");
+    } finally {
+      setTaxReportBusy("");
+    }
+  }, [data, taxReportBusy, yearMonth]);
 
   useEffect(() => {
     setRequestStats({
@@ -488,6 +538,28 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
         </button>
         <h2 className="sch-view-title">급여/정산 · 대시보드</h2>
         <div className="sch-header-actions">
+          {superAdmin ? (
+            <>
+              <button
+                type="button"
+                className="sch-btn sch-btn--ghost"
+                disabled={Boolean(taxReportBusy) || !data}
+                onClick={handleTaxReportDownload}
+              >
+                <FileSpreadsheet size={16}/>
+                {taxReportBusy === "download" ? "생성 중..." : "세무 엑셀"}
+              </button>
+              <button
+                type="button"
+                className="sch-btn sch-btn--ghost"
+                disabled={Boolean(taxReportBusy) || !data}
+                onClick={handleTaxReportDriveUpload}
+              >
+                <CloudUpload size={16}/>
+                {taxReportBusy === "drive" ? "저장 중..." : "구글 드라이브 저장"}
+              </button>
+            </>
+          ) : null}
           <button type="button" className="sch-btn sch-btn--ghost" onClick={onOpenTemporaryTeachers}>
             임시 선생님
           </button>
