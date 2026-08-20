@@ -1057,3 +1057,34 @@ html.kiosk-root #root {
   height: 100%;
   overflow: hidden;
 }
+
+.kiosk-install-hint {
+  max-width: 420px;
+  margin: 24px 16px 0;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  text-align: left;
+}
+.kiosk-install-hint strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+.kiosk-install-hint p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.45;
+}
+.kiosk-install-hint code {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #15803d;
+  word-break: break-all;
+}

@@ -40,6 +40,31 @@ function isDisplayStandalone() {
   }
 }
 
+function isIosDevice() {
+  try {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  } catch {
+    return false;
+  }
+}
+
+function KioskInstallHint() {
+  if (isDisplayStandalone()) return null;
+  const ios = isIosDevice();
+  return (
+    <div className="kiosk-install-hint">
+      <strong>홈 화면에 키오스크로 추가</strong>
+      <p>
+        {ios
+          ? "반드시 /kiosk 주소에서 Safari 공유 → 「홈 화면에 추가」를 눌러 주세요. 메인(/)에서 추가하면 로그인 화면으로 열립니다."
+          : "반드시 /kiosk 페이지에서 「앱 설치」 또는 「홈 화면에 추가」를 해 주세요. 메인 앱과 별도 아이콘으로 설치됩니다."}
+      </p>
+      <code>{typeof window !== "undefined" ? `${window.location.origin}/kiosk` : "/kiosk"}</code>
+    </div>
+  );
+}
+
 function loadToken() {
   try {
     return sessionStorage.getItem(TOKEN_KEY) || "";
@@ -808,6 +833,7 @@ export default function KioskApp() {
             subtitle="키오스크 사용을 위해 4자리 공용 PIN을 입력하세요"
           />
           {unlockError ? <p className="kiosk-error">{unlockError}</p> : null}
+          <KioskInstallHint />
         </main>
       </div>
     );

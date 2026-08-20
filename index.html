@@ -12,6 +12,45 @@
     <meta name="apple-mobile-web-app-title" content="GTS 시스템" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>GTS 시스템</title>
+    <script>
+      /* /kiosk 진입 시 Vite 기본 manifest보다 먼저·나중 주입까지 키오스크 PWA 유지 */
+      (function () {
+        var path = location.pathname || "";
+        var isKiosk = path === "/kiosk" || path.indexOf("/kiosk/") === 0;
+        if (!isKiosk) return;
+        var KIOSK_MF = "/kiosk.webmanifest";
+        function applyKioskPwa() {
+          var links = document.querySelectorAll('link[rel="manifest"]');
+          if (links.length) {
+            for (var i = 0; i < links.length; i++) {
+              if (links[i].getAttribute("href") !== KIOSK_MF) {
+                links[i].setAttribute("href", KIOSK_MF);
+              }
+            }
+          } else {
+            var link = document.createElement("link");
+            link.rel = "manifest";
+            link.href = KIOSK_MF;
+            document.head.appendChild(link);
+          }
+          document.title = "GTS 키오스크";
+          var appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+          if (appleTitle) appleTitle.setAttribute("content", "GTS 키오스크");
+          var theme = document.querySelector('meta[name="theme-color"]');
+          if (theme) theme.setAttribute("content", "#15803d");
+          document.documentElement.classList.add("kiosk-root");
+        }
+        applyKioskPwa();
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", applyKioskPwa);
+        }
+        try {
+          var obs = new MutationObserver(applyKioskPwa);
+          obs.observe(document.documentElement, { childList: true, subtree: true });
+          setTimeout(function () { obs.disconnect(); }, 15000);
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
