@@ -137,13 +137,18 @@ function requireDeviceAccess(body: Record<string, unknown>, headers: Headers, de
 async function loadCatalog(admin) {
   const [{ data: categories }, { data: items, error: iErr }, { data: ris }, { data: rets }] = await Promise.all([
     admin.from("gear_categories").select("id, label, color, icon, sort_order").order("sort_order"),
-    admin.from("items").select("id, code, name, category, branch, total_quantity, photo_url, active").order("code"),
+    // items 테이블에는 active 컬럼이 없음 — status (available | maintenance | retired)
+    admin
+      .from("items")
+      .select("id, code, name, category, branch, total_quantity, photo_url, status")
+      .eq("status", "available")
+      .order("code"),
     admin.from("rental_items").select("id, item_id, quantity, status"),
     admin.from("return_requests").select("rental_item_id, quantity, status"),
   ]);
   if (iErr) throw iErr;
-  const activeItems = (items || []).filter((it) => it.active !== false);
-  const list = activeItems.map((it) => ({
+  const availableItems = (items || []).filter((it) => it.status === "available");
+  const list = availableItems.map((it) => ({
     id: it.id,
     code: it.code,
     name: it.name,
@@ -151,6 +156,7 @@ async function loadCatalog(admin) {
     branch: it.branch,
     photo_url: it.photo_url || null,
     total_quantity: it.total_quantity,
+    status: it.status,
     available: availQty(it, ris || [], rets || []),
   }));
   return {
@@ -173,6 +179,64 @@ async function listTeachers(admin) {
       name: t.name,
       has_kiosk_pin: Boolean(t.has_kiosk_pin),
     }));
+}
+
+/** 이번 주 배정 교구 — 순환 스케줄/주간 리스트 원본 (클라이언트에서 주차 계산) */
+async function loadTeacherWeekGear(admin, teacherId: string) {
+  const id = String(teacherId || "").trim();
+  if (!id) {
+    const err = new Error("선생님을 선택해 주세요.");
+    err.code = "VALIDATION_ERROR";
+    err.field = "teacher_id";
+    throw err;
+  }
+
+  const { data: teacher, error: tErr } = await admin
+    .from("teachers")
+    .select("id, name, active, resigned_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (tErr) throw tErr;
+  if (!teacher || teacher.active === false || teacher.resigned_at) {
+    const err = new Error("선생님을 찾을 수 없습니다.");
+    err.code = "TEACHER_INACTIVE";
+    throw err;
+  }
+
+  const [schedRes, weeklyRes, weeksRes, itemsRes] = await Promise.all([
+    admin
+      .from("item_rotation_schedule")
+      .select("year_month, assigned_letter, teacher_id")
+      .eq("teacher_id", id),
+    admin.from("item_weekly_lists").select("*").order("week_number"),
+    admin.from("item_rotation_month_weeks").select("*").order("week_number"),
+    admin
+      .from("items")
+      .select("id, code, name, alias, category, photo_url, status, total_quantity")
+      .order("code"),
+  ]);
+
+  if (schedRes.error && schedRes.error.code !== "42P01") throw schedRes.error;
+  if (weeklyRes.error && weeklyRes.error.code !== "42P01") throw weeklyRes.error;
+  if (weeksRes.error && weeksRes.error.code !== "42P01") throw weeksRes.error;
+  if (itemsRes.error) throw itemsRes.error;
+
+  return {
+    teacher: { id: teacher.id, name: teacher.name },
+    schedules: schedRes.data || [],
+    weeklyLists: weeklyRes.data || [],
+    monthWeeks: weeksRes.data || [],
+    items: (itemsRes.data || []).map((it) => ({
+      id: it.id,
+      code: it.code,
+      name: it.name,
+      alias: it.alias || null,
+      category: it.category,
+      photo_url: it.photo_url || null,
+      status: it.status,
+      total_quantity: it.total_quantity,
+    })),
+  };
 }
 
 async function getPinRow(admin, teacherId: string) {
@@ -230,29 +294,65 @@ async function rentItem(admin, {
   location: string;
   teacherName: string;
 }) {
-  const qty = Math.floor(Number(quantity));
-  if (!Number.isFinite(qty) || qty < 1) {
-    const err = new Error("수량을 확인해 주세요.");
+  return rentItemsBatch(admin, {
+    teacherId,
+    location,
+    teacherName,
+    lines: [{ itemId, quantity }],
+  });
+}
+
+/** 여러 교구를 한 번의 대여 신청으로 처리 */
+async function rentItemsBatch(admin, {
+  teacherId,
+  lines,
+  location,
+  teacherName,
+}: {
+  teacherId: string;
+  lines: Array<{ itemId: string; quantity: number }>;
+  location: string;
+  teacherName: string;
+}) {
+  const loc = BRANCHES.includes(location) ? location : DEFAULT_LOCATION;
+  const normalized = (lines || [])
+    .map((l) => ({
+      itemId: String(l.itemId || "").trim(),
+      quantity: Math.floor(Number(l.quantity)),
+    }))
+    .filter((l) => l.itemId && Number.isFinite(l.quantity) && l.quantity >= 1);
+
+  if (!normalized.length) {
+    const err = new Error("대여할 교구를 담아 주세요.");
     err.code = "VALIDATION_ERROR";
     throw err;
   }
-  const loc = BRANCHES.includes(location) ? location : DEFAULT_LOCATION;
-  const catalog = await loadCatalog(admin);
-  const item = catalog.items.find((i) => i.id === itemId);
-  if (!item) {
-    const err = new Error("교구를 찾을 수 없습니다.");
-    err.code = "ITEM_NOT_FOUND";
-    throw err;
+
+  // 동일 교구 수량 합산
+  const qtyById = new Map();
+  for (const line of normalized) {
+    qtyById.set(line.itemId, (qtyById.get(line.itemId) || 0) + line.quantity);
   }
-  if (item.available < qty) {
-    const err = new Error(`재고가 부족합니다. (가능 ${item.available}개)`);
-    err.code = "INSUFFICIENT_STOCK";
-    throw err;
+
+  const catalog = await loadCatalog(admin);
+  const resolved = [];
+  for (const [itemId, qty] of qtyById.entries()) {
+    const item = catalog.items.find((i) => i.id === itemId);
+    if (!item) {
+      const err = new Error("교구를 찾을 수 없습니다.");
+      err.code = "ITEM_NOT_FOUND";
+      throw err;
+    }
+    if (item.available < qty) {
+      const err = new Error(`${item.name}: 재고가 부족합니다. (가능 ${item.available}개)`);
+      err.code = "INSUFFICIENT_STOCK";
+      throw err;
+    }
+    resolved.push({ item, quantity: qty });
   }
 
   const start = todayYmd(0);
   const end = todayYmd(DEFAULT_RENT_DAYS);
-  const now = new Date().toISOString();
 
   const { data: req, error: reqErr } = await admin
     .from("rental_requests")
@@ -262,55 +362,66 @@ async function rentItem(admin, {
       dispatch_start: start,
       dispatch_end: end,
       memo: "키오스크 대여",
-      status: "approved",
-      approved_by: teacherId,
-      approved_at: now,
+      status: "pending",
     })
     .select("id")
     .single();
   if (reqErr || !req) throw reqErr || new Error("대여 신청 실패");
 
-  const { data: ri, error: riErr } = await admin
-    .from("rental_items")
-    .insert({
-      request_id: req.id,
-      item_id: itemId,
-      set_id: null,
-      component_name: null,
-      quantity: qty,
-      due_date: end,
-      status: "rented",
-      approved_by: teacherId,
-      approved_at: now,
-    })
-    .select("id")
-    .single();
-  if (riErr || !ri) {
+  const inserted = [];
+  try {
+    for (const row of resolved) {
+      const { data: ri, error: riErr } = await admin
+        .from("rental_items")
+        .insert({
+          request_id: req.id,
+          item_id: row.item.id,
+          set_id: null,
+          component_name: null,
+          quantity: row.quantity,
+          due_date: end,
+          status: "pending",
+        })
+        .select("id")
+        .single();
+      if (riErr || !ri) throw riErr || new Error("대여 항목 저장 실패");
+      inserted.push({
+        rental_item_id: ri.id,
+        item_id: row.item.id,
+        item_name: row.item.name,
+        quantity: row.quantity,
+      });
+    }
+  } catch (err) {
+    await admin.from("rental_items").delete().eq("request_id", req.id);
     await admin.from("rental_requests").delete().eq("id", req.id);
-    throw riErr || new Error("대여 항목 저장 실패");
+    throw err;
   }
 
   await audit(admin, {
-    action: "rent",
+    action: "rent_batch_pending",
     teacher_id: teacherId,
-    item_id: itemId,
-    quantity: qty,
+    item_id: inserted[0]?.item_id || null,
+    quantity: inserted.reduce((s, r) => s + r.quantity, 0),
     meta: {
-      item_name: item.name,
       location: loc,
       request_id: req.id,
-      rental_item_id: ri.id,
       teacher_name: teacherName,
+      lines: inserted,
+      status: "pending",
     },
   });
 
+  const summary = inserted.map((r) => `${r.item_name} ${r.quantity}개`).join(", ");
   return {
     request_id: req.id,
-    rental_item_id: ri.id,
-    item_name: item.name,
-    quantity: qty,
     due_date: end,
     location: loc,
+    lines: inserted,
+    item_name: inserted.length === 1 ? inserted[0].item_name : `${inserted.length}종`,
+    quantity: inserted.reduce((s, r) => s + r.quantity, 0),
+    summary,
+    status: "pending",
   };
 }
 
@@ -394,7 +505,6 @@ async function returnItem(admin, {
   }
 
   let remaining = qty;
-  const now = new Date().toISOString();
   const created = [];
   const sorted = [...group.lines].sort((a, b) => String(a.due_date || "").localeCompare(String(b.due_date || "")));
 
@@ -410,57 +520,18 @@ async function returnItem(admin, {
         condition: "normal",
         memo: "키오스크 반납",
         teacher_id: teacherId,
-        status: "return_approved",
+        status: "return_pending",
         return_location: loc,
-        approved_by: teacherId,
-        approved_at: now,
       })
       .select("id, rental_item_id, quantity")
       .single();
     if (error) throw error;
     created.push(ret);
-
-    const { data: ri } = await admin
-      .from("rental_items")
-      .select("id, request_id, quantity, status")
-      .eq("id", line.rental_item_id)
-      .single();
-    if (ri) {
-      const { data: allRets } = await admin
-        .from("return_requests")
-        .select("quantity, status")
-        .eq("rental_item_id", ri.id)
-        .eq("status", "return_approved");
-      const approved = (allRets || []).reduce((s, r) => s + Number(r.quantity || 0), 0);
-      const ns = approved >= ri.quantity ? "returned" : "partial_returned";
-      await admin.from("rental_items").update({ status: ns }).eq("id", ri.id);
-
-      const { data: siblings } = await admin
-        .from("rental_items")
-        .select("id, status")
-        .eq("request_id", ri.request_id);
-      const allDone = (siblings || []).every((r) =>
-        r.id === ri.id ? ns === "returned" : r.status === "returned",
-      );
-      await admin
-        .from("rental_requests")
-        .update({ status: allDone ? "completed" : "partial" })
-        .eq("id", ri.request_id)
-        .neq("status", "rejected");
-    }
     remaining -= take;
   }
 
-  await admin
-    .from("items")
-    .update({
-      last_return_location: loc,
-      last_return_at: now,
-    })
-    .eq("id", itemId);
-
   await audit(admin, {
-    action: "return",
+    action: "return_pending",
     teacher_id: teacherId,
     item_id: itemId,
     quantity: qty,
@@ -469,6 +540,7 @@ async function returnItem(admin, {
       location: loc,
       teacher_name: teacherName,
       return_ids: created.map((c) => c.id),
+      status: "return_pending",
     },
   });
 
@@ -476,6 +548,7 @@ async function returnItem(admin, {
     item_name: group.name,
     quantity: qty,
     location: loc,
+    status: "return_pending",
   };
 }
 
@@ -633,6 +706,30 @@ Deno.serve(async (req) => {
       return jsonResponse({ data });
     }
 
+    if (action === "notices") {
+      const { data, error } = await admin
+        .from("notices")
+        .select("id, title, body, importance, author_name, created_at")
+        .order("created_at", { ascending: false })
+        .limit(12);
+      if (error) throw error;
+      return jsonResponse({
+        data: (data || []).map((n) => ({
+          id: n.id,
+          title: n.title,
+          body: n.body || "",
+          importance: n.importance || "normal",
+          author_name: n.author_name || null,
+          created_at: n.created_at,
+        })),
+      });
+    }
+
+    if (action === "teacher_week_gear") {
+      const data = await loadTeacherWeekGear(admin, String(body.teacher_id || ""));
+      return jsonResponse({ data });
+    }
+
     if (action === "holdings") {
       const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
       const data = await teacherHoldings(admin, teacher.id);
@@ -647,6 +744,21 @@ Deno.serve(async (req) => {
         quantity: body.quantity,
         location: String(body.location || DEFAULT_LOCATION),
         teacherName: teacher.name,
+      });
+      return jsonResponse({ data });
+    }
+
+    if (action === "rent_batch") {
+      const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
+      const rawLines = Array.isArray(body.items) ? body.items : [];
+      const data = await rentItemsBatch(admin, {
+        teacherId: teacher.id,
+        location: String(body.location || DEFAULT_LOCATION),
+        teacherName: teacher.name,
+        lines: rawLines.map((row) => ({
+          itemId: String(row?.item_id || row?.id || ""),
+          quantity: row?.quantity,
+        })),
       });
       return jsonResponse({ data });
     }

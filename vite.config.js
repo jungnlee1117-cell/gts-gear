@@ -32,7 +32,7 @@ export default defineConfig(({ mode }) => {
         filename: 'sw.js',
         registerType: 'autoUpdate',
         injectRegister: null,
-        includeAssets: ['pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon.png', 'favicon.svg'],
+        includeAssets: ['pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon.png', 'favicon.svg', 'kiosk.webmanifest'],
         manifest: {
           name: 'GTS 시스템',
           short_name: 'GTS',

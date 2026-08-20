@@ -1,14 +1,18 @@
 import {
   assignedLetterForMonth,
+  findCurrentRotationWeekSlot,
   findNextRotationWeekSlot,
   formatCalendarWeekRange,
+  formatWeekRange,
   getCalendarWeekRange,
   getWeekItemsForLetter,
   resolveItemRecord,
   resolveRotationSchedules,
   rotationSubjectTeacherId,
+  rotationWeekLabelForSlot,
   rotationWeekRangeForSlot,
   yearMonthFirstDay,
+  yearMonthKey,
   schoolYearMonths,
 } from "./itemRotation.js";
 import { schoolYearStartYear } from "./lessonPlan.js";
@@ -221,6 +225,133 @@ export function buildGearRecommendations(me, reqs, ris, items) {
   }
 
   return recs.slice(0, 6);
+}
+
+/** 키오스크·홈 — 이번 주 배정 교구 목록 */
+export function buildCurrentWeekGearRows({ schedules, weeklyLists, monthWeeks, items, me }) {
+  const slot = findCurrentRotationWeekSlot(monthWeeks);
+  const weekRange = rotationWeekRangeForSlot(slot)
+    || formatCalendarWeekRange(new Date());
+  if (!slot) {
+    return { rows: [], weekRange, letter: null, weekNumber: null, yearMonth: null };
+  }
+
+  const monthKey = String(slot.year_month).slice(0, 7);
+  const letter = me
+    ? assignedLetterForMonth(schedules, me, monthKey)
+    : (schedules || []).find((s) => s.year_month?.startsWith(monthKey))?.assigned_letter || null;
+  if (!letter) {
+    return {
+      rows: [],
+      weekRange,
+      letter: null,
+      weekNumber: slot.week_number,
+      yearMonth: monthKey,
+    };
+  }
+
+  const gear = getWeekItemsForLetter(weeklyLists, letter, slot.week_number);
+  const names = gearNamesFromWeek(gear);
+  const rows = names.map((sheetName) => {
+    const item = resolveItemRecord(items, sheetName);
+    return {
+      sheet_name: sheetName,
+      display_name: item?.name || sheetName,
+      item_id: item?.id || null,
+      code: item?.code || null,
+      photo_url: item?.photo_url || null,
+      is_air: Boolean(gear?.is_air_product) || /에어/i.test(sheetName),
+      matched: Boolean(item),
+      simple_activity: gear?.simple_activity || null,
+    };
+  });
+
+  return {
+    rows,
+    weekRange,
+    letter,
+    weekNumber: Number(slot.week_number) || null,
+    yearMonth: monthKey,
+  };
+}
+
+/** 키오스크 — 지정 월의 주차별 배정 교구 */
+export function buildMonthGearSections({ schedules, weeklyLists, monthWeeks, items, me, yearMonth }) {
+  const monthKey = String(yearMonth || yearMonthKey()).slice(0, 7);
+  const letter = me
+    ? assignedLetterForMonth(schedules, me, monthKey)
+    : (schedules || []).find((s) => s.year_month?.startsWith(monthKey))?.assigned_letter || null;
+
+  const weeksForMonth = (monthWeeks || []).filter((w) =>
+    w.year_month?.startsWith(monthKey),
+  );
+  const weeksMap = new Map(weeksForMonth.map((w) => [Number(w.week_number), w]));
+
+  const weekNumberSet = new Set(
+    weeksForMonth
+      .map((w) => Number(w.week_number))
+      .filter((n) => Number.isFinite(n) && n >= 1),
+  );
+  if (letter) {
+    for (const row of weeklyLists || []) {
+      if (String(row.letter || "").trim().toUpperCase() !== String(letter).trim().toUpperCase()) continue;
+      const wn = Number(row.week_number);
+      if (Number.isFinite(wn) && wn >= 1) weekNumberSet.add(wn);
+    }
+  }
+  const weekNumbers = weekNumberSet.size
+    ? [...weekNumberSet].sort((a, b) => a - b)
+    : [1, 2, 3, 4, 5];
+
+  if (!letter) {
+    return {
+      yearMonth: monthKey,
+      letter: null,
+      weeks: [],
+      rows: [],
+    };
+  }
+
+  const weeks = [];
+  const flatRows = [];
+
+  for (const wn of weekNumbers) {
+    const gear = getWeekItemsForLetter(weeklyLists, letter, wn);
+    const mw = weeksMap.get(wn);
+    // 월 주차 슬롯 또는 주간 리스트가 있으면 카드 표시 (5주차 포함)
+    if (!mw && !gear) continue;
+
+    const names = gearNamesFromWeek(gear);
+    const rows = names.map((sheetName) => {
+      const item = resolveItemRecord(items, sheetName);
+      return {
+        sheet_name: sheetName,
+        display_name: item?.name || sheetName,
+        item_id: item?.id || null,
+        code: item?.code || null,
+        photo_url: item?.photo_url || null,
+        is_air: Boolean(gear?.is_air_product) || /에어/i.test(sheetName),
+        matched: Boolean(item),
+        simple_activity: gear?.simple_activity || null,
+        week_number: wn,
+      };
+    });
+
+    weeks.push({
+      weekNumber: wn,
+      dateRange: mw ? formatWeekRange(mw.week_start_date, mw.week_end_date) : null,
+      weekLabel: mw ? rotationWeekLabelForSlot(mw) : `${wn}주차`,
+      rows,
+    });
+    flatRows.push(...rows);
+  }
+
+  return {
+    yearMonth: monthKey,
+    letter,
+    weeks,
+    rows: flatRows,
+  };
 }
 
 export function buildNextWeekItems({ schedules, weeklyLists, monthWeeks, weeklySlots, items, me }) {
