@@ -212,7 +212,7 @@ export default function ItemSetDetailPage({
         ← {backLabel}
       </button>
 
-      <PageHeader me={me} subtitle={PAGE_META?.["set-detail"]?.sub || "세트 교구 상세"} />
+      <PageHeader me={me} subtitle={PAGE_META?.["set-detail"]?.sub || "프로그램 상세"} />
 
       <div style={card}>
         {set.photo_url ? (
@@ -293,7 +293,7 @@ export default function ItemSetDetailPage({
 
         {Btn && (
           <Btn full color={anyAvail ? DS.primary : "#cbd5e1"} disabled={!anyAvail} onClick={handleRentFullSet}>
-            {anyAvail ? "전체 세트 한번에 대여" : "세트 전체 대여 불가"}
+            {anyAvail ? "프로그램 교구 한번에 대여" : "프로그램 교구 대여 불가"}
           </Btn>
         )}
       </div>
@@ -421,7 +421,7 @@ export default function ItemSetDetailPage({
 
       {GearQrDisplay && set.code && (
         <div style={{ ...card, textAlign: "center" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: DS.textSecondary, marginBottom: 12 }}>세트 QR 코드</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: DS.textSecondary, marginBottom: 12 }}>프로그램 QR 코드</div>
           <div style={{ display: "inline-block", padding: 10, background: "#fff", borderRadius: 12, border: "1px solid #e8ecee" }}>
             <GearQrDisplay item={{ id: set.id, code: set.code }} size={140} />
           </div>

@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test:teacher-hr": "node --test supabase/functions/teacher-hr/hrRules.test.js",
     "seed:institutions": "node scripts/seed-institutions.mjs",
     "seed:institutions:dry": "node scripts/seed-institutions.mjs --dry-run",
     "seed:institutions:debug": "node scripts/seed-institutions.mjs --debug-env --dry-run",

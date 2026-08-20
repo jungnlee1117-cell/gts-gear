@@ -13,7 +13,7 @@ import {
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import { QRCodeCanvas } from "qrcode.react";
-import { PersonStanding, MapPin, ChevronLeft, ChevronRight } from "lucide-react";
+import { PersonStanding, MapPin, ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import GrowthApp from "./GrowthApp.jsx";
 import ScheduleApp from "./ScheduleApp.jsx";
 import PlatformMainButton from "./PlatformMainButton.jsx";
@@ -26,6 +26,8 @@ import ClassFlowTipsApp from "./ClassFlowTipsApp.jsx";
 import LessonScriptBuilderApp from "./LessonScriptBuilderApp.jsx";
 import LessonScriptDataAdminPage from "./LessonScriptDataAdminPage.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
+import MyProfilePage from "./MyProfilePage.jsx";
+import UserMenuDropdown from "./UserMenuDropdown.jsx";
 import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
 import GitiAssistant from "./GitiAssistant.jsx";
 import GitiReportSection from "./GitiReportSection.jsx";
@@ -117,6 +119,9 @@ import {
   setHasAnyAvail,
   validateSetComponents,
 } from "./itemSets.js";
+import { buildRegularClassGuideByItem } from "./regularClassGearGuide.js";
+import { schoolYearStartYear, schoolYearMonths } from "./lessonPlan.js";
+import { yearMonthFirstDay } from "./itemRotation.js";
 import { buildCurrentRentals, buildDueReturns } from "./teacherGearStatus.js";
 import { fetchItemIdeas, insertItemIdea, toggleItemIdeaLike } from "./itemIdeas.js";
 import DataExportPage from "./DataExportPage.jsx";
@@ -754,6 +759,7 @@ function scheduleSortRank(entry) {
 }
 
 function scheduleLineColor(line) {
+  if (line.type === "regular_class") return "#64748b";
   if (line.type === "confirmed") return "#0d9488";
   if (line.timing === "future") return "#2563eb";
   if (line.type === "rental") return "#ea580c";
@@ -873,6 +879,18 @@ function ItemScheduleLines({ lines }) {
           {line.text}
         </div>
       ))}
+    </div>
+  );
+}
+
+function RegularClassGuideSection({ lines }) {
+  if (!lines?.length) return null;
+  return (
+    <div style={{ marginTop: 8, marginBottom: 10 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: DS.textMuted, marginBottom: 4 }}>
+        참고: 정규수업 예정
+      </div>
+      <ItemScheduleLines lines={lines}/>
     </div>
   );
 }
@@ -1745,7 +1763,7 @@ function SidebarNav({ nav, page, setPage, sb, badge, reqBadge, retBadge, resBadg
 
 function MobileNavDrawer({
   open, onClose, nav, page, setPage, sb, badge, reqBadge, retBadge, resBadge, overdueBadge = 0, admin,
-  me, onBack, onLogout, onChangePw, cartCount, onOpenCart,
+  me, onBack, onLogout, onChangePw, onGoProfile, cartCount, onOpenCart,
 }) {
   if (!open) return null;
   const navigate = (id) => {
@@ -1863,6 +1881,21 @@ function MobileNavDrawer({
             <div style={{ fontWeight: 700, fontSize: 14, color: "#fff", marginBottom: 4 }}>{me.name}님</div>
             <div style={{ marginBottom: 10 }}><RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/></div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => { onGoProfile?.(); onClose(); }}
+                style={{
+                  ...touchBtn,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  background: "rgba(255,255,255,0.06)",
+                  color: "rgba(255,255,255,0.75)",
+                }}
+              >
+                <Settings size={15} strokeWidth={2}/>
+                내 정보
+              </button>
               <button
                 type="button"
                 onClick={() => { onChangePw(); onClose(); }}
@@ -2106,7 +2139,7 @@ const PAGE_META = {
   "return-request":   { title: "반납요청",    sub: "대여 중인 교구의 반납을 신청합니다." },
   "qr-rent":          { title: "QR 대여 신청", sub: "스캔한 교구의 대여 가능 수량을 확인하고 신청합니다." },
   "item-detail":      { title: "교구 상세",    sub: "교구 정보와 대여 이력을 확인합니다." },
-  "set-detail":       { title: "세트 교구 상세", sub: "세트 구성 품목별 재고를 확인하고 대여할 품목을 선택합니다." },
+  "set-detail":       { title: "프로그램 상세", sub: "프로그램에 필요한 교구별 재고를 확인하고 대여할 교구를 선택합니다." },
 };
 
 const DETAIL_BACK_LABELS = {
@@ -3752,7 +3785,7 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
 
   const handleSave = async () => {
     if (!f.code.trim() || !f.name.trim()) {
-      alert("세트명과 코드는 필수입니다");
+      alert("프로그램명과 코드는 필수입니다");
       return;
     }
     if (findSetNameConflict(itemSets, f.name, set?.id)) {
@@ -3783,11 +3816,11 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
   const catLabel = getCategoryMeta(f.category, categoryMap).label;
 
   return (
-    <Modal title={set ? "세트 교구 편집" : "세트형 교구 추가"} onClose={onClose} center>
+    <Modal title={set ? "프로그램 편집" : "프로그램 등록"} onClose={onClose} center>
       <div style={{ ...panelCard, padding: "12px 16px", marginBottom: 14, background: DS.primaryLight, border: `1px solid ${DS.primary}33` }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: DS.primaryText, marginBottom: 4 }}>세트형 교구</div>
+        <div style={{ fontSize: 12, fontWeight: 800, color: DS.primaryText, marginBottom: 4 }}>수업 프로그램</div>
         <div style={{ fontSize: 11, color: DS.textSecondary, lineHeight: 1.5 }}>
-          세트 이름(예: 바다낚시 세트)을 등록하고, 하위 품목(꽃게, 낚시대 등)별 수량을 설정합니다.
+          프로그램 이름(예: 바다낚시 프로그램)을 등록하고, 수업에 필요한 교구와 수량을 설정합니다. 계획안에는 '프로그램'을 뺀 이름으로 표시됩니다.
         </div>
       </div>
 
@@ -3808,7 +3841,7 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
             ))}
           </Sel2>
           <Inp2
-            label="세트 코드 *"
+            label="프로그램 코드 *"
             value={f.code}
             onChange={e => { setAutoCode(false); setField("code", e.target.value); }}
             placeholder={`${f.category}-001`}
@@ -3822,8 +3855,8 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
         </div>
       </div>
 
-      <Inp2 label="세트 이름 *" value={f.name} onChange={e => setField("name", e.target.value)} placeholder="예: 바다낚시 세트"/>
-      <Inp2 label="영어 별칭 (검색용)" value={f.alias} onChange={e => setField("alias", e.target.value)} placeholder="예: Sea Fishing Set"/>
+      <Inp2 label="프로그램 이름 *" value={f.name} onChange={e => setField("name", e.target.value)} placeholder="예: 바다낚시 프로그램"/>
+      <Inp2 label="영어 프로그램명" value={f.alias} onChange={e => setField("alias", e.target.value)} placeholder="예: Sea Fishing Program"/>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
         <Sel2 label="보관 지점" value={f.branch} onChange={e => setField("branch", e.target.value)}>
@@ -3840,7 +3873,7 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
 
       <div style={{ ...panelCard, padding: "16px 18px", marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: DS.textPrimary }}>하위 품목 *</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: DS.textPrimary }}>필요 교구 *</div>
           <button
             type="button"
             onClick={addComponent}
@@ -3856,21 +3889,21 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
               fontFamily: "inherit",
             }}
           >
-            + 품목 추가
+            + 교구 추가
           </button>
         </div>
         {(f.components || []).length === 0 && (
           <div style={{ fontSize: 12, color: DS.textMuted, textAlign: "center", padding: "12px 0" }}>
-            하위 품목을 추가하세요 (예: 꽃게, 오징어, 낚시대)
+            프로그램에 필요한 교구를 추가하세요 (예: 꽃게, 오징어, 낚시대)
           </div>
         )}
         {(f.components || []).map((comp, idx) => (
           <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 100px auto", gap: 8, marginBottom: 8, alignItems: "end" }}>
             <Inp2
-              label={idx === 0 ? "품목명" : ""}
+              label={idx === 0 ? "교구명" : ""}
               value={comp.name}
               onChange={e => updateComponent(idx, "name", e.target.value)}
-              placeholder="품목명"
+              placeholder="필요 교구명"
             />
             <Inp2
               label={idx === 0 ? "수량" : ""}
@@ -3901,13 +3934,13 @@ function ItemSetForm({ set, itemSets, onSave, onClose }) {
         ))}
       </div>
 
-      <Txa2 label="설명" value={f.description} onChange={e => setField("description", e.target.value)}/>
+      <Txa2 label="프로그램 설명" value={f.description} onChange={e => setField("description", e.target.value)}/>
       <ActivityPhotosUploader
         itemCode={f.code || "new-set"}
         photos={f.activity_photos}
         onChange={urls => setField("activity_photos", urls)}
       />
-      <Txa2 label="사용법" value={f.usage_description} onChange={e => setField("usage_description", e.target.value)}/>
+      <Txa2 label="활동 방법 및 발달 도움" value={f.usage_description} onChange={e => setField("usage_description", e.target.value)}/>
       <Txa2 label="안전 주의사항" value={f.safety_notes} onChange={e => setField("safety_notes", e.target.value)}/>
       <Inp2 label="유튜브 URL" value={f.youtube_url} onChange={e => setField("youtube_url", e.target.value)}/>
 
@@ -3923,7 +3956,7 @@ function AddGearTypeModal({ onPickItem, onPickSet, onClose }) {
   const [picked, setPicked] = useState("item");
   const options = [
     { id: "item", title: "일반 교구", desc: "단일 품목 교구를 등록합니다." },
-    { id: "set", title: "세트형 교구", desc: "세트 이름 + 하위 품목(꽃게, 낚시대 등)별 수량을 등록합니다." },
+    { id: "set", title: "프로그램", desc: "수업 프로그램과 진행에 필요한 여러 교구·수량을 함께 등록합니다." },
   ];
   return (
     <Modal title="교구 등록 유형" onClose={onClose} center>
@@ -5089,7 +5122,7 @@ function LastReturnLocationCard({ item, teachers, style }) {
   );
 }
 
-function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, reservations, teachers, onDetail, onSetDetail, onOpenCart, onSubmitReservation, onCancelReservation, onSaveItem, onSaveSet }) {
+function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, reservations, teachers, regularClassGuideByItem, onDetail, onSetDetail, onOpenCart, onSubmitReservation, onCancelReservation, onSaveItem, onSaveSet }) {
   const { categoryMap, categoryKeys } = useGearCategories();
   const [q, setQ] = useState("");
   const [catF, setCatF] = useState("ALL");
@@ -5355,7 +5388,7 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
                       padding: "3px 8px",
                       borderRadius: 6,
                     }}>
-                      세트
+                      프로그램
                     </span>
                     {isNewItem && (
                       <span style={{
@@ -5603,6 +5636,7 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
                   }}>
                     대여 가능 {avail}개
                   </div>
+                  <RegularClassGuideSection lines={regularClassGuideByItem?.get(item.id)}/>
                   <ItemScheduleLines lines={scheduleLines}/>
                   <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                     <Btn
@@ -5950,7 +5984,7 @@ function ItemIdeasSection({ itemId, me }) {
   );
 }
 
-function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLabel="보유 자산으로",me,onForceReturn}) {
+function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLabel="보유 자산으로",me,onForceReturn,regularClassGuideLines}) {
   const [photoLightbox, setPhotoLightbox] = useState(false);
   const [activityLightbox, setActivityLightbox] = useState(null);
   const activityPhotos = useMemo(() => parseActivityPhotos(item), [item]);
@@ -6042,6 +6076,8 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLab
             </div>
           ))}
         </div>
+
+        <RegularClassGuideSection lines={regularClassGuideLines}/>
 
         <Btn full
           color={added?"#dc2626":avail>0?DS.primary:"#cbd5e1"}
@@ -10244,11 +10280,11 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,onSubmit,onClose}) {
                       <GearItemImg item={item || set} style={{ width: 40, height: 40, borderRadius: 10 }}/>
                     </div>
                   )
-                  :<div style={{width:40,height:40,borderRadius:8,background:"#f8fafc",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:DS.textMuted,border:"1px solid #e2e8f0"}}>{c.set_id?"세트":item?.code?.slice(0,3)||"—"}</div>
+                  :<div style={{width:40,height:40,borderRadius:8,background:"#f8fafc",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:DS.textMuted,border:"1px solid #e2e8f0"}}>{c.set_id?"프로그램":item?.code?.slice(0,3)||"—"}</div>
                 }
                 <div>
                   <span style={{fontWeight:800,fontSize:13,color:DS.textPrimary}}>{label}</span>
-                  {c.set_id && <div style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700, marginTop: 1 }}>세트 품목</div>}
+                  {c.set_id && <div style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700, marginTop: 1 }}>프로그램 교구</div>}
                 </div>
               </div>
               <button onClick={()=>remove(lineKey)} style={{background:"#fee2e2",border:"none",color:"#dc2626",cursor:"pointer",fontSize:12,borderRadius:8,padding:"4px 10px",fontWeight:600,fontFamily:"inherit"}}>삭제</button>
@@ -10793,7 +10829,7 @@ function UnknownRoute() {
   );
 }
 
-function AuthenticatedRoutes({ me, session, logout }) {
+function AuthenticatedRoutes({ me, session, logout, onMeUpdated }) {
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -10895,12 +10931,25 @@ function AuthenticatedRoutes({ me, session, logout }) {
             me={me}
             session={session}
             onBack={() => navigate("/")}
+            onLogout={logout}
           />
         )}
       />
       <Route
         path="/growth"
         element={<GrowthApp onBack={() => navigate("/")} supabaseUser={me}/>}
+      />
+      <Route
+        path="/my-profile"
+        element={(
+          <MyProfilePage
+            me={me}
+            session={session}
+            supabase={supabase}
+            onBack={() => goBackOr(navigate, "/")}
+            onMeUpdated={onMeUpdated}
+          />
+        )}
       />
       <Route
         path="/"
@@ -11028,7 +11077,7 @@ export default function App() {
     );
   }
 
-  return <AuthenticatedRoutes me={me} session={session} logout={logout}/>;
+  return <AuthenticatedRoutes me={me} session={session} logout={logout} onMeUpdated={(patch) => setMe((prev) => prev ? { ...prev, ...patch } : prev)}/>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -11498,7 +11547,12 @@ function HubPage({ me, onSelect, onLogout }) {
         </div>
         <div className="hub-topbar__actions">
           <RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/>
-          <button type="button" className="hub-topbar__logout" onClick={onLogout}>로그아웃</button>
+          <UserMenuDropdown
+            me={me}
+            email={me.email}
+            onLogout={onLogout}
+            triggerClassName="hub-user-menu-trigger"
+          />
         </div>
       </header>
 
@@ -11683,6 +11737,10 @@ function EquipmentApp({ onBack, me, session }) {
 
   const [items,      setItems]      = useState([]);
   const [itemSets,   setItemSets]   = useState([]);
+  const [rotationSchedules, setRotationSchedules] = useState([]);
+  const [weeklyLists, setWeeklyLists] = useState([]);
+  const [monthWeeks, setMonthWeeks] = useState([]);
+  const [weeklySlotsAll, setWeeklySlotsAll] = useState([]);
   const [teachers,   setTeachers]   = useState([]);
   const [reqs,       setReqs]       = useState([]);
   const [ris,        setRIs]        = useState([]);
@@ -11819,6 +11877,29 @@ function EquipmentApp({ onBack, me, session }) {
       if (!retRes.error) setRets(retRes.data || []);
       if (!resRes.error) setReservations(resRes.data || []);
 
+      const startYear = schoolYearStartYear();
+      const ymKeys = schoolYearMonths(startYear).map(m => yearMonthFirstDay(m));
+      const [rotSchedRes, weeklyListRes, monthWeeksRes, weeklySlotsRes] = await Promise.all([
+        supabase.from("item_rotation_schedule")
+          .select("year_month, assigned_letter, teacher_id")
+          .in("year_month", ymKeys),
+        supabase.from("item_weekly_lists").select("*").order("week_number"),
+        supabase.from("item_rotation_month_weeks")
+          .select("*")
+          .in("year_month", ymKeys)
+          .order("week_number"),
+        supabase.from("institution_weekly_schedule")
+          .select("teacher_id, day_of_week, institution_id, class_type, label, start_time, effective_from, effective_to, institutions(name)"),
+      ]);
+
+      if (!rotSchedRes.error) setRotationSchedules(rotSchedRes.data || []);
+      else if (rotSchedRes.error.code !== "42P01" && rotSchedRes.error.code !== "PGRST205") {
+        console.warn("[gear] item_rotation_schedule", rotSchedRes.error.message);
+      }
+      if (!weeklyListRes.error) setWeeklyLists(weeklyListRes.data || []);
+      if (!monthWeeksRes.error) setMonthWeeks(monthWeeksRes.data || []);
+      if (!weeklySlotsRes.error) setWeeklySlotsAll(weeklySlotsRes.data || []);
+
       const noticeList = await fetchNotices();
       setNotices(noticeList);
 
@@ -11915,6 +11996,18 @@ function EquipmentApp({ onBack, me, session }) {
       alert("QR로 연결된 교구를 찾을 수 없습니다.");
     }
   }, [dataLoading, items]);
+
+  const regularClassGuideByItem = useMemo(
+    () => buildRegularClassGuideByItem({
+      teachers,
+      rotationSchedules,
+      weeklyLists,
+      monthWeeks,
+      weeklySlotsAll,
+      items,
+    }),
+    [teachers, rotationSchedules, weeklyLists, monthWeeks, weeklySlotsAll, items],
+  );
 
   const addNotice = async (payload) => {
     const row = {
@@ -12802,7 +12895,7 @@ function EquipmentApp({ onBack, me, session }) {
         alert(DUPLICATE_SET_NAME_MESSAGE);
         return null;
       }
-      alert("세트 저장 오류: " + error.message);
+      alert("프로그램 저장 오류: " + error.message);
       return null;
     }
     if (!row?.id) return null;
@@ -12878,7 +12971,7 @@ function EquipmentApp({ onBack, me, session }) {
   const deleteItemSet = async (set) => {
     if (!set?.id) return false;
     if (!canEditItems(me)) {
-      alert("관리자만 세트 교구를 삭제할 수 있습니다.");
+      alert("관리자만 프로그램을 삭제할 수 있습니다.");
       return false;
     }
     const confirmed = window.confirm(
@@ -12895,7 +12988,7 @@ function EquipmentApp({ onBack, me, session }) {
 
     const { error } = await supabase.from("item_sets").delete().eq("id", set.id);
     if (error) {
-      alert("세트 삭제 오류: " + error.message);
+      alert("프로그램 삭제 오류: " + error.message);
       return false;
     }
 
@@ -12905,7 +12998,7 @@ function EquipmentApp({ onBack, me, session }) {
       setPage("items");
     }
     await loadAll();
-    alert("세트 교구와 연결된 대여 기록이 삭제되었습니다.");
+    alert("프로그램과 연결된 대여 기록이 삭제되었습니다.");
     return true;
   };
 
@@ -13007,6 +13100,7 @@ function EquipmentApp({ onBack, me, session }) {
             cart={cart}
             setCart={setCart}
             reservations={reservations}
+            regularClassGuideByItem={regularClassGuideByItem}
             onDetail={item=>openItemDetail(item,"items-browse")}
             onSetDetail={set=>openSetDetail(set,"items-browse")}
             onOpenCart={()=>setShowCart(true)}
@@ -13020,6 +13114,7 @@ function EquipmentApp({ onBack, me, session }) {
           <MyGearRotationPage
             me={me}
             items={items}
+            itemSets={itemSets}
             reqs={reqs}
             ris={ris}
             rets={rets}
@@ -13073,12 +13168,13 @@ function EquipmentApp({ onBack, me, session }) {
             backLabel={DETAIL_BACK_LABELS[detailBackPage] || "보유 자산으로"}
             me={me}
             onForceReturn={forceReturnRentalItem}
+            regularClassGuideLines={regularClassGuideByItem?.get(detailItem.id)}
           />
         )}
         {page==="set-detail"&&!detailSet&&(
           <PageShell>
             <div style={{ display: "flex", justifyContent: "center", padding: "80px 20px" }}>
-              <Spinner text="세트 교구 정보 불러오는 중..."/>
+              <Spinner text="프로그램 정보 불러오는 중..."/>
             </div>
           </PageShell>
         )}
@@ -13271,7 +13367,20 @@ function EquipmentApp({ onBack, me, session }) {
                   <div style={{fontSize:11,color:sb.muted,marginTop:2}}>{ROLE_CFG[me.role]?.label}</div>
                 </div>
               </div>
-              <div style={{display:"flex",gap:6}}>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <button
+                  type="button"
+                  onClick={()=>navigate("/my-profile")}
+                  style={{
+                    width:"100%",padding:"8px",borderRadius:8,border:"none",
+                    background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.75)",
+                    fontSize:11,cursor:"pointer",fontFamily:"inherit",
+                    display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+                  }}
+                >
+                  <Settings size={12} strokeWidth={2}/> 내 정보
+                </button>
+                <div style={{display:"flex",gap:6}}>
                 <button onClick={()=>setShowPwModal(true)} style={{
                   flex:1,padding:"8px",borderRadius:8,border:"none",
                   background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.65)",
@@ -13282,6 +13391,7 @@ function EquipmentApp({ onBack, me, session }) {
                   background:"rgba(220,38,38,0.15)",color:"#fca5a5",
                   fontSize:11,cursor:"pointer",fontFamily:"inherit",
                 }}>로그아웃</button>
+                </div>
               </div>
             </div>
             <div style={{
@@ -13401,6 +13511,7 @@ function EquipmentApp({ onBack, me, session }) {
         onBack={onBack}
         onLogout={logout}
         onChangePw={()=>setShowPwModal(true)}
+        onGoProfile={()=>navigate("/my-profile")}
         cartCount={cart.length}
         onOpenCart={()=>setShowCart(true)}
       />
@@ -13513,6 +13624,18 @@ function EquipmentApp({ onBack, me, session }) {
               <div style={{ marginTop: 6 }}><RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/></div>
               <div style={{ fontSize: 12, color: DS.textMuted, marginTop: 6, overflow: "hidden", textOverflow: "ellipsis" }}>{session.user.email}</div>
             </div>
+            <button
+              type="button"
+              onClick={()=>{ navigate("/my-profile"); setShowProfile(false); }}
+              style={{
+                display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: 44, padding: "12px 16px", border: "none",
+                background: "none", textAlign: "left", fontSize: 14, cursor: "pointer",
+                color: DS.textSecondary, fontFamily: "inherit", fontWeight: 600,
+              }}
+            >
+              <Settings size={15} strokeWidth={2}/>
+              내 정보
+            </button>
             <button
               type="button"
               onClick={()=>{ setShowPwModal(true); setShowProfile(false); }}

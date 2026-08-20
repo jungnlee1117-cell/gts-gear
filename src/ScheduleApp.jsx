@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import ScheduleHub from "./schedule/ScheduleHub.jsx";
 import ScheduleSidebar from "./ScheduleSidebar.jsx";
 import PlatformMainButton from "./PlatformMainButton.jsx";
@@ -18,6 +18,7 @@ import { ScheduleAuthContext } from "./schedule/ScheduleAuthContext.jsx";
 import { syncScheduleAuthSession, scheduleSupabase } from "./schedule/api.js";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { isScheduleSuperAdmin } from "./schedule/managerScope.js";
+import UserMenuDropdown from "./UserMenuDropdown.jsx";
 
 function ScheduleAccessDenied({ message, onBack }) {
   return (
@@ -38,7 +39,8 @@ function defaultScheduleView(admin) {
   return admin ? "hub" : "institution-schedule";
 }
 
-export default function ScheduleApp({ me, session, onBack }) {
+export default function ScheduleApp({ me, session, onBack, onLogout }) {
+  const navigate = useNavigate();
   const admin = isScheduleAdmin(me);
   const [scheduleAuthReady, setScheduleAuthReady] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -216,14 +218,14 @@ export default function ScheduleApp({ me, session, onBack }) {
             <PlatformMainButton onClick={onBack} className="sch-header-main-btn"/>
           </div>
           <div className={`sch-user${!admin ? " sch-user--inline" : ""}`}>
-            {!admin ? (
-              <span className="sch-user-name">{me?.name} {roleLabel}</span>
-            ) : (
-              <>
-                <span className="sch-user-name">{me?.name}</span>
-                <span className="sch-user-role">{roleLabel}</span>
-              </>
-            )}
+            <UserMenuDropdown
+              me={me}
+              email={me?.email || session?.user?.email}
+              onLogout={onLogout || (() => navigate("/"))}
+              triggerClassName="sch-user-menu-trigger"
+              menuClassName="user-menu--schedule"
+            />
+            {admin ? <span className="sch-user-role">{roleLabel}</span> : null}
           </div>
         </header>
         <main className="sch-main">

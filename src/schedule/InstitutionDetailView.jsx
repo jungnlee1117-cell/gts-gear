@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   BILLING_TYPES, CLASS_TYPES, CONTRACT_TYPES, DAY_LABELS,
   EXCEPTION_LABELS, sortSlotsByTime,
@@ -18,6 +18,7 @@ import {
 } from "./api.js";
 import InstitutionAssignmentsTab from "./InstitutionAssignmentsTab.jsx";
 import InstitutionBillingTab from "./InstitutionBillingTab.jsx";
+import InstitutionTeacherPayTypesModal from "./InstitutionTeacherPayTypesModal.jsx";
 import InstitutionTeacherTransferModal from "./InstitutionTeacherTransferModal.jsx";
 import { filterClassTeacherAssignments } from "./assignmentRoles.js";
 import { formatExceptionNotice } from "./scheduleExceptions.js";
@@ -41,6 +42,7 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
   const [loading, setLoading] = useState(true);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTab, setTransferTab] = useState("manager");
+  const [editPayTypesAssignment, setEditPayTypesAssignment] = useState(null);
   const [exForm, setExForm] = useState({
     start_date: "",
     end_date: "",
@@ -214,19 +216,32 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
             {classTeachers.length === 0 ? (
               <p className="sch-muted" style={{ margin: "6px 0 0" }}>등록된 수업 선생님이 없습니다.</p>
             ) : (
-              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+              <ul className="sch-info-teacher-list">
                 {classTeachers.map(a => (
-                  <li key={a.id} style={{ fontWeight: 600 }}>
-                    {a.teachers?.name || "—"}
-                    {(a.pay_types || []).length ? (
-                      <span className="sch-muted"> · {(a.pay_types || []).join(", ")}</span>
+                  <li key={a.id} className="sch-info-teacher-row">
+                    <div>
+                      <div className="sch-info-teacher-name">{a.teachers?.name || "—"} 선생님</div>
+                      <div className="sch-info-teacher-types">
+                        {(a.pay_types || []).length ? (a.pay_types || []).join(" · ") : "유형 미지정"}
+                      </div>
+                    </div>
+                    {canManageRoles ? (
+                      <button
+                        type="button"
+                        className="sch-icon-btn"
+                        title="수업 유형 수정"
+                        aria-label={`${a.teachers?.name || "선생님"} 수업 유형 수정`}
+                        onClick={() => setEditPayTypesAssignment(a)}
+                      >
+                        <Pencil size={16}/>
+                      </button>
                     ) : null}
                   </li>
                 ))}
               </ul>
             )}
             <p className="sch-muted" style={{ margin: "6px 0 0" }}>
-              실제 수업을 진행하는 선생님입니다. &quot;수업 선생님&quot; 탭에서 추가·제거할 수 있습니다.
+              실제 수업을 진행하는 선생님입니다. 수업 유형은 연필 버튼으로 수정할 수 있습니다.
             </p>
           </div>
 
@@ -403,8 +418,17 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
           assignments={assignments}
           teacherList={teacherList}
           onRefresh={load}
+          canEdit={canManageRoles}
         />
       )}
+
+      {editPayTypesAssignment ? (
+        <InstitutionTeacherPayTypesModal
+          assignment={editPayTypesAssignment}
+          onClose={() => setEditPayTypesAssignment(null)}
+          onSaved={load}
+        />
+      ) : null}
 
       {transferOpen ? (
         <InstitutionTeacherTransferModal

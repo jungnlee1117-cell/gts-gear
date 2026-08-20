@@ -123,6 +123,258 @@ async function findRotationConflictsForRental(adminClient, {
   return conflicts;
 }
 
+function schoolYearStartYear(date = new Date()) {
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  return m >= 3 ? y : y - 1;
+}
+
+function schoolYearMonths(startYear: number) {
+  const months: string[] = [];
+  for (let m = 3; m <= 12; m++) months.push(`${startYear}-${String(m).padStart(2, "0")}`);
+  months.push(`${startYear + 1}-01`, `${startYear + 1}-02`);
+  return months;
+}
+
+function yearMonthFirstDay(key: string) {
+  return `${String(key).slice(0, 7)}-01`;
+}
+
+function normalizeItemName(s: string) {
+  return String(s || "").trim().replace(/\s+/g, " ");
+}
+
+function parseLocalDay(value: string | null | undefined) {
+  if (!value) return null;
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, d] = raw.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return null;
+  return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+}
+
+function toLocalYmd(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getCalendarWeekRange(date = new Date()) {
+  const d = parseLocalDay(date instanceof Date ? toLocalYmd(date) : String(date)) || new Date();
+  d.setHours(0, 0, 0, 0);
+  const dow = d.getDay();
+  const diff = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { startYmd: toLocalYmd(monday), endYmd: toLocalYmd(sunday), monday };
+}
+
+function isRegularClassSlot(slot: { class_type?: string; label?: string }) {
+  const t = String(slot?.class_type || slot?.label || "").trim();
+  return t === "정규" || t.includes("정규");
+}
+
+function slotEffectiveOn(slot: { effective_from?: string; effective_to?: string }, ymd: string) {
+  if (slot?.effective_from && ymd < slot.effective_from) return false;
+  if (slot?.effective_to && ymd > slot.effective_to) return false;
+  return true;
+}
+
+function normalizeRotationLetter(letter: string | null | undefined) {
+  const s = String(letter ?? "").trim().toUpperCase();
+  return s || null;
+}
+
+function mergeWeeklyItemsForWeek(kgRow: Record<string, unknown> | null | undefined, daycareRow: Record<string, unknown> | null | undefined) {
+  const kgName = kgRow?.item_name ? normalizeItemName(String(kgRow.item_name)) : null;
+  const dcName = daycareRow?.item_name ? normalizeItemName(String(daycareRow.item_name)) : null;
+  if (!kgName && !dcName) return null;
+  if (kgName && dcName && kgName === dcName) {
+    return { merged: true, item_name: kgName, parts: null as null | Array<{ name: string }> };
+  }
+  const parts: Array<{ name: string }> = [];
+  if (kgName) parts.push({ name: kgName });
+  if (dcName) parts.push({ name: dcName });
+  return { merged: false, item_name: kgName || dcName, parts };
+}
+
+function getWeekItemsForLetter(weeklyLists: Array<Record<string, unknown>>, letter: string, weekNumber: number) {
+  const L = normalizeRotationLetter(letter);
+  const wn = Number(weekNumber);
+  if (!L || !Number.isFinite(wn)) return null;
+  const kg = weeklyLists.find((w) =>
+    normalizeRotationLetter(String(w.letter)) === L
+    && Number(w.week_number) === wn
+    && w.target_type === "유치원",
+  );
+  const daycare = weeklyLists.find((w) =>
+    normalizeRotationLetter(String(w.letter)) === L
+    && Number(w.week_number) === wn
+    && w.target_type === "어린이집",
+  );
+  return mergeWeeklyItemsForWeek(kg, daycare);
+}
+
+function resolveItemIdByName(items: Array<{ id: string; name?: string; alias?: string }>, sheetName: string) {
+  const raw = normalizeItemName(sheetName);
+  if (!raw) return null;
+  const hit = items.find((i) =>
+    normalizeItemName(i.name) === raw || normalizeItemName(i.alias) === raw,
+  );
+  return hit?.id || null;
+}
+
+function gearMatchesItem(
+  gear: { merged?: boolean; item_name?: string; parts?: Array<{ name: string }> | null },
+  itemId: string,
+  itemName: string,
+  items: Array<{ id: string; name?: string; alias?: string }>,
+) {
+  const names: string[] = [];
+  if (gear.merged && gear.item_name) names.push(gear.item_name);
+  else if (gear.parts?.length) names.push(...gear.parts.map((p) => p.name).filter(Boolean));
+  else if (gear.item_name) names.push(gear.item_name);
+
+  for (const name of names) {
+    const id = resolveItemIdByName(items, name);
+    if (id && id === itemId) return true;
+    if (itemName && normalizeItemName(name) === normalizeItemName(itemName)) return true;
+  }
+  return false;
+}
+
+function regularSessionsInWeek(
+  weeklySlots: Array<Record<string, unknown>>,
+  teacherId: string,
+  startYmd: string,
+  endYmd: string,
+) {
+  const start = parseLocalDay(startYmd);
+  const end = parseLocalDay(endYmd);
+  if (!start || !end) return [];
+
+  const sessions: Array<{ ymd: string }> = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    const ymd = toLocalYmd(cur);
+    const dow = cur.getDay();
+    for (const slot of weeklySlots) {
+      if (slot.teacher_id !== teacherId) continue;
+      if (Number(slot.day_of_week) !== dow) continue;
+      if (!isRegularClassSlot(slot as { class_type?: string; label?: string })) continue;
+      if (!slotEffectiveOn(slot as { effective_from?: string; effective_to?: string }, ymd)) continue;
+      sessions.push({ ymd });
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return sessions;
+}
+
+function findUpcomingRegularClassTeachersForItem(
+  ctx: {
+    teachers: Array<{ id: string; name?: string; active?: boolean; role?: string }>;
+    rotationSchedules: Array<{ teacher_id: string; year_month: string; assigned_letter: string }>;
+    weeklyLists: Array<Record<string, unknown>>;
+    monthWeeks: Array<{ year_month: string; week_number: number; week_start_date: string; week_end_date: string }>;
+    weeklySlotsAll: Array<Record<string, unknown>>;
+    items: Array<{ id: string; name?: string; alias?: string }>;
+  },
+  itemId: string,
+  itemName: string,
+  excludeTeacherId: string | null,
+  now = new Date(),
+) {
+  const thisWeek = getCalendarWeekRange(now);
+  const nextMonday = new Date(thisWeek.monday);
+  nextMonday.setDate(nextMonday.getDate() + 7);
+  const nextWeek = getCalendarWeekRange(nextMonday);
+  const weekRanges = [
+    { startYmd: thisWeek.startYmd, endYmd: thisWeek.endYmd },
+    { startYmd: nextWeek.startYmd, endYmd: nextWeek.endYmd },
+  ];
+
+  const activeTeachers = (ctx.teachers || []).filter(
+    (t) => t?.id && t.active !== false && t.role !== "superadmin",
+  );
+  const seen = new Set<string>();
+  const results: Array<{ teacherId: string; teacherName: string }> = [];
+
+  for (const range of weekRanges) {
+    const slots = (ctx.monthWeeks || []).filter(
+      (w) => w.week_start_date <= range.endYmd && w.week_end_date >= range.startYmd,
+    );
+    for (const slot of slots) {
+      const monthKey = String(slot.year_month || "").slice(0, 7);
+      for (const teacher of activeTeachers) {
+        if (excludeTeacherId && teacher.id === excludeTeacherId) continue;
+        if (seen.has(teacher.id)) continue;
+
+        const sched = (ctx.rotationSchedules || []).find(
+          (s) => s.teacher_id === teacher.id && String(s.year_month).startsWith(monthKey),
+        );
+        const letter = sched?.assigned_letter;
+        if (!letter) continue;
+
+        const gear = getWeekItemsForLetter(ctx.weeklyLists, letter, slot.week_number);
+        if (!gear || !gearMatchesItem(gear, itemId, itemName, ctx.items)) continue;
+
+        const sessions = regularSessionsInWeek(ctx.weeklySlotsAll, teacher.id, range.startYmd, range.endYmd);
+        if (!sessions.length) continue;
+
+        seen.add(teacher.id);
+        results.push({ teacherId: teacher.id, teacherName: teacher.name || "—" });
+      }
+    }
+  }
+
+  return results;
+}
+
+async function loadRegularClassGuideContext(adminClient) {
+  const now = new Date();
+  const startYear = schoolYearStartYear(now);
+  const ymKeys = schoolYearMonths(startYear).map((m) => yearMonthFirstDay(m));
+
+  const [
+    teachersRes,
+    itemsRes,
+    rotSchedRes,
+    weeklyListRes,
+    monthWeeksRes,
+    weeklySlotsRes,
+  ] = await Promise.all([
+    adminClient.from("teachers").select("id, name, active, role"),
+    adminClient.from("items").select("id, name, alias"),
+    adminClient.from("item_rotation_schedule")
+      .select("teacher_id, year_month, assigned_letter")
+      .in("year_month", ymKeys),
+    adminClient.from("item_weekly_lists").select("*"),
+    adminClient.from("item_rotation_month_weeks")
+      .select("year_month, week_number, week_start_date, week_end_date")
+      .in("year_month", ymKeys),
+    adminClient.from("institution_weekly_schedule")
+      .select("teacher_id, day_of_week, class_type, label, effective_from, effective_to"),
+  ]);
+
+  if (teachersRes.error) console.warn("[send-push] regular class guide teachers", teachersRes.error.message);
+  if (itemsRes.error) console.warn("[send-push] regular class guide items", itemsRes.error.message);
+
+  return {
+    teachers: teachersRes.data || [],
+    items: itemsRes.data || [],
+    rotationSchedules: rotSchedRes.data || [],
+    weeklyLists: weeklyListRes.data || [],
+    monthWeeks: monthWeeksRes.data || [],
+    weeklySlotsAll: weeklySlotsRes.data || [],
+  };
+}
+
 async function runOverdueReturnReminders(adminClient, vapid) {
   const today = kstYmd(0);
   console.log("[send-push] cron overdue return reminders", { today });
@@ -156,9 +408,13 @@ async function runOverdueReturnReminders(adminClient, vapid) {
   }
 
   const adminIds = await getTodoAdminIds(adminClient);
+  const regularClassCtx = overdueRows.length
+    ? await loadRegularClassGuideContext(adminClient)
+    : null;
 
   let teacherSent = 0;
   let adminSent = 0;
+  let regularClassHintSent = 0;
   let skipped = 0;
   const results = [];
 
@@ -238,6 +494,33 @@ async function runOverdueReturnReminders(adminClient, vapid) {
       had_rotation_conflict: Boolean(earliest),
     }, { onConflict: "rental_item_id,remind_date" });
 
+    let regularClassHintTargets = 0;
+    if (regularClassCtx) {
+      const upcomingTeachers = findUpcomingRegularClassTeachersForItem(
+        regularClassCtx,
+        row.item_id,
+        itemName,
+        teacherId,
+      );
+      regularClassHintTargets = upcomingTeachers.length;
+      if (upcomingTeachers.length) {
+        const hintBody =
+          `${itemName} 반납이 지연되고 있어요. 다음 주 정규수업에 필요하시면 미리 다른 교구를 준비하시는 것도 좋아요`;
+        const hintResult = await deliverPushNotifications(
+          adminClient,
+          vapid,
+          "rental_overdue_regular_class_hint",
+          {
+            teacherIds: upcomingTeachers.map((t) => t.teacherId),
+            title: "교구 반납 지연 참고",
+            body: hintBody,
+            url: "/gear",
+          },
+        );
+        regularClassHintSent += hintResult.sent;
+      }
+    }
+
     results.push({
       rental_item_id: row.id,
       item_name: itemName,
@@ -246,6 +529,7 @@ async function runOverdueReturnReminders(adminClient, vapid) {
       rotation: Boolean(earliest),
       teacher_sent: teacherResult.sent,
       admin_sent: adminResult.sent,
+      regular_class_hint_targets: regularClassHintTargets,
     });
   }
 
@@ -255,6 +539,7 @@ async function runOverdueReturnReminders(adminClient, vapid) {
     skipped,
     teacherSent,
     adminSent,
+    regularClassHintSent,
     results,
   };
   console.log("[send-push] cron overdue complete", summary);

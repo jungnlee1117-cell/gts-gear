@@ -141,7 +141,7 @@ function QuickRegisterModal({ itemName, items, onSave, onClose }) {
 }
 
 function WeekRow({
-  weekNumber, row, draft, dateRange, items, conflictLetters, monthKeyLabel,
+  weekNumber, targetType, row, draft, dateRange, items, conflictLetters, monthKeyLabel,
   highlighted, onDraftChange, onSave, onDelete, saving, onRegister,
 }) {
   const name = draft?.item_name ?? row?.item_name ?? "";
@@ -151,7 +151,7 @@ function WeekRow({
 
   return (
     <div
-      id={`gear-rotation-week-${weekNumber}`}
+      id={`gear-rotation-${targetType}-${weekNumber}`}
       style={{
       ...card, padding: "14px 16px",
       borderColor: highlighted ? DS.primary : hasConflict ? "#fcd34d" : card.border,
@@ -270,7 +270,6 @@ export default function GearRotationManagePage({
   me, items, onSaveItem, onReloadItems, PageHeader, PageShell,
 }) {
   const [letter, setLetter] = useState("A");
-  const [tab, setTab] = useState("유치원");
   const [monthKey, setMonthKey] = useState(yearMonthKey());
   const [weeklyLists, setWeeklyLists] = useState([]);
   const [rotationSchedule, setRotationSchedule] = useState([]);
@@ -358,13 +357,12 @@ export default function GearRotationManagePage({
 
   const jumpToRotation = (entry) => {
     setLetter(entry.letter);
-    setTab(entry.targetType);
     setDrafts({});
-    setHighlightWeek(entry.weekNumber);
+    setHighlightWeek(`${entry.targetType}|${entry.weekNumber}`);
     setSearchQuery("");
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     setTimeout(() => {
-      document.getElementById(`gear-rotation-week-${entry.weekNumber}`)?.scrollIntoView({
+      document.getElementById(`gear-rotation-${entry.targetType}-${entry.weekNumber}`)?.scrollIntoView({
         behavior: "smooth",
         block: "center",
       });
@@ -383,35 +381,35 @@ export default function GearRotationManagePage({
     return m;
   }, [monthWeeks]);
 
-  const rowsForView = useMemo(() => {
+  const rowsByTarget = useMemo(() => Object.fromEntries(TARGET_TYPES.map((targetType) => {
     const map = new Map();
     weeklyLists
-      .filter(w => w.letter === letter && w.target_type === tab)
+      .filter(w => w.letter === letter && w.target_type === targetType)
       .forEach(w => map.set(w.week_number, w));
-    return WEEKS.map(wn => ({ weekNumber: wn, row: map.get(wn) || null }));
-  }, [weeklyLists, letter, tab]);
+    return [targetType, WEEKS.map(wn => ({ weekNumber: wn, row: map.get(wn) || null }))];
+  })), [weeklyLists, letter]);
 
-  const draftKey = (wn) => `${letter}|${tab}|${wn}`;
+  const draftKey = (targetType, wn) => `${letter}|${targetType}|${wn}`;
 
-  const getDraft = (wn, row) => drafts[draftKey(wn)] ?? {
+  const getDraft = (targetType, wn, row) => drafts[draftKey(targetType, wn)] ?? {
     item_name: row?.item_name ?? "",
     is_air_product: row?.is_air_product ?? false,
     simple_activity: row?.simple_activity ?? "",
   };
 
-  const setDraft = (wn, patch) => {
-    const row = rowsForView.find(r => r.weekNumber === wn)?.row;
-    const prev = getDraft(wn, row);
-    setDrafts(p => ({ ...p, [draftKey(wn)]: { ...prev, ...patch } }));
+  const setDraft = (targetType, wn, patch) => {
+    const row = rowsByTarget[targetType].find(r => r.weekNumber === wn)?.row;
+    const prev = getDraft(targetType, wn, row);
+    setDrafts(p => ({ ...p, [draftKey(targetType, wn)]: { ...prev, ...patch } }));
   };
 
-  const saveWeek = async (weekNumber, row) => {
-    const draft = getDraft(weekNumber, row);
+  const saveWeek = async (targetType, weekNumber, row) => {
+    const draft = getDraft(targetType, weekNumber, row);
     const item_name = normalizeItemName(draft.item_name);
     if (!item_name) return;
 
     const conflicts = lettersConflictingForItem(weeklyLists, rotationSchedule, monthKey, {
-      targetType: tab,
+      targetType,
       itemName: item_name,
       excludeLetter: letter,
     });
@@ -423,11 +421,11 @@ export default function GearRotationManagePage({
       if (!ok) return;
     }
 
-    setSavingWeek(weekNumber);
+    setSavingWeek(`${targetType}|${weekNumber}`);
     const payload = {
       letter,
       week_number: weekNumber,
-      target_type: tab,
+      target_type: targetType,
       item_name,
       is_air_product: draft.is_air_product ?? isAirProductName(item_name, weekNumber),
       simple_activity: (draft.simple_activity || "").trim() || null,
@@ -446,7 +444,7 @@ export default function GearRotationManagePage({
     setWeeklyLists(prev => [...prev.filter(w => w.id !== row?.id), res.data]);
     setDrafts(p => {
       const n = { ...p };
-      delete n[draftKey(weekNumber)];
+      delete n[draftKey(targetType, weekNumber)];
       return n;
     });
   };
@@ -626,24 +624,6 @@ export default function GearRotationManagePage({
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        {TARGET_TYPES.map(t => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => { setTab(t); setDrafts({}); }}
-            style={{
-              flex: 1, padding: "10px 0", borderRadius: 12, border: "none", cursor: "pointer",
-              fontWeight: 700, fontSize: 14, fontFamily: "inherit",
-              background: tab === t ? DS.primary : "#f3f4f6",
-              color: tab === t ? "#fff" : DS.textSecondary,
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
       {loading && <div style={{ textAlign: "center", padding: 40, color: DS.textSecondary }}>불러오는 중...</div>}
       {!loading && error && (
         <div style={{ ...card, padding: 24, color: DS.danger, textAlign: "center" }}>{error}</div>
@@ -656,34 +636,46 @@ export default function GearRotationManagePage({
               <option key={opt.id} value={opt.name}>{opt.code ? `${opt.code}` : opt.name}</option>
             ))}
           </datalist>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {rowsForView.map(({ weekNumber, row }) => {
-            const mw = weeksMap.get(weekNumber);
-            const draft = getDraft(weekNumber, row);
-            const conflicts = lettersConflictingForItem(weeklyLists, rotationSchedule, monthKey, {
-              targetType: tab,
-              itemName: draft.item_name,
-              excludeLetter: letter,
-            });
-            return (
-              <WeekRow
-                key={weekNumber}
-                weekNumber={weekNumber}
-                row={row}
-                draft={draft}
-                dateRange={mw ? formatWeekRange(mw.week_start_date, mw.week_end_date) : null}
-                items={items}
-                conflictLetters={conflicts}
-                monthKeyLabel={monthKey.slice(0, 7)}
-                highlighted={highlightWeek === weekNumber}
-                saving={savingWeek === weekNumber}
-                onDraftChange={patch => setDraft(weekNumber, patch)}
-                onSave={() => saveWeek(weekNumber, row)}
-                onDelete={deleteRow}
-                onRegister={setRegisterName}
-              />
-            );
-          })}
+          <div className="gear-rotation-manage-columns">
+            {TARGET_TYPES.map((targetType) => (
+              <section key={targetType} className="gear-rotation-manage-column" aria-label={`${targetType} 순환 교구`}>
+                <header className="gear-rotation-manage-column__header">
+                  <span>{targetType === "유치원" ? "왼쪽" : "오른쪽"}</span>
+                  <h2>{targetType}</h2>
+                  <small>알파벳 {letter}</small>
+                </header>
+                <div className="gear-rotation-manage-column__weeks">
+                  {rowsByTarget[targetType].map(({ weekNumber, row }) => {
+                    const mw = weeksMap.get(weekNumber);
+                    const draft = getDraft(targetType, weekNumber, row);
+                    const conflicts = lettersConflictingForItem(weeklyLists, rotationSchedule, monthKey, {
+                      targetType,
+                      itemName: draft.item_name,
+                      excludeLetter: letter,
+                    });
+                    return (
+                      <WeekRow
+                        key={`${targetType}-${weekNumber}`}
+                        targetType={targetType}
+                        weekNumber={weekNumber}
+                        row={row}
+                        draft={draft}
+                        dateRange={mw ? formatWeekRange(mw.week_start_date, mw.week_end_date) : null}
+                        items={items}
+                        conflictLetters={conflicts}
+                        monthKeyLabel={monthKey.slice(0, 7)}
+                        highlighted={highlightWeek === `${targetType}|${weekNumber}`}
+                        saving={savingWeek === `${targetType}|${weekNumber}`}
+                        onDraftChange={patch => setDraft(targetType, weekNumber, patch)}
+                        onSave={() => saveWeek(targetType, weekNumber, row)}
+                        onDelete={deleteRow}
+                        onRegister={setRegisterName}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
         </>
       )}

@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Search, X } from "lucide-react";
 import { changeInstitutionManager } from "./api.js";
 import { filterClassTeacherAssignments } from "./assignmentRoles.js";
-import { transferInstitutionTeacher } from "./transferInstitutionTeacher.js";
+import {
+  buildClassTypeTransferGroups,
+  transferInstitutionTeachersByClassType,
+} from "./transferInstitutionTeacher.js";
 import { sendPushEvent } from "../pushNotifications.js";
 import { scheduleSupabase } from "./api.js";
 import { isTeacherVisibleInYearMonth } from "./teacherEmployment.js";
@@ -10,6 +13,11 @@ import { yearMonthKey } from "./constants.js";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function currentTeacherLabel(group) {
+  if (!group?.currentTeachers?.length) return "미지정";
+  return group.currentTeachers.map((t) => `${t.name} 선생님`).join(", ");
 }
 
 /**
@@ -102,76 +110,98 @@ export default function InstitutionTeacherTransferModal({
     [assignments],
   );
 
-  const currentTeachers = useMemo(() => {
-    const byId = new Map();
-    for (const a of classAssignments) {
-      if (!a?.teacher_id) continue;
-      byId.set(a.teacher_id, {
-        id: a.teacher_id,
-        name: a.teachers?.name || teacherList.find(t => t.id === a.teacher_id)?.name || "—",
-        pay_types: a.pay_types || ["정규", "방과후"],
-      });
-    }
-    for (const slot of weekly) {
-      if (!slot?.teacher_id || byId.has(slot.teacher_id)) continue;
-      const t = teacherList.find(x => x.id === slot.teacher_id);
-      byId.set(slot.teacher_id, {
-        id: slot.teacher_id,
-        name: t?.name || "—",
-        pay_types: ["정규", "방과후"],
-      });
-    }
-    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, "ko"));
-  }, [classAssignments, weekly, teacherList]);
+  const typeGroups = useMemo(
+    () => buildClassTypeTransferGroups({
+      weekly,
+      assignments: classAssignments,
+      teachers,
+    }),
+    [weekly, classAssignments, teachers],
+  );
 
-  const [fromTeacherId, setFromTeacherId] = useState("");
-  const [toTeacherId, setToTeacherId] = useState("");
-  const [transferDate, setTransferDate] = useState(todayISO);
-  const [transferWeekly, setTransferWeekly] = useState(true);
+  const [commonDate, setCommonDate] = useState(todayISO);
+  const [perTypeDates, setPerTypeDates] = useState(false);
+  const [typeTeacherIds, setTypeTeacherIds] = useState({});
+  const [typeDates, setTypeDates] = useState({});
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    if (currentTeachers.length >= 1 && !fromTeacherId) {
-      setFromTeacherId(currentTeachers[0].id);
-    }
-  }, [currentTeachers, fromTeacherId]);
-
-  const fromTeacher = currentTeachers.find(t => t.id === fromTeacherId) || null;
+    setTypeDates((prev) => {
+      const next = { ...prev };
+      for (const group of typeGroups) {
+        if (!next[group.classType]) next[group.classType] = commonDate;
+      }
+      return next;
+    });
+  }, [typeGroups, commonDate]);
 
   const teacherCandidates = useMemo(() => {
-    let list = teacherList.filter(t =>
-      t.id !== fromTeacherId
-      && isTeacherVisibleInYearMonth(t, yearMonthKey()),
-    );
+    const source = teacherList.length ? teacherList : teachers.filter(t => t.role === "teacher");
+    let list = source.filter(t => isTeacherVisibleInYearMonth(t, yearMonthKey()));
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(t => String(t.name || "").toLowerCase().includes(q));
     }
     return list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"));
-  }, [teacherList, fromTeacherId, search]);
+  }, [teacherList, teachers, search]);
+
+  const pendingTransfers = useMemo(() => {
+    return typeGroups.flatMap((group) => {
+      const toTeacherId = typeTeacherIds[group.classType] || "";
+      if (!toTeacherId) return [];
+      const currentIds = new Set(group.currentTeachers.map((t) => t.id));
+      if (currentIds.size === 1 && currentIds.has(toTeacherId)) return [];
+      return [{
+        classType: group.classType,
+        toTeacherId,
+        transferDate: perTypeDates
+          ? (typeDates[group.classType] || commonDate)
+          : commonDate,
+        toName: teacherCandidates.find((t) => t.id === toTeacherId)?.name
+          || teacherList.find((t) => t.id === toTeacherId)?.name
+          || "선택한 선생님",
+        fromLabel: currentTeacherLabel(group),
+      }];
+    });
+  }, [
+    typeGroups, typeTeacherIds, typeDates, perTypeDates, commonDate,
+    teacherCandidates, teacherList,
+  ]);
 
   const handleTeacherTransfer = async (e) => {
     e.preventDefault();
-    if (!fromTeacherId) return alert("현재 수업 선생님을 선택해 주세요.");
-    if (!toTeacherId) return alert("새 수업 선생님을 선택해 주세요.");
-    if (!transferDate) return alert("이관 시작일을 입력해 주세요.");
-    if (!transferWeekly) return alert("이관 항목을 하나 이상 선택해 주세요.");
-    if (!confirm(`${institution?.name || "기관"} 수업 선생님을 변경할까요?\n이관 시작일: ${transferDate}`)) {
+    if (!typeGroups.length) {
+      return alert("이관할 수업 유형이 없습니다. 시간표 또는 수업 선생님을 먼저 등록해 주세요.");
+    }
+    if (!pendingTransfers.length) {
+      return alert("변경할 유형의 새 선생님을 선택해 주세요. 선택하지 않은 유형은 그대로 유지됩니다.");
+    }
+    if (pendingTransfers.some((row) => !row.transferDate)) {
+      return alert("이관 시작일을 입력해 주세요.");
+    }
+
+    const lines = pendingTransfers
+      .map((row) => `${row.classType}: ${row.fromLabel} → ${row.toName} 선생님 (${row.transferDate})`)
+      .join("\n");
+    if (!confirm(`${institution?.name || "기관"} 수업 선생님을 유형별로 변경할까요?\n\n${lines}\n\n선택하지 않은 유형은 기존 선생님이 유지됩니다.`)) {
       return;
     }
 
     setSaving(true);
     try {
-      const result = await transferInstitutionTeacher({
+      const result = await transferInstitutionTeachersByClassType({
         institutionId: institution.id,
         institutionName: institution.name,
-        fromTeacherId,
-        toTeacherId,
-        transferDate,
-        transferWeeklySchedule: transferWeekly,
-        fromPayTypes: fromTeacher?.pay_types,
+        defaultTransferDate: commonDate,
+        transfers: pendingTransfers.map(({ classType, toTeacherId, transferDate }) => ({
+          classType,
+          toTeacherId,
+          transferDate,
+        })),
       });
-      alert(`수업 선생님 변경이 완료되었습니다.\n이관된 시간표 슬롯: ${result.weeklyTransferred}건`);
+      alert(
+        `수업 선생님 변경이 완료되었습니다.\n변경 유형: ${result.transferredTypes.join(", ") || "-"}\n이관된 시간표 슬롯: ${result.weeklyTransferred}건`,
+      );
       onDone?.();
       onClose?.();
     } catch (err) {
@@ -260,87 +290,115 @@ export default function InstitutionTeacherTransferModal({
         ) : (
           <form className="sch-form" onSubmit={handleTeacherTransfer}>
             <p className="sch-muted" style={{ marginTop: 0 }}>
-              수업 선생님은 실제 수업을 진행하는 선생님입니다. 시간표는 수업 선생님 기준으로 이관됩니다.
-              추가·제거만 하려면 상세의 &quot;수업 선생님&quot; 탭을 이용하세요.
+              수업 유형별로 새 선생님을 지정할 수 있습니다. 선택하지 않은 유형은 기존 선생님이 그대로 유지됩니다.
+              교구 순환·급여 단가·담당 관리자는 변경하지 않습니다.
             </p>
 
-            <div className="sch-field">
-              <span>현재 수업 선생님 *</span>
-              {currentTeachers.length === 0 ? (
-                <p className="sch-muted">등록된 수업 선생님이 없습니다. &quot;수업 선생님&quot; 탭에서 먼저 추가해 주세요.</p>
-              ) : currentTeachers.length === 1 ? (
-                <p style={{ margin: 0, fontWeight: 700 }}>{currentTeachers[0].name}</p>
-              ) : (
-                <select
-                  className="sch-select"
-                  value={fromTeacherId}
-                  onChange={e => {
-                    setFromTeacherId(e.target.value);
-                    setToTeacherId("");
-                  }}
-                  required
-                >
-                  {currentTeachers.map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
-              )}
-            </div>
+            {typeGroups.length === 0 ? (
+              <p className="sch-muted">등록된 수업 유형이 없습니다. 시간표 또는 &quot;수업 선생님&quot; 탭에서 먼저 추가해 주세요.</p>
+            ) : (
+              <>
+                <label className="sch-field">
+                  <span>새 선생님 검색</span>
+                  <div className="sch-search-inline">
+                    <Search size={16}/>
+                    <input
+                      className="sch-input"
+                      placeholder="이름으로 검색"
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                    />
+                  </div>
+                </label>
 
-            <label className="sch-field">
-              <span>새 수업 선생님 검색</span>
-              <div className="sch-search-inline">
-                <Search size={16}/>
-                <input
-                  className="sch-input"
-                  placeholder="이름으로 검색"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                />
-              </div>
-            </label>
+                <label className="sch-field">
+                  <span>이관 시작일 (공통) *</span>
+                  <input
+                    type="date"
+                    className="sch-input"
+                    value={commonDate}
+                    onChange={e => {
+                      const next = e.target.value;
+                      setCommonDate(next);
+                      if (!perTypeDates) {
+                        setTypeDates((prev) => {
+                          const mapped = { ...prev };
+                          for (const group of typeGroups) mapped[group.classType] = next;
+                          return mapped;
+                        });
+                      }
+                    }}
+                    required
+                  />
+                </label>
 
-            <label className="sch-field">
-              <span>새 수업 선생님 *</span>
-              <select
-                className="sch-select"
-                value={toTeacherId}
-                onChange={e => setToTeacherId(e.target.value)}
-                required
-                disabled={!fromTeacherId && currentTeachers.length > 0}
-              >
-                <option value="">선택하세요</option>
-                {teacherCandidates.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
-            </label>
+                <label className="sch-transfer-date-toggle">
+                  <input
+                    type="checkbox"
+                    checked={perTypeDates}
+                    onChange={e => setPerTypeDates(e.target.checked)}
+                  />
+                  <span>유형별로 이관 시작일 다르게 설정</span>
+                </label>
 
-            <label className="sch-field">
-              <span>이관 시작일 *</span>
-              <input
-                type="date"
-                className="sch-input"
-                value={transferDate}
-                onChange={e => setTransferDate(e.target.value)}
-                required
-              />
-            </label>
-
-            <div className="sch-field">
-              <span>이관 항목</span>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={transferWeekly}
-                  onChange={e => setTransferWeekly(e.target.checked)}
-                />
-                <span>수업 시간표</span>
-              </label>
-              <p className="sch-muted" style={{ marginTop: 8 }}>
-                교구 순환·급여 단가·담당 관리자는 변경하지 않습니다.
-              </p>
-            </div>
+                <div className="sch-transfer-type-list">
+                  {typeGroups.map((group) => {
+                    const selectedId = typeTeacherIds[group.classType] || "";
+                    return (
+                      <div key={group.classType} className="sch-transfer-type-card">
+                        <div className="sch-transfer-type-card-head">
+                          <div className="sch-transfer-type-name">{group.classType}</div>
+                          {selectedId ? (
+                            <span className="sch-transfer-type-badge">변경</span>
+                          ) : (
+                            <span className="sch-transfer-type-badge sch-transfer-type-badge--keep">유지</span>
+                          )}
+                        </div>
+                        <div className="sch-transfer-type-current">
+                          현재: {currentTeacherLabel(group)}
+                        </div>
+                        {group.slotSummary ? (
+                          <div className="sch-transfer-type-slots">{group.slotSummary}</div>
+                        ) : (
+                          <div className="sch-transfer-type-slots">등록된 시간표 슬롯 없음 (배정만 변경)</div>
+                        )}
+                        <label className="sch-field" style={{ marginBottom: 0 }}>
+                          <span>새 선생님</span>
+                          <select
+                            className="sch-select"
+                            value={selectedId}
+                            onChange={e => setTypeTeacherIds((prev) => ({
+                              ...prev,
+                              [group.classType]: e.target.value,
+                            }))}
+                          >
+                            <option value="">변경 안 함 (기존 유지)</option>
+                            {teacherCandidates.map((t) => (
+                              <option key={t.id} value={t.id}>{t.name} 선생님</option>
+                            ))}
+                          </select>
+                        </label>
+                        {perTypeDates ? (
+                          <label className="sch-field" style={{ marginBottom: 0, marginTop: 8 }}>
+                            <span>{group.classType} 이관 시작일</span>
+                            <input
+                              type="date"
+                              className="sch-input"
+                              value={typeDates[group.classType] || commonDate}
+                              onChange={e => setTypeDates((prev) => ({
+                                ...prev,
+                                [group.classType]: e.target.value,
+                              }))}
+                              required={Boolean(selectedId)}
+                            />
+                          </label>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
             <div className="sch-form-actions">
               <button type="button" className="sch-btn sch-btn--ghost" onClick={onClose} disabled={saving}>
@@ -349,7 +407,7 @@ export default function InstitutionTeacherTransferModal({
               <button
                 type="submit"
                 className="sch-btn sch-btn--primary"
-                disabled={saving || currentTeachers.length === 0}
+                disabled={saving || typeGroups.length === 0}
               >
                 {saving ? "처리 중..." : "수업 선생님 변경"}
               </button>

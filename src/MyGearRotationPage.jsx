@@ -21,12 +21,15 @@ import {
   clampToSchoolYear,
   findLessonPlanForKoreanItem,
   monthLabel,
+  resolveEnglishFromKorean,
+  buildAliasMaps,
   schoolYearStartYear,
 } from "./lessonPlan.js";
 import { itemPhotoStyle } from "./gearPhoto.js";
 import { buildCurrentRentals } from "./teacherGearStatus.js";
-import { isScheduleAdmin } from "./authRoles.js";
+import { isScheduleAdmin, isSuperAdmin } from "./authRoles.js";
 import TeacherRotationRentalStatusSection from "./TeacherRotationRentalStatusSection.jsx";
+import SuperadminMonthlyPlanEditor from "./SuperadminMonthlyPlanEditor.jsx";
 import {
   ROTATION_SEARCH_MODES,
   buildTeacherMonthAssignmentSummary,
@@ -185,6 +188,191 @@ function gearNamesForLessonPlan(gear) {
   if (gear.merged) return [gear.item_name].filter(Boolean);
   if (gear.parts?.length) return gear.parts.map(p => p.name).filter(Boolean);
   return [gear.item_name || gear.displayName].filter(Boolean);
+}
+
+function withObjectParticle(value) {
+  const text = String(value || "교구").trim();
+  const last = text.charCodeAt(text.length - 1);
+  const hasFinalConsonant = last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 !== 0;
+  return `${text}${hasFinalConsonant ? "을" : "를"}`;
+}
+
+function fallbackKoreanPlanText(name, ageGroup = "5") {
+  const value = String(name || "");
+  const objectName = withObjectParticle(value || "교구");
+  if (/꽃게.*낚시|낚시.*꽃게/i.test(value)) {
+    if (ageGroup === "3_4") return "가까이 놓인 꽃게와 문어를 고리로 천천히 낚아보며 눈과 손의 협응력과 소근육 조절력, 활동에 대한 자신감을 기릅니다.";
+    if (ageGroup === "7") return "정해진 시간 안에 서로 다른 점수의 바다 동물을 정확하게 낚아보며 거리 조절 능력과 집중력, 전략적 사고와 협동심을 기릅니다.";
+    return "거리와 위치가 다른 꽃게와 문어를 고리로 골라 낚아보며 눈과 손의 협응력과 거리 조절 능력, 집중력과 소근육 조절력을 기릅니다.";
+  }
+  if (/도넛/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 하나씩 옮겨 같은 색끼리 낮게 쌓아보며 눈과 손의 협응력과 소근육 조절력, 색 인지와 집중력을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 활용해 친구와 높고 안정적인 구조물을 설계하고 완성하며 공간 구성력과 문제 해결력, 협동심과 정교한 신체 조절력을 기릅니다.`;
+    return `${objectName} 색과 순서에 맞춰 높이 쌓고 다양한 모양을 구성하며 눈과 손의 협응력과 집중력, 공간 구성력과 신체 조절력을 기릅니다.`;
+  }
+  if (/에어\s*T\s*터널|에어\s*티\s*터널|T\s*터널|티\s*터널/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 낮게 넘어보고 터널 안을 천천히 기어 통과하며 대근육과 공간 인지력, 균형감각과 새로운 움직임에 대한 자신감을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 빠르게 점프해 넘고 오르기와 통과하기를 연속 과제로 수행하며 순발력과 코어 근력, 민첩성과 전신 협응력을 기릅니다.`;
+    return `${objectName} 점프해 넘고 위로 오른 뒤 터널을 통과하는 연속 활동을 통해 하체 근력과 전신 협응력, 균형감각과 공간 인지력을 기릅니다.`;
+  }
+  if (/에어.*(브릿지|다리)|레인보우.*브릿지/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 손으로 짚고 천천히 건넌 뒤 낮은 곳에서 안전하게 내려오며 균형감각과 대근육, 움직임에 대한 자신감을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 오르내리며 중간 지점에서 자세를 바꾸고 정해진 위치에 착지하는 활동으로 코어 근력과 민첩성, 정교한 균형 조절력을 기릅니다.`;
+    return `${objectName} 양팔로 균형을 잡아 끝까지 건너고 반환점을 돌아오는 활동을 통해 하체 근력과 균형감각, 집중력과 신체 조절력을 기릅니다.`;
+  }
+  if (/에어.*(클라이밍|둥근|동근)|클라이밍.*매트/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 손과 무릎을 이용해 완만한 면을 천천히 오르고 반대편으로 내려오며 대근육과 균형감각, 높이에 대한 자신감을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 여러 방향에서 빠르게 오르고 정상에서 자세를 유지한 뒤 안전하게 내려오며 코어 근력과 민첩성, 판단력을 기릅니다.`;
+    return `${objectName} 손과 발을 함께 사용해 정상까지 오른 뒤 몸의 중심을 조절하며 내려오는 활동으로 전신 근력과 협응력, 균형감각을 기릅니다.`;
+  }
+  if (/에어.*(삼각|사다리)|자이언트.*삼각/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 낮은 발판부터 차례로 손과 발을 옮겨 올라가며 대근육과 눈·손·발의 협응력, 높낮이 인지 능력을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 정해진 순서와 방향에 맞춰 빠르게 오르내리는 도전 활동으로 근지구력과 민첩성, 동작 계획 능력을 기릅니다.`;
+    return `${objectName} 발판의 위치를 살피며 한 칸씩 오르고 반대편으로 안전하게 내려오며 전신 협응력과 하체 근력, 공간 인지력을 기릅니다.`;
+  }
+  if (/에어.*(정글짐|스파이더|지네)/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 사이를 천천히 기어가고 몸을 낮춰 빠져나오며 대근육과 공간 인지력, 새로운 환경에 적응하는 자신감을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 안팎의 여러 경로를 스스로 선택해 빠르게 이동하며 민첩성과 문제 해결력, 전신 협응력과 협동심을 기릅니다.`;
+    return `${objectName} 사이의 길을 찾아 기어가고 넘으며 친구와 순서대로 코스를 완성해 공간 인지력과 전신 협응력, 판단력을 기릅니다.`;
+  }
+  if (/에어.*(트램폴린|바운스)/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 위에서 두 발로 가볍게 뛰고 멈추기를 반복하며 균형감각과 하체 근력, 리듬감과 자신감을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 위에서 점프 높이와 방향을 조절하고 신호에 맞춰 정확히 착지하며 순발력과 코어 근력, 신체 조절력을 기릅니다.`;
+    return `${objectName} 위에서 일정한 박자로 연속 점프하고 신호에 맞춰 안전하게 멈추며 하체 근력과 균형감각, 리듬감과 집중력을 기릅니다.`;
+  }
+  if (/에어.*허들/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 두 발로 낮게 넘어보고 부드럽게 착지하며 기본 점프 능력과 하체 근력, 균형감각을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 높이와 간격에 맞춰 연속으로 뛰어넘고 방향을 전환하며 순발력과 민첩성, 리듬 조절 능력을 기릅니다.`;
+    return `${objectName} 일정한 간격으로 연속 점프하고 마지막 지점에 안정적으로 착지하며 하체 근력과 전신 협응력, 거리 조절 능력을 기릅니다.`;
+  }
+  if (/밸런스|균형|징검|쿠션|스톤/i.test(value)) {
+    if (ageGroup === "3_4") return `${value} 위를 천천히 걷고 두 발로 멈춰 균형을 잡아보며 대근육과 균형감각, 기본적인 신체 조절력을 기릅니다.`;
+    if (ageGroup === "7") return `${value} 위에서 방향과 자세를 바꾸고 한 발 균형 과제를 수행하며 코어 근력과 집중력, 정교한 신체 조절력을 기릅니다.`;
+    return `${value} 위를 다양한 방향으로 걷고 정해진 자세로 멈춰보며 균형감각과 코어 근력, 공간 인지력과 신체 조절력을 기릅니다.`;
+  }
+  if (/파이프.*공.*나르|공.*파이프|공.*나르/i.test(value)) {
+    if (ageGroup === "3_4") return "파이프 위에 탁구공을 올려 중심을 잡고 가까운 거리까지 천천히 옮겨보며 눈과 손의 협응력과 집중력, 섬세한 힘 조절 능력을 기릅니다.";
+    if (ageGroup === "7") return "친구들과 여러 개의 파이프를 빠르게 연결해 탁구공을 떨어뜨리지 않고 목표 지점까지 운반하며 정교한 신체 조절력과 문제 해결력, 협동심을 기릅니다.";
+    return "파이프 위의 탁구공이 떨어지지 않도록 균형을 잡아 친구에게 전달하고, 파이프를 연결해 목표 지점까지 옮기며 눈과 손의 협응력과 집중력, 협동심을 기릅니다.";
+  }
+  if (/판.*뒤집|보드.*뒤집/i.test(value)) {
+    if (ageGroup === "3_4") return "보드 위에 두 발로 서서 중심을 잡고 같은 색을 찾아 천천히 뒤집어보며 균형감각과 색 인지, 눈과 손의 협응력을 기릅니다.";
+    if (ageGroup === "7") return "팀을 나누어 정해진 색의 보드를 빠르게 뒤집고 상대 팀의 움직임에 맞춰 전략적으로 이동하며 민첩성과 판단력, 협동심을 기릅니다.";
+    return "보드 위에서 안정적으로 중심을 잡은 뒤 신호에 맞는 색으로 빠르게 뒤집고 팀 대결을 해보며 균형감각과 순발력, 집중력과 협동심을 기릅니다.";
+  }
+  if (/스펀지.*체조.*볼|체조.*스펀지.*볼/i.test(value)) {
+    if (ageGroup === "3_4") return "스펀지 체조볼 위에 손과 발을 올려 천천히 중심을 잡고 낮게 건너가며 대근육과 균형감각, 새로운 움직임에 대한 자신감을 기릅니다.";
+    if (ageGroup === "7") return "스펀지 체조볼 위를 균형 있게 건너고 점프로 넘은 뒤 앞·뒤 구르기 동작을 연결하며 코어 근력과 유연성, 전신 협응력과 신체 조절력을 기릅니다.";
+    return "스펀지 체조볼 위에서 중심을 잡아 건너고 두 발로 점프해 넘은 뒤 앞 구르기에 도전하며 균형감각과 대근육, 전신 협응력과 자신감을 기릅니다.";
+  }
+  if (/공|볼|오자미|빈백|바스켓/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 가까운 거리에서 굴리고 두 손으로 받아보며 눈과 손의 협응력과 반응력, 기본적인 대근육 조절력을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 이동하며 정확한 목표로 던지고 빠르게 받아 연결하는 활동을 통해 민첩성과 정확성, 전신 협응력과 판단력을 기릅니다.`;
+    return `${objectName} 다양한 거리의 목표로 던지고 받으며 힘과 방향을 조절해 눈과 손의 협응력과 거리 감각, 대근육과 반응력을 기릅니다.`;
+  }
+  if (/줄넘|점프|허들/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 두 발로 천천히 넘어보고 안전하게 착지하며 하체 근력과 균형감각, 기본 점프 능력을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 연속으로 빠르게 넘고 방향을 전환하는 도전 활동을 통해 하체 근력과 순발력, 민첩성과 리듬감을 기릅니다.`;
+    return `${objectName} 앞·뒤·옆으로 리듬감 있게 연속 점프하며 하체 근력과 순발력, 균형감각과 전신 협응력을 기릅니다.`;
+  }
+  if (/에어|사다리|터널|옥타곤|삼각/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 손으로 충분히 탐색한 뒤 천천히 걷고 기어가며 말랑한 바닥의 변화를 경험해 대근육과 균형감각, 활동에 대한 자신감을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 활용해 점프, 방향 전환, 정지 동작을 연결하고 친구와 코스를 완성하며 민첩성과 근지구력, 판단력과 협동심을 기릅니다.`;
+    return `${objectName} 위에서 걷기와 기어가기, 멈추기 동작을 차례로 수행하며 몸의 중심을 조절해 균형감각과 전신 협응력, 집중력을 기릅니다.`;
+  }
+  if (/컵|도미노|블록|스택/i.test(value)) {
+    if (ageGroup === "3_4") return `${objectName} 하나씩 옮기고 낮게 쌓아보며 눈과 손의 협응력과 소근육 조절력, 집중력과 성취감을 기릅니다.`;
+    if (ageGroup === "7") return `${objectName} 활용해 친구와 정해진 구조를 빠르고 정확하게 완성하며 공간 구성력과 문제 해결력, 협동심을 기릅니다.`;
+    return `${objectName} 순서와 모양에 맞춰 옮기고 쌓으며 눈과 손의 협응력과 집중력, 공간 구성력과 신체 조절력을 기릅니다.`;
+  }
+  if (ageGroup === "3_4") return `${objectName} 천천히 탐색하고 간단한 이동 동작을 따라 하며 대근육과 균형감각, 기본적인 신체 조절력과 자신감을 기릅니다.`;
+  if (ageGroup === "7") return `${objectName} 활용한 복합 움직임 과제를 빠르고 정확하게 수행하며 민첩성과 전신 협응력, 판단력과 협동심을 기릅니다.`;
+  return `${objectName} 활용해 방향과 빠르기를 바꾸며 연속 동작을 수행해 전신 협응력과 대근육, 공간 인지력과 신체 조절력을 기릅니다.`;
+}
+
+function naturalEnglishEquipmentName(koreanName, registeredEnglishName = "") {
+  if (registeredEnglishName && !hasKorean(registeredEnglishName)) return registeredEnglishName;
+  const value = String(koreanName || "");
+  if (/꽃게.*낚시|낚시.*꽃게/i.test(value)) return "Crab Fishing Game";
+  if (/도넛/i.test(value)) return "Donut Rings";
+  if (/에어\s*T\s*터널|에어\s*티\s*터널|T\s*터널|티\s*터널/i.test(value)) return "Air T-Tunnel";
+  if (/에어.*터널|터널/i.test(value)) return "Air Tunnel";
+  if (/에어.*(둥근|동근).*클라이밍/i.test(value)) return "Air Round Climbing Mat";
+  if (/에어.*클라이밍|클라이밍.*매트/i.test(value)) return "Air Climbing Mat";
+  if (/에어.*장애물|장애물/i.test(value)) return "Air Obstacle Course";
+  if (/파이프.*공.*나르|공.*나르/i.test(value)) return "Pipe Ball Relay";
+  if (/판.*뒤집/i.test(value)) return "Flip Board Game";
+  if (/스펀지.*체조.*볼/i.test(value)) return "Sponge Exercise Balls";
+  if (/밸런스|균형|징검|스톤/i.test(value)) return "Balance Stepping Stones";
+  if (/오자미|빈백/i.test(value)) return "Bean Bags";
+  if (/바스켓/i.test(value)) return "Moving Basket";
+  if (/공|볼/i.test(value)) return "Soft Balls";
+  if (/줄넘/i.test(value)) return "Jump Rope";
+  if (/허들/i.test(value)) return "Hurdles";
+  if (/컵/i.test(value)) return "Jumbo Cups";
+  if (/도미노/i.test(value)) return "Domino Blocks";
+  if (/사다리/i.test(value)) return "Activity Ladder";
+  return "Movement Activity Equipment";
+}
+
+function fallbackEnglishPlanText(koreanName, englishName) {
+  const value = String(koreanName || "");
+  const equipment = englishName || naturalEnglishEquipmentName(value);
+  if (/꽃게.*낚시|낚시.*꽃게/i.test(value)) {
+    return "Children use rings to catch crabs, octopuses, and other sea-animal shapes. This playful fishing activity develops hand-eye coordination, fine motor control, concentration, and distance awareness.";
+  }
+  if (/도넛/i.test(value)) {
+    return "Children carry and stack the donut rings to build towers and create different shapes. The activity develops hand-eye coordination, fine motor control, concentration, and spatial awareness.";
+  }
+  if (/에어\s*T\s*터널|에어\s*티\s*터널|T\s*터널|티\s*터널/i.test(value)) {
+    return "Children jump over, climb onto, and crawl through the Air T-Tunnel in different ways. These movements strengthen the lower body and improve balance, whole-body coordination, and spatial awareness.";
+  }
+  if (/밸런스|균형|징검|쿠션|스톤/i.test(value)) {
+    return `Children step, stop, and balance on the ${equipment} using different body positions. The activity develops core strength, balance, concentration, and body control.`;
+  }
+  if (/파이프.*공.*나르|공.*파이프|공.*나르/i.test(value)) {
+    return "Children balance a table-tennis ball on a pipe, carry it carefully to a partner, and connect several pipes to move the ball to a target. The activity develops hand-eye coordination, concentration, precise force control, and teamwork.";
+  }
+  if (/판.*뒤집|보드.*뒤집/i.test(value)) {
+    return "Children balance on the boards, turn them over to match the correct color, and play a lively team challenge. The activity develops balance, reaction speed, color recognition, decision-making, and teamwork.";
+  }
+  if (/스펀지.*체조.*볼|체조.*스펀지.*볼/i.test(value)) {
+    return "Children balance and step across the sponge exercise balls, jump over them, and practice forward or backward rolls at an appropriate level. The activity develops core strength, flexibility, whole-body coordination, balance, and confidence.";
+  }
+  if (/공|볼|오자미|빈백|바스켓/i.test(value)) {
+    return `Children roll, throw, catch, and aim the ${equipment} at targets from different distances. The activity improves hand-eye coordination, distance control, reaction speed, and gross motor skills.`;
+  }
+  if (/줄넘|점프|허들/i.test(value)) {
+    return `Children jump over and move around the ${equipment} using different directions and rhythms. The activity develops lower-body strength, agility, balance, and whole-body coordination.`;
+  }
+  if (/에어|사다리|터널|옥타곤|삼각|클라이밍/i.test(value)) {
+    return `Children climb, cross, and move safely around the ${equipment} in different ways. The activity develops gross motor strength, balance, whole-body coordination, and spatial awareness.`;
+  }
+  if (/컵|도미노|블록|스택/i.test(value)) {
+    return `Children carry and stack the ${equipment} to build towers and create different structures. The activity develops hand-eye coordination, fine motor control, concentration, and spatial planning.`;
+  }
+  return `Children explore the ${equipment} through guided movement challenges and simple games. The activity develops coordination, body control, spatial awareness, and confidence.`;
+}
+
+function fallbackEnglishKeyExpression(koreanName) {
+  const value = String(koreanName || "");
+  if (/꽃게.*낚시|낚시.*꽃게/i.test(value)) return "Aim the ring and catch a sea animal!";
+  if (/도넛/i.test(value)) return "Stack the rings carefully and build it higher!";
+  if (/에어\s*T\s*터널|에어\s*티\s*터널|T\s*터널|티\s*터널/i.test(value)) return "Jump over, climb up, and crawl through!";
+  if (/파이프.*공.*나르|공.*나르/i.test(value)) return "Keep the ball steady and work together!";
+  if (/판.*뒤집/i.test(value)) return "Move quickly, flip the board, and change direction!";
+  if (/스펀지.*체조.*볼|체조.*스펀지.*볼/i.test(value)) return "Balance, jump over, and roll with control!";
+  if (/밸런스|균형|징검|쿠션|스톤/i.test(value)) return "Step slowly, stop, and keep your balance!";
+  if (/공|볼|오자미|빈백/i.test(value)) return "Aim, throw, and catch with both hands!";
+  if (/바스켓/i.test(value)) return "Look at the basket and throw gently!";
+  if (/줄넘|점프|허들/i.test(value)) return "Bend your knees, jump, and land softly!";
+  if (/에어|사다리|터널|옥타곤|삼각|클라이밍|장애물/i.test(value)) return "Climb carefully, move across, and finish the course!";
+  if (/컵|도미노|블록|스택/i.test(value)) return "Carry, stack, and build it together!";
+  return "Follow the course, control your body, and finish strong!";
+}
+
+function hasKorean(value) {
+  return /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(String(value || ""));
 }
 
 function LessonPlanPanel({ plan }) {
@@ -394,6 +582,7 @@ function Spinner({ text }) {
 export default function MyGearRotationPage({
   me,
   items,
+  itemSets = [],
   reqs,
   ris,
   rets,
@@ -407,6 +596,13 @@ export default function MyGearRotationPage({
   const schoolMonths = useMemo(() => schoolYearMonths(startYear), [startYear]);
   const canUseRotationSearch = isScheduleAdmin(me);
   const canViewRotationRentalStatus = isScheduleAdmin(me);
+  const canWritePrivateMonthlyPlan = isSuperAdmin(me);
+  const pageTabs = useMemo(
+    () => canWritePrivateMonthlyPlan
+      ? [...PAGE_TABS, { id: "monthly-plan", label: "월간 계획안 작성" }]
+      : PAGE_TABS,
+    [canWritePrivateMonthlyPlan],
+  );
 
   const [viewMonth, setViewMonth] = useState(() => clampToSchoolYear(todayMonth, startYear));
   const [loading, setLoading] = useState(true);
@@ -685,6 +881,62 @@ export default function MyGearRotationPage({
     }).filter(Boolean);
   }, [viewLetter, weeklyLists, viewMonthWeeks, items, heldIds]);
 
+  const monthlyPlanGearSuggestions = useMemo(() => {
+    const aliasMaps = buildAliasMaps(equipmentAliases);
+    if (!viewLetter) return [];
+    const planRows = [1, 2, 3, 4, 5].map((weekNumber) => ({
+      weekNumber,
+      gear: getWeekItemsForLetter(weeklyLists, viewLetter, weekNumber),
+    })).filter((row) => row.gear);
+    return planRows.map((row) => {
+      const gearEntries = resolveGearItemEntries(row.gear, items);
+      const options = gearEntries.map((entry) => {
+        const item = entry.item || null;
+        const koreanName = entry.name || item?.name || "";
+        const lessonPlan = findLessonPlanForKoreanItem(
+          lessonPlans,
+          equipmentAliases,
+          viewMonth,
+          row.weekNumber,
+          koreanName,
+        );
+        const englishNameCandidate = lessonPlan?.equipment_name_en
+          || resolveEnglishFromKorean(koreanName, aliasMaps)
+          || "";
+        const englishName = naturalEnglishEquipmentName(
+          koreanName,
+          hasKorean(englishNameCandidate) ? "" : englishNameCandidate,
+        );
+        const englishActivity = lessonPlan?.activity_description || "";
+        const keyExpression = lessonPlan?.key_expressions || "";
+        return {
+          id: item?.id || `${row.weekNumber}-${koreanName}`,
+          name: koreanName,
+          photoUrl: item?.photo_url || "",
+          activityDescription: fallbackKoreanPlanText(koreanName, "5"),
+          activityDescriptions: {
+            "3_4": fallbackKoreanPlanText(koreanName, "3_4"),
+            "5": fallbackKoreanPlanText(koreanName, "5"),
+            "7": fallbackKoreanPlanText(koreanName, "7"),
+          },
+          englishName,
+          englishActivity: englishActivity && !hasKorean(englishActivity)
+            ? englishActivity
+            : fallbackEnglishPlanText(koreanName, englishName),
+          keyExpression: keyExpression && !hasKorean(keyExpression)
+            ? keyExpression
+            : fallbackEnglishKeyExpression(koreanName),
+        };
+      }).filter((option) => option.name);
+      const first = options[0] || {};
+      return {
+        weekNumber: row.weekNumber,
+        ...first,
+        options,
+      };
+    });
+  }, [viewLetter, weeklyLists, items, lessonPlans, equipmentAliases, viewMonth]);
+
   const filteredRows = useMemo(
     () => monthWeekRows.filter(row => matchesFilter(filter, row.gear, items)),
     [monthWeekRows, filter, items],
@@ -733,7 +985,7 @@ export default function MyGearRotationPage({
 
       {canViewRotationRentalStatus ? (
         <div className="gear-rotation-page-tabs" role="tablist" aria-label="이번달 내 교구">
-          {PAGE_TABS.map((tab) => (
+          {pageTabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
@@ -1043,6 +1295,22 @@ export default function MyGearRotationPage({
             </div>
           )}
         </>
+      ) : pageTab === "monthly-plan" && canWritePrivateMonthlyPlan ? (
+        <SuperadminMonthlyPlanEditor
+          supabase={supabase}
+          me={me}
+          month={viewMonth}
+          onMonthChange={(nextMonth) => setViewMonth(clampToSchoolYear(nextMonth, startYear))}
+          suggestedActivities={monthlyPlanGearSuggestions}
+          programSuggestions={itemSets.map((program) => ({
+            id: program.id,
+            name: program.name,
+            englishName: program.alias || "",
+            description: program.usage_description || program.description || "",
+            photoUrl: program.photo_url || "",
+            requiredGear: (program.components || []).map((component) => component.name).filter(Boolean),
+          }))}
+        />
       ) : (
         <TeacherRotationRentalStatusSection
           items={items}

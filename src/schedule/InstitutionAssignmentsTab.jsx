@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { Plus, Search, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { PAY_TYPES } from "./constants.js";
 import { deactivateAssignment, saveAssignment } from "./api.js";
 import { filterClassTeacherAssignments } from "./assignmentRoles.js";
+import InstitutionTeacherPayTypesModal from "./InstitutionTeacherPayTypesModal.jsx";
 
 function formatAssignDate(iso) {
   if (!iso) return "—";
@@ -15,6 +16,7 @@ export default function InstitutionAssignmentsTab({
   assignments,
   teacherList,
   onRefresh,
+  canEdit = true,
 }) {
   const classAssignments = useMemo(
     () => filterClassTeacherAssignments(assignments),
@@ -28,6 +30,7 @@ export default function InstitutionAssignmentsTab({
     pay_types: ["정규"],
   });
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [editAssignment, setEditAssignment] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const assignedIds = useMemo(
@@ -99,11 +102,13 @@ export default function InstitutionAssignmentsTab({
       <p className="sch-muted" style={{ marginTop: 0 }}>
         실제 수업을 진행하는 선생님입니다. 담당 관리자(양의인·오정석 등)와는 별개입니다.
       </p>
-      <div className="sch-toolbar">
-        <button type="button" className="sch-btn sch-btn--primary" onClick={openModal}>
-          <Plus size={16}/> 수업 선생님 추가
-        </button>
-      </div>
+      {canEdit ? (
+        <div className="sch-toolbar">
+          <button type="button" className="sch-btn sch-btn--primary" onClick={openModal}>
+            <Plus size={16}/> 수업 선생님 추가
+          </button>
+        </div>
+      ) : null}
 
       <div className="sch-table-wrap">
         <table className="sch-table">
@@ -132,14 +137,27 @@ export default function InstitutionAssignmentsTab({
                 </td>
                 <td>{formatAssignDate(a.created_at)}</td>
                 <td>
-                  <button
-                    type="button"
-                    className="sch-icon-btn"
-                    aria-label="수업 선생님 제거"
-                    onClick={() => setConfirmDelete(a)}
-                  >
-                    <Trash2 size={16}/>
-                  </button>
+                  {canEdit ? (
+                    <div className="sch-table-actions">
+                      <button
+                        type="button"
+                        className="sch-icon-btn"
+                        title="수업 유형 수정"
+                        aria-label="수업 유형 수정"
+                        onClick={() => setEditAssignment(a)}
+                      >
+                        <Pencil size={16}/>
+                      </button>
+                      <button
+                        type="button"
+                        className="sch-icon-btn"
+                        aria-label="수업 선생님 제거"
+                        onClick={() => setConfirmDelete(a)}
+                      >
+                        <Trash2 size={16}/>
+                      </button>
+                    </div>
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -209,6 +227,14 @@ export default function InstitutionAssignmentsTab({
             </form>
           </div>
         </div>
+      ) : null}
+
+      {editAssignment ? (
+        <InstitutionTeacherPayTypesModal
+          assignment={editAssignment}
+          onClose={() => setEditAssignment(null)}
+          onSaved={onRefresh}
+        />
       ) : null}
 
       {confirmDelete ? (
