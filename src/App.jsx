@@ -1361,6 +1361,27 @@ function GtsHexLogo({ size = 36 }) {
 
 const GTS_LOGO_SRC = "/gts-logo.png";
 
+function GtsBrandMark({ size = 36, style }) {
+  return (
+    <span style={{
+      width: size,
+      height: size,
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+      flexShrink: 0,
+      ...style,
+    }}>
+      <img
+        src={GTS_LOGO_SRC}
+        alt="GTS"
+        style={{ width: size * 2, height: size, objectFit: "contain", transform: "scale(1.55)", display: "block" }}
+      />
+    </span>
+  );
+}
+
 function GtsLogo({ height = 36, style }) {
   const [failed, setFailed] = useState(false);
   if (failed) return <GtsHexLogo size={height} />;
@@ -1806,7 +1827,7 @@ function MobileNavDrawer({
           />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <GtsHexLogo size={32}/>
+              <GtsBrandMark size={32}/>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>GTS</div>
                 <div style={{ fontSize: 10, color: sb.muted, marginTop: 2 }}>대여 관리</div>
@@ -2781,7 +2802,7 @@ function LoginPage() {
       <div className="login-page-layout">
         <div className="login-brand">
           <div className="login-brand-head" style={{ display:"flex", alignItems:"center", gap:14, marginBottom:36 }}>
-            <GtsHexLogo size={44}/>
+            <GtsBrandMark size={48}/>
             <div style={{ textAlign:"left" }}>
               <div style={{ fontSize:22, fontWeight:800, color:LOGIN_GREEN, letterSpacing:"0.04em", fontFamily:"'Inter',sans-serif" }}>GTS</div>
               <div style={{ fontSize:13, color:"#334155", fontWeight:500, marginTop:2, fontFamily:"'Inter',sans-serif" }}>Management Platform</div>
@@ -11542,7 +11563,7 @@ function HubPage({ me, onSelect, onLogout }) {
 
       <header className="hub-topbar">
         <div className="hub-topbar__brand">
-          <GtsHexLogo size={32}/>
+          <GtsBrandMark size={34}/>
           <span className="hub-topbar__brand-text">GTS</span>
         </div>
         <div className="hub-topbar__actions">
@@ -11665,7 +11686,7 @@ function HubPage({ me, onSelect, onLogout }) {
 // 교구 대여 시스템
 // ═══════════════════════════════════════════════════════════════════════
 function gearHomePage(me) {
-  return isGearPlatformAdmin(me) ? "dashboard" : "notices";
+  return isGearPlatformAdmin(me) ? "dashboard" : "my-gear-rotation";
 }
 
 function removeRowById(rows, id) {
@@ -11697,7 +11718,7 @@ function parseGearAppUrl(search, me) {
   const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
   const home = gearHomePage(me);
   let page = params.get("page") || home;
-  if (page === "dashboard" && !isGearPlatformAdmin(me)) page = "notices";
+  if (page === "dashboard" && !isGearPlatformAdmin(me)) page = "my-gear-rotation";
   return {
     page,
     itemId: params.get("item"),
@@ -11792,7 +11813,7 @@ function EquipmentApp({ onBack, me, session }) {
     if (!me?.id) return;
     const params = new URLSearchParams(location.search.startsWith("?") ? location.search.slice(1) : location.search);
     if (params.get("page") === "dashboard" && !isGearPlatformAdmin(me)) {
-      setPage("notices", {}, { replace: true });
+      setPage("my-gear-rotation", {}, { replace: true });
     }
   }, [me?.id, me?.role, location.search, setPage]);
 

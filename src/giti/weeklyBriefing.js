@@ -5,6 +5,7 @@
 import {
   assignedLetterForMonth,
   findCurrentRotationWeekSlot,
+  findNextRotationWeekSlot,
   formatWeekRange,
   getCalendarWeekRange,
   getWeekItemsForLetter,
@@ -144,33 +145,26 @@ export function buildWeeklyBriefingCards({
   };
   const asOf = `${toYmd(now)} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
-  const empty = { calendarWeek, asOf, letter: null, cards: [] };
-
-  const slot = findCurrentRotationWeekSlot(monthWeeks, now);
-  if (!slot) return empty;
-
-  const monthKey = String(slot.year_month || "").slice(0, 7) || yearMonthKey(now);
-  const letter = me
-    ? assignedLetterForMonth(schedules, me, monthKey)
-    : (schedules || []).find((s) => String(s.year_month || "").startsWith(monthKey))?.assigned_letter || null;
-
-  if (!letter) return empty;
-
-  const gear = getWeekItemsForLetter(weeklyLists, letter, slot.week_number);
-  const parts = parseParts(gear);
-  if (!parts.length) return empty;
-
-  const availRange = rotationWeekRangeForSlot(slot)
-    || formatWeekRange(cal.startYmd, cal.endYmd)
-    || calendarWeek.label;
-
-  const sessions = sessionsInCalendarWeek(weeklySlots, cal.startYmd, cal.endYmd);
-  const institutions = [...new Set(sessions.map((s) => s.institution))];
+  const nextDate = new Date(cal.monday);
+  nextDate.setDate(cal.monday.getDate() + 7);
+  const nextCal = getCalendarWeekRange(nextDate);
+  const nextCalendarWeek = {
+    startYmd: nextCal.startYmd,
+    endYmd: nextCal.endYmd,
+    label: `${nextCal.startYmd.slice(5).replace("-", "/")} ~ ${nextCal.endYmd.slice(5).replace("-", "/")}`,
+  };
+  const currentSlot = findCurrentRotationWeekSlot(monthWeeks, now);
+  const nextSlot = findNextRotationWeekSlot(monthWeeks, now);
+  const periods = [
+    { key: "current", label: "이번 주 교구", slot: currentSlot, cal, calendarWeek },
+    { key: "next", label: "다음 주 교구", slot: nextSlot, cal: nextCal, calendarWeek: nextCalendarWeek },
+  ];
 
   /** @type {object[]} */
   const cards = [];
+  const letters = {};
 
-  const matchInstitutionsForTarget = (targetLabel) => {
+  const matchInstitutionsForTarget = (targetLabel, institutions) => {
     if (!institutions.length) return [null];
     if (!targetLabel) return institutions;
     const prefer = institutions.filter((name) => {
@@ -183,45 +177,73 @@ export function buildWeeklyBriefingCards({
     return prefer.length ? prefer : [null];
   };
 
-  for (const part of parts) {
-    const item = resolveItemRecord(items, part.itemName);
-    const age = ageMetaFromTarget(part.targetLabel);
-    const activities = recommendActivities(part.itemName, part.simpleActivity, age.ageBand);
-    const institutionList = parts.length > 1
-      ? matchInstitutionsForTarget(part.targetLabel)
-      : (institutions.length ? institutions : [null]);
+  for (const period of periods) {
+    const slot = period.slot;
+    if (!slot) continue;
+    const monthKey = String(slot.year_month || "").slice(0, 7) || yearMonthKey(period.cal.monday);
+    const letter = me
+      ? assignedLetterForMonth(schedules, me, monthKey)
+      : (schedules || []).find((s) => String(s.year_month || "").startsWith(monthKey))?.assigned_letter || null;
+    if (!letter) continue;
+    letters[period.key] = letter;
 
-    for (const institution of institutionList) {
-      const instSessions = institution
-        ? sessions.filter((s) => s.institution === institution)
-        : sessions;
-      const classTypes = [...new Set(instSessions.map((s) => s.classType).filter(Boolean))];
+    const parts = parseParts(getWeekItemsForLetter(weeklyLists, letter, slot.week_number));
+    if (!parts.length) continue;
+    const availRange = rotationWeekRangeForSlot(slot)
+      || formatWeekRange(period.cal.startYmd, period.cal.endYmd)
+      || period.calendarWeek.label;
+    const sessions = sessionsInCalendarWeek(weeklySlots, period.cal.startYmd, period.cal.endYmd);
+    const institutions = [...new Set(sessions.map((s) => s.institution))];
 
-      cards.push({
-        id: `${part.itemName}__${institution || "no-inst"}__${part.targetLabel || "all"}`,
-        gearName: item?.name || part.itemName,
-        sheetName: part.itemName,
-        photoUrl: item?.photo_url || null,
-        itemId: item?.id || null,
-        availabilityRange: availRange,
-        calendarWeekLabel: calendarWeek.label,
-        institution: institution,
-        classLabel: part.targetLabel
-          ? `${age.classLabel}${institution ? ` · ${institution}` : ""}`
-          : (institution || age.classLabel),
-        classTypes,
-        ageLabel: age.ageLabel,
-        ageBand: age.ageBand,
-        recommendedActivities: activities,
-        letter,
-        weekNumber: slot.week_number,
-        yearMonth: monthKey,
-        asOf,
-      });
+    for (const part of parts) {
+      const item = resolveItemRecord(items, part.itemName);
+      const age = ageMetaFromTarget(part.targetLabel);
+      const activities = recommendActivities(part.itemName, part.simpleActivity, age.ageBand);
+      const institutionList = parts.length > 1
+        ? matchInstitutionsForTarget(part.targetLabel, institutions)
+        : (institutions.length ? institutions : [null]);
+
+      for (const institution of institutionList) {
+        const instSessions = institution
+          ? sessions.filter((s) => s.institution === institution)
+          : sessions;
+        const classTypes = [...new Set(instSessions.map((s) => s.classType).filter(Boolean))];
+
+        cards.push({
+          id: `${period.key}__${part.itemName}__${institution || "no-inst"}__${part.targetLabel || "all"}`,
+          periodKey: period.key,
+          periodLabel: period.label,
+          gearName: item?.name || part.itemName,
+          sheetName: part.itemName,
+          photoUrl: item?.photo_url || null,
+          itemId: item?.id || null,
+          availabilityRange: availRange,
+          calendarWeekLabel: period.calendarWeek.label,
+          institution,
+          classLabel: part.targetLabel
+            ? `${age.classLabel}${institution ? ` · ${institution}` : ""}`
+            : (institution || age.classLabel),
+          classTypes,
+          ageLabel: age.ageLabel,
+          ageBand: age.ageBand,
+          recommendedActivities: activities,
+          letter,
+          weekNumber: slot.week_number,
+          yearMonth: monthKey,
+          asOf,
+        });
+      }
     }
   }
 
-  return { calendarWeek, asOf, letter, cards };
+  return {
+    calendarWeek,
+    nextCalendarWeek,
+    asOf,
+    letter: letters.current || null,
+    letters,
+    cards,
+  };
 }
 
 /** 지티 채팅에 넣을 포커스 문맥 + 첫 질문 */

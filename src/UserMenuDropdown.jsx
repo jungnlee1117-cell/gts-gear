@@ -32,7 +32,10 @@ export default function UserMenuDropdown({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="user-menu__name">{me?.name || "선생님"}님</span>
+        <span className="user-menu__profile-link" aria-hidden>
+          <Settings size={14} strokeWidth={2} />
+          내 정보
+        </span>
         <span className="user-menu__caret" aria-hidden>▾</span>
       </button>
       {open ? (

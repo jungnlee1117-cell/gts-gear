@@ -596,12 +596,15 @@ export default function MyGearRotationPage({
   const schoolMonths = useMemo(() => schoolYearMonths(startYear), [startYear]);
   const canUseRotationSearch = isScheduleAdmin(me);
   const canViewRotationRentalStatus = isScheduleAdmin(me);
-  const canWritePrivateMonthlyPlan = isSuperAdmin(me);
+  const canWritePrivateMonthlyPlan = isSuperAdmin(me) || me?.role === "teacher";
   const pageTabs = useMemo(
-    () => canWritePrivateMonthlyPlan
-      ? [...PAGE_TABS, { id: "monthly-plan", label: "월간 계획안 작성" }]
-      : PAGE_TABS,
-    [canWritePrivateMonthlyPlan],
+    () => {
+      const visible = canViewRotationRentalStatus ? PAGE_TABS : PAGE_TABS.filter((tab) => tab.id === "mine");
+      return canWritePrivateMonthlyPlan
+        ? [...visible, { id: "monthly-plan", label: "월간 계획안 작성" }]
+        : visible;
+    },
+    [canViewRotationRentalStatus, canWritePrivateMonthlyPlan],
   );
 
   const [viewMonth, setViewMonth] = useState(() => clampToSchoolYear(todayMonth, startYear));
@@ -983,7 +986,7 @@ export default function MyGearRotationPage({
         subtitle="이번 주 교구를 확인하고, 학년도 전체 월별 교구를 살펴볼 수 있습니다."
       />
 
-      {canViewRotationRentalStatus ? (
+      {pageTabs.length > 1 ? (
         <div className="gear-rotation-page-tabs" role="tablist" aria-label="이번달 내 교구">
           {pageTabs.map((tab) => (
             <button

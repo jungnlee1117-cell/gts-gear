@@ -18,7 +18,6 @@ import {
   canEditTeacherProfile,
   canUploadTeacherContract,
   canRevealTeacherSettlement,
-  canViewTeacherHrStatusList,
   canViewTeacherProfile,
   formatProfileDate,
   teacherActivityBadgeLabel,
@@ -32,7 +31,6 @@ import { MyProfileCareersSection, MyProfileCertificationsSection } from "./MyPro
 import {
   IdentityBadge,
   InfoCell,
-  MissingInfoAlert,
   ProfileGrid,
   ProfileValue,
 } from "./MyProfileFormField.jsx";
@@ -51,10 +49,6 @@ function emptyForm() {
     activity_status: "활동중",
     contract_type: "",
   };
-}
-
-function hrStatusOf(map, teacherId) {
-  return map?.[teacherId] || { settlement: "미등록", contract: "미등록" };
 }
 
 function teacherToForm(teacher) {
@@ -201,7 +195,6 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingBasic, setEditingBasic] = useState(false);
-  const [hrStatus, setHrStatus] = useState({});
   const [hrTick, setHrTick] = useState(0);
   const [hasPendingContract, setHasPendingContract] = useState(false);
   const [affiliation, setAffiliation] = useState("");
@@ -218,7 +211,6 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
   const canRevealSettlement = canRevealTeacherSettlement(me, requestedId);
   const canUploadContract = canUploadTeacherContract(me);
   const canSignContract = Boolean(me?.id && me.id === requestedId);
-  const canViewHrBadges = canViewTeacherHrStatusList(me);
   const displayEmail = requestedId === me?.id
     ? (session?.user?.email || profile?.email || "")
     : (profile?.email || "");
@@ -265,22 +257,6 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
       });
     return () => { cancelled = true; };
   }, [canBrowse, supabase]);
-
-  useEffect(() => {
-    if (!canViewHrBadges) {
-      setHrStatus({});
-      return undefined;
-    }
-    let cancelled = false;
-    invokeTeacherHr(supabase, "list_hr_status")
-      .then((data) => {
-        if (!cancelled) setHrStatus(data || {});
-      })
-      .catch(() => {
-        if (!cancelled) setHrStatus({});
-      });
-    return () => { cancelled = true; };
-  }, [canViewHrBadges, requestedId, hrTick, supabase]);
 
   useEffect(() => {
     if (!requestedId || !canView) {
@@ -412,19 +388,10 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
     );
   }
 
-  const selectedHr = hrStatusOf(hrStatus, requestedId);
-  const showContractMissing = canViewHrBadges && selectedHr.contract === "미등록";
-  const showSettlementMissing = canViewHrBadges && selectedHr.settlement !== "완료";
   const updatedLabel = formatProfileDate(profile?.updated_at || profile?.created_at);
   const roleLabel = teacherRoleLabel(profile?.role);
   const activityBadge = teacherActivityBadgeLabel(profile);
   const identityName = profile?.name || "선생님";
-
-  const openContractRegister = () => setTab("contract");
-  const openSettlementRegister = () => {
-    setTab("basic");
-    setSettlementEditing(true);
-  };
 
   return (
     <div className="my-profile-page">
@@ -473,22 +440,6 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
                 <IdentityBadge>{affiliation || "소속 미지정"}</IdentityBadge>
               </div>
             </div>
-            {showContractMissing || showSettlementMissing ? (
-              <div className="my-profile-missing-list">
-                {showContractMissing ? (
-                  <MissingInfoAlert
-                    label="계약서 미등록"
-                    onRegister={canUploadContract ? openContractRegister : undefined}
-                  />
-                ) : null}
-                {showSettlementMissing ? (
-                  <MissingInfoAlert
-                    label="정산정보 미등록"
-                    onRegister={canHr ? openSettlementRegister : undefined}
-                  />
-                ) : null}
-              </div>
-            ) : null}
           </div>
         </section>
 

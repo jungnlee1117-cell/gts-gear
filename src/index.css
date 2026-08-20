@@ -215,6 +215,18 @@ body {
   border-color: #cbd5e1;
   background: #f8fafc;
 }
+.user-menu__profile-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 5px;
+  padding-left: 10px;
+  border-left: 1px solid #e2e8f0;
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 .user-menu__caret { font-size: 10px; color: #64748b; }
 .user-menu__dropdown {
   position: absolute;
@@ -267,6 +279,12 @@ body {
   box-shadow: none;
 }
 .sch-user-menu-trigger:hover { background: transparent; }
+@media (max-width: 640px) {
+  .user-menu__profile-link {
+    padding-left: 7px;
+    margin-left: 2px;
+  }
+}
 
 .my-profile-page {
   min-height: 100vh;

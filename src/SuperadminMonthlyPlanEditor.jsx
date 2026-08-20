@@ -639,10 +639,10 @@ export default function SuperadminMonthlyPlanEditor({
   if (loading) return <div className="monthly-plan-editor monthly-plan-editor--loading">계획안을 불러오는 중...</div>;
 
   return (
-    <section className="monthly-plan-editor" aria-label="슈퍼관리자 월간 계획안 작성">
+    <section className="monthly-plan-editor" aria-label="월간 계획안 작성">
       <div className="monthly-plan-editor__toolbar">
         <div>
-          <span className="monthly-plan-editor__eyebrow">슈퍼관리자 전용 · 임시저장</span>
+          <span className="monthly-plan-editor__eyebrow">내 월간 계획안 · 임시저장</span>
           <h2><FileText size={21} /> 월간 계획안 작성</h2>
           <p>한국어는 연령별로, 영어는 공통 계획안 한 장으로 작성합니다.</p>
         </div>

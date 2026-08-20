@@ -25,7 +25,7 @@ function BriefingCard({ card, onAsk }) {
         )}
       </div>
       <div className="weekly-briefing-card__body">
-        <p className="weekly-briefing-card__eyebrow">이번 주 브리핑</p>
+        <p className="weekly-briefing-card__eyebrow">{card.periodLabel || "이번 주 교구"}</p>
         <h3 className="weekly-briefing-card__title">{card.gearName}</h3>
         <p className="weekly-briefing-card__meta">
           사용 가능 기간 · {card.availabilityRange}
@@ -53,7 +53,7 @@ function BriefingCard({ card, onAsk }) {
 }
 
 /**
- * 선생님 홈(공지) — 이번 주 교구 브리핑 카드
+ * 선생님 홈 — 이번 주·다음 주 교구 브리핑 카드
  * 복수 배정 시 카드 분리 (교구×기관)
  */
 export default function WeeklyBriefingSection({ me, items }) {
@@ -106,7 +106,7 @@ export default function WeeklyBriefingSection({ me, items }) {
     return (
       <section className="weekly-briefing-section" aria-busy="true">
         <div className="weekly-briefing-section__intro">
-          <h2 className="weekly-briefing-section__title">이번 주 브리핑</h2>
+          <h2 className="weekly-briefing-section__title">이번 주·다음 주 브리핑</h2>
           <p className="weekly-briefing-section__sub">배정 정보를 불러오는 중…</p>
         </div>
       </section>
@@ -117,9 +117,9 @@ export default function WeeklyBriefingSection({ me, items }) {
     return (
       <section className="weekly-briefing-section">
         <div className="weekly-briefing-section__intro">
-          <h2 className="weekly-briefing-section__title">이번 주 브리핑</h2>
+          <h2 className="weekly-briefing-section__title">이번 주·다음 주 브리핑</h2>
           <p className="weekly-briefing-section__sub">
-            이번 주(월~일) 확인 가능한 교구 배정이 없습니다.
+            이번 주와 다음 주에 확인 가능한 교구 배정이 없습니다.
           </p>
         </div>
       </section>
@@ -127,13 +127,13 @@ export default function WeeklyBriefingSection({ me, items }) {
   }
 
   return (
-    <section className="weekly-briefing-section" aria-label="이번 주 브리핑">
+    <section className="weekly-briefing-section" aria-label="이번 주와 다음 주 브리핑">
       <div className="weekly-briefing-section__intro">
-        <h2 className="weekly-briefing-section__title">이번 주 브리핑</h2>
+        <h2 className="weekly-briefing-section__title">이번 주·다음 주 브리핑</h2>
         <p className="weekly-briefing-section__sub">
-          {briefing.calendarWeek?.label
-            ? `${briefing.calendarWeek.label} (월~일)`
-            : "이번 주"}
+          {briefing.calendarWeek?.label && briefing.nextCalendarWeek?.label
+            ? `${briefing.calendarWeek.label} / ${briefing.nextCalendarWeek.label} (월~일)`
+            : "이번 주·다음 주"}
           {" · "}
           배정 교구와 반별로 나눠 보여드려요.
           {briefing.asOf ? ` · 기준 ${briefing.asOf}` : ""}
