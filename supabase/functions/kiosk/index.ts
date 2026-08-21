@@ -41,7 +41,82 @@ function todayYmd(offsetDays = 0) {
 }
 
 function normalizeItemName(value: string) {
-  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+/** 시트 교구명 → DB items.name (itemRotation.js 와 동일 매핑) */
+const ITEM_NAME_ALIASES: Record<string, string> = {
+  "사각징검다리/방구": "밸런스 징검다리",
+  "에어허들": "에어 허들",
+  "딱딱이컵": "스태킹컵(작은컵)",
+  "스태킹컵 (작은컵)": "스태킹컵(작은컵)",
+  "에어도넛": "에어 도넛",
+  "에어브릿지": "레인보우 브릿지",
+  "에어사각브릿지": "레인보우 브릿지",
+  "에어스파이더": "에어 스파이더",
+  "에어지네": "에어 지네",
+  "에어클라이밍": "에어 둥근 클라이밍 매트",
+  "에어삼각사다리": "에어 자이언트 삼각다리",
+  "에어정글짐": "에어 정글짐",
+  "에어옥타곤": "에어 T 터널",
+  "에어트램폴린": "에어트램폴린",
+  "에어T터널": "에어 T 터널",
+  "에어사다리": "에어 사다리",
+  "에어육각": "에어 T 터널",
+  "스테핑 스톤(스켈레톤)": "밸런스 스톤 세트",
+  "도미노(벽돌)": "미니 도미노",
+  "매트(구르기)": "롱매트 (long matt)",
+  "아이짐징검다리": "아이짐 원형링",
+  "모양징검다리": "모양 징검다리",
+  "원형징검다리": "원형 징검다리",
+  "악어징검다리": "악어 징검다리",
+  "웨이브징검다리": "웨이브징검다리",
+  "무빙바스켓": "무빙 바스켓",
+  "애벌레징검다리": "애벌레 징검다리",
+  "밸런스쿠션": "밸런스 쿠션",
+  "고슴도치쿠션": "고슴도치공",
+  "점핑블럭": "점핑 블럭",
+  "점보컵쌓기": "점보컵",
+  "파이프공나르기": "파이프 공 나르기",
+  "타이어굴리기": "타이어",
+  "캐치볼": "캐치볼 (Catchball)",
+  "축구공": "축구공 3호",
+  "호핑볼": "호핑볼 (Hopping ball)",
+  "풍선치기": "풍선 라켓",
+  "플라잉디스크": "플라잉디스크",
+  "런닝맨": "런닝맨 (벨크로 조끼)",
+  "노랑터널": "노랑허들",
+  "사각매트": "사각매트 (rectangle matt)",
+  "터널통과하기": "무지개터널",
+  "터널통과": "무지개터널",
+  "다트축구공": "축구공 3호",
+  "펭귄놀이": "펭귄수트",
+  "집게": "로봇집게",
+  "미니스틱": "미니 하키스틱",
+  "스펀지 체조볼": "에어 체조볼 (Gymnastic ball)",
+};
+
+function resolveCatalogItem(
+  items: Array<{ id: string; name: string; alias?: string | null }>,
+  sheetName: string,
+) {
+  const raw = normalizeItemName(sheetName);
+  if (!raw) return null;
+  const alias = ITEM_NAME_ALIASES[raw];
+  const candidates = [raw, alias].filter(Boolean);
+  for (const c of candidates) {
+    const exact = items.find((i) =>
+      normalizeItemName(i.name) === c || normalizeItemName(i.alias || "") === c
+    );
+    if (exact) return exact;
+  }
+  // 부분 일치 폴백
+  const compact = raw.replace(/\s+/g, "");
+  return items.find((i) => {
+    const n = normalizeItemName(i.name).replace(/\s+/g, "");
+    const a = normalizeItemName(i.alias || "").replace(/\s+/g, "");
+    return n.includes(compact) || compact.includes(n) || (a && (a.includes(compact) || compact.includes(a)));
+  }) || null;
 }
 
 function formatKoMonthDay(ymd: string) {
@@ -78,9 +153,9 @@ function monthsSpanned(startYmd: string, endYmd: string) {
 
 /**
  * 교구별 다가오는 정규수업(순환) 안내.
- * 표시 문구: "O월 O일까지 [선생님]의 정규수업 예정"
+ * 표시 문구: "O월 O일까지 [선생님] 정규수업"
  */
-async function loadRotationGuides(admin, items: Array<{ id: string; name: string }>) {
+async function loadRotationGuides(admin, items: Array<{ id: string; name: string; alias?: string | null }>) {
   const fromYmd = todayYmd(0);
   const toYmd = todayYmd(70);
   const months = monthsSpanned(fromYmd, toYmd);
@@ -114,19 +189,16 @@ async function loadRotationGuides(admin, items: Array<{ id: string; name: string
       .filter((t) => t.active !== false && !t.resigned_at && t.role !== "superadmin")
       .map((t) => [t.id, t.name]),
   );
-  const itemByNorm = new Map();
-  for (const it of items) {
-    itemByNorm.set(normalizeItemName(it.name), it);
-  }
 
   const byItem = new Map();
   for (const sched of schedules) {
     const teacherName = teacherMap.get(sched.teacher_id);
     if (!teacherName) continue;
-    const weeksForMonth = monthWeeks.filter((w) => w.year_month === sched.year_month);
+    const schedYm = String(sched.year_month || "").slice(0, 7);
+    const weeksForMonth = monthWeeks.filter((w) => String(w.year_month || "").slice(0, 7) === schedYm);
     const assignedRows = weeklyLists.filter((w) => w.letter === sched.assigned_letter);
     for (const row of assignedRows) {
-      const item = itemByNorm.get(normalizeItemName(row.item_name));
+      const item = resolveCatalogItem(items, row.item_name);
       if (!item) continue;
       const mw = weeksForMonth.find((w) => Number(w.week_number) === Number(row.week_number));
       if (!mw?.week_start_date || !mw?.week_end_date) continue;
@@ -140,7 +212,7 @@ async function loadRotationGuides(admin, items: Array<{ id: string; name: string
         week_end: mw.week_end_date,
         until_ymd: untilYmd,
         target_type: row.target_type || null,
-        label: `${formatKoMonthDay(untilYmd)}까지 ${teacherName}의 정규수업 예정`,
+        label: `${formatKoMonthDay(untilYmd)}까지 ${teacherName} 정규수업`,
       };
       const list = byItem.get(item.id) || [];
       const dedupeKey = `${entry.teacher_id}|${entry.week_start}|${entry.week_end}`;
@@ -312,7 +384,7 @@ async function loadCatalogStock(admin) {
   const [{ data: items, error: iErr }, { data: ris }, { data: rets }] = await Promise.all([
     admin
       .from("items")
-      .select("id, code, name, category, branch, total_quantity, photo_url, status")
+      .select("id, code, name, alias, category, branch, total_quantity, photo_url, status")
       .eq("status", "available")
       .order("code"),
     admin.from("rental_items").select("id, item_id, quantity, status"),
@@ -325,6 +397,7 @@ async function loadCatalogStock(admin) {
       id: it.id,
       code: it.code,
       name: it.name,
+      alias: it.alias || null,
       category: it.category,
       branch: it.branch,
       photo_url: it.photo_url || null,

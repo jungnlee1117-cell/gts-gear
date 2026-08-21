@@ -133,7 +133,7 @@ function RotationGuideLines({ guides }) {
     <div className="kiosk-rotation-guides">
       {lines.map((g) => (
         <div key={`${g.teacher_id}-${g.week_start}-${g.label}`} className="kiosk-rotation-guide">
-          {g.label || `${formatKoMonthDay(g.until_ymd)}까지 ${g.teacher_name}의 정규수업 예정`}
+          {g.label || `${formatKoMonthDay(g.until_ymd)}까지 ${g.teacher_name} 정규수업`}
         </div>
       ))}
     </div>
@@ -409,7 +409,7 @@ export default function KioskApp() {
 
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [location, setLocation] = useState(BRANCHES[0]);
+  const [location, setLocation] = useState("사무실");
 
   // rent / return shared wizard
   const [step, setStep] = useState("pick"); // pick | cart | qty | teacher | pin | list
@@ -801,14 +801,19 @@ export default function KioskApp() {
       setFlowError("재고 목록에서 교구를 찾지 못했습니다.");
       return;
     }
-    if (catalogItem.available <= 0) {
-      setFlowError("재고가 없습니다.");
-      return;
-    }
     setTeacherPin("");
     setFlowError("");
     pinSubmitting.current = false;
     setRentFromWeek(true);
+    if (cart.some((c) => c.id === catalogItem.id)) {
+      removeFromCart(catalogItem.id);
+      setToastMsg("선택 해제했어요");
+      return;
+    }
+    if (catalogItem.available <= 0) {
+      setFlowError("재고가 없습니다.");
+      return;
+    }
     if (addToCart(catalogItem, 1)) {
       setToastMsg("장바구니에 담겼어요!");
     }
@@ -825,7 +830,16 @@ export default function KioskApp() {
   };
 
   const pickItemForRent = (item) => {
-    addToCart(item, 1);
+    if (!item?.id) return;
+    if (cart.some((c) => c.id === item.id)) {
+      removeFromCart(item.id);
+      setFlowError("");
+      setToastMsg("선택 해제했어요");
+      return;
+    }
+    if (addToCart(item, 1)) {
+      setToastMsg("장바구니에 담겼어요!");
+    }
   };
 
   const goRentCart = () => {
@@ -873,7 +887,7 @@ export default function KioskApp() {
       const data = await invokeKioskPublic("rent_batch", {
         teacher_id: selectedTeacher.id,
         teacher_pin: pin,
-        location,
+        location: "사무실",
         items: cart.map((c) => ({ item_id: c.id, quantity: c.quantity })),
         conflict_reason: reason,
         conflict_assignee_ids: force || conflictAckRef.current
@@ -1018,6 +1032,25 @@ export default function KioskApp() {
   }
 
   const showBack = mode !== "home";
+  const screenTitle = (() => {
+    if (mode === "home") return "";
+    if (mode === "browse") return "교구 둘러보기";
+    if (mode === "rent" && step === "pick") {
+      return selectedTeacher ? `${selectedTeacher.name} · 교구 담기` : "교구 담기";
+    }
+    if (mode === "rent" && step === "cart") return "장바구니";
+    if (mode === "rent" && step === "teacher") return "누가 가져가세요?";
+    if (mode === "rent" && step === "pin") return "PIN 입력";
+    if (mode === "return" && step === "teacher") return "누가 반납하세요?";
+    if (mode === "return" && step === "pin") return "PIN 입력";
+    if (mode === "return" && step === "pick") return "반납할 교구";
+    if (mode === "return" && step === "qty") return "반납 수량";
+    if (mode === "week" && step === "teacher") return "선생님 선택";
+    if (mode === "week" && step === "list") {
+      return selectedTeacher ? `${selectedTeacher.name} · 이번달 내 교구` : "이번달 교구";
+    }
+    return "";
+  })();
 
   return (
     <div className="kiosk-page">
@@ -1048,7 +1081,7 @@ export default function KioskApp() {
           }}
         />
       ) : null}
-      <header className="kiosk-top">
+      <header className={`kiosk-top${showBack ? " kiosk-top--nav" : ""}`}>
         <div className="kiosk-top-left">
           {showBack ? (
             <button
@@ -1091,6 +1124,9 @@ export default function KioskApp() {
             <div className="kiosk-brand">GTS 키오스크</div>
           )}
         </div>
+        {showBack && screenTitle ? (
+          <div className="kiosk-top-title" aria-live="polite">{screenTitle}</div>
+        ) : null}
         <div className="kiosk-top-right">
           {mode === "week" && step === "list" ? (
             <button type="button" className="kiosk-home-top" onClick={goHome} aria-label="홈으로">
@@ -1190,18 +1226,13 @@ export default function KioskApp() {
 
         {(mode === "browse" || (mode === "rent" && step === "pick")) ? (
           <div className={`kiosk-browse${mode === "rent" && cart.length ? " kiosk-browse--with-cart" : ""}`}>
-            <h1>
-              {mode === "rent"
-                ? (selectedTeacher ? `${selectedTeacher.name} · 교구 담기` : "교구 담기")
-                : "교구 둘러보기"}
-            </h1>
             {mode === "rent" ? (
-              <p className="kiosk-week-meta">
-                교구를 누르면 장바구니에 담깁니다.{" "}
+              <div className="kiosk-rent-toolbar">
+                <p className="kiosk-rent-hint">교구를 누르면 장바구니에 담깁니다.</p>
                 <button type="button" className="kiosk-inline-link" onClick={startBrowse}>
                   둘러보기만 하기
                 </button>
-              </p>
+              </div>
             ) : null}
             <div className="kiosk-search-wrap">
               <Search size={20} aria-hidden />
@@ -1254,22 +1285,21 @@ export default function KioskApp() {
             ) : null}
             {flowError ? <p className="kiosk-error">{flowError}</p> : null}
             {mode === "rent" && cart.length ? (
-              <div className="kiosk-cart-bar">
-                <div className="kiosk-cart-bar-info">
-                  <ShoppingBag size={22} />
-                  <span>{cart.length}종 · 총 {cartCount}개</span>
-                </div>
-                <button type="button" className="kiosk-btn kiosk-btn--primary kiosk-cart-bar-btn" onClick={goRentCart}>
-                  장바구니 보기
-                </button>
-              </div>
+              <button
+                type="button"
+                className="kiosk-cart-fab"
+                onClick={goRentCart}
+                aria-label="장바구니 보기"
+              >
+                <ShoppingBag size={20} />
+                <span>{cart.length}종 총 {cartCount}개 · 장바구니 보기</span>
+              </button>
             ) : null}
           </div>
         ) : null}
 
         {mode === "rent" && step === "cart" ? (
-          <div className="kiosk-panel kiosk-panel--wide">
-            <h1>장바구니</h1>
+          <div className="kiosk-panel kiosk-panel--wide kiosk-panel--cart">
             {rentFromWeek && selectedTeacher ? (
               <p className="kiosk-week-meta">{selectedTeacher.name}님 · PIN은 대여 확정 시에만 입력합니다</p>
             ) : null}
@@ -1296,12 +1326,6 @@ export default function KioskApp() {
               ))}
               {!cart.length ? <p className="kiosk-muted">장바구니가 비어 있습니다.</p> : null}
             </div>
-            <label className="kiosk-field">
-              <span>수령 위치</span>
-              <select value={location} onChange={(e) => setLocation(e.target.value)} aria-label="수령 위치">
-                {BRANCHES.map((b) => <option key={b} value={b}>{b}</option>)}
-              </select>
-            </label>
             {flowError ? <p className="kiosk-error">{flowError}</p> : null}
             <button
               type="button"
@@ -1309,21 +1333,13 @@ export default function KioskApp() {
               disabled={!cart.length}
               onClick={goRentTeacherOrPin}
             >
-              {rentFromWeek && selectedTeacher ? "다음 · PIN 입력" : "다음 · 선생님 선택"}
-            </button>
-            <button type="button" className="kiosk-btn kiosk-btn--ghost" onClick={() => setStep("pick")}>
-              교구 더 담기
+              다음
             </button>
           </div>
         ) : null}
 
         {((mode === "rent" && step === "teacher") || (mode === "return" && step === "teacher") || (mode === "week" && step === "teacher")) ? (
-          <div className="kiosk-panel">
-            <h1>
-              {mode === "week"
-                ? "선생님 선택"
-                : `누가 ${mode === "rent" ? "가져가세요" : "반납하세요"}?`}
-            </h1>
+          <div className="kiosk-panel kiosk-panel--fill">
             {mode === "week" ? (
               <p className="kiosk-week-meta">이름을 선택하면 이번달 배정 교구가 바로 표시됩니다.</p>
             ) : null}
@@ -1369,7 +1385,6 @@ export default function KioskApp() {
         {mode === "week" && step === "list" && selectedTeacher ? (
           <div className="kiosk-browse kiosk-browse--month">
             <div className="kiosk-month-header">
-              <h1>{selectedTeacher.name} · 이번달 내 교구</h1>
               <p className="kiosk-month-hint">교구를 클릭하면 장바구니에 담겨요</p>
               {cart.length ? (
                 <button
