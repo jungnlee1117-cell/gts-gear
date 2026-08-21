@@ -47,10 +47,19 @@ function formatKoMonthDay(ymd) {
   return `${parts[1]}월 ${parts[2]}일`;
 }
 
-function rotationGuidesForItem(guidesByItem, itemId) {
+function rotationGuidesForItem(guidesByItem, itemId, { withinDays = null } = {}) {
   if (!itemId || !guidesByItem) return [];
   const list = guidesByItem[itemId] || guidesByItem[String(itemId)] || [];
-  return Array.isArray(list) ? list : [];
+  if (!Array.isArray(list) || !list.length) return [];
+  if (withinDays == null) return list;
+  const start = todayYmdLocal(0);
+  const end = todayYmdLocal(withinDays);
+  return list.filter((g) => {
+    const weekStart = String(g?.week_start || "").slice(0, 10);
+    const weekEnd = String(g?.week_end || "").slice(0, 10);
+    if (!weekStart || !weekEnd) return false;
+    return weekStart <= end && weekEnd >= start;
+  });
 }
 
 /** 대여 기간(오늘~N일)과 겹치는 다른 선생님 순환 배정 */
@@ -127,13 +136,25 @@ function RotationConflictModal({ conflicts, reason, onReasonChange, onConfirm, o
 }
 
 function RotationGuideLines({ guides }) {
-  const lines = (guides || []).slice(0, 2);
+  const lines = (guides || [])
+    .map((g) => {
+      const label = String(g?.label || "").trim()
+        || (
+          g?.until_ymd && g?.teacher_name
+            ? `${formatKoMonthDay(g.until_ymd)}까지 ${g.teacher_name} 정규수업`
+            : ""
+        );
+      if (!label) return null;
+      return { ...g, label };
+    })
+    .filter(Boolean)
+    .slice(0, 2);
   if (!lines.length) return null;
   return (
     <div className="kiosk-rotation-guides">
       {lines.map((g) => (
         <div key={`${g.teacher_id}-${g.week_start}-${g.label}`} className="kiosk-rotation-guide">
-          {g.label || `${formatKoMonthDay(g.until_ymd)}까지 ${g.teacher_name} 정규수업`}
+          {g.label}
         </div>
       ))}
     </div>
@@ -362,25 +383,33 @@ function KioskNoticeSlider({ notices }) {
   );
 }
 
-function ItemCard({ item, onSelect, inCart, cartQty, rotationGuides }) {
+function ItemCard({ item, onSelect, inCart, cartQty, rotationGuides, showGuides }) {
+  const name = String(item?.name || "").trim() || "이름 없음";
+  const code = String(item?.code || "").trim();
+  const available = Number(item?.available);
+  const stock = Number.isFinite(available) ? available : 0;
   return (
-    <button type="button" className={`kiosk-item-card${inCart ? " in-cart" : ""}`} onClick={() => onSelect(item)}>
-      <div className="kiosk-item-thumb">
-        {item.photo_url ? (
-          <img src={item.photo_url} alt="" />
+    <button
+      type="button"
+      className={`kiosk-item-card${inCart ? " in-cart" : ""}`}
+      onClick={() => onSelect(item)}
+    >
+      <div className="kiosk-item-thumb" aria-hidden>
+        {item?.photo_url ? (
+          <img src={item.photo_url} alt="" loading="lazy" />
         ) : (
           <Package size={36} strokeWidth={1.5} />
         )}
       </div>
       <div className="kiosk-item-body">
-        <div className="kiosk-item-name">{item.name}</div>
-        <div className="kiosk-item-meta">{item.code}</div>
-        <div className={`kiosk-item-stock${item.available <= 0 ? " out" : ""}`}>
-          남은 수량 {item.available}
+        <div className="kiosk-item-name">{name}</div>
+        {code ? <div className="kiosk-item-meta">{code}</div> : null}
+        <div className={`kiosk-item-stock${stock <= 0 ? " out" : ""}`}>
+          남은 수량 {stock}
         </div>
-        <RotationGuideLines guides={rotationGuides} />
+        {showGuides ? <RotationGuideLines guides={rotationGuides} /> : null}
         {inCart ? (
-          <div className="kiosk-item-cart-badge">장바구니 {cartQty}개</div>
+          <div className="kiosk-item-cart-badge">선택됨 · {cartQty}개</div>
         ) : null}
       </div>
     </button>
@@ -1272,7 +1301,12 @@ export default function KioskApp() {
                   item={it}
                   inCart={Boolean(cartQtyById[it.id])}
                   cartQty={cartQtyById[it.id] || 0}
-                  rotationGuides={rotationGuidesForItem(rotationGuides, it.id)}
+                  showGuides={mode === "rent"}
+                  rotationGuides={
+                    mode === "rent"
+                      ? rotationGuidesForItem(rotationGuides, it.id, { withinDays: 14 })
+                      : []
+                  }
                   onSelect={mode === "rent" ? pickItemForRent : () => {}}
                 />
               ))}
@@ -1306,12 +1340,12 @@ export default function KioskApp() {
             <div className="kiosk-cart-list">
               {cart.map((c) => (
                 <div key={c.id} className="kiosk-cart-row">
-                  <div className="kiosk-week-row-thumb">
+                  <div className="kiosk-cart-thumb">
                     {c.photo_url ? <img src={c.photo_url} alt="" /> : <Package size={28} />}
                   </div>
-                  <div className="kiosk-week-row-body">
-                    <div className="kiosk-week-row-name">{c.name}</div>
-                    <div className="kiosk-week-row-meta">{c.code} · 가능 {c.available}개</div>
+                  <div className="kiosk-cart-body">
+                    <div className="kiosk-cart-name">{c.name || "이름 없음"}</div>
+                    <div className="kiosk-cart-meta">{c.code} · 가능 {c.available}개</div>
                     <QtyStepper
                       value={c.quantity}
                       min={1}
@@ -1466,7 +1500,6 @@ export default function KioskApp() {
                           </span>
                           <span className="kiosk-week-chip-text">
                             <span className="kiosk-week-chip-name">{row.display_name}</span>
-                            <RotationGuideLines guides={rotationGuidesForItem(rotationGuides, row.item_id)} />
                             {inCartQty ? (
                               <span className="kiosk-item-cart-badge">담김 {inCartQty}</span>
                             ) : null}

@@ -157,7 +157,7 @@ function monthsSpanned(startYmd: string, endYmd: string) {
  */
 async function loadRotationGuides(admin, items: Array<{ id: string; name: string; alias?: string | null }>) {
   const fromYmd = todayYmd(0);
-  const toYmd = todayYmd(70);
+  const toYmd = todayYmd(14); // 앞으로 2주치만 안내
   const months = monthsSpanned(fromYmd, toYmd);
   if (!months.length || !items?.length) return {};
 
