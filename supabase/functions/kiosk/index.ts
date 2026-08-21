@@ -51,21 +51,32 @@ function sundayOfWeekContaining(ymd: string) {
   return `${y}-${m}-${day}`;
 }
 
-/** 일요일 시작 기준 N월 몇째주 */
-function sundayWeekOfMonth(ymd: string) {
-  const d = new Date(`${String(ymd).slice(0, 10)}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return 1;
-  const day = d.getDate();
-  const first = new Date(d.getFullYear(), d.getMonth(), 1);
-  const firstDow = first.getDay(); // 0=Sun
-  return Math.max(1, Math.ceil((day + firstDow) / 7));
+/** 순환 주차가 이번주/다음주 중 어디에 해당하는지 (일~토 기준) */
+function relativeGuideWeekTag(
+  weekStart: string,
+  weekEnd: string,
+  thisSunday: string,
+  nextSunday: string,
+  nextSaturday: string,
+): "이번주" | "다음주" | null {
+  const thisSaturday = ymdAddDays(thisSunday, 6) || thisSunday;
+  const ws = String(weekStart || "").slice(0, 10);
+  const we = String(weekEnd || "").slice(0, 10);
+  if (!ws || !we) return null;
+  const overlapsThis = ws <= thisSaturday && we >= thisSunday;
+  const overlapsNext = ws <= nextSaturday && we >= nextSunday;
+  if (overlapsThis && !overlapsNext) return "이번주";
+  if (overlapsNext && !overlapsThis) return "다음주";
+  if (overlapsThis && overlapsNext) {
+    const slotSun = sundayOfWeekContaining(ws);
+    if (slotSun === nextSunday) return "다음주";
+    return "이번주";
+  }
+  return null;
 }
 
-function formatRotationWeekGuideLabel(weekStartYmd: string, teacherName: string) {
-  const parts = String(weekStartYmd || "").slice(0, 10).split("-").map(Number);
-  const month = parts[1] || 0;
-  const weekNum = sundayWeekOfMonth(weekStartYmd);
-  return `${month}월 ${weekNum}주차 ${teacherName} 선생님 정규교구`;
+function formatRelativeGuideLabel(tag: "이번주" | "다음주", teacherName: string) {
+  return `${tag} ${teacherName} 선생님 정규교구`;
 }
 
 function normalizeItemName(value: string) {
@@ -181,14 +192,15 @@ function monthsSpanned(startYmd: string, endYmd: string) {
 
 /**
  * 교구별 다가오는 정규수업(순환) 안내.
- * 표시: "O월 N주차 [선생님] 선생님 정규교구"
- * 기간: 이번 주(일~토)부터 2주 후까지
+ * 표시: "이번주/다음주 [선생님] 선생님 정규교구"
+ * 기간: 이번 주(일~토) + 다음 주만
  */
 async function loadRotationGuides(admin, items: Array<{ id: string; name: string; alias?: string | null }>) {
   const thisSunday = sundayOfWeekContaining(todayYmd(0));
+  const nextSunday = ymdAddDays(thisSunday, 7) || thisSunday;
+  const nextSaturday = ymdAddDays(thisSunday, 13) || todayYmd(13);
   const fromYmd = thisSunday;
-  // 이번 주 + 이후 2주(총 3주 구간)의 일요일~토요일을 커버
-  const toYmd = ymdAddDays(thisSunday, 20) || todayYmd(20);
+  const toYmd = nextSaturday;
   const months = monthsSpanned(fromYmd, toYmd);
   if (!months.length || !items?.length) return {};
 
@@ -233,20 +245,26 @@ async function loadRotationGuides(admin, items: Array<{ id: string; name: string
       if (!item) continue;
       const mw = weeksForMonth.find((w) => Number(w.week_number) === Number(row.week_number));
       if (!mw?.week_start_date || !mw?.week_end_date) continue;
-      // 이번 주(일) ~ 2주 후 구간과 겹치는 주차만
-      if (mw.week_end_date < fromYmd || mw.week_start_date > toYmd) continue;
+
+      const tag = relativeGuideWeekTag(
+        mw.week_start_date,
+        mw.week_end_date,
+        thisSunday,
+        nextSunday,
+        nextSaturday,
+      );
+      if (!tag) continue;
 
       const untilYmd = ymdAddDays(mw.week_start_date, -1) || mw.week_start_date;
-      const weekLabelYmd = mw.week_start_date;
       const entry = {
         teacher_id: sched.teacher_id,
         teacher_name: teacherName,
         week_start: mw.week_start_date,
         week_end: mw.week_end_date,
         until_ymd: untilYmd,
-        week_number: sundayWeekOfMonth(weekLabelYmd),
+        relative_week: tag,
         target_type: row.target_type || null,
-        label: formatRotationWeekGuideLabel(weekLabelYmd, teacherName),
+        label: formatRelativeGuideLabel(tag, teacherName),
       };
       const list = byItem.get(item.id) || [];
       const dedupeKey = `${entry.teacher_id}|${entry.week_start}|${entry.week_end}`;
@@ -262,12 +280,17 @@ async function loadRotationGuides(admin, items: Array<{ id: string; name: string
     week_start: string;
     week_end: string;
     until_ymd: string;
-    week_number: number;
+    relative_week: "이번주" | "다음주";
     target_type: string | null;
     label: string;
   }>> = {};
   for (const [itemId, list] of byItem.entries()) {
-    list.sort((a, b) => String(a.week_start).localeCompare(String(b.week_start)));
+    list.sort((a, b) => {
+      const ra = a.relative_week === "이번주" ? 0 : 1;
+      const rb = b.relative_week === "이번주" ? 0 : 1;
+      if (ra !== rb) return ra - rb;
+      return String(a.week_start).localeCompare(String(b.week_start));
+    });
     out[itemId] = list.slice(0, 4);
   }
   return out;

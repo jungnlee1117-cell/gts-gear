@@ -339,6 +339,8 @@ export function buildMonthGearSections({ schedules, weeklyLists, monthWeeks, ite
 
     weeks.push({
       weekNumber: wn,
+      weekStart: mw?.week_start_date || null,
+      weekEnd: mw?.week_end_date || null,
       dateRange: mw ? formatWeekRange(mw.week_start_date, mw.week_end_date) : null,
       weekLabel: mw ? rotationWeekLabelForSlot(mw) : `${wn}주차`,
       rows,

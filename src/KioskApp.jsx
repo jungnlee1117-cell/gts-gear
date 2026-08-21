@@ -59,39 +59,64 @@ function sundayOfWeekContainingLocal(ymd = todayYmdLocal(0)) {
   return `${y}-${m}-${day}`;
 }
 
-function sundayWeekOfMonthLocal(ymd) {
+function ymdAddDaysLocal(ymd, deltaDays) {
   const d = new Date(`${String(ymd).slice(0, 10)}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return 1;
-  const day = d.getDate();
-  const first = new Date(d.getFullYear(), d.getMonth(), 1);
-  const firstDow = first.getDay();
-  return Math.max(1, Math.ceil((day + firstDow) / 7));
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + deltaDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
-function formatRotationWeekGuideLabelLocal(weekStartYmd, teacherName) {
-  if (!weekStartYmd || !teacherName) return "";
-  const parts = String(weekStartYmd).slice(0, 10).split("-").map(Number);
-  const month = parts[1] || 0;
-  const weekNum = sundayWeekOfMonthLocal(weekStartYmd);
-  return `${month}월 ${weekNum}주차 ${teacherName} 선생님 정규교구`;
+function relativeGuideWeekTagLocal(weekStart, weekEnd) {
+  const thisSunday = sundayOfWeekContainingLocal(todayYmdLocal(0));
+  const thisSaturday = ymdAddDaysLocal(thisSunday, 6);
+  const nextSunday = ymdAddDaysLocal(thisSunday, 7);
+  const nextSaturday = ymdAddDaysLocal(thisSunday, 13);
+  const ws = String(weekStart || "").slice(0, 10);
+  const we = String(weekEnd || "").slice(0, 10);
+  if (!ws || !we || !thisSaturday || !nextSunday || !nextSaturday) return null;
+  const overlapsThis = ws <= thisSaturday && we >= thisSunday;
+  const overlapsNext = ws <= nextSaturday && we >= nextSunday;
+  if (overlapsThis && !overlapsNext) return "이번주";
+  if (overlapsNext && !overlapsThis) return "다음주";
+  if (overlapsThis && overlapsNext) {
+    const slotSun = sundayOfWeekContainingLocal(ws);
+    if (slotSun === nextSunday) return "다음주";
+    return "이번주";
+  }
+  return null;
 }
 
-/** 이번 주(일요일 시작) ~ 2주 후까지 겹치는 안내만 */
+function formatRelativeGuideLabelLocal(weekStart, weekEnd, teacherName) {
+  if (!teacherName) return "";
+  const tag = relativeGuideWeekTagLocal(weekStart, weekEnd);
+  if (!tag) return "";
+  return `${tag} ${teacherName} 선생님 정규교구`;
+}
+
+/** 이번주·다음주(일~토)에 겹치는 안내만 */
 function rotationGuidesForItem(guidesByItem, itemId, { withinGuideWindow = true } = {}) {
   if (!itemId || !guidesByItem) return [];
   const list = guidesByItem[itemId] || guidesByItem[String(itemId)] || [];
   if (!Array.isArray(list) || !list.length) return [];
   if (!withinGuideWindow) return list;
-  const start = sundayOfWeekContainingLocal(todayYmdLocal(0));
-  const endD = new Date(`${start}T12:00:00`);
-  endD.setDate(endD.getDate() + 20);
-  const end = `${endD.getFullYear()}-${String(endD.getMonth() + 1).padStart(2, "0")}-${String(endD.getDate()).padStart(2, "0")}`;
-  return list.filter((g) => {
-    const weekStart = String(g?.week_start || "").slice(0, 10);
-    const weekEnd = String(g?.week_end || "").slice(0, 10);
-    if (!weekStart || !weekEnd) return false;
-    return weekStart <= end && weekEnd >= start;
-  });
+  return list
+    .map((g) => {
+      const tag = g?.relative_week || relativeGuideWeekTagLocal(g?.week_start, g?.week_end);
+      if (!tag) return null;
+      const label = String(g?.label || "").trim()
+        || formatRelativeGuideLabelLocal(g?.week_start, g?.week_end, g?.teacher_name);
+      return { ...g, relative_week: tag, label };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const ra = a.relative_week === "이번주" ? 0 : 1;
+      const rb = b.relative_week === "이번주" ? 0 : 1;
+      if (ra !== rb) return ra - rb;
+      return String(a.week_start).localeCompare(String(b.week_start));
+    });
 }
 
 /** 대여 기간(오늘~N일)과 겹치는 다른 선생님 순환 배정 */
@@ -171,7 +196,7 @@ function RotationGuideLines({ guides }) {
   const lines = (guides || [])
     .map((g) => {
       const label = String(g?.label || "").trim()
-        || formatRotationWeekGuideLabelLocal(g?.week_start, g?.teacher_name);
+        || formatRelativeGuideLabelLocal(g?.week_start, g?.week_end, g?.teacher_name);
       if (!label) return null;
       return { ...g, label };
     })
@@ -544,7 +569,7 @@ export default function KioskApp() {
         itemId,
         guides.map((g, i) => ({
           key: `${itemId}-${g.teacher_id}-${g.week_start}-${i}`,
-          text: g.label || formatRotationWeekGuideLabelLocal(g.week_start, g.teacher_name),
+          text: g.label || formatRelativeGuideLabelLocal(g.week_start, g.week_end, g.teacher_name),
           type: "regular_class",
         })),
       );
@@ -1275,7 +1300,7 @@ export default function KioskApp() {
           <div className="kiosk-top-title" aria-live="polite">{screenTitle}</div>
         ) : null}
         <div className="kiosk-top-right">
-          {mode === "week" && step === "list" ? (
+          {showBack ? (
             <button type="button" className="kiosk-home-top" onClick={goHome} aria-label="홈으로">
               홈으로
             </button>
@@ -1549,10 +1574,24 @@ export default function KioskApp() {
                 ((monthGear?.weeks || []).length % 2 === 1) ? "kiosk-week-grid--odd" : "",
               ].filter(Boolean).join(" ")}
             >
-              {(monthGear?.weeks || []).map((week) => (
-                <div key={`w-${week.weekNumber}`} className="kiosk-month-week-card">
+              {(monthGear?.weeks || []).map((week) => {
+                const nextWeek = relativeGuideWeekTagLocal(week.weekStart, week.weekEnd) === "다음주";
+                const thisWeek = relativeGuideWeekTagLocal(week.weekStart, week.weekEnd) === "이번주";
+                return (
+                <div
+                  key={`w-${week.weekNumber}`}
+                  className={[
+                    "kiosk-month-week-card",
+                    nextWeek ? "is-next-week" : "",
+                    thisWeek ? "is-this-week" : "",
+                  ].filter(Boolean).join(" ")}
+                >
                   <div className="kiosk-month-week-head">
-                    <strong>{week.weekLabel || `${week.weekNumber}주차`}</strong>
+                    <strong>
+                      {week.weekLabel || `${week.weekNumber}주차`}
+                      {nextWeek ? <span className="kiosk-week-tag kiosk-week-tag--next">다음주</span> : null}
+                      {thisWeek ? <span className="kiosk-week-tag kiosk-week-tag--this">이번주</span> : null}
+                    </strong>
                     {week.dateRange ? <span>{week.dateRange}</span> : null}
                   </div>
                   <div className="kiosk-month-week-items">
@@ -1588,7 +1627,8 @@ export default function KioskApp() {
                     ) : null}
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {(monthGear?.weeks || []).length >= 5 ? (
                 <div className="kiosk-month-week-card kiosk-month-hint-card" role="note">
                   <ShoppingBag size={36} strokeWidth={2.2} aria-hidden />
@@ -1642,11 +1682,14 @@ export default function KioskApp() {
 
         {mode === "return" && step === "pick" ? (
           <div className="kiosk-panel kiosk-panel--wide kiosk-panel--return">
-            <p className="kiosk-week-meta">
-              <strong>{selectedTeacher?.name}</strong>님 · 반납할 교구를 선택하세요
-            </p>
+            <div className="kiosk-return-header">
+              <p className="kiosk-week-meta kiosk-return-meta">
+                <strong>{selectedTeacher?.name}</strong>님 보유 교구
+              </p>
+              <p className="kiosk-return-hint">여러 교구를 체크한 뒤, 각각 수량을 조절하고 한 번에 반납하세요.</p>
+            </div>
             {flowError ? <p className="kiosk-error">{flowError}</p> : null}
-            <div className="kiosk-return-list">
+            <div className="kiosk-return-list" role="list">
               {holdings.map((h) => {
                 const selectedQty = returnCart[h.item_id];
                 const selected = Boolean(selectedQty);
@@ -1654,47 +1697,65 @@ export default function KioskApp() {
                   <div
                     key={h.item_id}
                     className={`kiosk-return-row${selected ? " is-selected" : ""}`}
+                    role="listitem"
                   >
-                    <button
-                      type="button"
-                      className="kiosk-return-row-main"
-                      onClick={() => toggleReturnItem(h)}
-                      aria-pressed={selected}
-                    >
+                    <label className="kiosk-return-row-main">
+                      <input
+                        type="checkbox"
+                        className="kiosk-return-checkbox"
+                        checked={selected}
+                        onChange={() => toggleReturnItem(h)}
+                        aria-label={`${h.name} 반납 선택`}
+                      />
                       <div className="kiosk-cart-thumb">
                         {h.photo_url ? <img src={h.photo_url} alt="" /> : <Package size={28} />}
                       </div>
                       <div className="kiosk-cart-body">
                         <div className="kiosk-cart-name">{h.name}</div>
                         <div className="kiosk-cart-meta">{h.code} · 반납 가능 {h.returnable}개</div>
-                        <div className="kiosk-return-check">{selected ? "선택됨" : "선택"}</div>
                       </div>
-                    </button>
+                    </label>
                     {selected ? (
-                      <QtyStepper
-                        value={selectedQty}
-                        min={1}
-                        max={Math.max(1, h.returnable)}
-                        onChange={(n) => setReturnQuantity(h.item_id, n, h.returnable)}
-                      />
+                      <div
+                        className="kiosk-return-qty"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        <span className="kiosk-return-qty-label">반납 수량</span>
+                        <QtyStepper
+                          value={selectedQty}
+                          min={1}
+                          max={Math.max(1, h.returnable)}
+                          onChange={(n) => setReturnQuantity(h.item_id, n, h.returnable)}
+                        />
+                      </div>
                     ) : null}
                   </div>
                 );
               })}
               {!holdings.length ? <p className="kiosk-muted">반납할 교구가 없습니다.</p> : null}
             </div>
-            <button
-              type="button"
-              className="kiosk-btn kiosk-btn--return"
-              disabled={busy || !returnSelectedCount}
-              onClick={submitReturnBatch}
-            >
-              {busy
-                ? "처리 중..."
-                : returnSelectedCount
-                  ? `반납 완료 (${Object.keys(returnCart).length}종 · ${returnSelectedCount}개)`
-                  : "반납할 교구를 선택하세요"}
-            </button>
+            <div className="kiosk-return-footer">
+              <button
+                type="button"
+                className="kiosk-btn kiosk-btn--ghost"
+                onClick={goHome}
+              >
+                홈으로
+              </button>
+              <button
+                type="button"
+                className="kiosk-btn kiosk-btn--return"
+                disabled={busy || !returnSelectedCount}
+                onClick={submitReturnBatch}
+              >
+                {busy
+                  ? "처리 중..."
+                  : returnSelectedCount
+                    ? `반납 완료 (${Object.keys(returnCart).length}종 · ${returnSelectedCount}개)`
+                    : "반납할 교구를 선택하세요"}
+              </button>
+            </div>
           </div>
         ) : null}
       </main>
