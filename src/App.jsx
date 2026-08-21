@@ -28,6 +28,7 @@ import LessonScriptDataAdminPage from "./LessonScriptDataAdminPage.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import MyProfilePage from "./MyProfilePage.jsx";
 import KioskApp from "./KioskApp.jsx";
+import { registerItemsBrowsePage } from "./itemsBrowseRegistry.js";
 import UserMenuDropdown from "./UserMenuDropdown.jsx";
 import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
 import GitiAssistant from "./GitiAssistant.jsx";
@@ -5216,7 +5217,28 @@ function LastReturnLocationCard({ item, teachers, style }) {
   );
 }
 
-function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, reservations, teachers, regularClassGuideByItem, onDetail, onSetDetail, onOpenCart, onSubmitReservation, onCancelReservation, onSaveItem, onSaveSet }) {
+function ItemsBrowsePage({
+  me,
+  items,
+  itemSets,
+  ris,
+  rets,
+  reqs,
+  cart,
+  setCart,
+  reservations,
+  teachers,
+  regularClassGuideByItem,
+  onDetail,
+  onSetDetail,
+  onOpenCart,
+  onSubmitReservation,
+  onCancelReservation,
+  onSaveItem,
+  onSaveSet,
+  kioskMode = false,
+  readOnly = false,
+}) {
   const { categoryMap, categoryKeys } = useGearCategories();
   const [q, setQ] = useState("");
   const [catF, setCatF] = useState("ALL");
@@ -5329,8 +5351,8 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
     <PageShell>
       <PageHeader
         me={me}
-        subtitle={PAGE_META["items-browse"].sub}
-        actions={<CartHeaderButton count={cart.length} onClick={() => onOpenCart?.()}/>}
+        subtitle={kioskMode ? (readOnly ? "둘러보기만 가능합니다." : PAGE_META["items-browse"].sub) : PAGE_META["items-browse"].sub}
+        actions={(!readOnly && onOpenCart) ? <CartHeaderButton count={cart.length} onClick={() => onOpenCart?.()}/> : null}
       />
 
       <div style={{ marginBottom: 12 }}>
@@ -5754,7 +5776,8 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
                     대여 가능 {avail}개
                   </div>
                   <RegularClassGuideSection lines={regularClassGuideByItem?.get(item.id)}/>
-                  <ItemScheduleLines lines={scheduleLines}/>
+                  {!kioskMode ? <ItemScheduleLines lines={scheduleLines}/> : null}
+                  {!readOnly ? (
                   <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
                     <Btn
                       full
@@ -5764,29 +5787,32 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
                     >
                       {avail === 0 ? "대여 불가" : added ? "담김 · 빼기" : "장바구니 담기"}
                     </Btn>
-                    {myRes ? (
-                      <Btn
-                        full
-                        ghost
-                        color="#dc2626"
-                        onClick={() => {
-                          if (!confirm("예약을 취소하시겠습니까?")) return;
-                          onCancelReservation?.(myRes.id);
-                        }}
-                      >
-                        예약취소
-                      </Btn>
-                    ) : (
-                      <Btn
-                        full
-                        ghost
-                        color="#0d9488"
-                        onClick={() => setReserveItem(item)}
-                      >
-                        예약하기
-                      </Btn>
-                    )}
+                    {!kioskMode ? (
+                      myRes ? (
+                        <Btn
+                          full
+                          ghost
+                          color="#dc2626"
+                          onClick={() => {
+                            if (!confirm("예약을 취소하시겠습니까?")) return;
+                            onCancelReservation?.(myRes.id);
+                          }}
+                        >
+                          예약취소
+                        </Btn>
+                      ) : (
+                        <Btn
+                          full
+                          ghost
+                          color="#0d9488"
+                          onClick={() => setReserveItem(item)}
+                        >
+                          예약하기
+                        </Btn>
+                      )
+                    ) : null}
                   </div>
+                  ) : null}
                 </div>
               </div>
             );
@@ -5847,6 +5873,7 @@ function ItemsBrowsePage({ me, items, itemSets, ris, rets, reqs, cart, setCart, 
     </PageShell>
   );
 }
+registerItemsBrowsePage(ItemsBrowsePage);
 
 function ImageLightbox({ src, alt, images, index: initialIndex = 0, onClose }) {
   const list = useMemo(() => {

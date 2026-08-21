@@ -24,6 +24,8 @@ import {
   schoolYearStartYear,
 } from "./lessonPlan.js";
 import { buildMonthGearSections } from "./teacherGearStatus.js";
+import { GearCategoriesProvider } from "./GearCategoriesContext.jsx";
+import { getItemsBrowsePage } from "./itemsBrowseRegistry.js";
 import "./kiosk.css";
 
 const TOKEN_KEY = "gts_kiosk_token";
@@ -467,6 +469,64 @@ export default function KioskApp() {
     () => cart.reduce((s, c) => s + c.quantity, 0),
     [cart],
   );
+
+  const browseItems = useMemo(
+    () => (items || []).map((it) => ({
+      ...it,
+      // ItemsBrowsePage availQty = total_quantity - rented; 키오스크 catalog.available 반영
+      total_quantity: Math.max(0, Number(it.available) || 0),
+      status: it.status || "available",
+    })),
+    [items],
+  );
+
+  const browseCart = useMemo(
+    () => cart.map((c) => ({ item_id: c.id, quantity: c.quantity, due_date: "" })),
+    [cart],
+  );
+
+  const setBrowseCart = useCallback((updater) => {
+    setCart((prev) => {
+      const prevBrowse = prev.map((c) => ({ item_id: c.id, quantity: c.quantity, due_date: "" }));
+      const nextBrowse = typeof updater === "function" ? updater(prevBrowse) : updater;
+      return (nextBrowse || []).map((entry) => {
+        const existing = prev.find((c) => c.id === entry.item_id);
+        if (existing) {
+          return { ...existing, quantity: Math.max(1, Number(entry.quantity) || 1) };
+        }
+        const catalog = items.find((i) => i.id === entry.item_id);
+        if (!catalog) return null;
+        return {
+          id: catalog.id,
+          name: catalog.name,
+          code: catalog.code,
+          photo_url: catalog.photo_url,
+          available: catalog.available,
+          quantity: Math.max(1, Number(entry.quantity) || 1),
+        };
+      }).filter(Boolean);
+    });
+  }, [items]);
+
+  const regularClassGuideByItem = useMemo(() => {
+    const map = new Map();
+    Object.keys(rotationGuides || {}).forEach((itemId) => {
+      const guides = rotationGuidesForItem(rotationGuides, itemId, { withinDays: 14 });
+      if (!guides.length) return;
+      map.set(
+        itemId,
+        guides.map((g, i) => ({
+          key: `${itemId}-${g.teacher_id}-${g.week_start}-${i}`,
+          text: g.label || `${formatKoMonthDay(g.until_ymd)}까지 ${g.teacher_name} 정규수업`,
+          type: "regular_class",
+        })),
+      );
+    });
+    return map;
+  }, [rotationGuides]);
+
+  const browseMe = selectedTeacher || { id: "kiosk", name: "키오스크", role: "teacher" };
+  const ItemsBrowsePage = getItemsBrowsePage();
 
   const catMap = useMemo(
     () => Object.fromEntries(categories.map((c) => [c.id, c])),
@@ -1254,81 +1314,40 @@ export default function KioskApp() {
         ) : null}
 
         {(mode === "browse" || (mode === "rent" && step === "pick")) ? (
-          <div className={`kiosk-browse${mode === "rent" && cart.length ? " kiosk-browse--with-cart" : ""}`}>
+          <div className={`kiosk-browse kiosk-browse--equipment${mode === "rent" && cart.length ? " kiosk-browse--with-cart" : ""}`}>
             {mode === "rent" ? (
               <div className="kiosk-rent-toolbar">
-                <p className="kiosk-rent-hint">교구를 누르면 장바구니에 담깁니다.</p>
+                <p className="kiosk-rent-hint">앱의 교구 둘러보기와 동일한 화면입니다. 장바구니에 담은 뒤 상단 아이콘으로 확인하세요.</p>
                 <button type="button" className="kiosk-inline-link" onClick={startBrowse}>
                   둘러보기만 하기
                 </button>
               </div>
             ) : null}
-            <div className="kiosk-search-wrap">
-              <Search size={20} aria-hidden />
-              <input
-                className="kiosk-search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="교구명 검색"
-                aria-label="교구명 검색"
-              />
-            </div>
-            <div className="kiosk-cats" role="listbox" aria-label="카테고리">
-              <button
-                type="button"
-                className={`kiosk-cat${!categoryId ? " active" : ""}`}
-                onClick={() => setCategoryId("")}
-              >
-                전체
-              </button>
-              {categories.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={`kiosk-cat${categoryId === c.id ? " active" : ""}`}
-                  style={{ "--cat-color": c.color }}
-                  onClick={() => setCategoryId(c.id)}
-                >
-                  <span className="kiosk-cat-icon">{c.icon}</span>
-                  {c.label}
-                </button>
-              ))}
-            </div>
-            <div className="kiosk-item-grid">
-              {filteredItems.map((it) => (
-                <ItemCard
-                  key={it.id}
-                  item={it}
-                  inCart={Boolean(cartQtyById[it.id])}
-                  cartQty={cartQtyById[it.id] || 0}
-                  showGuides={mode === "rent"}
-                  rotationGuides={
-                    mode === "rent"
-                      ? rotationGuidesForItem(rotationGuides, it.id, { withinDays: 14 })
-                      : []
-                  }
-                  onSelect={mode === "rent" ? pickItemForRent : () => {}}
+            {ItemsBrowsePage ? (
+              <GearCategoriesProvider>
+                <ItemsBrowsePage
+                  me={browseMe}
+                  items={browseItems}
+                  itemSets={[]}
+                  ris={[]}
+                  rets={[]}
+                  reqs={[]}
+                  cart={browseCart}
+                  setCart={setBrowseCart}
+                  reservations={[]}
+                  teachers={teachers}
+                  regularClassGuideByItem={mode === "rent" ? regularClassGuideByItem : new Map()}
+                  kioskMode
+                  readOnly={mode === "browse"}
+                  onOpenCart={mode === "rent" ? goRentCart : undefined}
+                  onDetail={() => {}}
+                  onSetDetail={() => {}}
                 />
-              ))}
-              {!filteredItems.length ? (
-                <p className="kiosk-muted">검색 결과가 없습니다.</p>
-              ) : null}
-            </div>
-            {mode === "browse" ? (
-              <p className="kiosk-hint">둘러보기만 가능합니다. 대여·반납은 홈에서 선택하세요.</p>
-            ) : null}
+              </GearCategoriesProvider>
+            ) : (
+              <p className="kiosk-muted">교구 둘러보기 화면을 불러오는 중...</p>
+            )}
             {flowError ? <p className="kiosk-error">{flowError}</p> : null}
-            {mode === "rent" && cart.length ? (
-              <button
-                type="button"
-                className="kiosk-cart-fab"
-                onClick={goRentCart}
-                aria-label="장바구니 보기"
-              >
-                <ShoppingBag size={20} />
-                <span>{cart.length}종 총 {cartCount}개 · 장바구니 보기</span>
-              </button>
-            ) : null}
           </div>
         ) : null}
 
