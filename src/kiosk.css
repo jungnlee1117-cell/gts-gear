@@ -590,8 +590,72 @@
 .kiosk-panel--wide {
   max-width: 980px;
 }
-.kiosk-panel--cart {
+.kiosk-panel--return {
   max-width: 980px;
+}
+.kiosk-return-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  align-content: start;
+  margin-bottom: 12px;
+}
+.kiosk-return-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  min-width: 0;
+}
+.kiosk-return-row.is-selected {
+  border-color: #dc2626;
+  background: #fff7f7;
+  box-shadow: inset 0 0 0 1px #dc2626;
+}
+.kiosk-return-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.kiosk-return-check {
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+.kiosk-return-row.is-selected .kiosk-return-check {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.kiosk-panel--return .kiosk-btn {
+  flex-shrink: 0;
+  margin-top: auto;
+}
+@media (max-width: 900px) {
+  .kiosk-return-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .kiosk-panel--center {
   display: flex;
@@ -934,6 +998,33 @@
   max-width: none;
   width: 100%;
   justify-self: stretch;
+}
+.kiosk-week-grid--n5 .kiosk-month-hint-card {
+  grid-column: 2 / 3;
+  grid-row: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 16px;
+  background: linear-gradient(160deg, #ecfdf5 0%, #f0fdf4 55%, #fff 100%);
+  border: 1px dashed #86efac;
+  box-shadow: none;
+  color: #166534;
+}
+.kiosk-month-hint-card svg {
+  color: #16a34a;
+  flex-shrink: 0;
+}
+.kiosk-month-hint-card p {
+  margin: 0;
+  font-size: clamp(15px, 1.8vw, 18px);
+  font-weight: 800;
+  line-height: 1.4;
+  letter-spacing: -0.02em;
+  color: #166534;
 }
 .kiosk-week-grid--odd:not(.kiosk-week-grid--n5) .kiosk-month-week-card:last-child {
   grid-column: 1 / 2;
@@ -1379,6 +1470,11 @@
   .kiosk-week-grid--n5 .kiosk-month-week-card:nth-child(5) {
     grid-column: auto;
     max-width: none;
+  }
+  .kiosk-week-grid--n5 .kiosk-month-hint-card {
+    grid-column: auto;
+    grid-row: auto;
+    min-height: 120px;
   }
   .kiosk-week-grid--odd:not(.kiosk-week-grid--n5) .kiosk-month-week-card:last-child {
     max-width: none;

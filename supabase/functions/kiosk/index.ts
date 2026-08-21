@@ -40,6 +40,34 @@ function todayYmd(offsetDays = 0) {
   return `${y}-${m}-${day}`;
 }
 
+/** 해당 날짜가 속한 주의 일요일 (일요일 시작) */
+function sundayOfWeekContaining(ymd: string) {
+  const d = new Date(`${String(ymd).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return String(ymd).slice(0, 10);
+  d.setDate(d.getDate() - d.getDay());
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** 일요일 시작 기준 N월 몇째주 */
+function sundayWeekOfMonth(ymd: string) {
+  const d = new Date(`${String(ymd).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return 1;
+  const day = d.getDate();
+  const first = new Date(d.getFullYear(), d.getMonth(), 1);
+  const firstDow = first.getDay(); // 0=Sun
+  return Math.max(1, Math.ceil((day + firstDow) / 7));
+}
+
+function formatRotationWeekGuideLabel(weekStartYmd: string, teacherName: string) {
+  const parts = String(weekStartYmd || "").slice(0, 10).split("-").map(Number);
+  const month = parts[1] || 0;
+  const weekNum = sundayWeekOfMonth(weekStartYmd);
+  return `${month}월 ${weekNum}주차 ${teacherName} 선생님 정규교구`;
+}
+
 function normalizeItemName(value: string) {
   return String(value || "").trim().replace(/\s+/g, " ");
 }
@@ -153,11 +181,14 @@ function monthsSpanned(startYmd: string, endYmd: string) {
 
 /**
  * 교구별 다가오는 정규수업(순환) 안내.
- * 표시 문구: "O월 O일까지 [선생님] 정규수업"
+ * 표시: "O월 N주차 [선생님] 선생님 정규교구"
+ * 기간: 이번 주(일~토)부터 2주 후까지
  */
 async function loadRotationGuides(admin, items: Array<{ id: string; name: string; alias?: string | null }>) {
-  const fromYmd = todayYmd(0);
-  const toYmd = todayYmd(14); // 앞으로 2주치만 안내
+  const thisSunday = sundayOfWeekContaining(todayYmd(0));
+  const fromYmd = thisSunday;
+  // 이번 주 + 이후 2주(총 3주 구간)의 일요일~토요일을 커버
+  const toYmd = ymdAddDays(thisSunday, 20) || todayYmd(20);
   const months = monthsSpanned(fromYmd, toYmd);
   if (!months.length || !items?.length) return {};
 
@@ -202,17 +233,20 @@ async function loadRotationGuides(admin, items: Array<{ id: string; name: string
       if (!item) continue;
       const mw = weeksForMonth.find((w) => Number(w.week_number) === Number(row.week_number));
       if (!mw?.week_start_date || !mw?.week_end_date) continue;
+      // 이번 주(일) ~ 2주 후 구간과 겹치는 주차만
       if (mw.week_end_date < fromYmd || mw.week_start_date > toYmd) continue;
 
       const untilYmd = ymdAddDays(mw.week_start_date, -1) || mw.week_start_date;
+      const weekLabelYmd = mw.week_start_date;
       const entry = {
         teacher_id: sched.teacher_id,
         teacher_name: teacherName,
         week_start: mw.week_start_date,
         week_end: mw.week_end_date,
         until_ymd: untilYmd,
+        week_number: sundayWeekOfMonth(weekLabelYmd),
         target_type: row.target_type || null,
-        label: `${formatKoMonthDay(untilYmd)}까지 ${teacherName} 정규수업`,
+        label: formatRotationWeekGuideLabel(weekLabelYmd, teacherName),
       };
       const list = byItem.get(item.id) || [];
       const dedupeKey = `${entry.teacher_id}|${entry.week_start}|${entry.week_end}`;
@@ -228,11 +262,12 @@ async function loadRotationGuides(admin, items: Array<{ id: string; name: string
     week_start: string;
     week_end: string;
     until_ymd: string;
+    week_number: number;
     target_type: string | null;
     label: string;
   }>> = {};
   for (const [itemId, list] of byItem.entries()) {
-    list.sort((a, b) => String(a.until_ymd).localeCompare(String(b.until_ymd)));
+    list.sort((a, b) => String(a.week_start).localeCompare(String(b.week_start)));
     out[itemId] = list.slice(0, 4);
   }
   return out;

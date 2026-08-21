@@ -49,13 +49,43 @@ function formatKoMonthDay(ymd) {
   return `${parts[1]}월 ${parts[2]}일`;
 }
 
-function rotationGuidesForItem(guidesByItem, itemId, { withinDays = null } = {}) {
+function sundayOfWeekContainingLocal(ymd = todayYmdLocal(0)) {
+  const d = new Date(`${String(ymd).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return String(ymd).slice(0, 10);
+  d.setDate(d.getDate() - d.getDay());
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function sundayWeekOfMonthLocal(ymd) {
+  const d = new Date(`${String(ymd).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return 1;
+  const day = d.getDate();
+  const first = new Date(d.getFullYear(), d.getMonth(), 1);
+  const firstDow = first.getDay();
+  return Math.max(1, Math.ceil((day + firstDow) / 7));
+}
+
+function formatRotationWeekGuideLabelLocal(weekStartYmd, teacherName) {
+  if (!weekStartYmd || !teacherName) return "";
+  const parts = String(weekStartYmd).slice(0, 10).split("-").map(Number);
+  const month = parts[1] || 0;
+  const weekNum = sundayWeekOfMonthLocal(weekStartYmd);
+  return `${month}월 ${weekNum}주차 ${teacherName} 선생님 정규교구`;
+}
+
+/** 이번 주(일요일 시작) ~ 2주 후까지 겹치는 안내만 */
+function rotationGuidesForItem(guidesByItem, itemId, { withinGuideWindow = true } = {}) {
   if (!itemId || !guidesByItem) return [];
   const list = guidesByItem[itemId] || guidesByItem[String(itemId)] || [];
   if (!Array.isArray(list) || !list.length) return [];
-  if (withinDays == null) return list;
-  const start = todayYmdLocal(0);
-  const end = todayYmdLocal(withinDays);
+  if (!withinGuideWindow) return list;
+  const start = sundayOfWeekContainingLocal(todayYmdLocal(0));
+  const endD = new Date(`${start}T12:00:00`);
+  endD.setDate(endD.getDate() + 20);
+  const end = `${endD.getFullYear()}-${String(endD.getMonth() + 1).padStart(2, "0")}-${String(endD.getDate()).padStart(2, "0")}`;
   return list.filter((g) => {
     const weekStart = String(g?.week_start || "").slice(0, 10);
     const weekEnd = String(g?.week_end || "").slice(0, 10);
@@ -141,16 +171,12 @@ function RotationGuideLines({ guides }) {
   const lines = (guides || [])
     .map((g) => {
       const label = String(g?.label || "").trim()
-        || (
-          g?.until_ymd && g?.teacher_name
-            ? `${formatKoMonthDay(g.until_ymd)}까지 ${g.teacher_name} 정규수업`
-            : ""
-        );
+        || formatRotationWeekGuideLabelLocal(g?.week_start, g?.teacher_name);
       if (!label) return null;
       return { ...g, label };
     })
     .filter(Boolean)
-    .slice(0, 2);
+    .slice(0, 3);
   if (!lines.length) return null;
   return (
     <div className="kiosk-rotation-guides">
@@ -455,6 +481,7 @@ export default function KioskApp() {
   const [flowError, setFlowError] = useState("");
   const [successMsg, setSuccessMsg] = useState({ title: "", detail: "" });
   const [holdings, setHoldings] = useState([]);
+  const [returnCart, setReturnCart] = useState({}); // item_id -> quantity
   const [weekGearExtras, setWeekGearExtras] = useState(null);
   const [viewMonth, setViewMonth] = useState(() => yearMonthKey());
   const [weekFromHome, setWeekFromHome] = useState(false);
@@ -511,13 +538,13 @@ export default function KioskApp() {
   const regularClassGuideByItem = useMemo(() => {
     const map = new Map();
     Object.keys(rotationGuides || {}).forEach((itemId) => {
-      const guides = rotationGuidesForItem(rotationGuides, itemId, { withinDays: 14 });
+      const guides = rotationGuidesForItem(rotationGuides, itemId);
       if (!guides.length) return;
       map.set(
         itemId,
         guides.map((g, i) => ({
           key: `${itemId}-${g.teacher_id}-${g.week_start}-${i}`,
-          text: g.label || `${formatKoMonthDay(g.until_ymd)}까지 ${g.teacher_name} 정규수업`,
+          text: g.label || formatRotationWeekGuideLabelLocal(g.week_start, g.teacher_name),
           type: "regular_class",
         })),
       );
@@ -543,6 +570,7 @@ export default function KioskApp() {
     setTeacherSearch("");
     setFlowError("");
     setHoldings([]);
+    setReturnCart({});
     setWeekGearExtras(null);
     setViewMonth(yearMonthKey());
     setWeekFromHome(false);
@@ -1017,6 +1045,7 @@ export default function KioskApp() {
         teacher_pin: pin,
       }, token);
       setHoldings(data.holdings || []);
+      setReturnCart({});
       setTeacherPin(pin);
       setStep("pick");
       pinSubmitting.current = false;
@@ -1032,35 +1061,64 @@ export default function KioskApp() {
     }
   };
 
-  const pickHolding = (h) => {
-    setSelectedItem({
-      id: h.item_id,
-      name: h.name,
-      code: h.code,
-      photo_url: h.photo_url,
-      available: h.returnable,
+  const toggleReturnItem = (h) => {
+    setReturnCart((prev) => {
+      if (prev[h.item_id]) {
+        const next = { ...prev };
+        delete next[h.item_id];
+        return next;
+      }
+      return { ...prev, [h.item_id]: 1 };
     });
-    setQty(1);
-    setStep("qty");
+    setFlowError("");
   };
 
-  const submitReturn = async () => {
-    if (busy || !selectedItem || !selectedTeacher || !teacherPin) return;
+  const setReturnQuantity = (itemId, nextQty, maxQty) => {
+    const q = Math.max(1, Math.min(maxQty, Math.floor(Number(nextQty) || 1)));
+    setReturnCart((prev) => {
+      if (!prev[itemId]) return prev;
+      return { ...prev, [itemId]: q };
+    });
+  };
+
+  const returnSelectedCount = useMemo(
+    () => Object.values(returnCart).reduce((s, q) => s + Number(q || 0), 0),
+    [returnCart],
+  );
+
+  const submitReturnBatch = async () => {
+    const entries = holdings
+      .filter((h) => returnCart[h.item_id])
+      .map((h) => ({
+        item_id: h.item_id,
+        name: h.name,
+        quantity: Math.min(returnCart[h.item_id], h.returnable),
+      }))
+      .filter((e) => e.quantity > 0);
+    if (busy || !selectedTeacher || !teacherPin || !entries.length) {
+      if (!entries.length) setFlowError("반납할 교구를 선택해 주세요.");
+      return;
+    }
     setBusy(true);
     setFlowError("");
     try {
-      const data = await invokeKioskPublic("return", {
-        teacher_id: selectedTeacher.id,
-        teacher_pin: teacherPin,
-        item_id: selectedItem.id,
-        quantity: qty,
-        location,
-      }, token);
+      const results = [];
+      for (const entry of entries) {
+        const data = await invokeKioskPublic("return", {
+          teacher_id: selectedTeacher.id,
+          teacher_pin: teacherPin,
+          item_id: entry.item_id,
+          quantity: entry.quantity,
+          location: "사무실",
+        }, token);
+        results.push(`${data.item_name || entry.name} ${data.quantity || entry.quantity}개`);
+      }
       setSuccessMsg({
         title: "반납 신청 완료!",
-        detail: `${selectedTeacher.name} · ${data.item_name} ${data.quantity}개\n관리자 승인 후 반납이 확정됩니다.`,
+        detail: `${selectedTeacher.name} · ${results.join(", ")}\n관리자 승인 후 반납이 확정됩니다.`,
       });
       setMode("success");
+      setReturnCart({});
       refreshCatalog(token);
     } catch (err) {
       setFlowError(err.message || "반납에 실패했습니다.");
@@ -1132,8 +1190,9 @@ export default function KioskApp() {
     if (mode === "rent" && step === "pin") return "PIN 입력";
     if (mode === "return" && step === "teacher") return "누가 반납하세요?";
     if (mode === "return" && step === "pin") return "PIN 입력";
-    if (mode === "return" && step === "pick") return "반납할 교구";
-    if (mode === "return" && step === "qty") return "반납 수량";
+    if (mode === "return" && step === "pick") {
+      return selectedTeacher ? `${selectedTeacher.name} · 반납` : "반납할 교구";
+    }
     if (mode === "week" && step === "teacher") return "선생님 선택";
     if (mode === "week" && step === "list") {
       return selectedTeacher ? `${selectedTeacher.name} · 이번달 내 교구` : "이번달 교구";
@@ -1200,7 +1259,6 @@ export default function KioskApp() {
                   setStep(rentFromWeek && selectedTeacher ? "cart" : "teacher");
                 }
                 else if (step === "teacher" && mode === "return") goHome();
-                else if (step === "qty" && mode === "return") setStep("pick");
                 else if (step === "pin" && mode === "return") setStep("teacher");
                 else if (step === "pick" && mode === "return") setStep("pin");
                 else goHome();
@@ -1438,7 +1496,6 @@ export default function KioskApp() {
         {mode === "week" && step === "list" && selectedTeacher ? (
           <div className="kiosk-browse kiosk-browse--month">
             <div className="kiosk-month-header">
-              <p className="kiosk-month-hint">교구를 클릭하면 장바구니에 담겨요</p>
               {cart.length ? (
                 <button
                   type="button"
@@ -1532,6 +1589,12 @@ export default function KioskApp() {
                   </div>
                 </div>
               ))}
+              {(monthGear?.weeks || []).length >= 5 ? (
+                <div className="kiosk-month-week-card kiosk-month-hint-card" role="note">
+                  <ShoppingBag size={36} strokeWidth={2.2} aria-hidden />
+                  <p>교구를 클릭하면<br />장바구니에 담겨요</p>
+                </div>
+              ) : null}
               {!busy && !(monthGear?.weeks || []).length ? (
                 <p className="kiosk-muted kiosk-week-grid-empty">
                   {monthLabel(viewMonth)} 배정 교구가 없습니다. 순환 스케줄을 확인해 주세요.
@@ -1578,54 +1641,59 @@ export default function KioskApp() {
         ) : null}
 
         {mode === "return" && step === "pick" ? (
-          <div className="kiosk-browse">
-            <h1>{selectedTeacher?.name}님 보유 교구</h1>
+          <div className="kiosk-panel kiosk-panel--wide kiosk-panel--return">
+            <p className="kiosk-week-meta">
+              <strong>{selectedTeacher?.name}</strong>님 · 반납할 교구를 선택하세요
+            </p>
             {flowError ? <p className="kiosk-error">{flowError}</p> : null}
-            <div className="kiosk-item-grid">
-              {holdings.map((h) => (
-                <button
-                  key={h.item_id}
-                  type="button"
-                  className="kiosk-item-card"
-                  onClick={() => pickHolding(h)}
-                >
-                  <div className="kiosk-item-thumb">
-                    {h.photo_url ? <img src={h.photo_url} alt="" /> : <Package size={36} />}
+            <div className="kiosk-return-list">
+              {holdings.map((h) => {
+                const selectedQty = returnCart[h.item_id];
+                const selected = Boolean(selectedQty);
+                return (
+                  <div
+                    key={h.item_id}
+                    className={`kiosk-return-row${selected ? " is-selected" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      className="kiosk-return-row-main"
+                      onClick={() => toggleReturnItem(h)}
+                      aria-pressed={selected}
+                    >
+                      <div className="kiosk-cart-thumb">
+                        {h.photo_url ? <img src={h.photo_url} alt="" /> : <Package size={28} />}
+                      </div>
+                      <div className="kiosk-cart-body">
+                        <div className="kiosk-cart-name">{h.name}</div>
+                        <div className="kiosk-cart-meta">{h.code} · 반납 가능 {h.returnable}개</div>
+                        <div className="kiosk-return-check">{selected ? "선택됨" : "선택"}</div>
+                      </div>
+                    </button>
+                    {selected ? (
+                      <QtyStepper
+                        value={selectedQty}
+                        min={1}
+                        max={Math.max(1, h.returnable)}
+                        onChange={(n) => setReturnQuantity(h.item_id, n, h.returnable)}
+                      />
+                    ) : null}
                   </div>
-                  <div className="kiosk-item-body">
-                    <div className="kiosk-item-name">{h.name}</div>
-                    <div className="kiosk-item-meta">{h.code}</div>
-                    <div className="kiosk-item-stock">반납 가능 {h.returnable}</div>
-                  </div>
-                </button>
-              ))}
+                );
+              })}
               {!holdings.length ? <p className="kiosk-muted">반납할 교구가 없습니다.</p> : null}
             </div>
-          </div>
-        ) : null}
-
-        {mode === "return" && step === "qty" && selectedItem ? (
-          <div className="kiosk-panel">
-            <h1>반납 수량</h1>
-            <div className="kiosk-selected">
-              <strong>{selectedItem.name}</strong>
-              <span>가능 {selectedItem.available}개</span>
-            </div>
-            <QtyStepper value={qty} min={1} max={Math.max(1, selectedItem.available)} onChange={setQty} />
-            <label className="kiosk-field">
-              <span>반납 위치</span>
-              <select value={location} onChange={(e) => setLocation(e.target.value)} aria-label="반납 위치">
-                {BRANCHES.map((b) => <option key={b} value={b}>{b}</option>)}
-              </select>
-            </label>
-            {flowError ? <p className="kiosk-error">{flowError}</p> : null}
             <button
               type="button"
               className="kiosk-btn kiosk-btn--return"
-              disabled={busy}
-              onClick={submitReturn}
+              disabled={busy || !returnSelectedCount}
+              onClick={submitReturnBatch}
             >
-              {busy ? "처리 중..." : "반납 완료"}
+              {busy
+                ? "처리 중..."
+                : returnSelectedCount
+                  ? `반납 완료 (${Object.keys(returnCart).length}종 · ${returnSelectedCount}개)`
+                  : "반납할 교구를 선택하세요"}
             </button>
           </div>
         ) : null}
