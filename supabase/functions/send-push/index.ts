@@ -1312,6 +1312,18 @@ async function resolveNotification(event, payload, userId, adminClient) {
         url: "/gear",
       };
     }
+    case "return_rejected": {
+      if (!(await isItemAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      const reason = String(payload.reason || "").trim() || "없음";
+      return {
+        teacherIds: [payload.teacher_id],
+        title: "반납 거절",
+        body: `${formatItemList(payload.item_names)} 교구 반납이 거절됐습니다 (사유: ${reason}). 대여중 상태로 유지됩니다.`,
+        url: "/gear",
+      };
+    }
     case "gear_registered": {
       if (!(await isItemAdmin(adminClient, userId))) {
         return { error: "Forbidden", status: 403 };

@@ -1278,6 +1278,8 @@ const SC = {
   completed:        {l:"완료",      bg:"#dcfce7",c:"#16a34a"},
   return_pending:   {l:"반납 승인 대기", bg:"#fef9c3",c:"#ca8a04"},
   return_approved:  {l:"반납완료",  bg:"#dcfce7",c:"#16a34a"},
+  return_rejected:  {l:"반납 거절", bg:"#fee2e2",c:"#dc2626"},
+  return_cancelled: {l:"반납 취소", bg:"#f1f5f9",c:"#64748b"},
   damage_confirmed: {l:"파손확인",  bg:"#fee2e2",c:"#dc2626"},
   loss_confirmed:   {l:"분실확인",  bg:"#fce7f3",c:"#be185d"},
   cancelled:        {l:"취소됨",    bg:"#f1f5f9",c:"#64748b"},
@@ -6800,19 +6802,21 @@ function MyReservationsPage({ me, reservations, items, ris, rets, onCancel }) {
   );
 }
 
-function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onDamage,onLoss}) {
+function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRet,onDamage,onLoss}) {
   const pendRets = filterReturnPendingLastWeek(rets);
+  const [rejectId, setRejectId] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const approvedRows = useMemo(() => (rets || [])
-    .filter(r => ["return_approved", "damage_confirmed", "loss_confirmed"].includes(r.status))
+    .filter(r => ["return_approved", "damage_confirmed", "loss_confirmed", "return_rejected"].includes(r.status))
     .map(ret => {
       const ri = ris.find(r => r.id === ret.rental_item_id);
       return {
         ret,
         teacherName: tname(ret.teacher_id, teachers),
         returnDate: ret.created_at,
-        approverName: ret.approved_by ? tname(ret.approved_by, teachers) : "-",
-        approvedAt: ret.approved_at,
+        approverName: (ret.approved_by || ret.rejected_by) ? tname(ret.approved_by || ret.rejected_by, teachers) : "-",
+        approvedAt: ret.approved_at || ret.rejected_at,
         itemLabel: ri
           ? `${iname(ri.item_id, items)} ×${ret.quantity}`
           : `교구 ×${ret.quantity}`,
@@ -6870,12 +6874,36 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onDamage,o
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <Btn sm color={DS.primary} onClick={() => onApproveRet(ret.id)}>승인</Btn>
+              <Btn sm danger onClick={() => { setRejectId(ret.id); setRejectReason(""); }}>반납 거절</Btn>
               {ret.condition === "damaged" && <Btn sm danger onClick={() => onDamage(ret.id)}>파손확인</Btn>}
               {ret.condition === "lost" && <Btn sm color="#be185d" onClick={() => onLoss(ret.id)}>분실확인</Btn>}
             </div>
           </PanelSection>
         );
       })}
+
+      {rejectId ? (
+        <Modal title="반납 거절 사유" onClose={() => setRejectId(null)}>
+          <Txa2
+            label="거절 사유 *"
+            value={rejectReason}
+            onChange={e => setRejectReason(e.target.value)}
+            placeholder="거절 이유를 입력하세요 (선생님에게 알림됩니다)"
+          />
+          <Btn
+            full
+            danger
+            onClick={() => {
+              if (!rejectReason.trim()) return alert("거절 사유를 입력하세요");
+              onRejectRet(rejectId, rejectReason.trim());
+              setRejectId(null);
+              setRejectReason("");
+            }}
+          >
+            반납 거절 처리
+          </Btn>
+        </Modal>
+      ) : null}
 
       <PanelSection title={`반납 승인 내역 (${approvedRows.length}건)`}>
         {approvedRows.length === 0 ? (
@@ -12938,6 +12966,58 @@ function EquipmentApp({ onBack, me, session }) {
     alert("반납이 승인되었습니다. 재고가 반영되었습니다.");
   };
 
+  const rejectReturn = async (retId, reason) => {
+    if (!canManage(me)) return;
+    const ret = rets.find(r => r.id === retId);
+    if (!ret || ret.status !== "return_pending") {
+      alert("거절할 수 없는 반납 신청입니다.");
+      return;
+    }
+    const now = new Date().toISOString();
+    const reasonText = String(reason || "").trim();
+    if (!reasonText) {
+      alert("거절 사유를 입력하세요.");
+      return;
+    }
+    const payload = {
+      status: "return_rejected",
+      rejection_reason: reasonText,
+      rejected_by: me.id,
+      rejected_at: now,
+      approved_by: me.id,
+      approved_at: now,
+    };
+    let { error } = await supabase.from("return_requests").update(payload).eq("id", retId).eq("status", "return_pending");
+    if (error?.message?.includes("rejection_reason") || error?.message?.includes("rejected_by") || error?.message?.includes("rejected_at")) {
+      ({ error } = await supabase.from("return_requests").update({
+        status: "return_rejected",
+        approved_by: me.id,
+        approved_at: now,
+        memo: `${ret.memo ? `${ret.memo} / ` : ""}거절: ${reasonText}`,
+      }).eq("id", retId).eq("status", "return_pending"));
+    }
+    if (error) {
+      alert("반납 거절 오류: " + error.message);
+      return;
+    }
+    // 반납 대기만 해제 — rental_items는 원래 대여중/일부반납 유지
+    setRets(p => p.map(r => (
+      r.id === retId
+        ? { ...r, ...payload, memo: r.memo }
+        : r
+    )));
+    const ri = ris.find(r => r.id === ret.rental_item_id);
+    const itemName = ri ? iname(ri.item_id, items) : "교구";
+    if (ret.teacher_id) {
+      sendPushEvent(supabase, "return_rejected", {
+        teacher_id: ret.teacher_id,
+        item_names: formatPushItemNames([itemName]),
+        reason: reasonText,
+      }).catch(() => {});
+    }
+    alert("반납을 거절했습니다. 해당 교구는 대여중 상태로 유지됩니다.");
+  };
+
   const confirmDamage=async(id)=>{if(!canManage(me))return;const now=new Date().toISOString();await supabase.from("return_requests").update({status:"damage_confirmed",approved_by:me.id,approved_at:now}).eq("id",id);setRets(p=>p.map(r=>r.id===id?{...r,status:"damage_confirmed",approved_by:me.id,approved_at:now}:r));};
   const confirmLoss=async(id)=>{if(!canManage(me))return;const now=new Date().toISOString();await supabase.from("return_requests").update({status:"loss_confirmed",approved_by:me.id,approved_at:now}).eq("id",id);setRets(p=>p.map(r=>r.id===id?{...r,status:"loss_confirmed",approved_by:me.id,approved_at:now}:r));};
 
@@ -13396,7 +13476,7 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="rental-approval"&&<RentalApprovalPage me={me} reqs={reqs} ris={ris} items={items} itemSets={itemSets} teachers={teachers} onApprove={approveReq} onReject={rejectReq}/>}
         {page==="reservation-approval"&&<ReservationApprovalPage me={me} reservations={reservations} items={items} teachers={teachers} onApprove={approveReservation} onReject={rejectReservation}/>}
         {page==="my-reservations"&&<MyReservationsPage me={me} reservations={reservations} items={items} ris={ris} rets={rets} onCancel={cancelReservation}/>}
-        {page==="returns-approval"&&<ReturnsApprovalPage me={me} rets={rets} ris={ris} items={items} teachers={teachers} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
+        {page==="returns-approval"&&<ReturnsApprovalPage me={me} rets={rets} ris={ris} items={items} teachers={teachers} onApproveRet={approveReturn} onRejectRet={rejectReturn} onDamage={confirmDamage} onLoss={confirmLoss}/>}
         {page==="rental-manage"&&<RentalManageHubPage me={me} setPage={setPage}/>}
         {page==="stats"&&<StatsPage me={me} items={items} ris={ris} reqs={reqs} teachers={teachers}/>}
         {page==="report"&&isItemAdmin(me)&&<ReportPage me={me} items={items} ris={ris} rets={rets} reqs={reqs} teachers={teachers}/>}

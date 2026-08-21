@@ -192,6 +192,34 @@ function RotationConflictModal({ conflicts, reason, onReasonChange, onConfirm, o
   );
 }
 
+function RegularClassAddConfirmModal({ guide, itemName, onConfirm, onCancel }) {
+  if (!guide) return null;
+  const weekTag = guide.relative_week || "이번주";
+  const teacherName = guide.teacher_name || "선생님";
+  return (
+    <div className="kiosk-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="kiosk-guide-add-title">
+      <div className="kiosk-modal">
+        <h2 id="kiosk-guide-add-title">정규수업 교구 확인</h2>
+        <div className="kiosk-modal-body">
+          <p>
+            이 교구{itemName ? `(${itemName})` : ""}는{" "}
+            <strong>{teacherName}</strong>님의 <strong>{weekTag}</strong> 정규수업에 필요해요.
+          </p>
+          <p className="kiosk-modal-ask">그래도 담으시겠어요?</p>
+        </div>
+        <div className="kiosk-modal-actions">
+          <button type="button" className="kiosk-btn kiosk-btn--ghost" onClick={onCancel}>
+            취소
+          </button>
+          <button type="button" className="kiosk-btn kiosk-btn--primary" onClick={onConfirm}>
+            그래도 담기
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RotationGuideLines({ guides }) {
   const lines = (guides || [])
     .map((g) => {
@@ -506,7 +534,9 @@ export default function KioskApp() {
   const [flowError, setFlowError] = useState("");
   const [successMsg, setSuccessMsg] = useState({ title: "", detail: "" });
   const [holdings, setHoldings] = useState([]);
+  const [pendingReturns, setPendingReturns] = useState([]);
   const [returnCart, setReturnCart] = useState({}); // item_id -> quantity
+  const [guideConfirm, setGuideConfirm] = useState(null); // { item, quantity, guide }
   const [weekGearExtras, setWeekGearExtras] = useState(null);
   const [viewMonth, setViewMonth] = useState(() => yearMonthKey());
   const [weekFromHome, setWeekFromHome] = useState(false);
@@ -538,27 +568,61 @@ export default function KioskApp() {
   );
 
   const setBrowseCart = useCallback((updater) => {
-    setCart((prev) => {
-      const prevBrowse = prev.map((c) => ({ item_id: c.id, quantity: c.quantity, due_date: "" }));
-      const nextBrowse = typeof updater === "function" ? updater(prevBrowse) : updater;
-      return (nextBrowse || []).map((entry) => {
-        const existing = prev.find((c) => c.id === entry.item_id);
-        if (existing) {
-          return { ...existing, quantity: Math.max(1, Number(entry.quantity) || 1) };
-        }
+    const prevBrowse = cart.map((c) => ({ item_id: c.id, quantity: c.quantity, due_date: "" }));
+    const nextBrowse = typeof updater === "function" ? updater(prevBrowse) : updater;
+    const prevIds = new Set(prevBrowse.map((c) => c.item_id));
+    const newlyAdded = (nextBrowse || []).filter((e) => e?.item_id && !prevIds.has(e.item_id));
+
+    if (newlyAdded.length === 1) {
+      const entry = newlyAdded[0];
+      const guides = rotationGuidesForItem(rotationGuides, entry.item_id);
+      if (guides.length) {
         const catalog = items.find((i) => i.id === entry.item_id);
-        if (!catalog) return null;
-        return {
-          id: catalog.id,
-          name: catalog.name,
-          code: catalog.code,
-          photo_url: catalog.photo_url,
-          available: catalog.available,
-          quantity: Math.max(1, Number(entry.quantity) || 1),
-        };
-      }).filter(Boolean);
-    });
-  }, [items]);
+        if (catalog) {
+          setGuideConfirm({
+            item: catalog,
+            quantity: Math.max(1, Number(entry.quantity) || 1),
+            guide: guides[0],
+          });
+          return;
+        }
+      }
+    }
+
+    setCart((prev) => (nextBrowse || []).map((entry) => {
+      const existing = prev.find((c) => c.id === entry.item_id);
+      if (existing) {
+        return { ...existing, quantity: Math.max(1, Number(entry.quantity) || 1) };
+      }
+      const catalog = items.find((i) => i.id === entry.item_id);
+      if (!catalog) return null;
+      return {
+        id: catalog.id,
+        name: catalog.name,
+        code: catalog.code,
+        photo_url: catalog.photo_url,
+        available: catalog.available,
+        quantity: Math.max(1, Number(entry.quantity) || 1),
+      };
+    }).filter(Boolean));
+  }, [cart, items, rotationGuides]);
+
+  const addToCartWithGuideCheck = (item, addQty = 1, { force = false } = {}) => {
+    if (!item?.id) return false;
+    if (item.available <= 0) {
+      setFlowError("재고가 없습니다.");
+      return false;
+    }
+    const already = cart.some((c) => c.id === item.id);
+    if (!force && !already) {
+      const guides = rotationGuidesForItem(rotationGuides, item.id);
+      if (guides.length) {
+        setGuideConfirm({ item, quantity: addQty, guide: guides[0] });
+        return false;
+      }
+    }
+    return addToCart(item, addQty);
+  };
 
   const regularClassGuideByItem = useMemo(() => {
     const map = new Map();
@@ -595,7 +659,9 @@ export default function KioskApp() {
     setTeacherSearch("");
     setFlowError("");
     setHoldings([]);
+    setPendingReturns([]);
     setReturnCart({});
+    setGuideConfirm(null);
     setWeekGearExtras(null);
     setViewMonth(yearMonthKey());
     setWeekFromHome(false);
@@ -956,7 +1022,7 @@ export default function KioskApp() {
       setFlowError("재고가 없습니다.");
       return;
     }
-    if (addToCart(catalogItem, 1)) {
+    if (addToCartWithGuideCheck(catalogItem, 1)) {
       setToastMsg("장바구니에 담겼어요!");
     }
   };
@@ -979,7 +1045,7 @@ export default function KioskApp() {
       setToastMsg("선택 해제했어요");
       return;
     }
-    if (addToCart(item, 1)) {
+    if (addToCartWithGuideCheck(item, 1)) {
       setToastMsg("장바구니에 담겼어요!");
     }
   };
@@ -1070,17 +1136,89 @@ export default function KioskApp() {
         teacher_pin: pin,
       }, token);
       setHoldings(data.holdings || []);
+      setPendingReturns(data.pending_returns || []);
       setReturnCart({});
       setTeacherPin(pin);
       setStep("pick");
       pinSubmitting.current = false;
-      if (!(data.holdings || []).length) {
+      if (!(data.holdings || []).length && !(data.pending_returns || []).length) {
         setFlowError("반납할 교구가 없습니다.");
       }
     } catch (err) {
       setFlowError(err.message || "조회에 실패했습니다.");
       setTeacherPin("");
       pinSubmitting.current = false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const refreshHoldings = async () => {
+    if (!selectedTeacher || !teacherPin) return;
+    const data = await invokeKioskPublic("holdings", {
+      teacher_id: selectedTeacher.id,
+      teacher_pin: teacherPin,
+    }, token);
+    setHoldings(data.holdings || []);
+    setPendingReturns(data.pending_returns || []);
+  };
+
+  const cancelPendingReturn = async (ret) => {
+    if (busy || !selectedTeacher || !teacherPin || !ret?.id) return;
+    setBusy(true);
+    setFlowError("");
+    try {
+      await invokeKioskPublic("cancel_return", {
+        teacher_id: selectedTeacher.id,
+        teacher_pin: teacherPin,
+        return_id: ret.id,
+      }, token);
+      await refreshHoldings();
+      setToastMsg(`${ret.name || "교구"} 반납을 취소했어요`);
+    } catch (err) {
+      setFlowError(err.message || "반납 취소에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitExtendSelected = async () => {
+    const itemIds = Object.keys(returnCart);
+    if (busy || !selectedTeacher || !teacherPin || !itemIds.length) {
+      if (!itemIds.length) setFlowError("다시 대여할 교구를 선택해 주세요.");
+      return;
+    }
+    for (const itemId of itemIds) {
+      const others = rotationGuidesForItem(rotationGuides, itemId)
+        .filter((g) => g.teacher_id && g.teacher_id !== selectedTeacher.id);
+      if (others.length) {
+        const h = holdings.find((x) => x.item_id === itemId);
+        const g = others[0];
+        setFlowError(
+          `${h?.name || "교구"}은(는) ${g.teacher_name}님의 ${g.relative_week} 정규수업 교구라 다시 대여할 수 없습니다.`,
+        );
+        return;
+      }
+    }
+    setBusy(true);
+    setFlowError("");
+    try {
+      const data = await invokeKioskPublic("extend", {
+        teacher_id: selectedTeacher.id,
+        teacher_pin: teacherPin,
+        item_ids: itemIds,
+        weeks: 1,
+      }, token);
+      setReturnCart({});
+      await refreshHoldings();
+      const names = (data.item_names || []).join(", ");
+      setMode("success");
+      setSuccessMsg({
+        title: "다시 대여 완료",
+        detail: `${names || "교구"} 반납예정일을 ${data.weeks || 1}주 연장했어요.`,
+      });
+    } catch (err) {
+      setFlowError(err.message || "다시 대여에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -1251,6 +1389,20 @@ export default function KioskApp() {
             conflictAckRef.current = true;
             setConflictModal(null);
             submitRentBatch(pin, { force: true, reason: conflictReason });
+          }}
+        />
+      ) : null}
+      {guideConfirm ? (
+        <RegularClassAddConfirmModal
+          guide={guideConfirm.guide}
+          itemName={guideConfirm.item?.name}
+          onCancel={() => setGuideConfirm(null)}
+          onConfirm={() => {
+            const { item, quantity } = guideConfirm;
+            setGuideConfirm(null);
+            if (addToCart(item, quantity)) {
+              setToastMsg("장바구니에 담겼어요!");
+            }
           }}
         />
       ) : null}
@@ -1684,15 +1836,48 @@ export default function KioskApp() {
           <div className="kiosk-panel kiosk-panel--wide kiosk-panel--return">
             <div className="kiosk-return-header">
               <p className="kiosk-week-meta kiosk-return-meta">
-                <strong>{selectedTeacher?.name}</strong>님 보유 교구
+                <strong>{selectedTeacher?.name}</strong>님 보유 · 반납
               </p>
-              <p className="kiosk-return-hint">여러 교구를 체크한 뒤, 각각 수량을 조절하고 한 번에 반납하세요.</p>
+              <p className="kiosk-return-hint">여러 교구를 체크한 뒤 반납하거나, 다시 대여(1주 연장)할 수 있어요.</p>
             </div>
             {flowError ? <p className="kiosk-error">{flowError}</p> : null}
+
+            {pendingReturns.length ? (
+              <div className="kiosk-pending-returns">
+                <h3 className="kiosk-section-title">반납 승인 대기</h3>
+                <div className="kiosk-pending-list">
+                  {pendingReturns.map((ret) => (
+                    <div key={ret.id} className="kiosk-pending-row">
+                      <div className="kiosk-cart-thumb">
+                        {ret.photo_url ? <img src={ret.photo_url} alt="" /> : <Package size={28} />}
+                      </div>
+                      <div className="kiosk-cart-body">
+                        <div className="kiosk-cart-name">{ret.name}</div>
+                        <div className="kiosk-cart-meta">
+                          {ret.code} · {ret.quantity}개 · 승인 대기
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="kiosk-btn kiosk-btn--ghost kiosk-btn--sm"
+                        disabled={busy}
+                        onClick={() => cancelPendingReturn(ret)}
+                      >
+                        반납 취소
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <h3 className="kiosk-section-title">보유 교구 (반납 가능)</h3>
             <div className="kiosk-return-list" role="list">
               {holdings.map((h) => {
                 const selectedQty = returnCart[h.item_id];
                 const selected = Boolean(selectedQty);
+                const blocked = rotationGuidesForItem(rotationGuides, h.item_id)
+                  .some((g) => g.teacher_id && selectedTeacher && g.teacher_id !== selectedTeacher.id);
                 return (
                   <div
                     key={h.item_id}
@@ -1705,7 +1890,7 @@ export default function KioskApp() {
                         className="kiosk-return-checkbox"
                         checked={selected}
                         onChange={() => toggleReturnItem(h)}
-                        aria-label={`${h.name} 반납 선택`}
+                        aria-label={`${h.name} 선택`}
                       />
                       <div className="kiosk-cart-thumb">
                         {h.photo_url ? <img src={h.photo_url} alt="" /> : <Package size={28} />}
@@ -1713,6 +1898,9 @@ export default function KioskApp() {
                       <div className="kiosk-cart-body">
                         <div className="kiosk-cart-name">{h.name}</div>
                         <div className="kiosk-cart-meta">{h.code} · 반납 가능 {h.returnable}개</div>
+                        {blocked ? (
+                          <div className="kiosk-return-block-note">다른 선생님 정규수업 교구 · 다시 대여 불가</div>
+                        ) : null}
                       </div>
                     </label>
                     {selected ? (
@@ -1733,15 +1921,23 @@ export default function KioskApp() {
                   </div>
                 );
               })}
-              {!holdings.length ? <p className="kiosk-muted">반납할 교구가 없습니다.</p> : null}
+              {!holdings.length ? <p className="kiosk-muted">반납 가능한 교구가 없습니다.</p> : null}
             </div>
-            <div className="kiosk-return-footer">
+            <div className="kiosk-return-footer kiosk-return-footer--triple">
               <button
                 type="button"
                 className="kiosk-btn kiosk-btn--ghost"
                 onClick={goHome}
               >
                 홈으로
+              </button>
+              <button
+                type="button"
+                className="kiosk-btn kiosk-btn--secondary"
+                disabled={busy || !returnSelectedCount}
+                onClick={submitExtendSelected}
+              >
+                {busy ? "처리 중..." : `다시 대여하기${returnSelectedCount ? ` (${Object.keys(returnCart).length}종)` : ""}`}
               </button>
               <button
                 type="button"

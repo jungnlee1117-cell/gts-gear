@@ -907,6 +907,236 @@ async function returnItem(admin, {
   };
 }
 
+async function teacherPendingReturns(admin, teacherId: string) {
+  const { data: rets, error } = await admin
+    .from("return_requests")
+    .select("id, rental_item_id, quantity, status, created_at, memo, return_location, teacher_id")
+    .eq("teacher_id", teacherId)
+    .eq("status", "return_pending")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  if (!rets?.length) return [];
+
+  const riIds = [...new Set(rets.map((r) => r.rental_item_id).filter(Boolean))];
+  const { data: ris } = await admin
+    .from("rental_items")
+    .select("id, item_id")
+    .in("id", riIds);
+  const itemIds = [...new Set((ris || []).map((r) => r.item_id).filter(Boolean))];
+  const { data: items } = itemIds.length
+    ? await admin.from("items").select("id, code, name, photo_url").in("id", itemIds)
+    : { data: [] };
+  const riMap = Object.fromEntries((ris || []).map((r) => [r.id, r]));
+  const itemMap = Object.fromEntries((items || []).map((i) => [i.id, i]));
+
+  return rets.map((ret) => {
+    const ri = riMap[ret.rental_item_id];
+    const item = ri ? itemMap[ri.item_id] : null;
+    return {
+      id: ret.id,
+      rental_item_id: ret.rental_item_id,
+      item_id: ri?.item_id || null,
+      name: item?.name || "교구",
+      code: item?.code || "",
+      photo_url: item?.photo_url || null,
+      quantity: Number(ret.quantity || 0),
+      created_at: ret.created_at,
+      memo: ret.memo || null,
+      return_location: ret.return_location || null,
+    };
+  });
+}
+
+async function cancelReturnRequest(admin, {
+  teacherId,
+  returnId,
+  teacherName,
+}: {
+  teacherId: string;
+  returnId: string;
+  teacherName: string;
+}) {
+  const id = String(returnId || "").trim();
+  if (!id) {
+    const err = new Error("반납 신청을 선택해 주세요.");
+    err.code = "VALIDATION_ERROR";
+    throw err;
+  }
+  const { data: ret, error } = await admin
+    .from("return_requests")
+    .select("id, teacher_id, rental_item_id, quantity, status")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!ret || ret.teacher_id !== teacherId) {
+    const err = new Error("반납 신청을 찾을 수 없습니다.");
+    err.code = "NOT_FOUND";
+    throw err;
+  }
+  if (ret.status !== "return_pending") {
+    const err = new Error("이미 처리된 반납 신청입니다.");
+    err.code = "VALIDATION_ERROR";
+    throw err;
+  }
+
+  const { error: updErr } = await admin
+    .from("return_requests")
+    .update({ status: "return_cancelled" })
+    .eq("id", id)
+    .eq("status", "return_pending");
+  if (updErr) throw updErr;
+
+  let itemId = null;
+  let itemName = "교구";
+  const { data: ri } = await admin
+    .from("rental_items")
+    .select("id, item_id, status")
+    .eq("id", ret.rental_item_id)
+    .maybeSingle();
+  if (ri?.item_id) {
+    itemId = ri.item_id;
+    const { data: item } = await admin.from("items").select("name").eq("id", ri.item_id).maybeSingle();
+    itemName = item?.name || itemName;
+  }
+
+  await audit(admin, {
+    action: "return_cancelled",
+    teacher_id: teacherId,
+    item_id: itemId,
+    quantity: Number(ret.quantity || 0),
+    meta: {
+      return_id: id,
+      item_name: itemName,
+      teacher_name: teacherName,
+      status: "return_cancelled",
+    },
+  });
+
+  return {
+    return_id: id,
+    item_name: itemName,
+    quantity: Number(ret.quantity || 0),
+    status: "return_cancelled",
+  };
+}
+
+const MAX_KIOSK_EXTENSIONS = 5;
+
+function computeExtendedDueYmd(currentDue: string | null, weeks: number) {
+  const today = todayYmd(0);
+  const base = String(currentDue || "").slice(0, 10) || today;
+  const from = base > today ? base : today;
+  return ymdAddDays(from, Math.max(1, weeks) * 7) || from;
+}
+
+async function extendHoldings(admin, {
+  teacherId,
+  itemIds,
+  weeks,
+  teacherName,
+}: {
+  teacherId: string;
+  itemIds: string[];
+  weeks: number;
+  teacherName: string;
+}) {
+  const w = Math.max(1, Math.min(2, Math.floor(Number(weeks) || 1)));
+  const ids = [...new Set((itemIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) {
+    const err = new Error("다시 대여할 교구를 선택해 주세요.");
+    err.code = "VALIDATION_ERROR";
+    throw err;
+  }
+
+  const catalog = await loadCatalogStock(admin);
+  const guidesByItem = await loadRotationGuides(admin, catalog);
+  const itemNameMap = Object.fromEntries(catalog.map((i) => [i.id, i.name]));
+
+  for (const itemId of ids) {
+    const guides = guidesByItem[itemId] || [];
+    const other = guides.find((g) => g.teacher_id && g.teacher_id !== teacherId);
+    if (other) {
+      const err = new Error(
+        `${itemNameMap[itemId] || "교구"}은(는) ${other.teacher_name}님의 ${other.relative_week} 정규수업 교구라 다시 대여할 수 없습니다.`,
+      );
+      err.code = "ROTATION_BLOCKED";
+      throw err;
+    }
+  }
+
+  const holdings = await teacherHoldings(admin, teacherId);
+  const holdingByItem = new Map(holdings.map((h) => [h.item_id, h]));
+  const extended = [];
+
+  for (const itemId of ids) {
+    const group = holdingByItem.get(itemId);
+    if (!group?.lines?.length) {
+      const err = new Error(`${itemNameMap[itemId] || "교구"}은(는) 보유 중이 아니거나 반납 대기 중이라 다시 대여할 수 없습니다.`);
+      err.code = "VALIDATION_ERROR";
+      throw err;
+    }
+    for (const line of group.lines) {
+      const { data: ri, error: riErr } = await admin
+        .from("rental_items")
+        .select("id, item_id, due_date, extension_count, status")
+        .eq("id", line.rental_item_id)
+        .maybeSingle();
+      if (riErr) throw riErr;
+      if (!ri || !["rented", "partial_returned"].includes(ri.status)) continue;
+      const extCount = Number(ri.extension_count || 0);
+      if (extCount >= MAX_KIOSK_EXTENSIONS) {
+        const err = new Error(`${group.name}은(는) 연장 한도에 도달했습니다.`);
+        err.code = "VALIDATION_ERROR";
+        throw err;
+      }
+      const newDue = computeExtendedDueYmd(ri.due_date, w);
+      const { data: updated, error: updErr } = await admin
+        .from("rental_items")
+        .update({
+          due_date: newDue,
+          extension_count: extCount + 1,
+          last_extended_at: new Date().toISOString(),
+        })
+        .eq("id", ri.id)
+        .select("id, item_id, due_date, extension_count")
+        .single();
+      if (updErr) throw updErr;
+      extended.push({
+        rental_item_id: updated.id,
+        item_id: updated.item_id,
+        item_name: group.name,
+        due_date: updated.due_date,
+        extension_count: updated.extension_count,
+      });
+    }
+  }
+
+  if (!extended.length) {
+    const err = new Error("다시 대여 처리할 교구가 없습니다.");
+    err.code = "VALIDATION_ERROR";
+    throw err;
+  }
+
+  await audit(admin, {
+    action: "kiosk_extend",
+    teacher_id: teacherId,
+    item_id: extended[0]?.item_id || null,
+    quantity: extended.length,
+    meta: {
+      teacher_name: teacherName,
+      weeks: w,
+      lines: extended,
+    },
+  });
+
+  return {
+    weeks: w,
+    lines: extended,
+    item_names: [...new Set(extended.map((e) => e.item_name))],
+    status: "extended",
+  };
+}
+
 async function setPin(admin, {
   teacherId,
   pin,
@@ -1108,8 +1338,17 @@ Deno.serve(async (req) => {
 
     if (action === "holdings") {
       const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
-      const data = await teacherHoldings(admin, teacher.id);
-      return jsonResponse({ data: { teacher: { id: teacher.id, name: teacher.name }, holdings: data } });
+      const [holdings, pending_returns] = await Promise.all([
+        teacherHoldings(admin, teacher.id),
+        teacherPendingReturns(admin, teacher.id),
+      ]);
+      return jsonResponse({
+        data: {
+          teacher: { id: teacher.id, name: teacher.name },
+          holdings,
+          pending_returns,
+        },
+      });
     }
 
     if (action === "rent") {
@@ -1166,12 +1405,36 @@ Deno.serve(async (req) => {
       return jsonResponse({ data });
     }
 
+    if (action === "cancel_return") {
+      const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
+      const data = await cancelReturnRequest(admin, {
+        teacherId: teacher.id,
+        returnId: String(body.return_id || ""),
+        teacherName: teacher.name,
+      });
+      return jsonResponse({ data });
+    }
+
+    if (action === "extend") {
+      const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
+      const rawIds = Array.isArray(body.item_ids)
+        ? body.item_ids
+        : (body.item_id ? [body.item_id] : []);
+      const data = await extendHoldings(admin, {
+        teacherId: teacher.id,
+        itemIds: rawIds.map((id) => String(id || "")),
+        weeks: body.weeks,
+        teacherName: teacher.name,
+      });
+      return jsonResponse({ data });
+    }
+
     return jsonError("UNKNOWN_ACTION", "Unknown action", 400);
   } catch (err) {
     const code = err?.code || "INTERNAL_ERROR";
     const status = code === "VALIDATION_ERROR" || code === "PIN_NOT_SET" || code === "PIN_INVALID"
       || code === "INSUFFICIENT_STOCK" || code === "INSUFFICIENT_RETURNABLE" || code === "ITEM_NOT_FOUND"
-      || code === "TEACHER_INACTIVE"
+      || code === "TEACHER_INACTIVE" || code === "ROTATION_BLOCKED" || code === "NOT_FOUND"
       ? (code === "PIN_INVALID" || code === "PIN_NOT_SET" ? 401 : 400)
       : 500;
     console.error("[kiosk]", { code, status });
