@@ -663,7 +663,37 @@ const SERVICE_ROLE_EVENTS = new Set([
   "todo_due_today",
   "todo_recurrence_spawn",
   "giti_report_ready",
+  "kiosk_rotation_conflict_rent",
 ]);
+
+/** 키오스크에서 순환 배정 선생님 외 대여 시, 배정 선생님에게 참고 알림 */
+async function runKioskRotationConflictRent(adminClient, vapid, payload) {
+  const teacherIds = [...new Set(
+    (Array.isArray(payload?.teacher_ids) ? payload.teacher_ids : [])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean),
+  )];
+  if (!teacherIds.length) {
+    return jsonResponse({ error: "teacher_ids required" }, 400);
+  }
+  const renterName = String(payload?.renter_name || "").trim() || "다른 선생님";
+  const itemNames = Array.isArray(payload?.item_names)
+    ? payload.item_names.map((n) => String(n || "").trim()).filter(Boolean)
+    : [];
+  const itemLabel = itemNames.length <= 2
+    ? itemNames.join(", ")
+    : `${itemNames.slice(0, 2).join(", ")} 외 ${itemNames.length - 2}종`;
+  const body = String(payload?.body || "").trim()
+    || `${renterName} 선생님이 정규수업 전에 ${itemLabel || "교구"}을(를) 대여했어요`;
+  const result = await deliverPushNotifications(adminClient, vapid, "kiosk_rotation_conflict_rent", {
+    teacherIds,
+    title: "정규수업 교구 대여 안내",
+    body: body.slice(0, 180),
+    url: "/gear",
+  });
+  console.log("[send-push] kiosk_rotation_conflict_rent complete", result);
+  return jsonResponse(result);
+}
 
 /** 오늘 생일인 활동 선생님을 찾아 슈퍼관리자에게 한 번씩 알립니다. */
 async function runTeacherBirthdayReminders(adminClient, vapid) {
@@ -1578,6 +1608,9 @@ Deno.serve(async (req) => {
       }
       if (event === "giti_report_ready") {
         return await runGitiReportReady(adminClient, vapid, payload || {});
+      }
+      if (event === "kiosk_rotation_conflict_rent") {
+        return await runKioskRotationConflictRent(adminClient, vapid, payload || {});
       }
     }
 

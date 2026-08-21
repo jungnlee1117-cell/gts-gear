@@ -28,6 +28,117 @@ import "./kiosk.css";
 
 const TOKEN_KEY = "gts_kiosk_token";
 const BRANCHES = ["사무실", "엘리트코어", "삼성점", "한남점", "나비에로"];
+const DEFAULT_RENT_DAYS = 7;
+
+function todayYmdLocal(offsetDays = 0) {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function formatKoMonthDay(ymd) {
+  if (!ymd) return "";
+  const parts = String(ymd).slice(0, 10).split("-").map(Number);
+  if (parts.length < 3 || !parts[1] || !parts[2]) return String(ymd).slice(0, 10);
+  return `${parts[1]}월 ${parts[2]}일`;
+}
+
+function rotationGuidesForItem(guidesByItem, itemId) {
+  if (!itemId || !guidesByItem) return [];
+  const list = guidesByItem[itemId] || guidesByItem[String(itemId)] || [];
+  return Array.isArray(list) ? list : [];
+}
+
+/** 대여 기간(오늘~N일)과 겹치는 다른 선생님 순환 배정 */
+function findKioskRentConflicts(guidesByItem, cartItems, renterId) {
+  const start = todayYmdLocal(0);
+  const end = todayYmdLocal(DEFAULT_RENT_DAYS);
+  const out = [];
+  const seen = new Set();
+  for (const item of cartItems || []) {
+    const guides = rotationGuidesForItem(guidesByItem, item.id);
+    for (const g of guides) {
+      if (!g?.teacher_id || g.teacher_id === renterId) continue;
+      if (!g.week_start || !g.week_end) continue;
+      if (!(start <= g.week_end && end >= g.week_start)) continue;
+      const key = `${item.id}|${g.teacher_id}|${g.week_start}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        itemId: item.id,
+        itemName: item.name,
+        teacherId: g.teacher_id,
+        teacherName: g.teacher_name || "다른 선생님",
+        weekStart: g.week_start,
+        weekEnd: g.week_end,
+        untilYmd: g.until_ymd,
+        label: g.label,
+      });
+    }
+  }
+  out.sort((a, b) => String(a.weekStart).localeCompare(String(b.weekStart)));
+  return out;
+}
+
+function RotationConflictModal({ conflicts, reason, onReasonChange, onConfirm, onCancel, busy }) {
+  if (!conflicts?.length) return null;
+  const lines = conflicts.map((c) => (
+    `이 교구는 ${c.teacherName}님의 ${formatKoMonthDay(c.weekStart)} 정규수업에 필요해요.`
+  ));
+  const uniqueLines = [...new Set(lines)];
+  return (
+    <div className="kiosk-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="kiosk-conflict-title">
+      <div className="kiosk-modal">
+        <h2 id="kiosk-conflict-title">정규수업 교구 안내</h2>
+        <div className="kiosk-modal-body">
+          {uniqueLines.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+          <p className="kiosk-modal-ask">그래도 대여하시겠어요?</p>
+          <label className="kiosk-modal-reason-label" htmlFor="kiosk-conflict-reason">
+            사유 (선택)
+          </label>
+          <textarea
+            id="kiosk-conflict-reason"
+            className="kiosk-modal-reason"
+            rows={2}
+            maxLength={120}
+            value={reason}
+            onChange={(e) => onReasonChange(e.target.value)}
+            placeholder="예: 체험 수업용, 당일 반납 예정"
+            disabled={busy}
+          />
+        </div>
+        <div className="kiosk-modal-actions">
+          <button type="button" className="kiosk-btn kiosk-btn--ghost" onClick={onCancel} disabled={busy}>
+            취소
+          </button>
+          <button type="button" className="kiosk-btn kiosk-btn--primary" onClick={onConfirm} disabled={busy}>
+            {busy ? "처리 중..." : "그래도 대여"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RotationGuideLines({ guides }) {
+  const lines = (guides || []).slice(0, 2);
+  if (!lines.length) return null;
+  return (
+    <div className="kiosk-rotation-guides">
+      {lines.map((g) => (
+        <div key={`${g.teacher_id}-${g.week_start}-${g.label}`} className="kiosk-rotation-guide">
+          {g.label || `${formatKoMonthDay(g.until_ymd)}까지 ${g.teacher_name}의 정규수업 예정`}
+        </div>
+      ))}
+    </div>
+  );
+}
 const KIOSK_MANIFEST = "/kiosk.webmanifest";
 
 function isDisplayStandalone() {
@@ -251,7 +362,7 @@ function KioskNoticeSlider({ notices }) {
   );
 }
 
-function ItemCard({ item, onSelect, inCart, cartQty }) {
+function ItemCard({ item, onSelect, inCart, cartQty, rotationGuides }) {
   return (
     <button type="button" className={`kiosk-item-card${inCart ? " in-cart" : ""}`} onClick={() => onSelect(item)}>
       <div className="kiosk-item-thumb">
@@ -267,6 +378,7 @@ function ItemCard({ item, onSelect, inCart, cartQty }) {
         <div className={`kiosk-item-stock${item.available <= 0 ? " out" : ""}`}>
           남은 수량 {item.available}
         </div>
+        <RotationGuideLines guides={rotationGuides} />
         {inCart ? (
           <div className="kiosk-item-cart-badge">장바구니 {cartQty}개</div>
         ) : null}
@@ -284,11 +396,16 @@ export default function KioskApp() {
   const [mode, setMode] = useState("home"); // home | browse | rent | return | week | success
   const [categories, setCategories] = useState(DEFAULT_GEAR_CATEGORIES);
   const [items, setItems] = useState([]);
+  const [rotationGuides, setRotationGuides] = useState({});
   const [teachers, setTeachers] = useState([]);
   const [notices, setNotices] = useState([]);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [catalogError, setCatalogError] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [toastMsg, setToastMsg] = useState("");
+  const [conflictModal, setConflictModal] = useState(null); // { conflicts, pin }
+  const [conflictReason, setConflictReason] = useState("");
+  const conflictAckRef = useRef(false);
 
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -403,6 +520,12 @@ export default function KioskApp() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!toastMsg) return undefined;
+    const timer = window.setTimeout(() => setToastMsg(""), 2200);
+    return () => window.clearTimeout(timer);
+  }, [toastMsg]);
+
   const enterFullscreen = async () => {
     try {
       const el = document.documentElement;
@@ -437,6 +560,9 @@ export default function KioskApp() {
       ]);
       setCategories(mergeCategoriesWithDefaults(catalog?.categories || []));
       setItems(catalog?.items || []);
+      setRotationGuides(catalog?.rotation_guides && typeof catalog.rotation_guides === "object"
+        ? catalog.rotation_guides
+        : {});
       setTeachers(teacherList || []);
       setNotices(Array.isArray(noticeList) ? noticeList : []);
     } catch (err) {
@@ -608,10 +734,10 @@ export default function KioskApp() {
   const loadWeekGearForTeacher = (teacher) => openWeekGearForTeacher(teacher, false);
 
   const addToCart = (item, addQty = 1) => {
-    if (!item?.id) return;
+    if (!item?.id) return false;
     if (item.available <= 0) {
       setFlowError("재고가 없습니다.");
-      return;
+      return false;
     }
     setFlowError("");
     setCart((prev) => {
@@ -636,6 +762,7 @@ export default function KioskApp() {
         },
       ];
     });
+    return true;
   };
 
   const setCartQuantity = (itemId, nextQty) => {
@@ -682,8 +809,9 @@ export default function KioskApp() {
     setFlowError("");
     pinSubmitting.current = false;
     setRentFromWeek(true);
-    addToCart(catalogItem, 1);
-    // 이번달 내 교구 화면에 그대로 유지
+    if (addToCart(catalogItem, 1)) {
+      setToastMsg("장바구니에 담겼어요!");
+    }
   };
 
   const returnToWeekList = () => {
@@ -723,17 +851,37 @@ export default function KioskApp() {
     setStep("teacher");
   };
 
-  const submitRentBatch = async (pin) => {
+  const submitRentBatch = async (pin, options = {}) => {
     if (pinSubmitting.current || busy || !selectedTeacher || !cart.length) return;
+    const force = Boolean(options.force);
+    const reason = String(options.reason ?? conflictReason ?? "").trim();
+
+    if (!force && !conflictAckRef.current) {
+      const conflicts = findKioskRentConflicts(rotationGuides, cart, selectedTeacher.id);
+      if (conflicts.length) {
+        setConflictReason("");
+        setConflictModal({ conflicts, pin });
+        return;
+      }
+    }
+
     pinSubmitting.current = true;
     setBusy(true);
     setFlowError("");
     try {
+      const conflicts = findKioskRentConflicts(rotationGuides, cart, selectedTeacher.id);
       const data = await invokeKioskPublic("rent_batch", {
         teacher_id: selectedTeacher.id,
         teacher_pin: pin,
         location,
         items: cart.map((c) => ({ item_id: c.id, quantity: c.quantity })),
+        conflict_reason: reason,
+        conflict_assignee_ids: force || conflictAckRef.current
+          ? [...new Set(conflicts.map((c) => c.teacherId))]
+          : [],
+        conflict_item_names: force || conflictAckRef.current
+          ? [...new Set(conflicts.map((c) => c.itemName))]
+          : [],
       }, token);
       setSuccessMsg({
         title: "대여 신청 완료!",
@@ -741,11 +889,15 @@ export default function KioskApp() {
       });
       setMode("success");
       setCart([]);
+      setConflictModal(null);
+      setConflictReason("");
+      conflictAckRef.current = false;
       refreshCatalog(token);
     } catch (err) {
       setFlowError(err.message || "대여에 실패했습니다.");
       setTeacherPin("");
       pinSubmitting.current = false;
+      conflictAckRef.current = false;
     } finally {
       setBusy(false);
     }
@@ -869,6 +1021,33 @@ export default function KioskApp() {
 
   return (
     <div className="kiosk-page">
+      {toastMsg ? (
+        <div className="kiosk-toast" role="status" aria-live="polite">
+          <ShoppingBag size={20} strokeWidth={2.2} aria-hidden />
+          {toastMsg}
+        </div>
+      ) : null}
+      {conflictModal ? (
+        <RotationConflictModal
+          conflicts={conflictModal.conflicts}
+          reason={conflictReason}
+          onReasonChange={setConflictReason}
+          busy={busy}
+          onCancel={() => {
+            setConflictModal(null);
+            setConflictReason("");
+            conflictAckRef.current = false;
+            setTeacherPin("");
+            pinSubmitting.current = false;
+          }}
+          onConfirm={() => {
+            const pin = conflictModal.pin;
+            conflictAckRef.current = true;
+            setConflictModal(null);
+            submitRentBatch(pin, { force: true, reason: conflictReason });
+          }}
+        />
+      ) : null}
       <header className="kiosk-top">
         <div className="kiosk-top-left">
           {showBack ? (
@@ -948,15 +1127,15 @@ export default function KioskApp() {
             <h1>무엇을 할까요?</h1>
             <div className="kiosk-home-grid kiosk-home-grid--main">
               <button type="button" className="kiosk-home-card kiosk-home-card--week" onClick={startWeekGear}>
-                <CalendarDays size={48} strokeWidth={1.6} />
+                <CalendarDays size={64} strokeWidth={1.55} />
                 <span>이번달 내 교구</span>
               </button>
               <button type="button" className="kiosk-home-card kiosk-home-card--rent" onClick={startRent}>
-                <ShoppingBag size={48} strokeWidth={1.6} />
+                <ShoppingBag size={64} strokeWidth={1.55} />
                 <span>대여하기</span>
               </button>
               <button type="button" className="kiosk-home-card kiosk-home-card--return" onClick={startReturn}>
-                <RotateCcw size={48} strokeWidth={1.6} />
+                <RotateCcw size={64} strokeWidth={1.55} />
                 <span>반납하기</span>
               </button>
             </div>
@@ -1062,6 +1241,7 @@ export default function KioskApp() {
                   item={it}
                   inCart={Boolean(cartQtyById[it.id])}
                   cartQty={cartQtyById[it.id] || 0}
+                  rotationGuides={rotationGuidesForItem(rotationGuides, it.id)}
                   onSelect={mode === "rent" ? pickItemForRent : () => {}}
                 />
               ))}
@@ -1190,6 +1370,7 @@ export default function KioskApp() {
           <div className="kiosk-browse kiosk-browse--month">
             <div className="kiosk-month-header">
               <h1>{selectedTeacher.name} · 이번달 내 교구</h1>
+              <p className="kiosk-month-hint">교구를 클릭하면 장바구니에 담겨요</p>
               {cart.length ? (
                 <button
                   type="button"
@@ -1236,7 +1417,13 @@ export default function KioskApp() {
             {flowError ? <p className="kiosk-error">{flowError}</p> : null}
             {busy ? <p className="kiosk-muted">배정 교구 불러오는 중...</p> : null}
 
-            <div className="kiosk-week-grid">
+            <div
+              className={[
+                "kiosk-week-grid",
+                `kiosk-week-grid--n${Math.min(5, Math.max(1, (monthGear?.weeks || []).length || 1))}`,
+                ((monthGear?.weeks || []).length % 2 === 1) ? "kiosk-week-grid--odd" : "",
+              ].filter(Boolean).join(" ")}
+            >
               {(monthGear?.weeks || []).map((week) => (
                 <div key={`w-${week.weekNumber}`} className="kiosk-month-week-card">
                   <div className="kiosk-month-week-head">
@@ -1264,7 +1451,7 @@ export default function KioskApp() {
                           </span>
                           <span className="kiosk-week-chip-text">
                             <span className="kiosk-week-chip-name">{row.display_name}</span>
-                            {row.is_air ? <span className="kiosk-item-badge">에어</span> : null}
+                            <RotationGuideLines guides={rotationGuidesForItem(rotationGuides, row.item_id)} />
                             {inCartQty ? (
                               <span className="kiosk-item-cart-badge">담김 {inCartQty}</span>
                             ) : null}

@@ -196,19 +196,6 @@ function WeekRow({
         }}
       />
 
-      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: DS.textSecondary, marginBottom: 8 }}>
-        <input
-          type="checkbox"
-          checked={isAir}
-          onChange={e => onDraftChange({
-            item_name: name,
-            is_air_product: e.target.checked,
-            simple_activity: draft?.simple_activity ?? row?.simple_activity ?? "",
-          })}
-        />
-        에어 제품
-      </label>
-
       {name && !matched && (
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,

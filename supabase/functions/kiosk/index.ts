@@ -40,6 +40,180 @@ function todayYmd(offsetDays = 0) {
   return `${y}-${m}-${day}`;
 }
 
+function normalizeItemName(value: string) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function formatKoMonthDay(ymd: string) {
+  if (!ymd) return "";
+  const parts = String(ymd).slice(0, 10).split("-").map(Number);
+  if (parts.length < 3 || !parts[1] || !parts[2]) return String(ymd).slice(0, 10);
+  return `${parts[1]}월 ${parts[2]}일`;
+}
+
+function ymdAddDays(ymd: string, deltaDays: number) {
+  if (!ymd) return null;
+  const d = new Date(`${String(ymd).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + deltaDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function monthsSpanned(startYmd: string, endYmd: string) {
+  const months = new Set<string>();
+  const cur = new Date(`${startYmd}T12:00:00`);
+  const end = new Date(`${endYmd}T12:00:00`);
+  if (Number.isNaN(cur.getTime()) || Number.isNaN(end.getTime())) return [];
+  while (cur <= end) {
+    const y = cur.getFullYear();
+    const m = String(cur.getMonth() + 1).padStart(2, "0");
+    months.add(`${y}-${m}-01`);
+    cur.setMonth(cur.getMonth() + 1, 1);
+  }
+  return [...months];
+}
+
+/**
+ * 교구별 다가오는 정규수업(순환) 안내.
+ * 표시 문구: "O월 O일까지 [선생님]의 정규수업 예정"
+ */
+async function loadRotationGuides(admin, items: Array<{ id: string; name: string }>) {
+  const fromYmd = todayYmd(0);
+  const toYmd = todayYmd(70);
+  const months = monthsSpanned(fromYmd, toYmd);
+  if (!months.length || !items?.length) return {};
+
+  const [schedRes, weeklyRes, weeksRes, teachersRes] = await Promise.all([
+    admin
+      .from("item_rotation_schedule")
+      .select("teacher_id, year_month, assigned_letter")
+      .in("year_month", months),
+    admin.from("item_weekly_lists").select("letter, week_number, item_name, target_type"),
+    admin
+      .from("item_rotation_month_weeks")
+      .select("year_month, week_number, week_start_date, week_end_date")
+      .in("year_month", months),
+    admin.from("teachers").select("id, name, active, resigned_at, role"),
+  ]);
+
+  if (schedRes.error && schedRes.error.code !== "42P01") throw schedRes.error;
+  if (weeklyRes.error && weeklyRes.error.code !== "42P01") throw weeklyRes.error;
+  if (weeksRes.error && weeksRes.error.code !== "42P01") throw weeksRes.error;
+  if (teachersRes.error) throw teachersRes.error;
+
+  const schedules = schedRes.data || [];
+  const weeklyLists = weeklyRes.data || [];
+  const monthWeeks = weeksRes.data || [];
+  if (!schedules.length || !weeklyLists.length) return {};
+
+  const teacherMap = new Map(
+    (teachersRes.data || [])
+      .filter((t) => t.active !== false && !t.resigned_at && t.role !== "superadmin")
+      .map((t) => [t.id, t.name]),
+  );
+  const itemByNorm = new Map();
+  for (const it of items) {
+    itemByNorm.set(normalizeItemName(it.name), it);
+  }
+
+  const byItem = new Map();
+  for (const sched of schedules) {
+    const teacherName = teacherMap.get(sched.teacher_id);
+    if (!teacherName) continue;
+    const weeksForMonth = monthWeeks.filter((w) => w.year_month === sched.year_month);
+    const assignedRows = weeklyLists.filter((w) => w.letter === sched.assigned_letter);
+    for (const row of assignedRows) {
+      const item = itemByNorm.get(normalizeItemName(row.item_name));
+      if (!item) continue;
+      const mw = weeksForMonth.find((w) => Number(w.week_number) === Number(row.week_number));
+      if (!mw?.week_start_date || !mw?.week_end_date) continue;
+      if (mw.week_end_date < fromYmd || mw.week_start_date > toYmd) continue;
+
+      const untilYmd = ymdAddDays(mw.week_start_date, -1) || mw.week_start_date;
+      const entry = {
+        teacher_id: sched.teacher_id,
+        teacher_name: teacherName,
+        week_start: mw.week_start_date,
+        week_end: mw.week_end_date,
+        until_ymd: untilYmd,
+        target_type: row.target_type || null,
+        label: `${formatKoMonthDay(untilYmd)}까지 ${teacherName}의 정규수업 예정`,
+      };
+      const list = byItem.get(item.id) || [];
+      const dedupeKey = `${entry.teacher_id}|${entry.week_start}|${entry.week_end}`;
+      if (list.some((x) => `${x.teacher_id}|${x.week_start}|${x.week_end}` === dedupeKey)) continue;
+      list.push(entry);
+      byItem.set(item.id, list);
+    }
+  }
+
+  const out: Record<string, Array<{
+    teacher_id: string;
+    teacher_name: string;
+    week_start: string;
+    week_end: string;
+    until_ymd: string;
+    target_type: string | null;
+    label: string;
+  }>> = {};
+  for (const [itemId, list] of byItem.entries()) {
+    list.sort((a, b) => String(a.until_ymd).localeCompare(String(b.until_ymd)));
+    out[itemId] = list.slice(0, 4);
+  }
+  return out;
+}
+
+async function notifyAssignedTeachersOfConflictRent({
+  supabaseUrl,
+  serviceKey,
+  assigneeIds,
+  renterName,
+  itemNames,
+  reason,
+}: {
+  supabaseUrl: string;
+  serviceKey: string;
+  assigneeIds: string[];
+  renterName: string;
+  itemNames: string[];
+  reason: string;
+}) {
+  const ids = [...new Set((assigneeIds || []).filter(Boolean))];
+  if (!ids.length || !supabaseUrl || !serviceKey) return;
+  const names = (itemNames || []).filter(Boolean).slice(0, 5);
+  const itemLabel = names.length <= 2
+    ? names.join(", ")
+    : `${names.slice(0, 2).join(", ")} 외 ${names.length - 2}종`;
+  const reasonPart = String(reason || "").trim() ? ` (사유: ${String(reason).trim().slice(0, 80)})` : "";
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        event: "kiosk_rotation_conflict_rent",
+        payload: {
+          teacher_ids: ids,
+          renter_name: renterName,
+          item_names: names,
+          body: `${renterName} 선생님이 정규수업 전에 ${itemLabel || "교구"}을(를) 대여했어요${reasonPart}`,
+        },
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      console.warn("[kiosk] conflict rent push failed", data);
+    }
+  } catch (err) {
+    console.warn("[kiosk] conflict rent push error", err?.message || err);
+  }
+}
+
 function heldQty(ri: { quantity: number }, rets: { rental_item_id: string; quantity: number; status: string }[]) {
   const returned = (rets || [])
     .filter((r) => r.rental_item_id === ri.id && r.status === "return_approved")
@@ -134,10 +308,8 @@ function requireDeviceAccess(body: Record<string, unknown>, headers: Headers, de
   })();
 }
 
-async function loadCatalog(admin) {
-  const [{ data: categories }, { data: items, error: iErr }, { data: ris }, { data: rets }] = await Promise.all([
-    admin.from("gear_categories").select("id, label, color, icon, sort_order").order("sort_order"),
-    // items 테이블에는 active 컬럼이 없음 — status (available | maintenance | retired)
+async function loadCatalogStock(admin) {
+  const [{ data: items, error: iErr }, { data: ris }, { data: rets }] = await Promise.all([
     admin
       .from("items")
       .select("id, code, name, category, branch, total_quantity, photo_url, status")
@@ -147,22 +319,37 @@ async function loadCatalog(admin) {
     admin.from("return_requests").select("rental_item_id, quantity, status"),
   ]);
   if (iErr) throw iErr;
-  const availableItems = (items || []).filter((it) => it.status === "available");
-  const list = availableItems.map((it) => ({
-    id: it.id,
-    code: it.code,
-    name: it.name,
-    category: it.category,
-    branch: it.branch,
-    photo_url: it.photo_url || null,
-    total_quantity: it.total_quantity,
-    status: it.status,
-    available: availQty(it, ris || [], rets || []),
-  }));
+  return (items || [])
+    .filter((it) => it.status === "available")
+    .map((it) => ({
+      id: it.id,
+      code: it.code,
+      name: it.name,
+      category: it.category,
+      branch: it.branch,
+      photo_url: it.photo_url || null,
+      total_quantity: it.total_quantity,
+      status: it.status,
+      available: availQty(it, ris || [], rets || []),
+    }));
+}
+
+async function loadCatalog(admin) {
+  const [{ data: categories }, list] = await Promise.all([
+    admin.from("gear_categories").select("id, label, color, icon, sort_order").order("sort_order"),
+    loadCatalogStock(admin),
+  ]);
+  let rotation_guides = {};
+  try {
+    rotation_guides = await loadRotationGuides(admin, list);
+  } catch (err) {
+    console.warn("[kiosk] rotation_guides failed", err?.message || err);
+  }
   return {
     categories: categories || [],
     items: list,
     branches: BRANCHES,
+    rotation_guides,
   };
 }
 
@@ -317,11 +504,20 @@ async function rentItemsBatch(admin, {
   lines,
   location,
   teacherName,
+  conflictReason = "",
+  conflictNotify = null,
 }: {
   teacherId: string;
   lines: Array<{ itemId: string; quantity: number }>;
   location: string;
   teacherName: string;
+  conflictReason?: string;
+  conflictNotify?: null | {
+    supabaseUrl: string;
+    serviceKey: string;
+    assigneeIds: string[];
+    itemNames: string[];
+  };
 }) {
   const loc = BRANCHES.includes(location) ? location : DEFAULT_LOCATION;
   const normalized = (lines || [])
@@ -343,10 +539,10 @@ async function rentItemsBatch(admin, {
     qtyById.set(line.itemId, (qtyById.get(line.itemId) || 0) + line.quantity);
   }
 
-  const catalog = await loadCatalog(admin);
+  const catalogItems = await loadCatalogStock(admin);
   const resolved = [];
   for (const [itemId, qty] of qtyById.entries()) {
-    const item = catalog.items.find((i) => i.id === itemId);
+    const item = catalogItems.find((i) => i.id === itemId);
     if (!item) {
       const err = new Error("교구를 찾을 수 없습니다.");
       err.code = "ITEM_NOT_FOUND";
@@ -362,6 +558,10 @@ async function rentItemsBatch(admin, {
 
   const start = todayYmd(0);
   const end = todayYmd(DEFAULT_RENT_DAYS);
+  const reasonNote = String(conflictReason || "").trim().slice(0, 120);
+  const memo = reasonNote
+    ? `키오스크 대여 | 순환충돌 확인: ${reasonNote}`
+    : "키오스크 대여";
 
   const { data: req, error: reqErr } = await admin
     .from("rental_requests")
@@ -370,7 +570,7 @@ async function rentItemsBatch(admin, {
       dispatch_location: loc,
       dispatch_start: start,
       dispatch_end: end,
-      memo: "키오스크 대여",
+      memo,
       status: "pending",
     })
     .select("id")
@@ -418,8 +618,22 @@ async function rentItemsBatch(admin, {
       teacher_name: teacherName,
       lines: inserted,
       status: "pending",
+      conflict_reason: reasonNote || null,
     },
   });
+
+  if (conflictNotify?.assigneeIds?.length) {
+    await notifyAssignedTeachersOfConflictRent({
+      supabaseUrl: conflictNotify.supabaseUrl,
+      serviceKey: conflictNotify.serviceKey,
+      assigneeIds: conflictNotify.assigneeIds,
+      renterName: teacherName,
+      itemNames: conflictNotify.itemNames?.length
+        ? conflictNotify.itemNames
+        : inserted.map((r) => r.item_name),
+      reason: reasonNote,
+    });
+  }
 
   const summary = inserted.map((r) => `${r.item_name} ${r.quantity}개`).join(", ");
   return {
@@ -781,10 +995,25 @@ Deno.serve(async (req) => {
     if (action === "rent_batch") {
       const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
       const rawLines = Array.isArray(body.items) ? body.items : [];
+      const assigneeIds = Array.isArray(body.conflict_assignee_ids)
+        ? body.conflict_assignee_ids.map((id) => String(id || "").trim()).filter(Boolean)
+        : [];
+      const conflictItemNames = Array.isArray(body.conflict_item_names)
+        ? body.conflict_item_names.map((n) => String(n || "").trim()).filter(Boolean)
+        : [];
       const data = await rentItemsBatch(admin, {
         teacherId: teacher.id,
         location: String(body.location || DEFAULT_LOCATION),
         teacherName: teacher.name,
+        conflictReason: String(body.conflict_reason || ""),
+        conflictNotify: assigneeIds.length
+          ? {
+            supabaseUrl,
+            serviceKey,
+            assigneeIds,
+            itemNames: conflictItemNames,
+          }
+          : null,
         lines: rawLines.map((row) => ({
           itemId: String(row?.item_id || row?.id || ""),
           quantity: row?.quantity,
