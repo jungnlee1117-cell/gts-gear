@@ -360,11 +360,12 @@ async function listTeachers(admin) {
     .order("name");
   if (error) throw error;
   return (data || [])
-    .filter((t) => t.active !== false && !t.resigned_at && t.role !== "superadmin")
+    .filter((t) => t.active !== false && !t.resigned_at)
     .map((t) => ({
       id: t.id,
       name: t.name,
       has_kiosk_pin: Boolean(t.has_kiosk_pin),
+      role: t.role || "teacher",
     }));
 }
 
