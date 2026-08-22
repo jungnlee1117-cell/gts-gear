@@ -5441,11 +5441,13 @@ function ItemsBrowsePage({
 
   return (
     <PageShell>
-      <PageHeader
-        me={me}
-        subtitle={kioskMode ? (readOnly ? "둘러보기만 가능합니다." : PAGE_META["items-browse"].sub) : PAGE_META["items-browse"].sub}
-        actions={(!readOnly && onOpenCart) ? <CartHeaderButton count={cart.length} onClick={() => onOpenCart?.()}/> : null}
-      />
+      {!kioskMode ? (
+        <PageHeader
+          me={me}
+          subtitle={PAGE_META["items-browse"].sub}
+          actions={(!readOnly && onOpenCart) ? <CartHeaderButton count={cart.length} onClick={() => onOpenCart?.()}/> : null}
+        />
+      ) : null}
 
       <div style={{ marginBottom: 12 }}>
         <input
@@ -5684,11 +5686,11 @@ function ItemsBrowsePage({
                 <div style={{ position: "relative" }}>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={kioskMode ? undefined : () => {
                     if (hasPhoto) setLightbox({ src: item.photo_url, alt: item.name });
                   }}
-                  disabled={!hasPhoto}
-                  aria-label={hasPhoto ? `${item.name} 사진 크게 보기` : `${item.name} 사진 없음`}
+                  disabled={!hasPhoto || kioskMode}
+                  aria-label={kioskMode ? `${item.name} 교구 사진` : (hasPhoto ? `${item.name} 사진 크게 보기` : `${item.name} 사진 없음`)}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -5699,7 +5701,7 @@ function ItemsBrowsePage({
                     border: "none",
                     borderBottom: "1px solid #e8ecee",
                     background: "#f8fafc",
-                    cursor: hasPhoto ? "zoom-in" : "default",
+                    cursor: !kioskMode && hasPhoto ? "zoom-in" : "default",
                     fontFamily: "inherit",
                     overflow: "hidden",
                   }}
@@ -5739,6 +5741,11 @@ function ItemsBrowsePage({
                     NEW
                   </span>
                 )}
+                {kioskMode && added ? (
+                  <span className="gts-kiosk-cart-added" aria-label="장바구니에 담김">
+                    <span aria-hidden>✓</span> 장바구니 담김
+                  </span>
+                ) : null}
                 {item.last_return_location && (
                   <span style={{
                     position: "absolute",

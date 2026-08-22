@@ -1515,10 +1515,6 @@ export default function KioskApp() {
       return selectedTeacher ? `${selectedTeacher.name} · 교구 담기` : "교구 담기";
     }
     if (mode === "rent" && step === "cart") return "장바구니";
-    if (mode === "rent" && step === "teacher") return "누가 가져가세요?";
-    if (mode === "rent" && step === "pin") return "PIN 입력";
-    if (mode === "return" && step === "teacher") return "누가 반납하세요?";
-    if (mode === "return" && step === "pin") return "PIN 입력";
     if (mode === "return" && step === "pick") {
       return selectedTeacher ? `${selectedTeacher.name} · 반납` : "반납할 교구";
     }
@@ -1609,9 +1605,7 @@ export default function KioskApp() {
                 else if (mode === "rent" && step === "pin") {
                   setStep(rentFromWeek && selectedTeacher ? "cart" : "teacher");
                 }
-                else if (step === "teacher" && mode === "return") goHome();
-                else if (step === "pin" && mode === "return") setStep("teacher");
-                else if (step === "pick" && mode === "return") setStep("pin");
+                else if (mode === "return") goHome();
                 else goHome();
               }}
               aria-label="뒤로"
@@ -1626,12 +1620,12 @@ export default function KioskApp() {
           <div className="kiosk-top-title" aria-live="polite">{screenTitle}</div>
         ) : null}
         <div className="kiosk-top-right">
-          {showBack ? (
-            <button type="button" className="kiosk-home-top" onClick={goHome} aria-label="홈으로">
-              홈으로
-            </button>
-          ) : null}
-          {sessionTeacher ? (
+          {showBack && sessionTeacher ? (
+            <div className="kiosk-top-session-time" aria-label={`로그인 남은 시간 ${sessionTimeLabel}`}>
+              <span>남은 시간 <b>{sessionTimeLabel}</b></span>
+              <button type="button" onClick={extendTeacherSession}>10분 연장</button>
+            </div>
+          ) : !showBack && sessionTeacher ? (
             <button type="button" className="kiosk-session-user" onClick={endTeacherSession} aria-label="QR 로그인 사용 종료">
               <UserRound size={19} strokeWidth={2.1} />
               <span>{sessionTeacher.name} 선생님</span><em>· 사용 중</em>
@@ -1703,14 +1697,6 @@ export default function KioskApp() {
 
         {(mode === "browse" || (mode === "rent" && step === "pick")) ? (
           <div className={`kiosk-browse kiosk-browse--equipment${mode === "rent" && cart.length ? " kiosk-browse--with-cart" : ""}`}>
-            {mode === "rent" ? (
-              <div className="kiosk-rent-toolbar">
-                <p className="kiosk-rent-hint">앱의 교구 둘러보기와 동일한 화면입니다. 장바구니에 담은 뒤 상단 아이콘으로 확인하세요.</p>
-                <button type="button" className="kiosk-inline-link" onClick={startBrowse}>
-                  둘러보기만 하기
-                </button>
-              </div>
-            ) : null}
             {ItemsBrowsePage ? (
               <GearCategoriesProvider>
                 <ItemsBrowsePage
@@ -1779,7 +1765,7 @@ export default function KioskApp() {
           </div>
         ) : null}
 
-        {((mode === "rent" && step === "teacher") || (mode === "return" && step === "teacher") || (mode === "week" && step === "teacher")) ? (
+        {((mode === "rent" && step === "teacher") || (mode === "week" && step === "teacher")) ? (
           <div className="kiosk-panel kiosk-panel--fill">
             {mode === "week" ? (
               <p className="kiosk-week-meta">이름을 선택하면 이번달 배정 교구가 바로 표시됩니다.</p>
@@ -1976,7 +1962,7 @@ export default function KioskApp() {
           </div>
         ) : null}
 
-        {((mode === "rent" && step === "pin") || (mode === "return" && step === "pin")) && selectedTeacher ? (
+        {(mode === "rent" && step === "pin") && selectedTeacher ? (
           <div className="kiosk-panel kiosk-panel--center">
             <PinPad
               value={teacherPin}

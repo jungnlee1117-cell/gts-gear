@@ -1995,6 +1995,38 @@ html.kiosk-root #root {
 .kiosk-session-user {
   background: #eaf8f1;
 }
+.kiosk-top-session-time {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 6px 5px 16px;
+  border: 1px solid #d7e9df;
+  border-radius: 15px;
+  background: #fff;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.kiosk-top-session-time b {
+  margin-left: 4px;
+  color: #0f172a;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.kiosk-top-session-time button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #b7e4cd;
+  border-radius: 10px;
+  background: #effaf4;
+  color: #087f5b;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
 .kiosk-qr-overlay {
   position: fixed;
   inset: 0;

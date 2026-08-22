@@ -291,6 +291,36 @@ body {
   }
 }
 
+.gts-kiosk-cart-added {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 999px;
+  background: rgba(5, 150, 105, 0.94);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  box-shadow: 0 7px 18px rgba(5, 150, 105, 0.28);
+  pointer-events: none;
+}
+.gts-kiosk-cart-added > span {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff;
+  color: #059669;
+  font-size: 12px;
+}
+
 /* 휴대폰에서 키오스크 로그인 승인 */
 .kiosk-phone-approval-page {
   min-height: 100vh;
