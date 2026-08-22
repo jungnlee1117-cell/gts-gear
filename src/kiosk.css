@@ -207,11 +207,11 @@
 .kiosk-notice-slider:focus-visible { outline: 3px solid rgba(22, 163, 74, .35); outline-offset: 2px; }
 .kiosk-notice-slider.is-urgent {
   background: #fff;
-  border-color: #fecaca;
+  border-color: #dde5e0;
 }
 
 .kiosk-notice-slider.is-birthday {
-  border-color: #f9a8d4;
+  border-color: #dde5e0;
   background: #fff;
 }
 
@@ -454,11 +454,9 @@
   min-height: 0;
   height: 100%;
   padding: clamp(28px, 4vh, 48px) 20px;
-  border: 1px solid transparent;
+  border: 1px solid #d9e2dd;
   border-radius: 28px;
-  background:
-    linear-gradient(#fff, #fff) padding-box,
-    linear-gradient(160deg, #dcfce7, #fff 42%, #f0fdf4) border-box;
+  background: linear-gradient(165deg, #ffffff 0%, #f7fbf8 100%);
   box-shadow:
     0 14px 36px rgba(15, 23, 42, 0.07),
     0 2px 0 rgba(255, 255, 255, 0.9) inset;
@@ -503,6 +501,7 @@
   filter: none;
   stroke-width: 3;
 }
+.kiosk-home-card--week > i,
 .kiosk-home-card--rent > i { background: #16a34a; color: #fff; }
 .kiosk-home-card--return > i { background: #dc2626; color: #fff; }
 .kiosk-home-card svg {
@@ -512,15 +511,11 @@
 }
 .kiosk-home-card--rent {
   color: #15803d;
-  background:
-    linear-gradient(165deg, #ffffff 0%, #f0fdf4 100%) padding-box,
-    linear-gradient(160deg, #86efac, #bbf7d0) border-box;
+  background: linear-gradient(165deg, #ffffff 0%, #f0fdf4 100%);
 }
 .kiosk-home-card--return {
   color: #b91c1c;
-  background:
-    linear-gradient(165deg, #ffffff 0%, #fef2f2 100%) padding-box,
-    linear-gradient(160deg, #fecaca, #fee2e2) border-box;
+  background: linear-gradient(165deg, #ffffff 0%, #fef2f2 100%);
 }
 .kiosk-home-card--return svg {
   filter: drop-shadow(0 6px 12px rgba(220, 38, 38, 0.16));
@@ -528,9 +523,7 @@
 .kiosk-home-card--browse { color: #0369a1; }
 .kiosk-home-card--week {
   color: #166534;
-  background:
-    linear-gradient(165deg, #ffffff 0%, #ecfdf5 58%, #dcfce7 100%) padding-box,
-    linear-gradient(160deg, #4ade80, #86efac) border-box;
+  background: linear-gradient(165deg, #ffffff 0%, #ecfdf5 58%, #dcfce7 100%);
 }
 .kiosk-home-card:active {
   transform: scale(0.975);
