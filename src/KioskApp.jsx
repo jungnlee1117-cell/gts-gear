@@ -14,6 +14,7 @@ import {
   CalendarDays,
   ChevronRight,
   Megaphone,
+  Volume2,
   UserRound,
 } from "lucide-react";
 import { DEFAULT_GEAR_CATEGORIES, mergeCategoriesWithDefaults } from "./gearCategoryData.js";
@@ -34,6 +35,7 @@ import "./kiosk.css";
 const TOKEN_KEY = "gts_kiosk_token";
 const BRANCHES = ["사무실", "엘리트코어", "삼성점", "한남점", "나비에로"];
 const DEFAULT_RENT_DAYS = 7;
+const KIOSK_WELCOME_MESSAGE = "안녕하세요, 선생님. 교구를 대여하거나 반납하시려면, 오른쪽 위 큐알 로그인 버튼을 눌러 주세요.";
 
 function todayYmdLocal(offsetDays = 0) {
   const d = new Date();
@@ -589,6 +591,9 @@ export default function KioskApp() {
   const [qrPair, setQrPair] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [qrError, setQrError] = useState("");
+  const welcomeSpokenRef = useRef(false);
+  const minuteWarningSpokenRef = useRef(false);
+  const lastSuccessSpeechRef = useRef("");
 
   const [mode, setMode] = useState("home"); // home | browse | rent | return | week | success
   const [categories, setCategories] = useState(DEFAULT_GEAR_CATEGORIES);
@@ -764,6 +769,32 @@ export default function KioskApp() {
     resetWizard();
   }, [resetWizard]);
 
+  const speakKorean = useCallback((message) => {
+    const text = String(message || "").trim();
+    if (!text || typeof window === "undefined" || !("speechSynthesis" in window)) return false;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "ko-KR";
+      // 아이패드의 기본 한국어 음성을 그대로 사용한다. 특정 음성을 강제로 고르면
+      // 기기마다 로봇 음성으로 대체되는 경우가 있어 voice는 지정하지 않는다.
+      utterance.rate = 0.86;
+      utterance.pitch = 0.96;
+      utterance.volume = 0.92;
+      window.speechSynthesis.speak(utterance);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (welcomeSpokenRef.current) return undefined;
+    welcomeSpokenRef.current = true;
+    const timer = window.setTimeout(() => speakKorean(KIOSK_WELCOME_MESSAGE), 1200);
+    return () => window.clearTimeout(timer);
+  }, [speakKorean]);
+
   const endTeacherSession = useCallback(() => {
     setTeacherSession("");
     setSessionTeacher(null);
@@ -809,6 +840,7 @@ export default function KioskApp() {
           setQrPair(null);
           setQrError("");
           setToastMsg(`${data.teacher.name} 선생님, 로그인되었습니다.`);
+          speakKorean(`${data.teacher.name} 선생님, 안녕하세요. 무엇을 도와드릴까요?`);
           setMode("home");
           setStep("pick");
         } else if (data.status === "expired" || data.status === "consumed" || data.status === "cancelled") {
@@ -824,19 +856,36 @@ export default function KioskApp() {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [qrOpen, qrPair?.pair_id, qrPair?.pair_secret]);
+  }, [qrOpen, qrPair?.pair_id, qrPair?.pair_secret, speakKorean]);
 
   useEffect(() => {
     if (!teacherSession || !sessionExpiresAt) return undefined;
     const update = () => {
       const left = Math.max(0, Math.ceil((sessionExpiresAt - Date.now()) / 1000));
       setSessionRemaining(left);
+      if (left > 60) minuteWarningSpokenRef.current = false;
+      if (left > 0 && left <= 60 && !minuteWarningSpokenRef.current) {
+        minuteWarningSpokenRef.current = true;
+        speakKorean("로그인 시간이, 일 분 남았습니다. 필요하시면, 십 분 연장 버튼을 눌러 주세요.");
+      }
       if (left <= 0) endTeacherSession();
     };
     update();
     const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
-  }, [teacherSession, sessionExpiresAt, endTeacherSession]);
+  }, [teacherSession, sessionExpiresAt, endTeacherSession, speakKorean]);
+
+  useEffect(() => {
+    if (mode !== "success" || !successMsg.title) return;
+    const speechKey = `${successMsg.title}|${successMsg.detail}`;
+    if (lastSuccessSpeechRef.current === speechKey) return;
+    lastSuccessSpeechRef.current = speechKey;
+    if (successMsg.title.includes("반납")) {
+      speakKorean("반납 신청이 완료되었습니다. 감사합니다.");
+    } else if (successMsg.title.includes("대여")) {
+      speakKorean("교구 대여 신청이 완료되었습니다.");
+    }
+  }, [mode, successMsg, speakKorean]);
 
   const extendTeacherSession = useCallback(async () => {
     if (!teacherSession) return;
@@ -1620,6 +1669,17 @@ export default function KioskApp() {
           <div className="kiosk-top-title" aria-live="polite">{screenTitle}</div>
         ) : null}
         <div className="kiosk-top-right">
+          {!showBack ? (
+            <button
+              type="button"
+              className="kiosk-voice-guide-button"
+              onClick={() => speakKorean(KIOSK_WELCOME_MESSAGE)}
+              aria-label="음성 안내 다시 듣기"
+            >
+              <Volume2 size={19} strokeWidth={2.1} />
+              <span>음성 안내</span>
+            </button>
+          ) : null}
           {showBack && sessionTeacher ? (
             <div className="kiosk-top-session-time" aria-label={`로그인 남은 시간 ${sessionTimeLabel}`}>
               <span>남은 시간 <b>{sessionTimeLabel}</b></span>
