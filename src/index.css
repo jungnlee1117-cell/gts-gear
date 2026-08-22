@@ -2528,6 +2528,125 @@ code {
   color: #111827;
 }
 
+/* ── 교구 박스용 사진 라벨: A4 2열 × 3행 ── */
+.gts-label-print-only {
+  display: none;
+}
+
+.gts-label-print-page {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 4mm;
+  height: 273mm;
+  box-sizing: border-box;
+  break-after: page;
+  page-break-after: always;
+}
+
+.gts-label-print-page:last-child {
+  break-after: auto;
+  page-break-after: auto;
+}
+
+.gts-label-print-card {
+  min-width: 0;
+  min-height: 0;
+  border: 1.2px solid #94a3b8;
+  border-radius: 4mm;
+  padding: 4mm;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  background: #fff;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.gts-label-print-brand {
+  width: 100%;
+  color: #0f172a;
+  font-size: 10pt;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  padding-bottom: 2.5mm;
+  border-bottom: 1px solid #16a34a;
+}
+
+.gts-label-print-brand span {
+  margin-left: 2mm;
+  color: #64748b;
+  font-size: 5.5pt;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.gts-label-print-photo {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  margin: 3mm 0 2mm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 2mm;
+  background: #f8fafc;
+}
+
+.gts-label-print-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.gts-label-print-photo-empty {
+  color: #94a3b8;
+  font-size: 9pt;
+  font-weight: 700;
+}
+
+.gts-label-print-name {
+  width: 100%;
+  color: #0f172a;
+  font-size: 17pt;
+  line-height: 1.2;
+  font-weight: 900;
+  text-align: center;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.gts-label-print-details {
+  width: 100%;
+  margin-top: 2.5mm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2mm;
+  color: #475569;
+  font-size: 8.5pt;
+  font-weight: 700;
+}
+
+.gts-label-print-details span + span::before,
+.gts-label-print-details strong::before {
+  content: "·";
+  margin-right: 2mm;
+  color: #94a3b8;
+}
+
+.gts-label-print-details strong {
+  color: #15803d;
+  font-weight: 900;
+}
+
 @media print {
   @page {
     size: A4;
@@ -2557,6 +2676,10 @@ code {
     top: auto !important;
   }
 
+  .gts-label-print-only {
+    display: block !important;
+  }
+
   .gts-qr-print-header {
     display: block !important;
   }
@@ -2584,11 +2707,20 @@ code {
   }
 
   #gts-qr-print-area,
-  #gts-qr-print-area * {
+  #gts-qr-print-area *,
+  #gts-label-print-area,
+  #gts-label-print-area * {
     visibility: visible;
   }
 
   #gts-qr-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  #gts-label-print-area {
     position: absolute;
     left: 0;
     top: 0;

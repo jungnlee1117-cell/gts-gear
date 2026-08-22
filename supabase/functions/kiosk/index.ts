@@ -442,7 +442,7 @@ async function loadCatalogStock(admin) {
   const [{ data: items, error: iErr }, { data: ris }, { data: rets }] = await Promise.all([
     admin
       .from("items")
-      .select("id, code, name, alias, category, branch, total_quantity, photo_url, status")
+      .select("id, code, name, alias, category, branch, total_quantity, photo_url, activity_photos, status")
       .eq("status", "available")
       .order("code"),
     admin.from("rental_items").select("id, item_id, quantity, status"),
@@ -459,6 +459,7 @@ async function loadCatalogStock(admin) {
       category: it.category,
       branch: it.branch,
       photo_url: it.photo_url || null,
+      activity_photos: Array.isArray(it.activity_photos) ? it.activity_photos : [],
       total_quantity: it.total_quantity,
       status: it.status,
       available: availQty(it, ris || [], rets || []),

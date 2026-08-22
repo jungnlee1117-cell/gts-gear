@@ -4768,6 +4768,8 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
   const[addTypeOpen,setAddTypeOpen]=useState(false);
   const[reserveItem,setReserveItem]=useState(null);
   const [activityLightbox, setActivityLightbox] = useState(null);
+  const [labelSelectedIds, setLabelSelectedIds] = useState(() => new Set());
+  const [labelPrintIds, setLabelPrintIds] = useState([]);
 
   useEffect(() => {
     if (openAddOnMount && canManage(me)) setAddTypeOpen(true);
@@ -4811,6 +4813,39 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
 
   const pendingRes = itemId => getTeacherPendingReservation(reservations, me.id, itemId);
 
+  const printGearLabels = (mode = "selected") => {
+    const ids = mode === "all" ? items.map(item => item.id) : [...labelSelectedIds];
+    if (!ids.length) return alert(mode === "selected" ? "인쇄할 교구를 먼저 선택해 주세요." : "인쇄할 교구가 없습니다.");
+    setLabelPrintIds(ids);
+    requestAnimationFrame(() => setTimeout(() => window.print(), 180));
+  };
+
+  const toggleLabelSelection = (itemId) => {
+    setLabelSelectedIds(previous => {
+      const next = new Set(previous);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const visibleItemIds = useMemo(() => list.map(item => item.id), [list]);
+  const allVisibleSelected = visibleItemIds.length > 0 && visibleItemIds.every(id => labelSelectedIds.has(id));
+  const toggleAllVisibleLabels = () => {
+    setLabelSelectedIds(previous => {
+      const next = new Set(previous);
+      if (allVisibleSelected) visibleItemIds.forEach(id => next.delete(id));
+      else visibleItemIds.forEach(id => next.add(id));
+      return next;
+    });
+  };
+
+  const labelPages = useMemo(() => {
+    const printIdSet = new Set(labelPrintIds);
+    const sorted = items.filter(item => printIdSet.has(item.id)).sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+    return Array.from({ length: Math.ceil(sorted.length / 6) }, (_, index) => sorted.slice(index * 6, index * 6 + 6));
+  }, [items, labelPrintIds]);
+
   return(
     <PageShell>
       <PageHeader
@@ -4821,6 +4856,8 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
             {openAddOnMount && setPage ? (
               <Btn sm ghost onClick={() => setPage("gear-categories")}>카테고리 관리</Btn>
             ) : null}
+            <Btn sm ghost color="#0f766e" onClick={() => printGearLabels("all")} disabled={!items.length}>전체 라벨 인쇄</Btn>
+            <Btn sm color="#0f766e" onClick={() => printGearLabels("selected")} disabled={!labelSelectedIds.size}>선택 인쇄 {labelSelectedIds.size ? `(${labelSelectedIds.size})` : ""}</Btn>
             <Btn sm ghost color="#7c3aed" onClick={()=>setAddSetOpen(true)}>프로그램 등록</Btn>
             <Btn sm onClick={()=>setAddTypeOpen(true)}>교구 추가</Btn>
           </div>
@@ -4886,16 +4923,54 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
       </div>
       </PanelSection>
 
-      <div style={{fontSize:13,color:DS.textSecondary,marginBottom:12,fontWeight:600}}>{list.length}개 교구</div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:12,flexWrap:"wrap"}}>
+        <div style={{fontSize:13,color:DS.textSecondary,fontWeight:600}}>{list.length}개 교구</div>
+        {canManage(me) ? (
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <button type="button" onClick={toggleAllVisibleLabels} style={{
+              border:"1px solid #dbe3e8",background:"#fff",color:DS.textSecondary,borderRadius:8,
+              padding:"7px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
+            }}>{allVisibleSelected ? "검색 결과 선택 해제" : "검색 결과 전체 선택"}</button>
+            {labelSelectedIds.size > 0 ? (
+              <button type="button" onClick={() => setLabelSelectedIds(new Set())} style={{
+                border:"none",background:"transparent",color:"#dc2626",padding:"7px 4px",
+                fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",
+              }}>선택 초기화</button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div id="gts-label-print-area" className="gts-label-print-only" aria-hidden="true">
+        {labelPages.map((pageItems, pageIndex) => (
+          <section className="gts-label-print-page" key={`label-page-${pageIndex}`}>
+            {pageItems.map((item) => (
+              <article className="gts-label-print-card" key={item.id}>
+                <div className="gts-label-print-brand">GTS <span>GROW THROUGH SPORTS</span></div>
+                <div className="gts-label-print-photo">
+                  {item.photo_url ? <img src={item.photo_url} alt=""/> : <div className="gts-label-print-photo-empty">사진 없음</div>}
+                </div>
+                <div className="gts-label-print-name">{item.name}</div>
+                <div className="gts-label-print-details">
+                  <span>{getCategoryMeta(item.category, categoryMap).label}</span>
+                  <span>{item.code || "코드 없음"}</span>
+                  <strong>총수량 {item.total_quantity || 0}개</strong>
+                </div>
+              </article>
+            ))}
+          </section>
+        ))}
+      </div>
 
       <InfList all={list} renderItem={item=>{
         const rented=rentedQty(item.id,ris,rets),pending=pendingQty(item.id,ris),avail=availQty(item,ris,rets),added=inCart(item.id);
         const myRes=pendingRes(item.id);
         const scheduleLines=scheduleByItem.get(item.id);
+        const labelSelected = labelSelectedIds.has(item.id);
         return(
           <div key={item.id} style={{
             ...card,
-            border:added?`1px solid ${DS.primary}`:"1px solid #e8ecee",
+            border:labelSelected?`2px solid #0f766e`:added?`1px solid ${DS.primary}`:"1px solid #e8ecee",
             transition:"all 0.15s",
           }}>
             <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:10}}>
@@ -4941,6 +5016,20 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
                   </div>
                   {canEditItems(me) && (
                     <div style={{ display: "flex", gap: 6, marginLeft: 8, flexShrink: 0, flexWrap: "wrap" }}>
+                        <label onClick={event => event.stopPropagation()} style={{
+                          display:"inline-flex",alignItems:"center",gap:5,minHeight:36,boxSizing:"border-box",
+                          padding:"8px 10px",borderRadius:8,border:labelSelected?"1px solid #0f766e":"1px solid #dbe3e8",
+                          background:labelSelected?"#ecfdf5":"#fff",color:labelSelected?"#0f766e":"#64748b",
+                          fontSize:11,fontWeight:800,cursor:"pointer",
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={labelSelected}
+                            onChange={() => toggleLabelSelection(item.id)}
+                            style={{width:15,height:15,accentColor:"#0f766e",cursor:"pointer",margin:0}}
+                          />
+                          인쇄 선택
+                        </label>
                         <button
                           type="button"
                           onClick={e=>{ e.stopPropagation(); setEditItem({ ...item }); }}
@@ -5730,9 +5819,10 @@ function ItemsBrowsePage({
                           display: "inline-flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          width: 26,
+                          gap: kioskMode ? 5 : 0,
+                          width: kioskMode ? "auto" : 26,
                           height: 26,
-                          padding: 0,
+                          padding: kioskMode ? "0 9px" : 0,
                           borderRadius: 6,
                           border: "1px solid #e2e8f0",
                           background: "#fff",
@@ -5742,6 +5832,7 @@ function ItemsBrowsePage({
                         }}
                       >
                         <PersonStanding size={14} strokeWidth={2} />
+                        {kioskMode ? <span style={{fontSize:10,fontWeight:800}}>활동 보기</span> : null}
                       </button>
                     )}
                     {hasLastReturnInfo(item) && (

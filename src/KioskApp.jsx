@@ -77,15 +77,20 @@ function relativeGuideWeekTagLocal(weekStart, weekEnd) {
   const ws = String(weekStart || "").slice(0, 10);
   const we = String(weekEnd || "").slice(0, 10);
   if (!ws || !we || !thisSaturday || !nextSunday || !nextSaturday) return null;
-  const overlapsThis = ws <= thisSaturday && we >= thisSunday;
-  const overlapsNext = ws <= nextSaturday && we >= nextSunday;
-  if (overlapsThis && !overlapsNext) return "이번주";
-  if (overlapsNext && !overlapsThis) return "다음주";
-  if (overlapsThis && overlapsNext) {
-    const slotSun = sundayOfWeekContainingLocal(ws);
-    if (slotSun === nextSunday) return "다음주";
-    return "이번주";
-  }
+  const overlapDayCount = (aStart, aEnd, bStart, bEnd) => {
+    const start = aStart > bStart ? aStart : bStart;
+    const end = aEnd < bEnd ? aEnd : bEnd;
+    if (start > end) return 0;
+    const startDate = new Date(`${start}T12:00:00`);
+    const endDate = new Date(`${end}T12:00:00`);
+    return Math.floor((endDate - startDate) / 86400000) + 1;
+  };
+  const thisDays = overlapDayCount(ws, we, thisSunday, thisSaturday);
+  const nextDays = overlapDayCount(ws, we, nextSunday, nextSaturday);
+  // DB 주차가 월~일이어도 키오스크 기준(일~토)에 더 많이 포함되는 한 주만 표시한다.
+  // 경계의 일요일 하루만 겹치는 앞 주가 함께 선택되는 문제를 방지한다.
+  if (thisDays >= 4 && thisDays > nextDays) return "이번주";
+  if (nextDays >= 4 && nextDays > thisDays) return "다음주";
   return null;
 }
 
@@ -1484,7 +1489,6 @@ export default function KioskApp() {
           <div className="kiosk-home">
             <KioskNoticeSlider notices={notices} />
 
-            <h1>무엇을 할까요?</h1>
             <div className="kiosk-home-grid kiosk-home-grid--main">
               <button type="button" className="kiosk-home-card kiosk-home-card--week" onClick={startWeekGear}>
                 <CalendarDays size={64} strokeWidth={1.55} />
@@ -1782,10 +1786,20 @@ export default function KioskApp() {
                 );
               })}
               {(monthGear?.weeks || []).length >= 5 ? (
-                <div className="kiosk-month-week-card kiosk-month-hint-card" role="note">
+                <button
+                  type="button"
+                  className={`kiosk-month-week-card kiosk-month-hint-card${cart.length ? " has-cart" : ""}`}
+                  onClick={() => {
+                    if (!cart.length) return;
+                    setRentFromWeek(true);
+                    setMode("rent");
+                    setStep("cart");
+                  }}
+                  aria-label={cart.length ? `장바구니 확인, ${cartCount}개` : "교구를 클릭하면 장바구니에 담깁니다"}
+                >
                   <ShoppingBag size={36} strokeWidth={2.2} aria-hidden />
-                  <p>교구를 클릭하면<br />장바구니에 담겨요</p>
-                </div>
+                  <p>{cart.length ? <>장바구니 확인<br />{cartCount}개 담김</> : <>교구를 클릭하면<br />장바구니에 담겨요</>}</p>
+                </button>
               ) : null}
               {!busy && !(monthGear?.weeks || []).length ? (
                 <p className="kiosk-muted kiosk-week-grid-empty">
@@ -1955,6 +1969,18 @@ export default function KioskApp() {
           </div>
         ) : null}
       </main>
+      {mode === "rent" && step === "pick" && cart.length ? (
+        <button
+          type="button"
+          className="kiosk-floating-cart"
+          onClick={goRentCart}
+          aria-label={`장바구니 확인, ${cart.length}종 총 ${cartCount}개`}
+        >
+          <span className="kiosk-floating-cart__icon"><ShoppingBag size={25} strokeWidth={2.2} /></span>
+          <span className="kiosk-floating-cart__text">장바구니</span>
+          <strong>{cartCount}</strong>
+        </button>
+      ) : null}
     </div>
   );
 }

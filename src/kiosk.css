@@ -592,6 +592,8 @@
 }
 .kiosk-panel--return {
   max-width: 980px;
+  padding-bottom: 18px;
+  box-sizing: border-box;
 }
 .kiosk-return-header {
   flex-shrink: 0;
@@ -679,6 +681,63 @@
   gap: 10px;
   flex-shrink: 0;
   margin-top: auto;
+  margin-bottom: 8px;
+}
+
+.kiosk-floating-cart {
+  position: fixed;
+  right: max(22px, env(safe-area-inset-right));
+  bottom: max(22px, env(safe-area-inset-bottom));
+  z-index: 90;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 58px;
+  padding: 9px 13px 9px 10px;
+  border: 1px solid rgba(255,255,255,.38);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #16a34a, #047857);
+  color: #fff;
+  box-shadow: 0 14px 32px rgba(4,120,87,.3);
+  font-family: inherit;
+  cursor: pointer;
+}
+.kiosk-floating-cart__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,.16);
+}
+.kiosk-floating-cart__text {
+  font-size: 15px;
+  font-weight: 800;
+}
+.kiosk-floating-cart strong {
+  min-width: 25px;
+  height: 25px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #047857;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.kiosk-month-hint-card {
+  font-family: inherit;
+}
+.kiosk-month-hint-card.has-cart {
+  cursor: pointer;
+  color: #047857;
+  border-color: #34d399;
+  background: linear-gradient(180deg, #ecfdf5, #d1fae5);
+  box-shadow: 0 10px 24px rgba(5,150,105,.12);
 }
 .kiosk-return-footer--triple {
   grid-template-columns: 120px 1fr 1.2fr;
@@ -1138,6 +1197,13 @@
   border: 1px dashed #86efac;
   box-shadow: none;
   color: #166534;
+}
+.kiosk-week-grid--n5 .kiosk-month-hint-card.has-cart {
+  cursor: pointer;
+  color: #047857;
+  border: 2px solid #34d399;
+  background: linear-gradient(160deg, #d1fae5 0%, #ecfdf5 58%, #fff 100%);
+  box-shadow: 0 10px 24px rgba(5,150,105,.14);
 }
 .kiosk-month-hint-card svg {
   color: #16a34a;
