@@ -200,7 +200,11 @@
   box-shadow:
     0 10px 28px rgba(22, 163, 74, 0.08),
     0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease;
 }
+.kiosk-notice-slider:active { transform: scale(.993); }
+.kiosk-notice-slider:focus-visible { outline: 3px solid rgba(22, 163, 74, .35); outline-offset: 2px; }
 .kiosk-notice-slider.is-urgent {
   background: linear-gradient(135deg, #fff 0%, #fef2f2 100%);
   border-color: #fecaca;
@@ -258,6 +262,10 @@
   font-weight: 700;
   color: #94a3b8;
 }
+.kiosk-notice-slider-meta::after {
+  content: " · 눌러서 전체보기";
+  color: #15803d;
+}
 .kiosk-notice-dots {
   position: absolute;
   left: 0;
@@ -277,6 +285,92 @@
   cursor: pointer;
 }
 .kiosk-notice-dot.active { background: #16a34a; }
+
+.kiosk-notice-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(15, 23, 42, .62);
+  backdrop-filter: blur(8px);
+}
+.kiosk-notice-modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: min(82dvh, 760px);
+  padding: 34px;
+  border: 1px solid #d9e8df;
+  border-radius: 28px;
+  background: #fff;
+  box-shadow: 0 30px 90px rgba(15, 23, 42, .28);
+}
+.kiosk-notice-modal-close {
+  position: absolute;
+  top: 17px;
+  right: 18px;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #475569;
+  font: inherit;
+  font-size: 27px;
+  cursor: pointer;
+}
+.kiosk-notice-modal-badge {
+  align-self: flex-start;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 13px;
+  font-weight: 900;
+}
+.kiosk-notice-modal-badge.is-urgent { background: #fee2e2; color: #b91c1c; }
+.kiosk-notice-modal-badge.is-birthday { background: #fce7f3; color: #be185d; }
+.kiosk-notice-modal h2 {
+  margin: 18px 48px 5px 0;
+  color: #0f172a;
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1.35;
+  letter-spacing: -.035em;
+}
+.kiosk-notice-modal-meta { color: #94a3b8; font-size: 14px; font-weight: 700; }
+.kiosk-notice-modal-body {
+  min-height: 120px;
+  margin-top: 22px;
+  padding: 22px 24px;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: clamp(17px, 2vw, 21px);
+  font-weight: 650;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.kiosk-notice-modal-confirm {
+  flex: 0 0 auto;
+  min-height: 54px;
+  margin-top: 18px;
+  border: 0;
+  border-radius: 16px;
+  background: #16a34a;
+  color: #fff;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 900;
+  cursor: pointer;
+}
 .kiosk-home-search {
   max-width: none;
   width: 100%;

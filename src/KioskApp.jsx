@@ -409,14 +409,24 @@ function formatNoticeDate(value) {
 function KioskNoticeSlider({ notices }) {
   const list = notices || [];
   const [idx, setIdx] = useState(0);
+  const [openNotice, setOpenNotice] = useState(null);
 
   useEffect(() => {
-    if (list.length <= 1) return undefined;
+    if (list.length <= 1 || openNotice) return undefined;
     const t = window.setInterval(() => {
       setIdx((i) => (i + 1) % list.length);
     }, 5500);
     return () => window.clearInterval(t);
-  }, [list.length]);
+  }, [list.length, openNotice]);
+
+  useEffect(() => {
+    if (!openNotice) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setOpenNotice(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [openNotice]);
 
   useEffect(() => {
     if (idx >= list.length) setIdx(0);
@@ -439,7 +449,18 @@ function KioskNoticeSlider({ notices }) {
   const birthday = n.kind === "birthday";
 
   return (
-    <div className={`kiosk-notice-slider${urgent ? " is-urgent" : ""}${birthday ? " is-birthday" : ""}`} aria-live="polite">
+    <>
+    <div
+      className={`kiosk-notice-slider${urgent ? " is-urgent" : ""}${birthday ? " is-birthday" : ""}`}
+      aria-live="polite"
+      role="button"
+      tabIndex={0}
+      aria-label={`${n.title} 공지사항 전체보기`}
+      onClick={() => setOpenNotice(n)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") setOpenNotice(n);
+      }}
+    >
       <div className="kiosk-notice-slider-badge">
         {birthday ? "생일" : urgent ? "공고" : "공지"}
       </div>
@@ -460,13 +481,36 @@ function KioskNoticeSlider({ notices }) {
               key={item.id}
               type="button"
               className={`kiosk-notice-dot${i === idx ? " active" : ""}`}
-              onClick={() => setIdx(i)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setIdx(i);
+              }}
               aria-label={`${i + 1}번째 공지`}
             />
           ))}
         </div>
       ) : null}
     </div>
+    {openNotice ? (
+      <div className="kiosk-notice-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kiosk-notice-modal-title" onClick={() => setOpenNotice(null)}>
+        <article className="kiosk-notice-modal" onClick={(event) => event.stopPropagation()}>
+          <button type="button" className="kiosk-notice-modal-close" onClick={() => setOpenNotice(null)} aria-label="공지사항 닫기">×</button>
+          <div className={`kiosk-notice-modal-badge${openNotice.importance === "important" ? " is-urgent" : ""}${openNotice.kind === "birthday" ? " is-birthday" : ""}`}>
+            {openNotice.kind === "birthday" ? "생일" : openNotice.importance === "important" ? "공고" : "공지사항"}
+          </div>
+          <h2 id="kiosk-notice-modal-title">{openNotice.title}</h2>
+          <div className="kiosk-notice-modal-meta">
+            {formatNoticeDate(openNotice.created_at)}
+            {openNotice.author_name ? ` · ${openNotice.author_name}` : ""}
+          </div>
+          <div className="kiosk-notice-modal-body">
+            {String(openNotice.body || "").trim() || "내용을 확인해 주세요."}
+          </div>
+          <button type="button" className="kiosk-notice-modal-confirm" onClick={() => setOpenNotice(null)}>확인</button>
+        </article>
+      </div>
+    ) : null}
+    </>
   );
 }
 
