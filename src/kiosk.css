@@ -1979,7 +1979,6 @@ html.kiosk-root #root {
 
 /* 휴대폰 QR 본인 확인 */
 .kiosk-qr-login-button,
-.kiosk-voice-guide-button,
 .kiosk-session-user {
   min-height: 48px;
   padding: 0 18px;
@@ -1992,21 +1991,6 @@ html.kiosk-root #root {
   font-weight: 900;
   cursor: pointer;
   box-shadow: 0 8px 22px rgba(16, 185, 129, 0.1);
-}
-.kiosk-voice-guide-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 48px;
-  padding: 0 15px;
-  border-color: #d7e1dc;
-  background: #fff;
-  color: #475569;
-  box-shadow: none;
-}
-.kiosk-voice-guide-button:active {
-  background: #f1f5f9;
 }
 .kiosk-session-user {
   background: #eaf8f1;
