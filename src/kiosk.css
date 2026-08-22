@@ -136,6 +136,8 @@
   max-width: 1100px;
   margin: 0 auto;
   overflow: auto;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  scroll-padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   -webkit-overflow-scrolling: touch;
 }
 .kiosk-browse {
@@ -1954,8 +1956,11 @@ html.kiosk-root #root {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: 0 0 auto;
+  min-height: 70px;
   gap: 18px;
-  margin-top: 16px;
+  margin-top: 4px;
+  margin-bottom: 2px;
   padding: 16px 18px;
   border: 1px solid #dbe7e1;
   border-radius: 18px;
@@ -1965,3 +1970,11 @@ html.kiosk-root #root {
 .kiosk-home-login-state strong { display: block; color: #0f172a; font-size: 16px; }
 .kiosk-home-login-state span { display: block; margin-top: 3px; font-size: 13px; }
 .kiosk-home-login-state.is-signed-in { border-color: #b7e4cd; background: #eefaf4; color: #087f5b; }
+
+@media (max-height: 760px) and (min-width: 561px) {
+  .kiosk-home { gap: 10px; }
+  .kiosk-home-grid--main { min-height: 180px; }
+  .kiosk-home-card { gap: 10px; padding-block: 18px; }
+  .kiosk-home-card svg { width: 48px; height: 48px; }
+  .kiosk-home-login-state { min-height: 60px; padding-block: 12px; }
+}
