@@ -426,6 +426,61 @@ async function verifyKioskToken(token: string, secret: string) {
   return true;
 }
 
+async function sha256Hex(value: string) {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function randomPairSecret() {
+  return b64url(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+async function mintTeacherSession(teacherId: string, secret: string, ttlSec = 10 * 60) {
+  const exp = Math.floor(Date.now() / 1000) + ttlSec;
+  const payload = `teacher|${teacherId}|${exp}`;
+  const key = await importHmacKey(secret);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)));
+  return `${b64url(new TextEncoder().encode(payload))}.${b64url(sig)}`;
+}
+
+async function verifyTeacherSession(token: string, secret: string) {
+  const [p, s] = String(token || "").split(".");
+  if (!p || !s) return null;
+  let payload = "";
+  try {
+    payload = new TextDecoder().decode(fromB64url(p));
+  } catch {
+    return null;
+  }
+  const [kind, teacherId, expStr] = payload.split("|");
+  if (kind !== "teacher" || !teacherId) return null;
+  const exp = Number(expStr);
+  if (!Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) return null;
+  const key = await importHmacKey(secret);
+  const ok = await crypto.subtle.verify("HMAC", key, fromB64url(s), new TextEncoder().encode(payload));
+  return ok ? { teacherId, exp } : null;
+}
+
+async function assertTeacherAccess(admin, body: Record<string, unknown>, secret: string) {
+  const requestedId = String(body.teacher_id || "");
+  const session = await verifyTeacherSession(String(body.teacher_session || ""), secret);
+  if (!session) {
+    throw Object.assign(new Error("휴대폰 QR 로그인이 필요합니다."), { code: "QR_LOGIN_REQUIRED" });
+  }
+  if (requestedId && requestedId !== session.teacherId) {
+    throw Object.assign(new Error("다른 선생님 정보에는 접근할 수 없습니다."), { code: "FORBIDDEN" });
+  }
+  const { data: teacher } = await admin
+    .from("teachers")
+    .select("id, name, active, resigned_at")
+    .eq("id", session.teacherId)
+    .maybeSingle();
+  if (!teacher || teacher.active === false || teacher.resigned_at) {
+    throw Object.assign(new Error("사용할 수 없는 선생님 계정입니다."), { code: "TEACHER_INACTIVE" });
+  }
+  return teacher;
+}
+
 function requireDeviceAccess(body: Record<string, unknown>, headers: Headers, devicePin: string, tokenSecret: string) {
   return (async () => {
     const headerToken = headers.get("x-kiosk-token") || "";
@@ -1195,9 +1250,6 @@ Deno.serve(async (req) => {
       || "";
     const authHeader = req.headers.get("Authorization") || "";
 
-    if (!devicePin) {
-      return jsonError("DEVICE_PIN_MISSING", "키오스크 기기 PIN이 설정되지 않았습니다.", 500);
-    }
     if (!pinSecret) {
       return jsonError("PIN_SECRET_MISSING", "키오스크 PIN 비밀키가 설정되지 않았습니다.", 500);
     }
@@ -1205,6 +1257,67 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceKey);
     const body = await req.json().catch(() => ({}));
     const action = String(body.action || "");
+
+    if (action === "create_pair") {
+      const pairSecret = randomPairSecret();
+      const expiresAt = new Date(Date.now() + 90 * 1000).toISOString();
+      const { data, error } = await admin.from("kiosk_pairing_sessions").insert({
+        secret_hash: await sha256Hex(pairSecret),
+        status: "pending",
+        expires_at: expiresAt,
+      }).select("id, expires_at").single();
+      if (error) throw error;
+      return jsonResponse({ data: { pair_id: data.id, pair_secret: pairSecret, expires_at: data.expires_at } });
+    }
+
+    if (action === "approve_pair") {
+      if (!authHeader) return jsonError("NO_AUTHORIZATION", "GTS 로그인이 필요합니다.", 401);
+      const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
+      const { data: { user }, error: userError } = await userClient.auth.getUser();
+      if (userError || !user) return jsonError("INVALID_SESSION", "GTS 로그인이 필요합니다.", 401);
+      const { data: teacher } = await admin.from("teachers")
+        .select("id, name, active, resigned_at").eq("id", user.id).maybeSingle();
+      if (!teacher || teacher.active === false || teacher.resigned_at) {
+        return jsonError("TEACHER_INACTIVE", "사용할 수 없는 선생님 계정입니다.", 403);
+      }
+      const pairId = String(body.pair_id || "");
+      const pairSecret = String(body.pair_secret || "");
+      const { data: pair } = await admin.from("kiosk_pairing_sessions")
+        .select("id, secret_hash, status, expires_at").eq("id", pairId).maybeSingle();
+      if (!pair || pair.secret_hash !== await sha256Hex(pairSecret)) return jsonError("PAIR_INVALID", "유효하지 않은 QR입니다.", 400);
+      if (pair.status !== "pending" || new Date(pair.expires_at).getTime() <= Date.now()) {
+        return jsonError("PAIR_EXPIRED", "QR 로그인 시간이 만료되었습니다.", 400);
+      }
+      const { error } = await admin.from("kiosk_pairing_sessions").update({
+        status: "approved", teacher_id: teacher.id, approved_at: new Date().toISOString(),
+      }).eq("id", pair.id).eq("status", "pending");
+      if (error) throw error;
+      return jsonResponse({ data: { approved: true, teacher_name: teacher.name } });
+    }
+
+    if (action === "pair_status") {
+      const pairId = String(body.pair_id || "");
+      const pairSecret = String(body.pair_secret || "");
+      const { data: pair } = await admin.from("kiosk_pairing_sessions")
+        .select("id, secret_hash, status, teacher_id, expires_at").eq("id", pairId).maybeSingle();
+      if (!pair || pair.secret_hash !== await sha256Hex(pairSecret)) return jsonError("PAIR_INVALID", "유효하지 않은 QR입니다.", 400);
+      if (new Date(pair.expires_at).getTime() <= Date.now()) {
+        if (pair.status === "pending") await admin.from("kiosk_pairing_sessions").update({ status: "expired" }).eq("id", pair.id);
+        return jsonResponse({ data: { status: "expired" } });
+      }
+      if (pair.status !== "approved" || !pair.teacher_id) return jsonResponse({ data: { status: pair.status } });
+      const { data: teacher } = await admin.from("teachers").select("id, name, active, resigned_at")
+        .eq("id", pair.teacher_id).maybeSingle();
+      if (!teacher || teacher.active === false || teacher.resigned_at) return jsonError("TEACHER_INACTIVE", "사용할 수 없는 계정입니다.", 403);
+      const teacherSession = await mintTeacherSession(teacher.id, pinSecret);
+      await admin.from("kiosk_pairing_sessions").update({ status: "consumed", consumed_at: new Date().toISOString() }).eq("id", pair.id);
+      return jsonResponse({ data: {
+        status: "approved",
+        teacher: { id: teacher.id, name: teacher.name },
+        teacher_session: teacherSession,
+        expires_in: 10 * 60,
+      } });
+    }
 
     // 로그인 사용자: PIN 설정/상태
     if (action === "get_pin_status" || action === "set_pin") {
@@ -1277,19 +1390,16 @@ Deno.serve(async (req) => {
       return jsonResponse({ data: { kiosk_token: token, expires_in: 12 * 3600 } });
     }
 
-    const allowed = await requireDeviceAccess(body, req.headers, devicePin, pinSecret);
+    if (action === "catalog" || action === "teachers" || action === "notices") {
+      if (action === "catalog") return jsonResponse({ data: await loadCatalog(admin) });
+      if (action === "teachers") return jsonResponse({ data: await listTeachers(admin) });
+    }
+
+    const allowed = action === "notices" || (body.teacher_session
+      ? Boolean(await verifyTeacherSession(String(body.teacher_session), pinSecret))
+      : await requireDeviceAccess(body, req.headers, devicePin, pinSecret));
     if (!allowed) {
       return jsonError("DEVICE_LOCKED", "키오스크 기기 인증이 필요합니다.", 401);
-    }
-
-    if (action === "catalog") {
-      const data = await loadCatalog(admin);
-      return jsonResponse({ data });
-    }
-
-    if (action === "teachers") {
-      const data = await listTeachers(admin);
-      return jsonResponse({ data });
     }
 
     if (action === "notices") {
@@ -1333,12 +1443,13 @@ Deno.serve(async (req) => {
     }
 
     if (action === "teacher_week_gear") {
-      const data = await loadTeacherWeekGear(admin, String(body.teacher_id || ""));
+      const teacher = await assertTeacherAccess(admin, body, pinSecret);
+      const data = await loadTeacherWeekGear(admin, teacher.id);
       return jsonResponse({ data });
     }
 
     if (action === "holdings") {
-      const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
+      const teacher = await assertTeacherAccess(admin, body, pinSecret);
       const [holdings, pending_returns] = await Promise.all([
         teacherHoldings(admin, teacher.id),
         teacherPendingReturns(admin, teacher.id),
@@ -1353,7 +1464,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "rent") {
-      const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
+      const teacher = await assertTeacherAccess(admin, body, pinSecret);
       const data = await rentItem(admin, {
         teacherId: teacher.id,
         itemId: String(body.item_id || ""),
@@ -1365,7 +1476,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "rent_batch") {
-      const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
+      const teacher = await assertTeacherAccess(admin, body, pinSecret);
       const rawLines = Array.isArray(body.items) ? body.items : [];
       const assigneeIds = Array.isArray(body.conflict_assignee_ids)
         ? body.conflict_assignee_ids.map((id) => String(id || "").trim()).filter(Boolean)
@@ -1395,7 +1506,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "return") {
-      const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
+      const teacher = await assertTeacherAccess(admin, body, pinSecret);
       const data = await returnItem(admin, {
         teacherId: teacher.id,
         itemId: String(body.item_id || ""),
@@ -1407,7 +1518,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "cancel_return") {
-      const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
+      const teacher = await assertTeacherAccess(admin, body, pinSecret);
       const data = await cancelReturnRequest(admin, {
         teacherId: teacher.id,
         returnId: String(body.return_id || ""),
@@ -1417,7 +1528,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "extend") {
-      const teacher = await assertTeacherPin(admin, String(body.teacher_id || ""), body.teacher_pin, pinSecret);
+      const teacher = await assertTeacherAccess(admin, body, pinSecret);
       const rawIds = Array.isArray(body.item_ids)
         ? body.item_ids
         : (body.item_id ? [body.item_id] : []);
@@ -1433,7 +1544,9 @@ Deno.serve(async (req) => {
     return jsonError("UNKNOWN_ACTION", "Unknown action", 400);
   } catch (err) {
     const code = err?.code || "INTERNAL_ERROR";
-    const status = code === "VALIDATION_ERROR" || code === "PIN_NOT_SET" || code === "PIN_INVALID"
+    const status = code === "FORBIDDEN" ? 403
+      : code === "QR_LOGIN_REQUIRED" ? 401
+      : code === "VALIDATION_ERROR" || code === "PIN_NOT_SET" || code === "PIN_INVALID"
       || code === "INSUFFICIENT_STOCK" || code === "INSUFFICIENT_RETURNABLE" || code === "ITEM_NOT_FOUND"
       || code === "TEACHER_INACTIVE" || code === "ROTATION_BLOCKED" || code === "NOT_FOUND"
       ? (code === "PIN_INVALID" || code === "PIN_NOT_SET" ? 401 : 400)

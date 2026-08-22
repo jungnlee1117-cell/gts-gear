@@ -291,6 +291,66 @@ body {
   }
 }
 
+/* 휴대폰에서 키오스크 로그인 승인 */
+.kiosk-phone-approval-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  padding: 24px 18px;
+  background: linear-gradient(145deg, #effaf4 0%, #f8fafc 55%, #eef6f2 100%);
+}
+.kiosk-phone-approval-card {
+  width: min(420px, 100%);
+  box-sizing: border-box;
+  padding: 34px 26px;
+  border: 1px solid #dce9e2;
+  border-radius: 28px;
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .12);
+}
+.kiosk-phone-approval-logo { color: #0f9d68; font-size: 22px; font-weight: 950; letter-spacing: .08em; }
+.kiosk-phone-approval-icon,
+.kiosk-phone-approval-success {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  margin: 22px auto 16px;
+  border-radius: 22px;
+  background: #eaf8f1;
+  color: #0f9d68;
+  font-size: 32px;
+  font-weight: 900;
+}
+.kiosk-phone-approval-card h1 { margin: 0 0 12px; color: #0f172a; font-size: 24px; line-height: 1.3; }
+.kiosk-phone-approval-card p { color: #64748b; line-height: 1.65; }
+.kiosk-phone-approval-note {
+  margin: 20px 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.kiosk-phone-approval-error { color: #dc2626 !important; font-weight: 750; }
+.kiosk-phone-approval-card button {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 10px;
+  border: 0;
+  border-radius: 15px;
+  background: #0f9d68;
+  color: #fff;
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+.kiosk-phone-approval-card button:disabled { opacity: .55; cursor: wait; }
+.kiosk-phone-approval-card button.is-secondary { border: 1px solid #dbe5df; background: #fff; color: #475569; }
+
 .my-profile-page {
   min-height: 100vh;
   background: #f3f5f7;

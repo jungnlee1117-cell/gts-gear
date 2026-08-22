@@ -742,6 +742,9 @@
 .kiosk-return-footer--triple {
   grid-template-columns: 120px 1fr 1.2fr;
 }
+.kiosk-return-footer--double {
+  grid-template-columns: 1fr 1.2fr;
+}
 .kiosk-return-footer .kiosk-btn {
   margin: 0;
 }
@@ -801,7 +804,8 @@
     grid-template-columns: 1fr;
   }
   .kiosk-return-footer,
-  .kiosk-return-footer--triple {
+  .kiosk-return-footer--triple,
+  .kiosk-return-footer--double {
     grid-template-columns: 1fr;
   }
   .kiosk-pending-row {
@@ -1106,6 +1110,8 @@
   min-height: 0;
   height: 100%;
   overflow: hidden;
+  box-sizing: border-box;
+  padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
 }
 .kiosk-month-header {
   flex-shrink: 0;
@@ -1536,7 +1542,7 @@
   gap: 10px;
   max-width: 480px;
   width: 100%;
-  margin: 14px auto 0;
+  margin: 14px auto 2px;
   flex-shrink: 0;
 }
 .kiosk-week-actions .kiosk-btn {
@@ -1846,3 +1852,116 @@ html.kiosk-root #root {
   color: #15803d;
   word-break: break-all;
 }
+
+/* 휴대폰 QR 본인 확인 */
+.kiosk-qr-login-button,
+.kiosk-session-user {
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 15px;
+  border: 1px solid #b7e4cd;
+  background: #fff;
+  color: #087f5b;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(16, 185, 129, 0.1);
+}
+.kiosk-session-user {
+  background: #eaf8f1;
+}
+.kiosk-qr-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(8px);
+}
+.kiosk-qr-card {
+  position: relative;
+  width: min(470px, 100%);
+  padding: 34px;
+  border-radius: 28px;
+  background: #fff;
+  color: #0f172a;
+  text-align: center;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+.kiosk-qr-close {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 26px;
+  cursor: pointer;
+}
+.kiosk-qr-badge {
+  display: inline-flex;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #eaf8f1;
+  color: #087f5b;
+  font-size: 13px;
+  font-weight: 900;
+}
+.kiosk-qr-card h2 { margin: 16px 0 8px; font-size: 28px; }
+.kiosk-qr-card > p { margin: 0; color: #64748b; line-height: 1.65; font-weight: 650; }
+.kiosk-qr-code {
+  width: fit-content;
+  margin: 22px auto 16px;
+  padding: 10px;
+  border: 1px solid #d7e8df;
+  border-radius: 20px;
+  background: #fff;
+}
+.kiosk-qr-loading {
+  display: grid;
+  place-items: center;
+  min-height: 286px;
+  color: #64748b;
+  font-weight: 800;
+}
+.kiosk-qr-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 8px 0 20px;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 800;
+}
+.kiosk-qr-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.12);
+  animation: kioskQrPulse 1.4s ease-in-out infinite;
+}
+@keyframes kioskQrPulse { 50% { opacity: .42; } }
+.kiosk-qr-actions { display: grid; grid-template-columns: 1fr 1.25fr; gap: 10px; }
+.kiosk-home-login-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid #dbe7e1;
+  border-radius: 18px;
+  background: #f8fbf9;
+  color: #64748b;
+}
+.kiosk-home-login-state strong { display: block; color: #0f172a; font-size: 16px; }
+.kiosk-home-login-state span { display: block; margin-top: 3px; font-size: 13px; }
+.kiosk-home-login-state.is-signed-in { border-color: #b7e4cd; background: #eefaf4; color: #087f5b; }

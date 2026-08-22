@@ -28,6 +28,7 @@ import LessonScriptDataAdminPage from "./LessonScriptDataAdminPage.jsx";
 import PronunciationTipsApp from "./PronunciationTipsApp.jsx";
 import MyProfilePage from "./MyProfilePage.jsx";
 import KioskApp from "./KioskApp.jsx";
+import { invokeKiosk } from "./kioskApi.js";
 import { registerItemsBrowsePage } from "./itemsBrowseRegistry.js";
 import UserMenuDropdown from "./UserMenuDropdown.jsx";
 import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
@@ -11097,6 +11098,59 @@ function UnknownRoute() {
   );
 }
 
+function KioskPairApprovalPage({ me }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const pairId = params.get("pair") || "";
+  const pairSecret = params.get("secret") || "";
+  const [status, setStatus] = useState("ready");
+  const [message, setMessage] = useState("");
+
+  const approve = async () => {
+    if (!pairId || !pairSecret || status === "loading") return;
+    setStatus("loading");
+    setMessage("");
+    try {
+      await invokeKiosk(supabase, "approve_pair", {
+        pair_id: pairId,
+        pair_secret: pairSecret,
+      });
+      setStatus("done");
+    } catch (err) {
+      setStatus("error");
+      setMessage(err.message || "키오스크 로그인을 승인하지 못했습니다.");
+    }
+  };
+
+  return (
+    <div className="kiosk-phone-approval-page">
+      <div className="kiosk-phone-approval-card">
+        <div className="kiosk-phone-approval-logo">GTS</div>
+        {status === "done" ? (
+          <>
+            <div className="kiosk-phone-approval-success">✓</div>
+            <h1>키오스크 로그인을 승인했습니다</h1>
+            <p>키오스크 화면이 자동으로 전환됩니다.<br />이 창은 닫아도 됩니다.</p>
+          </>
+        ) : (
+          <>
+            <div className="kiosk-phone-approval-icon">▦</div>
+            <h1>키오스크 로그인 승인</h1>
+            <p><strong>{me?.name || "선생님"}</strong> 계정으로 키오스크에 로그인합니다.</p>
+            <div className="kiosk-phone-approval-note">키오스크에서는 교구 대여·반납 기능만 사용할 수 있으며, 개인정보는 표시되지 않습니다.</div>
+            {message ? <p className="kiosk-phone-approval-error">{message}</p> : null}
+            <button type="button" onClick={approve} disabled={!pairId || !pairSecret || status === "loading"}>
+              {status === "loading" ? "승인 중..." : "키오스크 로그인 승인"}
+            </button>
+            <button type="button" className="is-secondary" onClick={() => navigate("/")}>GTS 홈으로</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AuthenticatedRoutes({ me, session, logout, onMeUpdated }) {
   const navigate = useNavigate();
 
@@ -11114,6 +11168,7 @@ function AuthenticatedRoutes({ me, session, logout, onMeUpdated }) {
       <RouteTracker/>
       <RestoreRouteAfterLogin/>
       <Routes>
+      <Route path="/kiosk-approve" element={<KioskPairApprovalPage me={me}/>}/>
       <Route
         path="/english-script"
         element={(

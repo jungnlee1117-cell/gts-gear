@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { QRCodeCanvas } from "qrcode.react";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -502,11 +503,44 @@ function ItemCard({ item, onSelect, inCart, cartQty, rotationGuides, showGuides 
   );
 }
 
+function QrLoginModal({ pair, error, onClose, onRetry }) {
+  return (
+    <div className="kiosk-qr-overlay" role="dialog" aria-modal="true" aria-labelledby="kiosk-qr-title">
+      <div className="kiosk-qr-card">
+        <button type="button" className="kiosk-qr-close" onClick={onClose} aria-label="QR 로그인 닫기">×</button>
+        <div className="kiosk-qr-badge">휴대폰 본인 확인</div>
+        <h2 id="kiosk-qr-title">GTS QR 로그인</h2>
+        <p>휴대폰 카메라로 QR코드를 촬영한 뒤<br />GTS 계정으로 로그인하고 승인해 주세요.</p>
+        {pair?.url ? (
+          <div className="kiosk-qr-code">
+            <QRCodeCanvas value={pair.url} size={250} level="M" includeMargin />
+          </div>
+        ) : (
+          <div className="kiosk-qr-loading">QR코드를 만드는 중...</div>
+        )}
+        {error ? <p className="kiosk-error">{error}</p> : null}
+        <div className="kiosk-qr-status">
+          <span className="kiosk-qr-status-dot" /> 휴대폰 승인을 기다리고 있습니다
+        </div>
+        <div className="kiosk-qr-actions">
+          <button type="button" className="kiosk-btn kiosk-btn--ghost" onClick={onClose}>취소</button>
+          <button type="button" className="kiosk-btn kiosk-btn--primary" onClick={onRetry}>새 QR 만들기</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function KioskApp() {
   const [token, setToken] = useState(loadToken);
   const [unlockPin, setUnlockPin] = useState("");
   const [unlockError, setUnlockError] = useState("");
   const [unlocking, setUnlocking] = useState(false);
+  const [teacherSession, setTeacherSession] = useState("");
+  const [sessionTeacher, setSessionTeacher] = useState(null);
+  const [qrPair, setQrPair] = useState(null);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrError, setQrError] = useState("");
 
   const [mode, setMode] = useState("home"); // home | browse | rent | return | week | success
   const [categories, setCategories] = useState(DEFAULT_GEAR_CATEGORIES);
@@ -682,6 +716,81 @@ export default function KioskApp() {
     resetWizard();
   }, [resetWizard]);
 
+  const endTeacherSession = useCallback(() => {
+    setTeacherSession("");
+    setSessionTeacher(null);
+    setQrPair(null);
+    setQrOpen(false);
+    setQrError("");
+    goHome();
+  }, [goHome]);
+
+  const openQrLogin = useCallback(async () => {
+    setQrOpen(true);
+    setQrPair(null);
+    setQrError("");
+    try {
+      const data = await invokeKioskPublic("create_pair");
+      const url = new URL("/kiosk-approve", window.location.origin);
+      url.searchParams.set("pair", data.pair_id);
+      url.searchParams.set("secret", data.pair_secret);
+      setQrPair({ ...data, url: url.toString() });
+    } catch (err) {
+      setQrError(err.message || "QR코드를 만들지 못했습니다.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!qrOpen || !qrPair?.pair_id || !qrPair?.pair_secret) return undefined;
+    let stopped = false;
+    const check = async () => {
+      try {
+        const data = await invokeKioskPublic("pair_status", {
+          pair_id: qrPair.pair_id,
+          pair_secret: qrPair.pair_secret,
+        });
+        if (stopped) return;
+        if (data.status === "approved" && data.teacher_session && data.teacher) {
+          setTeacherSession(data.teacher_session);
+          setSessionTeacher(data.teacher);
+          setSelectedTeacher(data.teacher);
+          setQrOpen(false);
+          setQrPair(null);
+          setQrError("");
+          setToastMsg(`${data.teacher.name} 선생님, 로그인되었습니다.`);
+          setMode("home");
+          setStep("pick");
+        } else if (data.status === "expired" || data.status === "consumed" || data.status === "cancelled") {
+          setQrError("QR코드 사용 시간이 끝났습니다. 새 QR을 만들어 주세요.");
+        }
+      } catch (err) {
+        if (!stopped && err?.code !== "PAIR_EXPIRED") setQrError(err.message || "승인 상태를 확인하지 못했습니다.");
+      }
+    };
+    check();
+    const timer = window.setInterval(check, 1500);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [qrOpen, qrPair?.pair_id, qrPair?.pair_secret]);
+
+  useEffect(() => {
+    if (!teacherSession) return undefined;
+    let timer;
+    const resetIdle = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(endTeacherSession, 2 * 60 * 1000);
+    };
+    const events = ["pointerdown", "keydown", "touchstart"];
+    events.forEach((event) => window.addEventListener(event, resetIdle, { passive: true }));
+    resetIdle();
+    return () => {
+      window.clearTimeout(timer);
+      events.forEach((event) => window.removeEventListener(event, resetIdle));
+    };
+  }, [teacherSession, endTeacherSession]);
+
   const lockDevice = () => {
     saveToken("");
     setToken("");
@@ -790,15 +899,13 @@ export default function KioskApp() {
   }, []);
 
   useEffect(() => {
-    if (!token) return undefined;
-    refreshCatalog(token);
+    refreshCatalog(token || "");
     return undefined;
   }, [token, refreshCatalog]);
 
   useEffect(() => {
-    if (!token) return undefined;
     const timer = window.setInterval(() => {
-      invokeKioskPublic("notices", {}, token)
+      invokeKioskPublic("notices", {}, token || "")
         .then((noticeList) => setNotices(Array.isArray(noticeList) ? noticeList : []))
         .catch(() => {});
     }, 5 * 60 * 1000);
@@ -847,14 +954,34 @@ export default function KioskApp() {
   }, [teachers, homeTeacherQuery]);
 
   const startRent = () => {
+    if (!teacherSession || !sessionTeacher) {
+      openQrLogin();
+      return;
+    }
     resetWizard();
+    setSelectedTeacher(sessionTeacher);
     setMode("rent");
   };
 
   const startReturn = () => {
+    if (!teacherSession || !sessionTeacher) {
+      openQrLogin();
+      return;
+    }
     resetWizard();
+    setSelectedTeacher(sessionTeacher);
     setMode("return");
-    setStep("teacher");
+    setStep("pick");
+    setBusy(true);
+    invokeKioskPublic("holdings", {
+      teacher_id: sessionTeacher.id,
+      teacher_session: teacherSession,
+    }, token).then((data) => {
+      setHoldings(data.holdings || []);
+      setPendingReturns(data.pending_returns || []);
+      if (!(data.holdings || []).length && !(data.pending_returns || []).length) setFlowError("반납할 교구가 없습니다.");
+    }).catch((err) => setFlowError(err.message || "보유 교구를 불러오지 못했습니다."))
+      .finally(() => setBusy(false));
   };
 
   const startBrowse = () => {
@@ -863,9 +990,12 @@ export default function KioskApp() {
   };
 
   const startWeekGear = () => {
+    if (!teacherSession || !sessionTeacher) {
+      openQrLogin();
+      return;
+    }
     resetWizard();
-    setMode("week");
-    setStep("teacher");
+    openWeekGearForTeacher(sessionTeacher, true);
   };
 
   const startYear = schoolYearStartYear();
@@ -894,6 +1024,7 @@ export default function KioskApp() {
     try {
       const data = await invokeKioskPublic("teacher_week_gear", {
         teacher_id: teacher.id,
+        teacher_session: teacherSession,
       }, token);
       const me = { id: data.teacher.id, name: data.teacher.name };
       const schedules = resolveRotationSchedules(
@@ -1070,9 +1201,8 @@ export default function KioskApp() {
       return;
     }
     setFlowError("");
-    if (rentFromWeek && selectedTeacher) {
-      setTeacherPin("");
-      setStep("pin");
+    if (teacherSession && selectedTeacher) {
+      submitRentBatch("");
       return;
     }
     setStep("teacher");
@@ -1100,6 +1230,7 @@ export default function KioskApp() {
       const data = await invokeKioskPublic("rent_batch", {
         teacher_id: selectedTeacher.id,
         teacher_pin: pin,
+        teacher_session: teacherSession,
         location: "사무실",
         items: cart.map((c) => ({ item_id: c.id, quantity: c.quantity })),
         conflict_reason: reason,
@@ -1139,6 +1270,7 @@ export default function KioskApp() {
       const data = await invokeKioskPublic("holdings", {
         teacher_id: selectedTeacher.id,
         teacher_pin: pin,
+        teacher_session: teacherSession,
       }, token);
       setHoldings(data.holdings || []);
       setPendingReturns(data.pending_returns || []);
@@ -1159,23 +1291,25 @@ export default function KioskApp() {
   };
 
   const refreshHoldings = async () => {
-    if (!selectedTeacher || !teacherPin) return;
+    if (!selectedTeacher || (!teacherPin && !teacherSession)) return;
     const data = await invokeKioskPublic("holdings", {
       teacher_id: selectedTeacher.id,
       teacher_pin: teacherPin,
+      teacher_session: teacherSession,
     }, token);
     setHoldings(data.holdings || []);
     setPendingReturns(data.pending_returns || []);
   };
 
   const cancelPendingReturn = async (ret) => {
-    if (busy || !selectedTeacher || !teacherPin || !ret?.id) return;
+    if (busy || !selectedTeacher || (!teacherPin && !teacherSession) || !ret?.id) return;
     setBusy(true);
     setFlowError("");
     try {
       await invokeKioskPublic("cancel_return", {
         teacher_id: selectedTeacher.id,
         teacher_pin: teacherPin,
+        teacher_session: teacherSession,
         return_id: ret.id,
       }, token);
       await refreshHoldings();
@@ -1189,7 +1323,7 @@ export default function KioskApp() {
 
   const submitExtendSelected = async () => {
     const itemIds = Object.keys(returnCart);
-    if (busy || !selectedTeacher || !teacherPin || !itemIds.length) {
+    if (busy || !selectedTeacher || (!teacherPin && !teacherSession) || !itemIds.length) {
       if (!itemIds.length) setFlowError("다시 대여할 교구를 선택해 주세요.");
       return;
     }
@@ -1211,6 +1345,7 @@ export default function KioskApp() {
       const data = await invokeKioskPublic("extend", {
         teacher_id: selectedTeacher.id,
         teacher_pin: teacherPin,
+        teacher_session: teacherSession,
         item_ids: itemIds,
         weeks: 1,
       }, token);
@@ -1263,7 +1398,7 @@ export default function KioskApp() {
         quantity: Math.min(returnCart[h.item_id], h.returnable),
       }))
       .filter((e) => e.quantity > 0);
-    if (busy || !selectedTeacher || !teacherPin || !entries.length) {
+    if (busy || !selectedTeacher || (!teacherPin && !teacherSession) || !entries.length) {
       if (!entries.length) setFlowError("반납할 교구를 선택해 주세요.");
       return;
     }
@@ -1275,6 +1410,7 @@ export default function KioskApp() {
         const data = await invokeKioskPublic("return", {
           teacher_id: selectedTeacher.id,
           teacher_pin: teacherPin,
+          teacher_session: teacherSession,
           item_id: entry.item_id,
           quantity: entry.quantity,
           location: "사무실",
@@ -1294,42 +1430,6 @@ export default function KioskApp() {
       setBusy(false);
     }
   };
-
-  // ── Device unlock ──
-  if (!token) {
-    return (
-      <div className="kiosk-page">
-        <header className="kiosk-top">
-          <div className="kiosk-top-left">
-            <div className="kiosk-brand">GTS 키오스크</div>
-          </div>
-          <div className="kiosk-top-right">
-            {isFullscreen ? (
-              <button type="button" className="kiosk-fs kiosk-fs--exit" onClick={exitFullscreen} aria-label="전체화면 종료">
-                <Minimize2 size={18} /> 닫기
-              </button>
-            ) : showFsBtn ? (
-              <button type="button" className="kiosk-fs" onClick={enterFullscreen} aria-label="전체화면">
-                <Maximize2 size={18} /> 전체화면
-              </button>
-            ) : null}
-          </div>
-        </header>
-        <main className="kiosk-main kiosk-main--center">
-          <PinPad
-            value={unlockPin}
-            onChange={setUnlockPin}
-            onSubmit={handleUnlock}
-            disabled={unlocking}
-            title="기기 PIN 입력"
-            subtitle="키오스크 사용을 위해 4자리 공용 PIN을 입력하세요"
-          />
-          {unlockError ? <p className="kiosk-error">{unlockError}</p> : null}
-          <KioskInstallHint />
-        </main>
-      </div>
-    );
-  }
 
   // ── Success ──
   if (mode === "success") {
@@ -1411,6 +1511,14 @@ export default function KioskApp() {
           }}
         />
       ) : null}
+      {qrOpen ? (
+        <QrLoginModal
+          pair={qrPair}
+          error={qrError}
+          onClose={() => { setQrOpen(false); setQrPair(null); setQrError(""); }}
+          onRetry={openQrLogin}
+        />
+      ) : null}
       <header className={`kiosk-top${showBack ? " kiosk-top--nav" : ""}`}>
         <div className="kiosk-top-left">
           {showBack ? (
@@ -1462,9 +1570,15 @@ export default function KioskApp() {
               홈으로
             </button>
           ) : null}
-          <button type="button" className="kiosk-lock" onClick={lockDevice} aria-label="기기 잠금">
-            잠금
-          </button>
+          {sessionTeacher ? (
+            <button type="button" className="kiosk-session-user" onClick={endTeacherSession} aria-label="QR 로그인 사용 종료">
+              <span>{sessionTeacher.name} 선생님</span> · 사용 종료
+            </button>
+          ) : (
+            <button type="button" className="kiosk-qr-login-button" onClick={openQrLogin} aria-label="휴대폰 QR 로그인">
+              QR 로그인
+            </button>
+          )}
           {isFullscreen ? (
             <button type="button" className="kiosk-fs kiosk-fs--exit" onClick={exitFullscreen} aria-label="전체화면 종료">
               <Minimize2 size={18} /> 닫기
@@ -1504,50 +1618,14 @@ export default function KioskApp() {
               </button>
             </div>
 
-            <div className="kiosk-home-search">
-              <label className="kiosk-home-search-label" htmlFor="kiosk-home-teacher">
-                이름으로 바로 조회
-              </label>
-              <div className="kiosk-search-wrap kiosk-search-wrap--hero">
-                <Search size={24} aria-hidden />
-                <input
-                  id="kiosk-home-teacher"
-                  className="kiosk-search kiosk-search--hero"
-                  value={homeTeacherQuery}
-                  onChange={(e) => setHomeTeacherQuery(e.target.value)}
-                  placeholder="이름을 입력하세요"
-                  aria-label="선생님 이름 검색"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                />
-              </div>
-              {homeTeacherQuery.trim() ? (
-                <div className="kiosk-home-matches" role="listbox" aria-label="선생님 검색 결과">
-                  {homeTeacherMatches.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      role="option"
-                      className="kiosk-home-match"
-                      onClick={() => openWeekGearForTeacher(t, true)}
-                      disabled={busy}
-                    >
-                      {t.name}
-                    </button>
-                  ))}
-                  {!homeTeacherMatches.length ? (
-                    <p className="kiosk-muted">일치하는 선생님이 없습니다.</p>
-                  ) : null}
-                </div>
+            <div className={`kiosk-home-login-state${sessionTeacher ? " is-signed-in" : ""}`}>
+              {sessionTeacher ? (
+                <><strong>{sessionTeacher.name} 선생님 로그인 중</strong><span>대여·반납·이번달 교구를 이용할 수 있습니다.</span></>
               ) : (
-                <p className="kiosk-home-search-hint">이름을 고르면 이번달 배정 교구를 바로 확인합니다.</p>
+                <><strong>대여와 반납은 휴대폰 로그인이 필요합니다.</strong><span>오른쪽 위 QR 로그인 버튼을 눌러 본인 계정으로 승인해 주세요.</span></>
               )}
-              {busy && homeTeacherQuery.trim() ? (
-                <p className="kiosk-muted">배정 교구 불러오는 중...</p>
-              ) : null}
-              {flowError && mode === "home" ? <p className="kiosk-error">{flowError}</p> : null}
             </div>
+            {flowError && mode === "home" ? <p className="kiosk-error">{flowError}</p> : null}
             {loadingCatalog ? <p className="kiosk-muted">목록 불러오는 중...</p> : null}
           </div>
         ) : null}
@@ -1937,14 +2015,7 @@ export default function KioskApp() {
               })}
               {!holdings.length ? <p className="kiosk-muted">반납 가능한 교구가 없습니다.</p> : null}
             </div>
-            <div className="kiosk-return-footer kiosk-return-footer--triple">
-              <button
-                type="button"
-                className="kiosk-btn kiosk-btn--ghost"
-                onClick={goHome}
-              >
-                홈으로
-              </button>
+            <div className="kiosk-return-footer kiosk-return-footer--double">
               <button
                 type="button"
                 className="kiosk-btn kiosk-btn--secondary"
