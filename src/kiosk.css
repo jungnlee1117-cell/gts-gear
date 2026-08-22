@@ -496,6 +496,13 @@
   color: #16a34a;
   font-style: normal;
 }
+.kiosk-home-card > i svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  filter: none;
+  stroke-width: 3;
+}
 .kiosk-home-card--rent > i { background: #16a34a; color: #fff; }
 .kiosk-home-card--return > i { background: #dc2626; color: #fff; }
 .kiosk-home-card svg {
