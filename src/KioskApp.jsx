@@ -12,7 +12,9 @@ import {
   Search,
   ShoppingBag,
   CalendarDays,
+  ChevronRight,
   Megaphone,
+  UserRound,
 } from "lucide-react";
 import { DEFAULT_GEAR_CATEGORIES, mergeCategoriesWithDefaults } from "./gearCategoryData.js";
 import { invokeKioskPublic, KioskError } from "./kioskApi.js";
@@ -582,6 +584,8 @@ export default function KioskApp() {
   const [unlocking, setUnlocking] = useState(false);
   const [teacherSession, setTeacherSession] = useState("");
   const [sessionTeacher, setSessionTeacher] = useState(null);
+  const [sessionExpiresAt, setSessionExpiresAt] = useState(0);
+  const [sessionRemaining, setSessionRemaining] = useState(0);
   const [qrPair, setQrPair] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [qrError, setQrError] = useState("");
@@ -763,6 +767,8 @@ export default function KioskApp() {
   const endTeacherSession = useCallback(() => {
     setTeacherSession("");
     setSessionTeacher(null);
+    setSessionExpiresAt(0);
+    setSessionRemaining(0);
     setQrPair(null);
     setQrOpen(false);
     setQrError("");
@@ -797,6 +803,7 @@ export default function KioskApp() {
         if (data.status === "approved" && data.teacher_session && data.teacher) {
           setTeacherSession(data.teacher_session);
           setSessionTeacher(data.teacher);
+          setSessionExpiresAt(Date.now() + Number(data.expires_in || 600) * 1000);
           setSelectedTeacher(data.teacher);
           setQrOpen(false);
           setQrPair(null);
@@ -820,20 +827,30 @@ export default function KioskApp() {
   }, [qrOpen, qrPair?.pair_id, qrPair?.pair_secret]);
 
   useEffect(() => {
-    if (!teacherSession) return undefined;
-    let timer;
-    const resetIdle = () => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(endTeacherSession, 2 * 60 * 1000);
+    if (!teacherSession || !sessionExpiresAt) return undefined;
+    const update = () => {
+      const left = Math.max(0, Math.ceil((sessionExpiresAt - Date.now()) / 1000));
+      setSessionRemaining(left);
+      if (left <= 0) endTeacherSession();
     };
-    const events = ["pointerdown", "keydown", "touchstart"];
-    events.forEach((event) => window.addEventListener(event, resetIdle, { passive: true }));
-    resetIdle();
-    return () => {
-      window.clearTimeout(timer);
-      events.forEach((event) => window.removeEventListener(event, resetIdle));
-    };
-  }, [teacherSession, endTeacherSession]);
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [teacherSession, sessionExpiresAt, endTeacherSession]);
+
+  const extendTeacherSession = useCallback(async () => {
+    if (!teacherSession) return;
+    try {
+      const data = await invokeKioskPublic("extend_teacher_session", { teacher_session: teacherSession });
+      setTeacherSession(data.teacher_session);
+      setSessionExpiresAt(Date.now() + Number(data.expires_in || 600) * 1000);
+      setToastMsg("키오스크 로그인 시간을 10분 연장했습니다.");
+    } catch (err) {
+      setToastMsg(err.message || "로그인 시간을 연장하지 못했습니다.");
+    }
+  }, [teacherSession]);
+
+  const sessionTimeLabel = `${String(Math.floor(sessionRemaining / 60)).padStart(2, "0")}:${String(sessionRemaining % 60).padStart(2, "0")}`;
 
   const lockDevice = () => {
     saveToken("");
@@ -1602,7 +1619,7 @@ export default function KioskApp() {
               <ArrowLeft size={22} /> 뒤로
             </button>
           ) : (
-            <div className="kiosk-brand">GTS 키오스크</div>
+            <div className="kiosk-brand"><strong>GTS</strong><span>키오스크</span></div>
           )}
         </div>
         {showBack && screenTitle ? (
@@ -1616,7 +1633,8 @@ export default function KioskApp() {
           ) : null}
           {sessionTeacher ? (
             <button type="button" className="kiosk-session-user" onClick={endTeacherSession} aria-label="QR 로그인 사용 종료">
-              <span>{sessionTeacher.name} 선생님</span> · 사용 종료
+              <UserRound size={19} strokeWidth={2.1} />
+              <span>{sessionTeacher.name} 선생님</span><em>· 사용 중</em>
             </button>
           ) : (
             <button type="button" className="kiosk-qr-login-button" onClick={openQrLogin} aria-label="휴대폰 QR 로그인">
@@ -1650,21 +1668,30 @@ export default function KioskApp() {
             <div className="kiosk-home-grid kiosk-home-grid--main">
               <button type="button" className="kiosk-home-card kiosk-home-card--week" onClick={startWeekGear}>
                 <CalendarDays size={64} strokeWidth={1.55} />
-                <span>이번달 내 교구</span>
+                <strong>이번달 내 교구</strong>
+                <span>이번달 내 교구를 확인할 수 있어요.</span>
+                <i><ChevronRight size={22} /></i>
               </button>
               <button type="button" className="kiosk-home-card kiosk-home-card--rent" onClick={startRent}>
                 <ShoppingBag size={64} strokeWidth={1.55} />
-                <span>대여하기</span>
+                <strong>대여하기</strong>
+                <span>필요한 교구를 찾아 대여할 수 있어요.</span>
+                <i><ChevronRight size={22} /></i>
               </button>
               <button type="button" className="kiosk-home-card kiosk-home-card--return" onClick={startReturn}>
                 <RotateCcw size={64} strokeWidth={1.55} />
-                <span>반납하기</span>
+                <strong>반납하기</strong>
+                <span>대여한 교구를 확인하고 반납할 수 있어요.</span>
+                <i><ChevronRight size={22} /></i>
               </button>
             </div>
 
             <div className={`kiosk-home-login-state${sessionTeacher ? " is-signed-in" : ""}`}>
               {sessionTeacher ? (
-                <><strong>{sessionTeacher.name} 선생님 로그인 중</strong><span>대여·반납·이번달 교구를 이용할 수 있습니다.</span></>
+                <>
+                  <div className="kiosk-home-session-person"><UserRound size={21} /><strong>{sessionTeacher.name} 선생님 로그인 중</strong></div>
+                  <div className="kiosk-home-session-time"><span>남은 시간 <b>{sessionTimeLabel}</b></span><button type="button" onClick={extendTeacherSession}>10분 연장</button></div>
+                </>
               ) : (
                 <><strong>대여와 반납은 휴대폰 로그인이 필요합니다.</strong><span>오른쪽 위 QR 로그인 버튼을 눌러 본인 계정으로 승인해 주세요.</span></>
               )}

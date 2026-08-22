@@ -1319,6 +1319,20 @@ Deno.serve(async (req) => {
       } });
     }
 
+    if (action === "extend_teacher_session") {
+      const current = await verifyTeacherSession(String(body.teacher_session || ""), pinSecret);
+      if (!current) return jsonError("QR_LOGIN_REQUIRED", "휴대폰 QR 로그인이 필요합니다.", 401);
+      const { data: teacher } = await admin.from("teachers").select("id, active, resigned_at")
+        .eq("id", current.teacherId).maybeSingle();
+      if (!teacher || teacher.active === false || teacher.resigned_at) {
+        return jsonError("TEACHER_INACTIVE", "사용할 수 없는 선생님 계정입니다.", 403);
+      }
+      return jsonResponse({ data: {
+        teacher_session: await mintTeacherSession(teacher.id, pinSecret),
+        expires_in: 10 * 60,
+      } });
+    }
+
     // 로그인 사용자: PIN 설정/상태
     if (action === "get_pin_status" || action === "set_pin") {
       if (!authHeader) return jsonError("NO_AUTHORIZATION", "Unauthorized", 401);
