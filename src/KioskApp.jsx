@@ -592,6 +592,7 @@ export default function KioskApp() {
   const [qrOpen, setQrOpen] = useState(false);
   const [qrError, setQrError] = useState("");
   const welcomeSpokenRef = useRef(false);
+  const lastWelcomeSpeechAtRef = useRef(0);
   const minuteWarningSpokenRef = useRef(false);
   const lastSuccessSpeechRef = useRef("");
 
@@ -769,7 +770,7 @@ export default function KioskApp() {
     resetWizard();
   }, [resetWizard]);
 
-  const speakKorean = useCallback((message) => {
+  const speakKorean = useCallback((message, { onStart } = {}) => {
     const text = String(message || "").trim();
     if (!text || typeof window === "undefined" || !("speechSynthesis" in window)) return false;
     try {
@@ -781,6 +782,7 @@ export default function KioskApp() {
       utterance.rate = 0.86;
       utterance.pitch = 0.96;
       utterance.volume = 0.92;
+      utterance.onstart = () => onStart?.();
       window.speechSynthesis.speak(utterance);
       return true;
     } catch {
@@ -788,12 +790,50 @@ export default function KioskApp() {
     }
   }, []);
 
-  useEffect(() => {
-    if (welcomeSpokenRef.current) return undefined;
-    welcomeSpokenRef.current = true;
-    const timer = window.setTimeout(() => speakKorean(KIOSK_WELCOME_MESSAGE), 1200);
-    return () => window.clearTimeout(timer);
+  const playWelcomeGuide = useCallback(({ force = false } = {}) => {
+    const now = Date.now();
+    if (!force && now - lastWelcomeSpeechAtRef.current < 30000) return false;
+    return speakKorean(KIOSK_WELCOME_MESSAGE, {
+      onStart: () => {
+        welcomeSpokenRef.current = true;
+        lastWelcomeSpeechAtRef.current = Date.now();
+      },
+    });
   }, [speakKorean]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => playWelcomeGuide(), 1200);
+    return () => window.clearTimeout(timer);
+  }, [playWelcomeGuide]);
+
+  useEffect(() => {
+    if (mode !== "home" || sessionTeacher) return undefined;
+    const handleFirstTouch = () => {
+      if (!welcomeSpokenRef.current) playWelcomeGuide({ force: true });
+      window.removeEventListener("pointerdown", handleFirstTouch);
+      window.removeEventListener("touchstart", handleFirstTouch);
+    };
+    window.addEventListener("pointerdown", handleFirstTouch, { passive: true });
+    window.addEventListener("touchstart", handleFirstTouch, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", handleFirstTouch);
+      window.removeEventListener("touchstart", handleFirstTouch);
+    };
+  }, [mode, sessionTeacher, playWelcomeGuide]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible" && mode === "home" && !sessionTeacher) {
+        playWelcomeGuide();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("pageshow", handleVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("pageshow", handleVisible);
+    };
+  }, [mode, sessionTeacher, playWelcomeGuide]);
 
   const endTeacherSession = useCallback(() => {
     setTeacherSession("");
@@ -1673,7 +1713,7 @@ export default function KioskApp() {
             <button
               type="button"
               className="kiosk-voice-guide-button"
-              onClick={() => speakKorean(KIOSK_WELCOME_MESSAGE)}
+              onClick={() => playWelcomeGuide({ force: true })}
               aria-label="음성 안내 다시 듣기"
             >
               <Volume2 size={19} strokeWidth={2.1} />
