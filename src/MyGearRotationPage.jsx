@@ -133,7 +133,7 @@ function GearPhoto({ item, className, alt }) {
   );
 }
 
-function SchoolYearTimeline({ months, viewMonth, todayMonth, assignmentByMonth, onSelect }) {
+function SchoolYearTimeline({ months, viewMonth, todayMonth, onSelect }) {
   const activeRef = useRef(null);
 
   useEffect(() => {
@@ -147,7 +147,6 @@ function SchoolYearTimeline({ months, viewMonth, todayMonth, assignmentByMonth, 
         {months.map((m) => {
           const isView = m === viewMonth;
           const isToday = m === todayMonth;
-          const assignmentLabel = assignmentByMonth?.[m] || "";
           const [, mo] = m.split("-").map(Number);
           return (
             <button
@@ -159,9 +158,6 @@ function SchoolYearTimeline({ months, viewMonth, todayMonth, assignmentByMonth, 
             >
               <span className="gear-rotation-month-btn__label">{MONTH_SHORT[mo] || `${mo}월`}</span>
               {isToday && <span className="gear-rotation-month-btn__now">이번 달</span>}
-              {assignmentLabel ? (
-                <span className="gear-rotation-month-btn__teacher">{assignmentLabel}</span>
-              ) : null}
             </button>
           );
         })}
@@ -818,15 +814,6 @@ export default function MyGearRotationPage({
 
   const letterForMonth = (monthKey) => assignedLetterForMonth(schedules, subject, monthKey);
 
-  const assignmentByMonth = useMemo(() => {
-    if (!subject?.name) return {};
-    return Object.fromEntries(
-      schoolMonths
-        .filter(monthKey => assignedLetterForMonth(schedules, subject, monthKey))
-        .map(monthKey => [monthKey, `${subject.name} · 정규`]),
-    );
-  }, [schoolMonths, schedules, subject]);
-
   const weeksForMonth = (monthKey) =>
     allMonthWeeks.filter(w => w.year_month?.startsWith(String(monthKey).slice(0, 7)));
 
@@ -1245,7 +1232,6 @@ export default function MyGearRotationPage({
                 months={schoolMonths}
                 viewMonth={viewMonth}
                 todayMonth={todayMonth}
-                assignmentByMonth={assignmentByMonth}
                 onSelect={setViewMonth}
               />
 

@@ -179,7 +179,8 @@ export function buildInstitutionRevenueEditDraft({
   const draft = getMonthlyContractDraft(contracts, yearMonth, institution.id);
   return {
     mode: "contract",
-    amount: draft.source !== "empty" ? String(draft.amount ?? 0) : "",
+    // 신규 월도 0원을 실제 입력값으로 보여줘 그대로 저장할 수 있게 한다.
+    amount: String(draft.amount ?? 0),
     existingId: draft.contract?.id ?? null,
     source: draft.source,
     previousYearMonth: draft.previousYearMonth,
