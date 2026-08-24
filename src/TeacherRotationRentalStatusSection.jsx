@@ -89,13 +89,13 @@ export default function TeacherRotationRentalStatusSection({
   );
 
   return (
-    <section className="rotation-rental-status" aria-label="선생님별 이번 주 배정·대여 현황">
+    <section className="rotation-rental-status" aria-label="교구대여매칭">
       <div className="rotation-rental-status__head">
         <div>
-          <h2 className="rotation-rental-status__title">선생님별 이번 주 배정·대여 현황</h2>
+          <h2 className="rotation-rental-status__title">교구대여매칭</h2>
           <p className="rotation-rental-status__sub">
             {weekRangeLabel ? `${weekRangeLabel} · ` : ""}
-            배정 교구와 실제 대여를 비교합니다.
+            정규수업 배정 교구와 선생님의 실제 대여 교구를 비교합니다.
           </p>
         </div>
         <div className="rotation-rental-status__filters" role="tablist" aria-label="현황 필터">

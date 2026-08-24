@@ -52,7 +52,7 @@ const FILTERS = [
 
 const PAGE_TABS = [
   { id: "mine", label: "내 교구" },
-  { id: "teachers", label: "선생님 교구" },
+  { id: "teachers", label: "교구대여매칭" },
 ];
 
 function parseDay(value) {
