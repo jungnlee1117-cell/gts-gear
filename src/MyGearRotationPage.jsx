@@ -1267,7 +1267,7 @@ export default function MyGearRotationPage({
 
                 {viewLetter && filteredRows.length > 0 && (
                   <>
-                    <div className="gear-rotation-list">
+                    <div className={`gear-rotation-list${visibleRows.length % 2 === 1 ? " gear-rotation-list--odd" : ""}`}>
                       {visibleRows.map(row => (
                         <MonthGearRow
                           key={row.weekNumber}
