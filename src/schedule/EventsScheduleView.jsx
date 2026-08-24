@@ -21,6 +21,11 @@ import {
 } from "./scheduleExceptions.js";
 import CalendarEventBadges from "./CalendarEventBadges.jsx";
 import { fmtLocalDate, getMonthGrid } from "./payrollCalendar.js";
+import {
+  getKoreanHoliday,
+  hasHolidayDataForYear,
+  holidayShortLabel,
+} from "./koreanHolidays.js";
 import { isScheduleAdmin } from "./roles.js";
 import { notifyEventScheduled } from "./pushScheduleNotification.js";
 import EventRegisterForm, {
@@ -196,6 +201,12 @@ export default function EventsScheduleView({ me, onBack }) {
         ) : null}
       </div>
 
+      {!hasHolidayDataForYear(y) ? (
+        <p className="sch-muted sch-holiday-data-warn">
+          {y}년 공휴일 데이터가 아직 등록되지 않았습니다.
+        </p>
+      ) : null}
+
       {loading ? <p className="sch-muted">불러오는 중...</p> : (
         <>
           <div className="sch-cal-grid sch-events-cal" role="grid" aria-label={`${monthLabel} 행사·휴원`}>
@@ -218,6 +229,7 @@ export default function EventsScheduleView({ me, onBack }) {
                 const dateStr = fmtLocalDate(date);
                 const dayEx = inMonth ? (exceptionsByDate[dateStr] || []) : [];
                 const isSelected = selectedDate === dateStr;
+                const holiday = inMonth ? getKoreanHoliday(dateStr) : null;
                 return (
                   <button
                     key={dateStr}
@@ -229,12 +241,19 @@ export default function EventsScheduleView({ me, onBack }) {
                       "sch-events-cal-cell",
                       !inMonth && "sch-cal-cell--muted",
                       isSelected && "sch-cal-cell--selected",
+                      holiday && "sch-cal-cell--holiday",
                       dayEx.length > 0 && "sch-events-cal-cell--has",
                     ].filter(Boolean).join(" ")}
                     onClick={() => inMonth && setSelectedDate(dateStr)}
                     onDoubleClick={() => inMonth && admin && openRegisterForDate(dateStr)}
+                    aria-label={`${m}월 ${date.getDate()}일${holiday ? ` ${holiday.name}` : ""}`}
                   >
                     <span className="sch-cal-day-num">{date.getDate()}</span>
+                    {holiday ? (
+                      <span className="sch-cal-holiday-label" title={holiday.name}>
+                        {holidayShortLabel(holiday.name)}
+                      </span>
+                    ) : null}
                     {dayEx.length > 0 ? (
                       <CalendarEventBadges events={dayEx} maxVisible={4}/>
                     ) : null}
@@ -245,6 +264,11 @@ export default function EventsScheduleView({ me, onBack }) {
           </div>
 
           <section className="sch-events-day-section">
+            {getKoreanHoliday(selectedDate) ? (
+              <p className="sch-holiday-banner">
+                공휴일 · {getKoreanHoliday(selectedDate).name}
+              </p>
+            ) : null}
             <h3 className="sch-admin-dash-section-title">
               {selectedDate} 안내 ({selectedDayExceptions.length}건)
             </h3>

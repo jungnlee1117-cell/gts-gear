@@ -18174,7 +18174,7 @@ button.pe-res-resource-youtube-thumb:hover {
 }
 .gear-rotation-month-btn {
   flex-shrink: 0;
-  min-width: 64px;
+  min-width: 96px;
   padding: 10px 14px;
   border-radius: 12px;
   border: 1px solid #e5e7eb;
@@ -18203,6 +18203,24 @@ button.pe-res-resource-youtube-thumb:hover {
   font-size: 10px;
   font-weight: 700;
   color: #059669;
+}
+.gear-rotation-month-btn__teacher {
+  display: block;
+  margin-top: 6px;
+  padding: 4px 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gear-rotation-month-btn--active .gear-rotation-month-btn__teacher {
+  background: #d1fae5;
+  color: #047857;
 }
 
 .gear-rotation-list-section {
