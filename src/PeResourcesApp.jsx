@@ -14,6 +14,11 @@ const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "YOUR_ANON_KEY";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
 const PE_ADMIN = (u) => u?.role === "superadmin" || u?.role === "admin";
+const FULL_LIBRARY_USER_NAMES = new Set(["오정석", "양의인", "안소연", "어욱진"]);
+
+function canAccessFullLibrary(user) {
+  return FULL_LIBRARY_USER_NAMES.has(String(user?.name || "").trim());
+}
 
 const MEDIA_HUB_CATEGORIES = [
   { id: "video-media", num: 8, title: "영상자료실", color: "#0ea5e9", bg: "#f0f9ff",
@@ -75,11 +80,11 @@ function normalizeLibraryCategory(cat) {
 }
 
 function hubCategoriesForUser(allCategories, me) {
-  void me;
   const base = (allCategories || [])
     .map(normalizeLibraryCategory)
     .filter(cat => !["videos", "video-media", "audio-media"].includes(cat.id));
-  return [...base, ...MEDIA_HUB_CATEGORIES]
+  const visible = canAccessFullLibrary(me) ? [...base, ...MEDIA_HUB_CATEGORIES] : MEDIA_HUB_CATEGORIES;
+  return visible
     .map(withCategoryStatus)
     .sort((a, b) => Number(a.num || 0) - Number(b.num || 0));
 }
@@ -1329,7 +1334,7 @@ function CategoryCard({ cat, resourceCount, onGo }) {
   );
 }
 
-function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTag, onGoCategory, me, onManageCategories }) {
+function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTag, onGoCategory, me, fullLibraryAccess, onManageCategories }) {
   return (
     <>
       <div className="pe-res-hero">
@@ -1339,14 +1344,14 @@ function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTa
               <h1 className="pe-res-page-title">자료실</h1>
               <p className="pe-res-page-desc">수업 준비에 필요한 모든 자료를 빠르게 검색하고 활용하세요.</p>
             </div>
-            {PE_ADMIN(me) && (
+            {PE_ADMIN(me) && fullLibraryAccess && (
               <button type="button" className="pe-res-manage-cat-btn" onClick={onManageCategories}>
                 <Settings size={16}/> 카테고리 관리
               </button>
             )}
           </div>
         </div>
-        {PE_ADMIN(me) ? (
+        {fullLibraryAccess ? (
         <div className="pe-res-search-section">
           <div className="pe-res-search">
             <Search size={18} strokeWidth={2} color="#94a3b8"/>
@@ -1380,6 +1385,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   const isEnglishPeRedirect = directCategoryId === "english-pe" && !filesMode;
   const isDirectCategory = Boolean(directCategoryId) && !isEnglishPeRedirect;
   const deepLinkRef = useRef(isDirectCategory);
+  const fullLibraryAccess = canAccessFullLibrary(me);
 
   const [view, setView] = useState(() => (isDirectCategory ? "list" : "hub"));
   const [category, setCategory] = useState(() => {
@@ -1413,18 +1419,27 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
 
   useEffect(() => {
     if (isEnglishPeRedirect) {
-      navigate("/english-script", { replace: true });
+      navigate(fullLibraryAccess ? "/english-script" : "/pe-resources", { replace: true });
     }
-  }, [isEnglishPeRedirect, navigate]);
+  }, [isEnglishPeRedirect, fullLibraryAccess, navigate]);
 
   useEffect(() => {
     if (!directCategoryId || !categories.length || isEnglishPeRedirect) return;
     const cat = categories.find(c => c.id === directCategoryId);
+    const mediaOnlyCategory = directCategoryId === "videos"
+      || directCategoryId === "video-media"
+      || directCategoryId === "audio-media";
+    if (!fullLibraryAccess && !mediaOnlyCategory) {
+      setCategory(null);
+      setView("hub");
+      navigate("/pe-resources", { replace: true });
+      return;
+    }
     if (cat) {
       setCategory(cat);
       setView("list");
     }
-  }, [directCategoryId, categories, isEnglishPeRedirect]);
+  }, [directCategoryId, categories, isEnglishPeRedirect, fullLibraryAccess, navigate]);
 
   const hubCategories = useMemo(
     () => hubCategoriesForUser(categories, me),
@@ -1472,7 +1487,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   };
 
   const goSearch = (q) => {
-    if (!PE_ADMIN(me)) {
+    if (!fullLibraryAccess) {
       const videosCat = categories.find(c => c.id === "videos")
         || DEFAULT_PE_CATEGORIES.find(c => c.id === "videos");
       setCategory(videosCat || null);
@@ -1481,7 +1496,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
     }
     setListSearch(q);
     setView("list");
-    if (!PE_ADMIN(me)) {
+    if (!fullLibraryAccess) {
       navigate("/pe-resources?category=videos");
     }
   };
@@ -1537,6 +1552,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
             onTag={goSearch}
             onGoCategory={goCategory}
             me={me}
+            fullLibraryAccess={fullLibraryAccess}
             onManageCategories={() => setShowCatManage(true)}
           />
         ) : activeCategory?.id === "videos" ? (
@@ -1560,7 +1576,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
 
       <footer className="pe-res-footer">© 2026 GTS. All rights reserved.</footer>
 
-      {showCatManage && PE_ADMIN(me) && (
+      {showCatManage && PE_ADMIN(me) && fullLibraryAccess && (
         <CategoryManageModal
           categories={categories}
           resources={resources}
