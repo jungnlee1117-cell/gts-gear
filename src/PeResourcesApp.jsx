@@ -17,7 +17,8 @@ const PE_ADMIN = (u) => u?.role === "superadmin" || u?.role === "admin";
 const FULL_LIBRARY_USER_NAMES = new Set(["오정석", "양의인", "안소연", "어욱진"]);
 
 function canAccessFullLibrary(user) {
-  return FULL_LIBRARY_USER_NAMES.has(String(user?.name || "").trim());
+  return user?.role === "superadmin"
+    || FULL_LIBRARY_USER_NAMES.has(String(user?.name || "").trim());
 }
 
 const MEDIA_HUB_CATEGORIES = [
