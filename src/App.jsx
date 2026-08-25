@@ -1528,7 +1528,7 @@ function buildSidebarNav(me) {
     { type: "item", id: "qr-scan", label: "QR 스캔", glyph: "qr-scan" },
     { type: "item", id: "rental-return", label: "대여 반납신청", glyph: "rental-return" },
     { type: "item", id: "my-reservations", label: "내 예약 현황", glyph: "my-reservations" },
-    { type: "item", id: "pe-resources", label: "교육 · 자료실", glyph: "pe-resources" },
+    { type: "item", id: "pe-resources", label: "자료실", glyph: "pe-resources" },
   ];
 }
 
@@ -11553,7 +11553,7 @@ const HUB_MODULES = [
   },
   {
     id: "pe",
-    title: "교육",
+    title: "자료실",
     desc: "수업 준비에 필요한 자료를 한곳에서 확인하세요.",
     theme: "blue",
     features: ["영상 자료", "음원 자료", "영어 대본"],

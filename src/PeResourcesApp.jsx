@@ -15,48 +15,37 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
 const PE_ADMIN = (u) => u?.role === "superadmin" || u?.role === "admin";
 
-/** 선생님 허브에 노출되는 카테고리 (영상·음원·영어체육·행사) */
-const TEACHER_HUB_CATEGORIES = [
-  { id: "video-media", num: 1, title: "영상 자료", color: "#0ea5e9", bg: "#f0f9ff",
+const MEDIA_HUB_CATEGORIES = [
+  { id: "video-media", num: 8, title: "영상자료실", color: "#0ea5e9", bg: "#f0f9ff",
     items: ["수업 영상", "유튜브 링크"], subs: [], icon: "video", mediaTab: "video", status: "active" },
-  { id: "audio-media", num: 2, title: "음원 자료", color: "#22c55e", bg: "#ecfdf5",
+  { id: "audio-media", num: 9, title: "음원자료실", color: "#22c55e", bg: "#ecfdf5",
     items: ["MP3/WAV 음원", "영어체육 BGM"], subs: [], icon: "audio", mediaTab: "audio", status: "active" },
-  { id: "english-pe", num: 3, title: "영어체육 자료", color: "#8b5cf6", bg: "#f5f3ff",
-    items: ["교구별 3단계 대본", "수업 대본 만들기", "상황별 대처", "수업 흐름 팁"],
-    subs: ["TPR", "주제별", "게임", "노래", "대본", "활동"], icon: "abc",
-    externalPath: "/english-script", status: "active" },
-  { id: "events", num: 4, title: "행사 자료", color: "#ec4899", bg: "#fdf2f8",
-    items: ["운동회", "물놀이", "할로윈", "크리스마스", "가족참여수업", "아빠참여수업"],
-    subs: ["운동회", "물놀이", "할로윈", "크리스마스", "가족참여", "아빠참여"], icon: "party", status: "active" },
 ];
 
-/** 관리자 허브에서 당분간 비활성(준비 중) 처리할 카테고리 */
-const PE_COMING_SOON_IDS = new Set([
-  "age-program", "sports", "lesson-plan", "child-dev", "teacher-ed",
-]);
+const PE_COMING_SOON_IDS = new Set();
 
 const QUICK_TAGS = ["4세 균형", "축구", "영어체육", "점프활동", "공놀이", "밸런스"];
 
 const DEFAULT_PE_CATEGORIES = [
   { id: "age-program", num: 1, title: "연령별 프로그램", color: "#22c55e", bg: "#ecfdf5",
     items: ["3, 4세 프로그램", "5, 6세 프로그램", "7세 프로그램"], subs: ["3-4세", "5-6세", "7세"], icon: "users" },
-  { id: "sports", num: 2, title: "스포츠 종목 자료", color: "#3b82f6", bg: "#eff6ff",
+  { id: "sports", num: 2, title: "스포츠종목", color: "#3b82f6", bg: "#eff6ff",
     items: ["축구", "농구", "테니스", "배드민턴", "티볼", "체조"], subs: ["축구", "농구", "테니스", "배드민턴", "티볼", "체조"], icon: "ball" },
-  { id: "english-pe", num: 3, title: "영어체육 자료", color: "#8b5cf6", bg: "#f5f3ff",
+  { id: "english-pe", num: 3, title: "영어체육자료", color: "#8b5cf6", bg: "#f5f3ff",
     items: ["TPR 표현", "주제별 표현", "영어 게임", "영어 노래", "영어 대본", "영어 체육 활동"],
     subs: ["TPR", "주제별", "게임", "노래", "대본", "활동"], icon: "abc" },
-  { id: "lesson-plan", num: 4, title: "수업 계획안", color: "#2563eb", bg: "#eff6ff",
+  { id: "lesson-plan", num: 4, title: "수업계획안", color: "#2563eb", bg: "#eff6ff",
     items: ["연간 수업 계획안", "어린이집 수업 계획안", "영어유치원 수업 계획안"],
     subs: ["연간", "어린이집", "영어유치원"], icon: "clipboard" },
-  { id: "events", num: 5, title: "행사 자료", color: "#ec4899", bg: "#fdf2f8",
+  { id: "events", num: 5, title: "행사자료", color: "#ec4899", bg: "#fdf2f8",
     items: ["운동회", "물놀이", "할로윈", "크리스마스", "가족참여수업", "아빠참여수업"],
     subs: ["운동회", "물놀이", "할로윈", "크리스마스", "가족참여", "아빠참여"], icon: "party" },
-  { id: "child-dev", num: 6, title: "아동 발달 자료", color: "#f97316", bg: "#fff7ed",
-    items: ["연령별 발달", "사회성 발달", "신체 발달", "운동 발달"], subs: ["연령별", "사회성", "신체", "운동"], icon: "smile" },
-  { id: "teacher-ed", num: 7, title: "교사 교육 자료", color: "#14b8a6", bg: "#f0fdfa",
+  { id: "child-dev", num: 6, title: "서식", color: "#f97316", bg: "#fff7ed",
+    items: ["정보·동의 확인서", "회원등록 신청서", "기타 서식"], subs: ["동의서", "신청서", "기타"], icon: "clipboard" },
+  { id: "teacher-ed", num: 7, title: "교사교육자료", color: "#14b8a6", bg: "#f0fdfa",
     items: ["신입교사 교육", "안전 교육", "수업 운영", "교구 교육", "기관 안내"],
     subs: ["신입교사", "안전", "수업운영", "교구", "기관"], icon: "grad" },
-  { id: "videos", num: 8, title: "영상·음원 자료실", color: "#0ea5e9", bg: "#f0f9ff",
+  { id: "videos", num: 8, title: "영상자료실", color: "#0ea5e9", bg: "#f0f9ff",
     items: ["수업 영상", "유튜브 링크", "음원(MP3/WAV)", "영어체육 BGM"],
     subs: ["수업", "교구", "행사", "영어체육", "음원"], icon: "video" },
 ];
@@ -72,23 +61,46 @@ function withCategoryStatus(cat) {
   return { ...cat, status: cat.status || "active" };
 }
 
-function hubCategoriesForUser(allCategories, me) {
-  if (PE_ADMIN(me)) return allCategories.map(withCategoryStatus);
-  const byId = new Map((allCategories || []).map(c => [c.id, c]));
-  return TEACHER_HUB_CATEGORIES.map(hub => {
-    const db = byId.get(hub.id);
-    if (!db) return hub;
-    return {
-      ...hub,
-      title: db.title || hub.title,
-      color: db.color || hub.color,
-      bg: db.bg || hub.bg,
-      icon: db.icon || hub.icon,
-      items: Array.isArray(db.items) && db.items.length ? db.items : hub.items,
-      subs: Array.isArray(db.subs) ? db.subs : hub.subs,
-    };
-  });
+function normalizeLibraryCategory(cat) {
+  const fallback = DEFAULT_PE_CATEGORIES.find(item => item.id === cat.id);
+  if (!fallback) return cat;
+  return {
+    ...cat,
+    num: fallback.num,
+    title: fallback.title,
+    items: fallback.items,
+    subs: fallback.subs,
+    icon: fallback.icon,
+  };
 }
+
+function hubCategoriesForUser(allCategories, me) {
+  void me;
+  const base = (allCategories || [])
+    .map(normalizeLibraryCategory)
+    .filter(cat => !["videos", "video-media", "audio-media"].includes(cat.id));
+  return [...base, ...MEDIA_HUB_CATEGORIES]
+    .map(withCategoryStatus)
+    .sort((a, b) => Number(a.num || 0) - Number(b.num || 0));
+}
+
+const BUNDLED_RESOURCES = [
+  {
+    id: "bundled-gts-information-consent-confirmation",
+    category_id: "child-dev",
+    subcategory: "동의서",
+    title: "GTS 정보·동의 확인서",
+    description: "정보 수집·이용 동의 및 회원등록 신청에 사용하는 GTS 공식 서식입니다.",
+    tags: ["정보동의", "확인서", "회원등록"],
+    file_url: "/resources/gts-information-consent-confirmation.pdf",
+    file_name: "GTS_정보동의_확인서_최종.pdf",
+    file_type: "pdf",
+    file_size: 91441,
+    author_name: "GTS",
+    created_at: "2026-08-23T12:12:22.000Z",
+    bundled: true,
+  },
+];
 
 const ICON_OPTIONS = [
   { value: "users", label: "사용자" },
@@ -231,6 +243,7 @@ function fileTypeLabel(t) {
 
 function canEditResource(me, res) {
   if (!me || !res) return false;
+  if (res.bundled) return false;
   if (PE_ADMIN(me)) return true;
   return res.author_id === me.id;
 }
@@ -369,14 +382,15 @@ function EventsStringListEditor({ label, items, onChange, placeholder, numbered 
 
 async function fetchResources() {
   const { data, error } = await supabase.from("resources").select("*").order("created_at", { ascending: false });
-  if (error) { console.warn("resources fetch:", error.message); return []; }
-  return data || [];
+  if (error) { console.warn("resources fetch:", error.message); return BUNDLED_RESOURCES; }
+  const rows = data || [];
+  return [...rows, ...BUNDLED_RESOURCES.filter(item => !rows.some(row => row.id === item.id))];
 }
 
 async function fetchCategories() {
   const { data, error } = await supabase.from("pe_categories").select("*").order("sort_order", { ascending: true });
   if (error || !data?.length) return DEFAULT_PE_CATEGORIES;
-  const mapped = data.map(rowToCategory);
+  const mapped = data.map(rowToCategory).map(normalizeLibraryCategory);
   if (!mapped.some(c => c.id === "english-pe")) {
     const fallback = DEFAULT_PE_CATEGORIES.find(c => c.id === "english-pe");
     if (fallback) mapped.push(fallback);
@@ -1322,7 +1336,7 @@ function HubView({ categories, resourceCounts, search, setSearch, onSearch, onTa
         <div className="pe-res-hero-intro">
           <div className="pe-res-hero-title-row">
             <div>
-              <h1 className="pe-res-page-title">체육자료실</h1>
+              <h1 className="pe-res-page-title">자료실</h1>
               <p className="pe-res-page-desc">수업 준비에 필요한 모든 자료를 빠르게 검색하고 활용하세요.</p>
             </div>
             {PE_ADMIN(me) && (
@@ -1497,7 +1511,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
         <div className="pe-res-header-left">
           {view === "list" ? (
             <button type="button" className="pe-res-back-btn pe-res-back-btn-header" onClick={handleListBack}>
-              <ChevronLeft size={18} strokeWidth={2.5}/> 체육자료실
+              <ChevronLeft size={18} strokeWidth={2.5}/> 자료실
             </button>
           ) : (
             <PlatformMainButton
