@@ -3201,6 +3201,32 @@ code {
   font-size: 12px;
   white-space: nowrap;
 }
+.monthly-plan-editor__pdf-ages {
+  min-width: 230px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.monthly-plan-editor__pdf-ages > div {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 38px;
+  padding: 0 8px;
+  border: 1px solid #dce4df;
+  border-radius: 10px;
+  background: #f7fbf8;
+}
+.monthly-plan-editor__controls .monthly-plan-editor__pdf-ages label {
+  display: inline-flex;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 3px;
+  color: #176d40;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.monthly-plan-editor__pdf-ages input { accent-color: #2f8f61; }
 .monthly-plan-editor__pdf-age select {
   height: 38px;
   padding: 0 28px 0 10px;
@@ -3376,6 +3402,26 @@ code {
   font-weight: 700;
   cursor: pointer;
 }
+.monthly-plan-gear-picker__heading-actions { display: flex; align-items: center; gap: 8px; }
+.monthly-plan-gear-picker__heading-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #dce4df;
+  border-radius: 8px;
+  background: #fff;
+  color: #68766f;
+  font: 700 12px/1 inherit;
+  cursor: pointer;
+}
+.monthly-plan-gear-picker__heading-actions > .monthly-plan-gear-picker__event-link {
+  border-color: #efcd91;
+  background: #fffaf0;
+  color: #9a5b18;
+}
 .monthly-plan-gear-picker__groups { display: grid; gap: 16px; }
 .monthly-plan-gear-picker__group {
   padding: 14px;
@@ -3394,56 +3440,106 @@ code {
   font-weight: 850;
 }
 .monthly-plan-gear-picker__group.is-english h4 { color: #315f8d; }
-.monthly-plan-gear-picker__weeks { display: grid; gap: 8px; }
+.monthly-plan-gear-picker__weeks { display: grid; gap: 12px; }
 .monthly-plan-gear-picker fieldset {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
+  display: block;
   min-width: 0;
   margin: 0;
-  padding: 10px;
+  padding: 11px 12px 12px;
   border: 1px solid #e3e9e5;
-  border-radius: 10px;
+  border-radius: 12px;
+  background: #fff;
 }
 .monthly-plan-gear-picker legend {
-  float: left;
-  width: 64px;
-  padding: 0;
-  color: #53615a;
-  font-size: 12px;
-  font-weight: 800;
+  float: none;
+  width: auto;
+  margin: 0 0 9px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #edf7f1;
+  color: #21734b;
+  font-size: 11px;
+  font-weight: 850;
 }
-.monthly-plan-gear-picker__options { display: flex; flex-wrap: wrap; gap: 8px; }
+.monthly-plan-gear-picker__options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 10px;
+  align-items: stretch;
+}
 .monthly-plan-gear-picker__options label {
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  min-width: 150px;
-  min-height: 48px;
-  padding: 7px 10px;
+  justify-content: flex-start;
+  gap: 7px;
+  min-width: 0;
+  min-height: 142px;
+  padding: 43px 11px 11px;
   border: 1px solid #dce4df;
-  border-radius: 9px;
+  border-radius: 12px;
+  background: #fff;
   color: #39463f;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   box-sizing: border-box;
+  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+.monthly-plan-gear-picker__options label > input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.monthly-plan-gear-picker__options label::after {
+  content: "";
+  position: absolute;
+  top: 13px;
+  right: 13px;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #c8d3cd;
+  border-radius: 50%;
+  background: #fff;
+  box-sizing: border-box;
+}
+.monthly-plan-gear-picker__option-label {
+  position: absolute;
+  top: 12px;
+  left: 13px;
+  color: #56655d;
+  font-size: 11px;
+  font-weight: 850;
+}
+.monthly-plan-gear-picker__options label > span:not(.monthly-plan-gear-picker__option-label) {
+  max-width: 100%;
+  text-align: center;
+  line-height: 1.35;
+  word-break: keep-all;
 }
 .monthly-plan-gear-picker__options label.is-selected {
   border-color: #3d9a6d;
-  background: #eff9f3;
+  background: linear-gradient(180deg, #f4fbf7 0%, #edf8f2 100%);
   color: #176d40;
-  box-shadow: inset 0 0 0 1px #3d9a6d;
+  box-shadow: 0 5px 14px rgba(47, 143, 97, .11), inset 0 0 0 1px #3d9a6d;
+}
+.monthly-plan-gear-picker__options label.is-selected::after {
+  border: 4px solid #fff;
+  background: #2f9866;
+  box-shadow: 0 0 0 1.5px #2f9866;
 }
 .monthly-plan-gear-picker__options label.monthly-plan-gear-picker__other {
-  flex: 1 1 280px;
   cursor: default;
 }
 .monthly-plan-gear-picker__other select {
-  flex: 1;
+  width: 100%;
+  flex: none;
   min-width: 150px;
-  height: 34px;
+  height: 35px;
   padding: 0 28px 0 9px;
   border: 1px solid #cad8d0;
   border-radius: 7px;
@@ -3451,13 +3547,46 @@ code {
   color: #26382e;
   font: 650 12px/1 inherit;
 }
+.monthly-plan-gear-picker__company-search {
+  width: 100%;
+  flex: none;
+  min-width: 0;
+  height: 35px;
+  padding: 0 9px;
+  border: 1px solid #cad8d0;
+  border-radius: 7px;
+  background: #fff;
+  color: #26382e;
+  font: 650 12px/1 inherit;
+}
+.monthly-plan-gear-picker__event-option select {
+  width: 100%;
+  height: 35px;
+  padding: 0 28px 0 9px;
+  border: 1px solid #e1c991;
+  border-radius: 7px;
+  background: #fff;
+  color: #664616;
+  font: 650 12px/1 inherit;
+}
+.monthly-plan-gear-picker__event-option > svg {
+  width: 40px;
+  height: 38px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff8eb;
+  color: #c98628;
+  box-sizing: border-box;
+}
 .monthly-plan-gear-picker__options input { accent-color: #2f8f61; }
 .monthly-plan-gear-picker__options img {
-  width: 38px;
-  height: 34px;
-  border-radius: 6px;
+  width: 48px;
+  height: 42px;
+  padding: 4px;
+  border-radius: 9px;
   object-fit: contain;
   background: #fff;
+  box-sizing: border-box;
 }
 .monthly-plan-gear-picker__confirm { margin: 14px 0 0 auto; }
 .monthly-plan-editor__setup {

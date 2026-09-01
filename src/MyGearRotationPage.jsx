@@ -596,7 +596,8 @@ export default function MyGearRotationPage({
   const schoolMonths = useMemo(() => schoolYearMonths(startYear), [startYear]);
   const canUseRotationSearch = isScheduleAdmin(me);
   const canViewRotationRentalStatus = isScheduleAdmin(me);
-  const canWritePrivateMonthlyPlan = isScheduleAdmin(me) || me?.role === "teacher";
+  // 월간 계획안은 로그인한 모든 관리자와 선생님이 자신의 계획안을 작성할 수 있습니다.
+  const canWritePrivateMonthlyPlan = Boolean(me?.id);
   const pageTabs = useMemo(
     () => {
       const visible = canViewRotationRentalStatus ? PAGE_TABS : PAGE_TABS.filter((tab) => tab.id === "mine");
