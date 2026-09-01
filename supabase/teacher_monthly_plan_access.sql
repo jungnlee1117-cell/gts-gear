@@ -12,7 +12,7 @@ AS $$
     SELECT 1
     FROM public.teachers t
     WHERE t.id = auth.uid()
-      AND t.role IN ('teacher', 'superadmin')
+      AND t.role IN ('teacher', 'admin', 'superadmin')
       AND COALESCE(t.active, true) = true
       AND t.resigned_at IS NULL
   );

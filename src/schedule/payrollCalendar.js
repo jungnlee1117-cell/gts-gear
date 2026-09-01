@@ -11,6 +11,7 @@ import {
 } from "./constants.js";
 import { expandPatternsForRange } from "./homeVisitPatterns.js";
 import { isKoreanHoliday } from "./koreanHolidays.js";
+import { withoutLegacyPayrollDuplicates } from "./payrollEntryDedupe.js";
 
 export { getMonthGrid, fmtLocalDate, isSameDay };
 
@@ -45,7 +46,7 @@ export function isWeeklySlotEffectiveOnDate(slot, dateStr) {
 }
 
 function isAfterSchoolDisplaySlot(slot) {
-  return slot.class_type === "방과후" || slot.label === "고정50000";
+  return resolveInstitutionSlotPayType(slot) === "방과후" || slot.label === "고정50000";
 }
 
 /** 상세 패널·급여 목록용 슬롯 표시명 (1교시, 2교시… / 방과후) */
@@ -83,8 +84,11 @@ export function getSlotsForDate(weeklySlots, date, exceptions = []) {
   const regularPeriodByInst = new Map();
   return slots.map(slot => {
     const institutionName = slot.institutions?.name ?? "";
+    const payType = resolveInstitutionSlotPayType(slot);
     let displayLabel;
-    if (isAfterSchoolDisplaySlot(slot)) {
+    if (payType === "센터보조") {
+      displayLabel = "보조";
+    } else if (isAfterSchoolDisplaySlot(slot)) {
       displayLabel = "방과후";
     } else {
       const n = (regularPeriodByInst.get(slot.institution_id) ?? 0) + 1;
@@ -100,7 +104,7 @@ export function getSlotsForDate(weeklySlots, date, exceptions = []) {
       institutionName,
       displayLabel,
       studentName: null,
-      payType: resolveInstitutionSlotPayType(slot),
+      payType,
       startTime: slot.start_time?.slice(0, 5) ?? "",
       endTime: slot.end_time?.slice(0, 5) ?? "",
       scheduledMinutes: resolveInstitutionSlotBillableMinutes(slot),
@@ -301,14 +305,15 @@ export function countSkippedEntries(entries) {
 /** 확정된 수업만 급여·합계에 포함 (minutes > 0).
  *  teacherId가 있으면 대체 수업 귀속을 반영. */
 export function confirmedEntries(entries, teacherId = null) {
+  const deduped = withoutLegacyPayrollDuplicates(entries);
   if (teacherId) {
-    return (entries || []).filter(e => {
+    return deduped.filter(e => {
       if (!e.entry_status || !(e.minutes > 0)) return false;
       if (e.substitute_teacher_id) return e.substitute_teacher_id === teacherId;
       return e.teacher_id === teacherId;
     });
   }
-  return (entries || []).filter(e => e.entry_status && e.minutes > 0 && !e.substitute_teacher_id);
+  return deduped.filter(e => e.entry_status && e.minutes > 0 && !e.substitute_teacher_id);
 }
 
 export function groupPayrollByTypeConfirmed(entries, teacherId = null) {
@@ -417,6 +422,7 @@ export function confirmedMinutesForDate(entries, dateStr, teacherId = null) {
 export function payrollCalendarDayMark(planned, entries, dateStr, {
   isHoliday = false,
   teacherId = null,
+  teachersById = null,
 } = {}) {
   if (isHoliday || !dateStr) return null;
 
@@ -436,7 +442,7 @@ export function payrollCalendarDayMark(planned, entries, dateStr, {
     return {
       kind: "confirmed",
       minutes,
-      lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId),
+      lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId, teachersById),
     };
   }
 
@@ -448,7 +454,7 @@ export function payrollCalendarDayMark(planned, entries, dateStr, {
       return {
         kind: "confirmed",
         minutes,
-        lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId),
+        lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId, teachersById),
       };
     }
     return { kind: "skipped", minutes: 0, lines: [] };
@@ -464,7 +470,7 @@ export function payrollCalendarDayMark(planned, entries, dateStr, {
     return {
       kind: "confirmed",
       minutes,
-      lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId),
+      lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId, teachersById),
     };
   }
 
@@ -473,7 +479,7 @@ export function payrollCalendarDayMark(planned, entries, dateStr, {
     return {
       kind: "confirmed",
       minutes,
-      lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId),
+      lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId, teachersById),
     };
   }
 
@@ -481,7 +487,13 @@ export function payrollCalendarDayMark(planned, entries, dateStr, {
 }
 
 /** 확정된 수업 줄 — 기관(또는 가정방문 학생)·유형별 합산 / 보강·수업변경 표기 */
-export function buildConfirmedPayrollDayLines(planned, entries, dateStr, teacherId = null) {
+export function buildConfirmedPayrollDayLines(
+  planned,
+  entries,
+  dateStr,
+  teacherId = null,
+  teachersById = null,
+) {
   /** @type {Map<string, { key: string, name: string, payType: string, minutes: number, sort: string, label?: string, sublabel?: string, colorId: string, colorKind: string }>} */
   const groups = new Map();
   const usedEntryIds = new Set();
@@ -557,14 +569,31 @@ export function buildConfirmedPayrollDayLines(planned, entries, dateStr, teacher
       ? `hv:${p.patternId || name}:${payType}`
       : `inst:${p.institutionId || name}:${payType}`;
     if (entry?.id) usedEntryIds.add(entry.id);
+    const entryIsSubstitute = Boolean(
+      entry?.substitute_teacher_id
+      && (!teacherId || entry.substitute_teacher_id === teacherId),
+    );
+    const originalTeacher = entryIsSubstitute && teachersById?.get
+      ? teachersById.get(entry.teacher_id)
+      : null;
+    const substituteOriginalName = p.isSubstituteCover
+      ? (p.substituteLesson?.original_teacher?.name || originalTeacher?.name || "원래 선생님")
+      : entryIsSubstitute
+        ? (originalTeacher?.name || "원래 선생님")
+        : null;
+    const isSubstituteCover = Boolean(p.isSubstituteCover || entryIsSubstitute);
     addLine({
-      groupKey,
+      groupKey: isSubstituteCover
+        ? `substitute:${p.substituteLesson?.id || entry?.id || groupKey}`
+        : groupKey,
       name,
       payType,
       minutes,
       colorId,
       colorKind: isHome ? "home_visit" : "institution",
       sort: `${p.startTime || "99:99"}\0${name}\0${payType}`,
+      label: isSubstituteCover ? `${name} 대체 ${minutes}분` : null,
+      sublabel: substituteOriginalName ? `${substituteOriginalName} 선생님 수업` : null,
     });
   }
 
@@ -667,7 +696,7 @@ export function isManualExtraEntry(entry) {
 }
 
 export function findManualExtraEntriesForDate(entries, dateStr, plannedList = []) {
-  return entries.filter(e => {
+  return withoutLegacyPayrollDuplicates(entries).filter(e => {
     if (e.class_date !== dateStr || !isManualExtraEntry(e)) return false;
     if (!plannedList.length) return true;
     return !plannedList.some(p => findEntryForPlanned(entries, p)?.id === e.id);

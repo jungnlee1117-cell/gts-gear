@@ -1,9 +1,11 @@
 import {
   DAY_LABELS,
   compareByStartTime,
+  fmtLocalDate,
   institutionColor,
   resolveInstitutionSlotPayType,
 } from "./constants.js";
+import { isWeeklySlotEffectiveOnDate } from "./payrollCalendar.js";
 
 /** 월~일 표시 순서 (day_of_week: 0=일 … 6=토) */
 export const WEEK_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -51,6 +53,7 @@ export function formatPayTypeLabel(payType) {
     case "가정방문": return "가정방문";
     case "센터": return "센터";
     case "센터보조": return "센터보조";
+    case "참관수업": return "참관수업";
     default: return payType || "수업";
   }
 }
@@ -123,9 +126,11 @@ export function buildUnifiedWeeklyItems(
   institutionSlots = [],
   homeVisitPatterns = [],
   studentCountByInstitution = {},
+  { asOfYmd = fmtLocalDate(new Date()) } = {},
 ) {
   const items = [];
   for (const slot of institutionSlots) {
+    if (!isWeeklySlotEffectiveOnDate(slot, asOfYmd)) continue;
     items.push(institutionSlotToWeeklyItem(slot, studentCountByInstitution));
   }
   for (const pattern of homeVisitPatterns) {

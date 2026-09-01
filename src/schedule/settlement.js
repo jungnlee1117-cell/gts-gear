@@ -2,6 +2,7 @@
 
 import { computeManagerThresholdSplitSettlement } from "./thresholdSplitSettlement.js";
 import { PAYROLL_SUMMARY_TYPES, resolvePayrollSummaryType } from "./constants.js";
+import { withoutLegacyPayrollDuplicates } from "./payrollEntryDedupe.js";
 
 /** 회당 단가 — effective_from 기준 최신 단가 */
 export function pickSessionRate(rates, sessionType, asOfDate) {
@@ -246,6 +247,8 @@ export function payAmountFromMinutesAndRate(minutes, ratePerMinute) {
  *  기관별 단가 > 기본 단가. */
 export function entryPayAmount(entry, rates, slotById = {}) {
   if (!entry?.minutes || entry.minutes <= 0) return 0;
+  // 참관수업은 선생님·기관·진행시간과 관계없이 회당 15,000원 고정입니다.
+  if (entry.pay_type === "참관수업") return 15000;
   if (entry.schedule_slot_id) {
     const slot = slotById[entry.schedule_slot_id];
     if (slot?.label === FLAT_PAY_SLOT_LABEL) return 50000;
@@ -265,7 +268,7 @@ export function entryPayAmount(entry, rates, slotById = {}) {
 
 /** 해당 선생님 급여에 포함될 항목만 (대체 배정 시 원래 선생님 제외) */
 export function payRelevantEntries(entries, teacherId) {
-  return (entries || []).filter(e => {
+  return withoutLegacyPayrollDuplicates(entries).filter(e => {
     if (!e?.entry_status || !(e.minutes > 0)) return false;
     if (e.substitute_teacher_id) return e.substitute_teacher_id === teacherId;
     return e.teacher_id === teacherId;
@@ -274,7 +277,9 @@ export function payRelevantEntries(entries, teacherId) {
 
 /** 항목별 class_date 기준 단가 적용 (정확한 급여 계산) */
 export function estimateTeacherPayByEntry(entries, rates, slotById = {}, teacherId = null) {
-  const list = teacherId ? payRelevantEntries(entries, teacherId) : (entries || []);
+  const list = teacherId
+    ? payRelevantEntries(entries, teacherId)
+    : withoutLegacyPayrollDuplicates(entries);
   let total = 0;
   for (const e of list) {
     total += entryPayAmount(e, rates, slotById);

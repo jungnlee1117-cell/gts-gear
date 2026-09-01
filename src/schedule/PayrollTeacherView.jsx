@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, Pencil } from "lucide-react";
-import { DAY_LABELS, PAY_TYPES, PAYROLL_SUMMARY_TYPES, formatMinutes, formatWon, grossToNetPay, homeVisitColor, institutionColor, isHomeVisitPlanned, minutesBetween, yearMonthKey } from "./constants.js";
+import { DAY_LABELS, PAY_TYPES, PAYROLL_SUMMARY_TYPES, classTypeLabel, formatMinutes, formatWon, grossToNetPay, homeVisitColor, institutionColor, isHomeVisitPlanned, minutesBetween, yearMonthKey } from "./constants.js";
 import PayrollMonthNotices from "./PayrollMonthNotices.jsx";
 import { TeacherNoteDayEditor, TeacherNotesMonthList } from "./TeacherNotesPanel.jsx";
 import { noteByDate, normalizeNoteDate } from "./teacherNotes.js";
@@ -24,6 +24,7 @@ import {
   fetchPayrollEntries,
   fetchScheduleExceptions,
   fetchSubstituteAssignmentsForTeacher,
+  fetchSubstituteLessons,
   fetchTeacherNotes,
   fetchTeachers,
   fetchWeeklySchedule,
@@ -76,6 +77,7 @@ import {
 import { filterExceptionsForInstitutions } from "./scheduleExceptions.js";
 import PayrollDebugPanel from "./PayrollDebugPanel.jsx";
 import { applySubstituteOverlaysToSchedule } from "./substituteSchedule.js";
+import { applySubstituteLessonsToSchedule } from "./substituteLessons.js";
 import { isScheduleSuperAdmin } from "./managerScope.js";
 import { useScheduleAuthReady } from "./ScheduleAuthContext.jsx";
 
@@ -110,6 +112,7 @@ export default function PayrollTeacherView({
   const [additionalPayments, setAdditionalPayments] = useState([]);
   const [rates, setRates] = useState([]);
   const [substituteAssignments, setSubstituteAssignments] = useState([]);
+  const [substituteLessons, setSubstituteLessons] = useState([]);
   const [finalizedIds, setFinalizedIds] = useState(new Set());
   const [teacherOptions, setTeacherOptions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -155,7 +158,7 @@ export default function PayrollTeacherView({
     if (!teacherId || !scheduleAuthReady) return;
     setLoading(true);
     try {
-      const [w, hv, insts, allInsts, ents, ex, notes, adds, rts, fin, subs] = await Promise.all([
+      const [w, hv, insts, allInsts, ents, ex, notes, adds, rts, fin, subs, subLessons] = await Promise.all([
         fetchWeeklySchedule(null, teacherId),
         fetchHomeVisitPatterns({ teacherId }),
         fetchInstitutions({ teacherScope: !adminInspectMode, activeOnly: true }),
@@ -167,6 +170,7 @@ export default function PayrollTeacherView({
         fetchPayRates(teacherId),
         fetchFinalizedInstitutionIds(yearMonth),
         fetchSubstituteAssignmentsForTeacher(teacherId, rangeFrom, rangeTo),
+        fetchSubstituteLessons({ teacherId, fromDate: rangeFrom, toDate: rangeTo }),
       ]);
       setWeeklySlots(w);
       setHomeVisitPatterns(hv);
@@ -187,6 +191,7 @@ export default function PayrollTeacherView({
       setRates(rts);
       setFinalizedIds(fin);
       setSubstituteAssignments(subs);
+      setSubstituteLessons(subLessons);
     } catch (e) {
       console.error(e);
     } finally {
@@ -232,10 +237,19 @@ export default function PayrollTeacherView({
     [weeklySlots, year, month, teacherExceptions, monthHomeVisitPatterns],
   );
 
-  const displayScheduleByDate = useMemo(
-    () => applySubstituteOverlaysToSchedule(scheduleByDate, substituteAssignments),
-    [scheduleByDate, substituteAssignments],
-  );
+  const displayScheduleByDate = useMemo(() => {
+    const assignmentOverlay = applySubstituteOverlaysToSchedule(
+      scheduleByDate,
+      substituteAssignments,
+    );
+    const institutionMap = Object.fromEntries(
+      (allInstitutions || []).map(institution => [institution.id, institution]),
+    );
+    return applySubstituteLessonsToSchedule(assignmentOverlay, substituteLessons, {
+      viewerTeacherId: teacherId,
+      institutionMap,
+    });
+  }, [scheduleByDate, substituteAssignments, substituteLessons, teacherId, allInstitutions]);
 
   const homeVisitLegend = useMemo(
     () => buildHomeVisitLegend(monthHomeVisitPatterns),
@@ -955,13 +969,14 @@ export default function PayrollTeacherView({
                 const dateStr = fmtLocalDate(date);
                 const isToday = isSameDay(date, today);
                 const isSelected = isSameDay(date, selectedDate);
-                const planned = inMonth ? (scheduleByDate[dateStr] || []) : [];
+                const planned = inMonth ? (displayScheduleByDate[dateStr] || []) : [];
                 const state = dayConfirmState(planned, entries);
                 const holiday = getKoreanHoliday(dateStr);
                 const dayMark = inMonth
                   ? payrollCalendarDayMark(planned, entries, dateStr, {
                     isHoliday: !!holiday,
                     teacherId,
+                    teachersById,
                   })
                   : null;
                 const payrollBadges = inMonth && !holiday
@@ -1174,7 +1189,7 @@ export default function PayrollTeacherView({
                             <span className="sch-payroll-slot-time">
                               {planned.startTime}–{planned.endTime}
                             </span>
-                            <span className="sch-payroll-slot-type">{planned.payType}</span>
+                            <span className="sch-payroll-slot-type">{classTypeLabel(planned.payType)}</span>
                           </div>
                           <div className="sch-payroll-slot-inst">
                             {plannedSlotDisplayLabel(planned)}
@@ -1458,7 +1473,7 @@ export default function PayrollTeacherView({
             <h3>수업 수정</h3>
             <p className="sch-muted">
               {plannedSlotDisplayLabel(customEdit.planned)}
-              {" · "}{customEdit.planned.payType} · {customEdit.planned.dateStr}
+              {" · "}{classTypeLabel(customEdit.planned.payType)} · {customEdit.planned.dateStr}
             </p>
             <div className="sch-chip-row">
               {QUICK_MINUTES.map(m => (
@@ -1679,7 +1694,7 @@ export default function PayrollTeacherView({
                     <span>
                       {row.planned.startTime}–{row.planned.endTime}
                       {" · "}
-                      {row.planned.payType}
+                      {classTypeLabel(row.planned.payType)}
                       {" · 기본 "}
                       {row.planned.scheduledMinutes}분
                     </span>

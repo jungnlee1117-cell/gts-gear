@@ -741,6 +741,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                             <th className="sch-th-num">가정방문</th>
                             <th className="sch-th-num">센터</th>
                             <th className="sch-th-num">센터보조</th>
+                            <th className="sch-th-num">참관수업</th>
                             <th className="sch-th-num">예상 급여</th>
                             <th className="sch-th-num">실수령액 (3.3% 제외)</th>
                             <th className="sch-th-num">미확인 일수</th>
@@ -773,6 +774,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                               <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.가정방문 || 0)}</td>
                               <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.센터 || 0)}</td>
                               <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.센터보조 || 0)}</td>
+                              <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.참관수업 || 0)}</td>
                               <td className="sch-td-num sch-td-money">{formatWon(row.estimatedPay)}</td>
                               <td className="sch-td-num sch-pay-net-cell">
                                 <div className="sch-admin-cell-num sch-td-money">

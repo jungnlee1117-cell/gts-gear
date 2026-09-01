@@ -1,4 +1,4 @@
--- 기존 슈퍼관리자 월간 계획안에 영어 공통 계획안과 교구 사진을 추가합니다.
+-- 기존 슈퍼관리자 월간 계획안에 연령별 영어 계획안과 교구 사진을 추가합니다.
 -- 기존 한국어 계획안 데이터는 삭제하지 않습니다.
 
 ALTER TABLE public.monthly_plan_drafts
@@ -13,7 +13,7 @@ ALTER TABLE public.monthly_plan_draft_entries
 
 ALTER TABLE public.monthly_plan_draft_entries
   ADD CONSTRAINT monthly_plan_draft_entries_age_group_check
-  CHECK (age_group IN ('3_4', '5', '7', 'en'));
+  CHECK (age_group IN ('3_4', '5', '7', 'en', 'en_5', 'en_6', 'en_7'));
 
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (

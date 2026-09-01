@@ -1,7 +1,7 @@
 import { minutesBetween } from "./constants.js";
 import { expandMonthSchedule } from "./payrollCalendar.js";
 
-const PAY_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조"];
+const PAY_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조", "참관수업"];
 
 export function compareRowKey(dateStr, payType, institutionName = "") {
   const inst = institutionName && institutionName !== "*" ? institutionName : "*";

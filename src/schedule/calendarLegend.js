@@ -26,16 +26,15 @@ export function buildInstitutionLegend({
   }
 
   const ids = new Set();
-  for (const s of weeklySlots) {
-    const id = s.institution_id || s.institutions?.id;
-    if (id) ids.add(id);
-  }
-  for (const inst of assignedInstitutions) {
-    if (inst?.id) ids.add(inst.id);
-  }
+  // 이번 달 캘린더에 실제로 펼쳐진 수업만 범례에 넣는다 (만료·종료 슬롯 제외)
   for (const planned of Object.values(scheduleByDate).flat()) {
     if (!isHomeVisitPlanned(planned) && planned.institutionId) {
       ids.add(planned.institutionId);
+    }
+  }
+  if (!ids.size) {
+    for (const inst of assignedInstitutions) {
+      if (inst?.id) ids.add(inst.id);
     }
   }
 

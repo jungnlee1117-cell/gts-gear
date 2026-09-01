@@ -388,7 +388,7 @@ export default function ScheduleChangeAlertsView({ me, onBack, initialTab }) {
 
   return (
     <div className="sch-view sch-change-alerts-view">
-      <header className="sch-view-header">
+      <header className="sch-view-header sch-change-alerts-header">
         <button type="button" className="sch-back-btn" onClick={onBack}>
           <ChevronLeft size={18}/> 스케줄 관리
         </button>
@@ -431,7 +431,7 @@ export default function ScheduleChangeAlertsView({ me, onBack, initialTab }) {
           className={`sch-change-alerts-tab${tab === "regular" ? " sch-change-alerts-tab--active" : ""}`}
           onClick={() => setTab("regular")}
         >
-          정규 수업
+          정규 수업 관리
         </button>
         {admin ? (
           <>

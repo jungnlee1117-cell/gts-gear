@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import * as XLSX from "npm:xlsx-js-style@1.2.0";
+import XLSX from "npm:xlsx-js-style@1.2.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -136,10 +136,21 @@ async function reportRows(adminClient, yearMonth: string, secret: string) {
   const missing: string[] = [];
   const rows = [];
   for (const snapshot of snapshots) {
+    // 세무 제출 대상에서 항상 제외하는 내부 운영 규칙입니다.
+    if (snapshot.teacher_name === "김민욱") continue;
     let residentId = "";
     const cipher = cipherByTeacher.get(snapshot.teacher_id);
-    if (cipher) residentId = await decryptText(String(cipher), secret);
-    if (!/^\d{6}-?\d{7}$/.test(residentId.replace(/\s/g, ""))) missing.push(snapshot.teacher_name);
+    if (cipher) {
+      try {
+        residentId = await decryptText(String(cipher), secret);
+      } catch {
+        // 한 명의 이전/손상된 암호문 때문에 전체 Excel 생성을 중단하지 않습니다.
+        residentId = "";
+      }
+    }
+    if (!/^\d{6}-?\d{7}$/.test(residentId.replace(/\s/g, ""))) {
+      missing.push(snapshot.teacher_name);
+    }
     const digits = residentId.replace(/\D/g, "");
     const formattedResident = digits.length === 13 ? `${digits.slice(0, 6)}-${digits.slice(6)}` : "미등록";
     const gross = Number(snapshot.gross_amount) || 0;
@@ -147,6 +158,8 @@ async function reportRows(adminClient, yearMonth: string, secret: string) {
     const localTax = floorTen(gross * 0.003);
     rows.push({
       ...snapshot,
+      // 오주영 선생님은 세무 엑셀에서 항상 계약직으로 분류합니다.
+      income_type: snapshot.teacher_name === "오주영" ? "계약직" : snapshot.income_type,
       resident_id: formattedResident,
       gross,
       income_tax: incomeTax,
@@ -220,7 +233,16 @@ function makeWorkbook(yearMonth: string, rows) {
 
 async function buildReport(adminClient, yearMonth: string, secret: string) {
   const { rows, missing } = await reportRows(adminClient, yearMonth, secret);
-  const bytes = new Uint8Array(makeWorkbook(yearMonth, rows));
+  let workbook;
+  try {
+    workbook = makeWorkbook(yearMonth, rows);
+  } catch (error) {
+    console.error("[payroll-tax-report] workbook generation failed", {
+      message: String(error?.message || error),
+    });
+    throw new Error("XLSX_GENERATION_FAILED");
+  }
+  const bytes = new Uint8Array(workbook);
   return { bytes, missing, filename: filenameFor(yearMonth), rowCount: rows.length };
 }
 
@@ -394,6 +416,8 @@ Deno.serve(async (req) => {
       INVALID_YEAR_MONTH: "정산 월을 확인해주세요.", EMPTY_REPORT: "급여 내역이 없습니다.",
       SNAPSHOT_NOT_FOUND: "해당 월 급여자료가 아직 준비되지 않았습니다.",
       ENCRYPTION_KEY_MISSING: "정산정보 암호화 설정을 확인해주세요.",
+      DECRYPT_FAILED: "일부 선생님의 주민등록번호를 읽지 못했습니다. 정산정보를 다시 저장해주세요.",
+      XLSX_GENERATION_FAILED: "세무 엑셀 파일을 만드는 중 오류가 발생했습니다.",
       RESIDENT_ID_MISSING: "주민등록번호가 등록되지 않은 선생님이 있습니다.",
       DRIVE_CONFIG_MISSING: "Google Drive 저장 설정이 완료되지 않았습니다.",
       DRIVE_CREDENTIALS_INVALID: "Google Drive 인증정보를 확인해주세요.",

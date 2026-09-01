@@ -37,10 +37,10 @@ import GitiReportSection from "./GitiReportSection.jsx";
 import { formatPushItemNames, sendPushEvent } from "./pushNotifications.js";
 import MyGearRotationPage, {
   checkRotationRentalConflicts,
-  earliestRotationConflictByItem,
   formatRotationConflictConfirmMessage,
   ymdAddDays,
 } from "./MyGearRotationPage.jsx";
+import { earliestRotationConflictByItem } from "./rotationDueNotice.js";
 import GearRotationManagePage from "./GearRotationManagePage.jsx";
 import GearCategoryManagePage from "./GearCategoryManagePage.jsx";
 import { GearCategoriesProvider, useGearCategories } from "./GearCategoriesContext.jsx";
@@ -50,7 +50,6 @@ import {
   normalizeCategoryKey,
 } from "./gearCategoryData.js";
 import TeacherGearStatusSection from "./TeacherGearStatusSection.jsx";
-import WeeklyBriefingSection from "./WeeklyBriefingSection.jsx";
 import RecurringTodosSection, { MyAssignedTodosSection } from "./RecurringTodosSection.jsx";
 import TeacherMultiSelect from "./TeacherMultiSelect.jsx";
 import {
@@ -6905,6 +6904,7 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
   const pendRets = filterReturnPendingLastWeek(rets);
   const [rejectId, setRejectId] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [photoLightbox, setPhotoLightbox] = useState(null);
 
   const approvedRows = useMemo(() => (rets || [])
     .filter(r => ["return_approved", "damage_confirmed", "loss_confirmed", "return_rejected"].includes(r.status))
@@ -6956,30 +6956,69 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
         <DashStatCard label="승인 완료" value={approvedRows.length} iconMark="완료" iconBg="#dcfce7" iconColor="#16a34a"/>
       </div>
 
-      {pendRets.length === 0 ? (
-        <PanelSection title="반납 승인 대기">
+      <PanelSection title="반납 승인 대기">
+        {pendRets.length === 0 ? (
           <Empty text="승인 대기 중인 반납 신청이 없습니다"/>
-        </PanelSection>
-      ) : pendRets.map(ret => {
-        const ri = ris.find(r => r.id === ret.rental_item_id);
-        return (
-          <PanelSection key={ret.id} title={iname(ri?.item_id, items)}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-              <div style={{fontSize:13,color:DS.textSecondary,lineHeight:1.7}}>
-                <div>반납자: {tname(ret.teacher_id, teachers)}</div>
-                <div>수량: {ret.quantity}개 · <Badge s={ret.status}/></div>
-                {ret.memo && <div style={{marginTop:4,color:DS.textMuted}}>{ret.memo}</div>}
-              </div>
-            </div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <Btn sm color={DS.primary} onClick={() => onApproveRet(ret.id)}>승인</Btn>
-              <Btn sm danger onClick={() => { setRejectId(ret.id); setRejectReason(""); }}>반납 거절</Btn>
-              {ret.condition === "damaged" && <Btn sm danger onClick={() => onDamage(ret.id)}>파손확인</Btn>}
-              {ret.condition === "lost" && <Btn sm color="#be185d" onClick={() => onLoss(ret.id)}>분실확인</Btn>}
-            </div>
-          </PanelSection>
-        );
-      })}
+        ) : (
+          <div className="gts-return-approval-grid">
+            {pendRets.map(ret => {
+              const ri = ris.find(r => r.id === ret.rental_item_id);
+              const itemName = iname(ri?.item_id, items);
+              const photoUrl = ret.return_photo_url || null;
+              const teacherName = tname(ret.teacher_id, teachers);
+              return (
+                <article key={ret.id} className="gts-return-approval-card">
+                  <div className="gts-return-approval-card__body">
+                    <div className="gts-return-approval-card__info">
+                      <h3 className="gts-return-approval-card__title">{itemName}</h3>
+                      <p>반납자: {teacherName}</p>
+                      <p>
+                        수량: {ret.quantity}개
+                        {" · "}
+                        <Badge s={ret.status}/>
+                      </p>
+                      {ret.return_location ? (
+                        <p className="gts-return-approval-card__loc">위치: {ret.return_location}</p>
+                      ) : null}
+                      {ret.memo ? (
+                        <p className="gts-return-approval-card__memo">{ret.memo}</p>
+                      ) : null}
+                    </div>
+                    {photoUrl ? (
+                      <button
+                        type="button"
+                        className="gts-return-approval-card__photo"
+                        onClick={() => setPhotoLightbox({
+                          src: photoUrl,
+                          alt: `${itemName} 반납 사진`,
+                        })}
+                        aria-label={`${itemName} 반납 사진 크게 보기`}
+                        title="클릭하면 크게 보기"
+                      >
+                        <img src={photoUrl} alt="" />
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="gts-return-approval-card__actions">
+                    <Btn sm color={DS.primary} onClick={() => onApproveRet(ret.id)}>승인</Btn>
+                    <Btn sm danger onClick={() => { setRejectId(ret.id); setRejectReason(""); }}>반납 거절</Btn>
+                    {ret.condition === "damaged" && <Btn sm danger onClick={() => onDamage(ret.id)}>파손확인</Btn>}
+                    {ret.condition === "lost" && <Btn sm color="#be185d" onClick={() => onLoss(ret.id)}>분실확인</Btn>}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </PanelSection>
+
+      {photoLightbox ? (
+        <ImageLightbox
+          src={photoLightbox.src}
+          alt={photoLightbox.alt}
+          onClose={() => setPhotoLightbox(null)}
+        />
+      ) : null}
 
       {rejectId ? (
         <Modal title="반납 거절 사유" onClose={() => setRejectId(null)}>
@@ -7827,12 +7866,15 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
   /** 일회성 단일/공용 + 개인지정 반복 (그룹 인스턴스 제외) */
   const myVisibleTodos = useMemo(
     () => visibleTodos.filter((t) => {
+      // 「내 할 일」에는 로그인한 본인에게 지정된 업무만 표시합니다.
+      // 다른 관리자나 선생님에게 지정된 업무와 공용 업무는 섞지 않습니다.
+      if (t.assignee_id !== me?.id) return false;
       if (t.spawn_group_id) return false;
       if (!t.recurrence_id) return true;
       if (!recurrencesLoaded) return false;
       return !multiAudienceRecurrenceIds.has(t.recurrence_id);
     }),
-    [visibleTodos, multiAudienceRecurrenceIds, recurrencesLoaded],
+    [visibleTodos, multiAudienceRecurrenceIds, recurrencesLoaded, me?.id],
   );
 
   /** 그룹 N/총 — 24h 완료 숨김과 무관하게 전체 인스턴스 기준 */
@@ -8699,18 +8741,15 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
       )}
 
       {canPersonalGearRental(me) && items && (
-        <>
-          <WeeklyBriefingSection me={me} items={items} />
-          <TeacherGearStatusSection
-            me={me}
-            items={items}
-            reqs={reqs}
-            ris={ris}
-            rets={rets}
-            setPage={setPage}
-            onItemClick={onItemClick}
-          />
-        </>
+        <TeacherGearStatusSection
+          me={me}
+          items={items}
+          reqs={reqs}
+          ris={ris}
+          rets={rets}
+          setPage={setPage}
+          onItemClick={onItemClick}
+        />
       )}
 
       {viewNotice && (
@@ -12782,9 +12821,11 @@ function EquipmentApp({ onBack, me, session }) {
         dispatch_end,
         teachers,
       });
-      const earliest = earliestRotationConflictByItem(conflicts);
+      const today = todayYmd();
+      const earliest = earliestRotationConflictByItem(conflicts, { afterYmd: today });
       for (const c of earliest) {
         const returnBy = ymdAddDays(c.weekStart, -1) || c.weekStart;
+        if (!returnBy || returnBy < today) continue;
         await sendPushEvent(supabase, "rental_rotation_due_notice", {
           teacher_id: teacherId,
           item_name: c.itemName,

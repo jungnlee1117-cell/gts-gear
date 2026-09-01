@@ -9,6 +9,9 @@ import {
 } from "./api.js";
 import InstitutionSearchSelect from "./InstitutionSearchSelect.jsx";
 
+// 참관수업은 누구나 회당 15,000원 고정이므로 단가 등록 대상에서 제외합니다.
+const RATE_PAY_TYPES = PAY_TYPES.filter(type => type !== "참관수업");
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -181,7 +184,7 @@ function RateEditForm({
 }
 
 function uniformRatePerMinute(currentByType) {
-  const rates = PAY_TYPES.map(t => currentByType[t]?.rate_per_minute).filter(v => v != null);
+  const rates = RATE_PAY_TYPES.map(t => currentByType[t]?.rate_per_minute).filter(v => v != null);
   if (!rates.length) return null;
   const first = rates[0];
   return rates.every(r => Math.abs(r - first) < 0.01) ? first : null;
@@ -250,7 +253,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
 
   const handleBulkSave = async ({ rate_per_minute, effective_from }) => {
     await Promise.all(
-      PAY_TYPES.map(payType =>
+      RATE_PAY_TYPES.map(payType =>
         insertPayRate({
           teacher_id: teacher.id,
           pay_type: payType,
@@ -263,7 +266,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
     await onSaved();
   };
 
-  const unsetCount = PAY_TYPES.filter(t => !currentByType[t]).length;
+  const unsetCount = RATE_PAY_TYPES.filter(t => !currentByType[t]).length;
 
   return (
     <div className="sch-rate-card">
@@ -304,7 +307,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
           {uniformMode && !editingType ? (
             <div className="sch-rate-edit-panel sch-rate-edit-panel--uniform">
               <p className="sch-muted">
-                입력한 단가가 {PAY_TYPES.join(", ")} 전체에 기본 단가로 적용됩니다.
+                입력한 단가가 {RATE_PAY_TYPES.join(", ")} 전체에 기본 단가로 적용됩니다. 참관수업은 회당 15,000원으로 자동 계산됩니다.
               </p>
               <RateEditForm
                 label="전체 유형 기본 단가"
@@ -328,7 +331,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
               </tr>
             </thead>
             <tbody>
-              {PAY_TYPES.map(payType => {
+              {RATE_PAY_TYPES.map(payType => {
                 const cur = currentByType[payType];
                 return (
                   <tr key={payType}>
@@ -485,7 +488,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
 
           {historyOpen ? (
             <div className="sch-rate-history">
-              {PAY_TYPES.map(payType => {
+              {RATE_PAY_TYPES.map(payType => {
                 const rows = historyByType[payType] || [];
                 if (!rows.length) return null;
                 return (
@@ -556,7 +559,7 @@ function InstitutionRateAddForm({ institutions, onSave, onCancel }) {
       <label className="sch-field">
         <span>수업 유형 *</span>
         <select className="sch-input" value={payType} onChange={e => setPayType(e.target.value)}>
-          {PAY_TYPES.map(t => (
+          {RATE_PAY_TYPES.map(t => (
             <option key={t} value={t}>{t}</option>
           ))}
         </select>

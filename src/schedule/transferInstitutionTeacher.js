@@ -3,7 +3,7 @@ import { sendPushEvent } from "../pushNotifications.js";
 import { DAY_LABELS, resolveInstitutionSlotPayType } from "./constants.js";
 import { filterClassTeacherAssignments } from "./assignmentRoles.js";
 
-export const TRANSFER_CLASS_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조"];
+export const TRANSFER_CLASS_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조", "참관수업"];
 
 function dayBefore(dateStr) {
   const d = new Date(`${String(dateStr).slice(0, 10)}T12:00:00`);

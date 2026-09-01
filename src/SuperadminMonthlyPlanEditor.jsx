@@ -6,7 +6,13 @@ const AGE_GROUPS = [
   { id: "5", label: "5~6세" },
   { id: "7", label: "7세" },
 ];
-const ALL_GROUPS = [...AGE_GROUPS, { id: "en", label: "English" }];
+const ENGLISH_AGE_GROUPS = [
+  { id: "en_5", age: "5", label: "English · AGE 5" },
+  { id: "en_6", age: "6", label: "English · AGE 6" },
+  { id: "en_7", age: "7", label: "English · AGE 7" },
+];
+const ALL_GROUPS = [...AGE_GROUPS, ...ENGLISH_AGE_GROUPS];
+const EMPTY_ENGLISH_GOALS = Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age }) => [age, ""]));
 const EVENT_PRESETS = [
   { id: "holiday", name: "명절", englishName: "Korean Holiday Games", ko: "우리나라 명절에 담긴 의미와 정겨운 문화를 아이들의 눈높이에서 함께 알아봅니다. 전통놀이와 명절 이야기를 활용한 즐거운 활동을 통해 자연스럽게 우리 문화와 가까워집니다.", en: "Children discover the meaning and warm traditions of Korean holidays through age-appropriate stories. They enjoy traditional games and playful activities that help them feel closer to Korean culture." },
   { id: "christmas", name: "크리스마스", englishName: "Christmas Activity Day", ko: "크리스마스가 전하는 나눔과 따뜻한 마음을 이야기하며 특별한 계절의 분위기를 함께 느껴봅니다. 선물 배달과 겨울 이야기를 주제로 한 활동에 참여하며 친구들과 즐거움을 나눕니다.", en: "Children share stories about kindness, giving, and the special atmosphere of Christmas. Gift-delivery missions and winter-themed play create a joyful experience with friends." },
@@ -50,6 +56,59 @@ function makeRows() {
   ]));
 }
 
+function parseEnglishGoals(value) {
+  const text = String(value || "").trim();
+  if (!text) return { ...EMPTY_ENGLISH_GOALS };
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object") {
+      return Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age }) => [age, String(parsed[age] || "")]));
+    }
+  } catch {
+    // 이전 공통 영어 목표는 세 연령에 그대로 이어서 사용합니다.
+  }
+  return Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age }) => [age, text]));
+}
+
+function englishAgeLevel(groupId) {
+  return String(groupId || "").replace("en_", "") || "5";
+}
+
+function buildEnglishPurpose(suggestion, age = "5", index = 0) {
+  const source = `${suggestion?.englishName || ""} ${suggestion?.name || ""} ${suggestion?.englishActivity || ""}`.toLowerCase();
+  let focus = "whole-body coordination, balance, and confident body control";
+  if (/ball|catch|throw|basket|fishing|ring toss|target|pipe/.test(source)) focus = "hand-eye coordination, object control, and movement accuracy";
+  else if (/stack|block|donut|cup|domino|build/.test(source)) focus = "spatial planning, balance, and controlled hand-body coordination";
+  else if (/tunnel|climb|air mat|obstacle|ladder/.test(source)) focus = "core stability, whole-body coordination, and spatial awareness";
+  else if (/jump|hurdle|rope|stepping|stone/.test(source)) focus = "dynamic balance, lower-body strength, and controlled landing";
+  else if (/board|flip|balance/.test(source)) focus = "postural control, balance reactions, and movement confidence";
+
+  const verbs = age === "7" ? ["Refines", "Advances", "Integrates"] : age === "6" ? ["Strengthens", "Expands", "Connects"] : ["Builds", "Develops", "Supports"];
+  const progression = age === "7"
+    ? "through complex sequences, precise control, and independent decisions"
+    : age === "6"
+      ? "through linked actions, direction changes, and responsive challenges"
+      : "through guided exploration, repetition, and successful first attempts";
+  return `${verbs[index % verbs.length]} ${focus} ${progression}.`;
+}
+
+function buildEnglishActivity(suggestion, age = "5", index = 0) {
+  let base = String(suggestion?.englishActivity || "").trim();
+  if (!base) return "";
+  const leads = age === "7"
+    ? ["With greater independence, participants", "Using longer movement sequences, learners", "During advanced challenges, the class"]
+    : age === "6"
+      ? ["Working through linked challenges, learners", "In partner and small-group tasks, the class", "Responding to direction and speed changes, participants"]
+      : ["Through playful exploration, learners", "Guided by clear demonstrations, the class", "During safe, repeated practice, participants"];
+  base = base.replace(/^Children\s+/i, `${leads[index % leads.length]} `);
+  const extension = age === "7"
+    ? "Movements are combined into a longer sequence with precise control and independent choices."
+    : age === "6"
+      ? "Two or more actions are connected while direction, speed, or partner cues change."
+      : "Simple steps and encouraging repetition help every learner experience success.";
+  return `${base} ${extension}`;
+}
+
 function monthTitle(month) {
   const [year, monthNumber] = String(month || "").split("-");
   if (!year || !monthNumber) return "MONTHLY LESSON PLAN";
@@ -82,6 +141,63 @@ function monthNumber(month) {
   return value >= 1 && value <= 12 ? value : new Date().getMonth() + 1;
 }
 
+function printableEnglishTemplateHtml({ month, rowsByGroup, englishGoals, templateUrl }) {
+  const title = monthTitle(month);
+  const pageMarkup = ENGLISH_AGE_GROUPS.map((selectedEnglishAge) => {
+    const rows = rowsByGroup[selectedEnglishAge.id] || [];
+    const rowMarkup = rows.slice(0, 5).map((row, index) => `
+    <div class="plan-row plan-row--${index + 1}">
+      <div class="equipment-content">
+        <strong>${escapeHtml(row.activity_name || "")}</strong>
+        ${row.image_url ? `<img src="${escapeHtml(row.image_url)}" alt="${escapeHtml(row.activity_name || `Week ${index + 1}`)}" />` : ""}
+      </div>
+      <div class="activity-content">${escapeHtml(row.activity_description || "")}</div>
+      <div class="purpose-content">${escapeHtml(row.key_expression || "")}</div>
+    </div>`).join("");
+    return `<main class="template-page">
+      <div class="plan-title">${escapeHtml(title)}</div>
+      <div class="age-label">AGE ${escapeHtml(selectedEnglishAge.age)}</div>
+      <div class="goal-text">${escapeHtml(englishGoals[selectedEnglishAge.age] || "")}</div>
+      ${rowMarkup}
+      <div class="footer-clean"><span>This monthly plan is subject to change depending on circumstances.</span></div>
+    </main>`;
+  }).join("");
+
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8" />
+    <title>${escapeHtml(title)}</title>
+    <style>
+      @page { size: A4; margin: 0; }
+      * { box-sizing: border-box; }
+      html, body { width: 210mm; margin: 0; }
+      body { background: #fff; color: #102341; font-family: Arial, "Noto Sans", sans-serif; }
+      .template-page { position: relative; width: 210mm; height: 297mm; overflow: hidden; page-break-after: always; break-after: page; background: #fff url("${escapeHtml(templateUrl)}") center / 210mm 297mm no-repeat; }
+      .template-page:last-of-type { page-break-after: auto; break-after: auto; }
+      .plan-title { position: absolute; top: 31.2mm; left: 20mm; width: 170mm; text-align: center; color: #072d18; font-size: 7.4mm; line-height: 1; font-weight: 900; letter-spacing: -.25mm; text-transform: uppercase; }
+      .age-label { position: absolute; top: 46.25mm; left: 92mm; width: 26mm; height: 8.5mm; display: grid; place-items: center; text-align: center; color: #fff; font-size: 3.3mm; line-height: 1; font-weight: 900; letter-spacing: .22mm; }
+      .goal-text { position: absolute; top: 61.7mm; left: 45mm; width: 148mm; height: 20mm; display: flex; align-items: center; color: #102341; font-size: 2.65mm; line-height: 1.45; font-weight: 500; }
+      .plan-row { position: absolute; left: 0; width: 210mm; height: 36mm; }
+      .plan-row--1 { top: 95.3mm; } .plan-row--2 { top: 131.3mm; } .plan-row--3 { top: 167.3mm; } .plan-row--4 { top: 203.3mm; } .plan-row--5 { top: 239.3mm; }
+      .equipment-content { position: absolute; left: 31mm; top: 2.8mm; width: 45mm; height: 30.5mm; text-align: center; overflow: hidden; }
+      .equipment-content strong { display: block; min-height: 5mm; color: #102341; font-size: 2.65mm; line-height: 1.25; font-weight: 850; }
+      .equipment-content img { display: block; width: 31mm; height: 22mm; margin: 1.2mm auto 0; object-fit: contain; border-radius: 2mm; }
+      .activity-content { position: absolute; left: 80mm; top: 6.2mm; width: 61mm; max-height: 25mm; overflow: hidden; white-space: pre-wrap; color: #102341; font-size: 2.55mm; line-height: 1.55; font-weight: 500; }
+      .purpose-content { position: absolute; left: 148mm; top: 5.5mm; width: 45mm; max-height: 25mm; overflow: hidden; white-space: pre-wrap; color: #102341; font-size: 2.85mm; line-height: 1.45; font-weight: 800; }
+      .footer-clean { position: absolute; z-index: 5; left: 10mm; right: 10mm; bottom: 4.2mm; height: 8mm; display: grid; place-items: center; background: #fff; border-top: .35mm solid #9bc9aa; }
+      .footer-clean span { color: #6f8971; font-size: 2.25mm; line-height: 1; white-space: nowrap; }
+      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    </style></head><body>${pageMarkup}
+      <script>
+        window.addEventListener('load', function () {
+          var images = Array.from(document.images);
+          Promise.all(images.map(function (image) {
+            if (image.complete) return Promise.resolve();
+            return new Promise(function (resolve) { image.onload = resolve; image.onerror = resolve; });
+          })).then(function () { setTimeout(function () { window.print(); }, 350); });
+        });
+      </script>
+    </body></html>`;
+}
+
 const KOREAN_MONTHLY_THEMES = {
   1: "겨울의 신체 변화를 느끼며 몸을 충분히 깨우고 활기차게 움직이는 경험을 중심으로",
   2: "새로운 시작을 준비하며 익숙한 동작을 자신 있게 확장하고 성취감을 느끼는 활동을 중심으로",
@@ -112,7 +228,7 @@ const ENGLISH_MONTHLY_THEMES = {
   12: "This month celebrates progress through joyful winter activities, teamwork, and shared achievement.",
 };
 
-function buildMonthlyEnglishGoal(suggestions, month) {
+function buildMonthlyEnglishGoal(suggestions, month, age = "5") {
   const source = (suggestions || []).map((item) => `${item.englishName || ""} ${item.englishActivity || ""}`).join(" ").toLowerCase();
   const focuses = [];
   const activities = [];
@@ -131,7 +247,12 @@ function buildMonthlyEnglishGoal(suggestions, month) {
   const focusText = focuses.slice(0, 3).join(", ") || "coordination, balance, and body control";
   const activityText = activities.slice(0, 3).join(", ") || "varied movement activities";
   const monthlyTheme = ENGLISH_MONTHLY_THEMES[monthNumber(month)];
-  return `${monthlyTheme} Through ${activityText}, children develop ${focusText} while moving safely and confidently.`;
+  const ageDirection = age === "7"
+    ? `Learners combine ${activityText} into complex sequences, refining ${focusText}, decision-making, and teamwork.`
+    : age === "6"
+      ? `Linked ${activityText} strengthen ${focusText} as learners respond to changing directions, speeds, and partners.`
+      : `Guided ${activityText} build foundations in ${focusText} through playful repetition and encouraging success.`;
+  return `${monthlyTheme} ${ageDirection}`;
 }
 
 function buildMonthlyKoreanGoal(rows, ageLabel, month) {
@@ -157,9 +278,13 @@ function buildMonthlyKoreanGoal(rows, ageLabel, month) {
   return `${monthlyTheme}, 스스로 생각하고 움직임을 조절하며 친구와 협력하는 힘이 자라나는 아이들에게 깊이 있는 신체 활동과 즐거운 도전 과제를 제공합니다. 모든 아이가 성취의 기쁨을 느끼도록 따뜻하게 격려하며 ${focus}을 균형 있게 기르겠습니다.`;
 }
 
-function printableReportHtml({ language, month, rowsByGroup, englishGoal, selectedAge, logoUrl }) {
+function printableReportHtml({ language, month, rowsByGroup, englishGoals, selectedAge, englishAge, logoUrl, templateUrl }) {
   const isEnglish = language === "en";
+  if (isEnglish) {
+    return printableEnglishTemplateHtml({ month, rowsByGroup, englishGoals, templateUrl });
+  }
   const selectedAgeMeta = AGE_GROUPS.find(({ id }) => id === selectedAge) || AGE_GROUPS[0];
+  const selectedEnglishAge = ENGLISH_AGE_GROUPS.find(({ age }) => age === englishAge) || ENGLISH_AGE_GROUPS[0];
   const title = monthTitle(month);
   const koreanSections = [selectedAgeMeta].map(({ id, label }) => `
     <section class="age-section">
@@ -180,13 +305,14 @@ function printableReportHtml({ language, month, rowsByGroup, englishGoal, select
     </section>`).join("");
   const englishSection = `
     <section class="english-section">
-      ${englishGoal ? `<div class="goal"><strong>Goal</strong><span>${escapeHtml(englishGoal)}</span></div>` : ""}
+      <div class="age-badge">AGE ${escapeHtml(selectedEnglishAge.age)}</div>
+      ${englishGoals[selectedEnglishAge.age] ? `<div class="goal"><strong>MONTHLY<br />GOAL</strong><span>${escapeHtml(englishGoals[selectedEnglishAge.age])}</span></div>` : ""}
       <table>
         <colgroup><col class="week-en" /><col class="equipment-en" /><col /><col class="expression-en" /></colgroup>
-        <thead><tr><th>Week</th><th>Equipment</th><th>Activity</th><th>Key Expression</th></tr></thead>
-        <tbody>${rowsByGroup.en.map((row, index) => `
+        <thead><tr><th>WEEK</th><th>EQUIPMENT</th><th>ACTIVITY</th><th>PURPOSE</th></tr></thead>
+        <tbody>${rowsByGroup[selectedEnglishAge.id].map((row, index) => `
           <tr>
-            <td class="week">Week ${index + 1}</td>
+            <td class="week"><span>${index + 1}</span></td>
             <td class="equipment"><strong>${escapeHtml(row.activity_name || "-")}</strong>${imageMarkup(row, row.activity_name)}</td>
             <td class="description">${escapeHtml(row.activity_description || "-")}</td>
             <td class="expression">${escapeHtml(row.key_expression || "-")}</td>
@@ -203,41 +329,42 @@ function printableReportHtml({ language, month, rowsByGroup, englishGoal, select
       * { box-sizing: border-box; }
       html, body { width: 210mm; min-height: 297mm; }
       body { margin: 0; color: #172033; font-family: -apple-system, BlinkMacSystemFont, "Noto Sans KR", "Apple SD Gothic Neo", Arial, sans-serif; background: #fff; }
-      .report-page { display: flex; flex-direction: column; width: 210mm; height: 297mm; padding: 10mm 15mm 10mm; overflow: hidden; background: #fff; }
-      .report-header { display: flex; align-items: center; justify-content: space-between; padding: 0 2mm 8px; border-bottom: 2px solid #169153; }
+      .report-page { display: flex; flex-direction: column; width: 210mm; height: 297mm; padding: 9mm 11mm 7mm; overflow: hidden; background: #fff; }
+      .report-header { display: flex; align-items: center; justify-content: space-between; padding: 0 1mm 7px; border-bottom: 1.5px solid #9ab898; }
       .brand { display: flex; align-items: center; gap: 9px; }
       .brand-logo-wrap { position: relative; width: 50px; height: 50px; overflow: hidden; }
       .brand-logo { position: absolute; left: 50%; top: 50%; width: 128px; height: 64px; max-width: none; object-fit: contain; transform: translate(-50%, -50%); }
       .brand-name { font-size: 18px; font-weight: 900; letter-spacing: -.02em; }
-      .brand-tagline { margin-top: 1px; color: #617067; font-size: 7.5px; font-weight: 750; letter-spacing: .12em; }
-      .report-type { color: #6c7a72; font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-      .report-title { margin: 0 0 12px; padding: 17px 0 6px; }
-      h1 { margin: 0; color: #12261b; font-size: 23px; font-weight: 900; text-align: center; letter-spacing: -.025em; }
-      .report-closing { margin-top: 16px; padding-top: 7px; border-top: 2px solid #169153; }
-      .report-notice { margin: 0; color: #65736b; font-size: 7.5px; font-style: italic; text-align: center; }
+      .brand-tagline { margin-top: 1px; color: #66806b; font-size: 7.5px; font-weight: 750; letter-spacing: .12em; }
+      .report-type { color: #6f8971; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+      .report-title { margin: 0 0 7px; padding: 12px 0 2px; }
+      h1 { margin: 0; color: #13264a; font-size: 24px; font-weight: 900; text-align: center; letter-spacing: -.025em; }
+      .report-closing { margin-top: 6px; padding-top: 6px; border-top: 1px solid #a7c3a5; }
+      .report-notice { margin: 0; color: #6f8971; font-size: 7.5px; text-align: center; white-space: nowrap; }
       h2 { margin: 0 0 7px; padding-left: 2px; color: #176d40; font-size: 13px; font-weight: 900; }
       .age-section, .english-section { display: flex; flex-direction: column; margin-bottom: 4px; break-inside: avoid; page-break-inside: avoid; }
-      table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; overflow: hidden; border: 1.1px solid #597066; border-radius: 4px; }
-      th, td { border-right: .7px solid #72837b; border-bottom: .7px solid #72837b; }
+      .age-badge { width: max-content; margin: 0 auto 7px; padding: 3px 14px; border-radius: 999px; background: #a8c5a5; color: #fff; font-size: 10px; font-weight: 900; letter-spacing: .04em; }
+      table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; overflow: hidden; border: 1px solid #a8bea9; border-radius: 6px; }
+      th, td { border-right: .7px solid #c5d5c6; border-bottom: .7px solid #c5d5c6; }
       th:last-child, td:last-child { border-right: 0; }
       tbody tr:last-child td { border-bottom: 0; }
-      th { height: 27px; padding: 5px 6px; background: #eaf4ee; color: #21382c; font-size: 9px; font-weight: 850; text-align: center; }
-      td { padding: 6px 9px; font-size: 9px; line-height: 1.48; vertical-align: middle; }
+      th { height: 26px; padding: 5px 6px; background: #9dbb9b; color: #fff; font-size: 9px; font-weight: 900; text-align: center; letter-spacing: .025em; }
+      td { padding: 5px 8px; color: #13264a; font-size: 8.8px; line-height: 1.45; vertical-align: middle; }
       tr { break-inside: avoid; page-break-inside: avoid; }
-      tbody tr { height: 33mm; }
-      tbody tr:nth-child(even) td { background: #fbfdfc; }
+      tbody tr { height: 31.2mm; }
+      tbody tr:nth-child(even) td { background: #fbfdfb; }
       .week-col { width: 10%; } .equipment-col { width: 30%; }
-      .week-en { width: 9%; } .equipment-en { width: 25%; } .expression-en { width: 20%; }
+      .week-en { width: 10%; } .equipment-en { width: 26%; } .expression-en { width: 27%; }
       td.week { text-align: center; font-weight: 850; }
+      td.week span { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #edf5ec; color: #628665; font-size: 12px; font-weight: 900; }
       td.equipment { text-align: center; }
       td.equipment strong { display: block; margin-bottom: 5px; font-size: 9px; }
-      td.equipment img { display: block; width: 68px; height: 50px; margin: 0 auto; object-fit: contain; }
+      td.equipment img { display: block; width: 76px; height: 54px; margin: 0 auto; border-radius: 7px; object-fit: contain; background: #fbfcfb; }
       .photo-placeholder { display: grid; place-items: center; width: 68px; height: 47px; margin: 0 auto; border-radius: 5px; background: #f1f5f2; color: #a3afa8; font-size: 8px; font-weight: 800; }
       td.description { white-space: pre-wrap; }
-      td.expression { text-align: center; font-weight: 750; }
-      .goal { display: grid; grid-template-columns: 46px 1fr; gap: 8px; margin: 0 0 12px; padding: 7px 10px; border: 1px solid #dbe8e0; border-left: 3px solid #169153; border-radius: 3px; background: #f3f8f5; font-size: 9px; line-height: 1.45; }
-      .goal strong { color: #176d40; }
-      .report-footer { margin-top: auto; padding-top: 6px; border-top: 1px solid #dce5df; color: #809087; font-size: 7px; text-align: right; }
+      td.expression { font-weight: 800; }
+      .goal { display: grid; grid-template-columns: 50px 1fr; align-items: center; gap: 9px; margin: 0 0 7px; padding: 7px 10px; border: 1px solid #c7d9c7; border-radius: 7px; background: #f5f9f4; font-size: 8.8px; line-height: 1.4; }
+      .goal strong { color: #668b68; font-size: 8px; line-height: 1.25; text-align: center; letter-spacing: .05em; }
       .report-page--ko h1 { font-size: 24px; }
       .report-page--ko h2 { font-size: 14px; }
       .report-page--ko th { font-size: 9.7px; font-weight: 900; letter-spacing: -.01em; }
@@ -245,12 +372,14 @@ function printableReportHtml({ language, month, rowsByGroup, englishGoal, select
       .report-page--ko td.equipment strong { font-size: 10px; }
       .report-page--ko .goal { font-size: 9.8px; line-height: 1.5; }
       .report-page--ko .report-notice { font-size: 8px; }
+      .report-page--ko tbody tr { height: 35mm; }
+      .report-page--ko td.equipment img { width: 84px; height: 62px; }
       @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     </style></head><body><main class="report-page report-page--${isEnglish ? "en" : "ko"}">
       <header class="report-header"><div class="brand"><div class="brand-logo-wrap"><img class="brand-logo" src="${escapeHtml(logoUrl)}" alt="GTS logo" /></div><div><div class="brand-name">GTS</div><div class="brand-tagline">GROW THROUGH SPORTS</div></div></div><div class="report-type">Monthly Physical Education Report</div></header>
       <div class="report-title"><h1>${escapeHtml(title)}</h1></div>
       ${isEnglish ? englishSection : koreanSections}
-      <footer class="report-footer">GTS · Grow Through Sports</footer></main>
+      </main>
       <script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 450); });</script>
     </body></html>`;
 }
@@ -262,12 +391,14 @@ export default function SuperadminMonthlyPlanEditor({
   onMonthChange,
   suggestedActivities = [],
   programSuggestions = [],
+  companyEquipment = [],
 }) {
   const [planId, setPlanId] = useState(null);
   const [rowsByGroup, setRowsByGroup] = useState(makeRows);
   const [language, setLanguage] = useState("ko");
-  const [englishGoal, setEnglishGoal] = useState("");
+  const [englishGoals, setEnglishGoals] = useState(EMPTY_ENGLISH_GOALS);
   const [pdfAge, setPdfAge] = useState("3_4");
+  const [englishAge, setEnglishAge] = useState("5");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingKey, setUploadingKey] = useState("");
@@ -279,9 +410,17 @@ export default function SuperadminMonthlyPlanEditor({
   const [eventPickerOpen, setEventPickerOpen] = useState(false);
   const [eventWeek, setEventWeek] = useState("1");
   const [eventChoice, setEventChoice] = useState("holiday");
-  const [eventTargets, setEventTargets] = useState(["3_4", "5", "7", "en"]);
+  const [eventTargets, setEventTargets] = useState(() => ALL_GROUPS.map(({ id }) => id));
   const [customEventName, setCustomEventName] = useState("");
   const [customEventDescription, setCustomEventDescription] = useState("");
+  const activeGroups = language === "ko" ? AGE_GROUPS : ENGLISH_AGE_GROUPS;
+
+  useEffect(() => {
+    setEventTargets(activeGroups.map(({ id }) => id));
+    setGearPickerOpen(false);
+    setEventPickerOpen(false);
+    setMessage("");
+  }, [language]);
 
   const normalizedSuggestions = useMemo(
     () => suggestedActivities.map((value, index) => {
@@ -311,6 +450,19 @@ export default function SuperadminMonthlyPlanEditor({
     photoUrl: String(program?.photoUrl || "").trim(),
     requiredGear: Array.isArray(program?.requiredGear) ? program.requiredGear : [],
   })).filter((program) => program.id && program.name), [programSuggestions]);
+
+  const normalizedCompanyEquipment = useMemo(() => companyEquipment.map((item) => ({
+    id: `company:${item.id}`,
+    name: String(item.name || item.item_name || "").trim(),
+    englishName: String(item.english_name || item.name_en || item.alias || item.name || item.item_name || "").trim(),
+    photoUrl: String(item.photo_url || item.image_url || "").trim(),
+    activityDescription: String(item.usage_description || item.activity_description || item.description || "").trim(),
+    englishActivity: String(item.english_activity || item.activity_description_en || item.english_description || "").trim(),
+    activityDescriptions: {},
+  })).filter((item) => item.id !== "company:undefined" && item.name), [companyEquipment]);
+  const gearPickerSuggestions = useMemo(() => normalizedSuggestions.length
+    ? normalizedSuggestions
+    : Array.from({ length: 5 }, (_, index) => ({ weekNumber: index + 1, name: "", options: [] })), [normalizedSuggestions]);
 
   const visibleEventPresets = useMemo(() => {
     const registeredFamilies = new Set(normalizedPrograms.map((program) => eventFamilyKey(program.name)));
@@ -359,7 +511,7 @@ export default function SuperadminMonthlyPlanEditor({
         if (!cancelled) {
           setPlanId(null);
           setRowsByGroup(makeRows());
-          setEnglishGoal("");
+          setEnglishGoals({ ...EMPTY_ENGLISH_GOALS });
           setLastSavedAt(null);
         }
         return;
@@ -395,10 +547,37 @@ export default function SuperadminMonthlyPlanEditor({
           image_url: imageUrl,
         };
       }
+      const legacyEnglishRows = (entries || []).filter((entry) => entry.age_group === "en");
+      if (legacyEnglishRows.length) {
+        for (const { id } of ENGLISH_AGE_GROUPS) {
+          const hasDedicatedRows = (entries || []).some((entry) => entry.age_group === id);
+          if (hasDedicatedRows) continue;
+          for (const entry of legacyEnglishRows) {
+            const index = Number(entry.position) - 1;
+            if (index < 0 || index >= next[id].length) continue;
+            let imageUrl = "";
+            if (entry.image_path) {
+              if (/^https?:\/\//i.test(entry.image_path)) imageUrl = entry.image_path;
+              else {
+                const { data } = await supabase.storage.from("monthly-plan-images").createSignedUrl(entry.image_path, 3600);
+                imageUrl = data?.signedUrl || "";
+              }
+            }
+            next[id][index] = {
+              position: index + 1,
+              activity_name: entry.activity_name || "",
+              activity_description: entry.activity_description || "",
+              key_expression: entry.key_expression || "",
+              image_path: entry.image_path || "",
+              image_url: imageUrl,
+            };
+          }
+        }
+      }
       if (!cancelled) {
         setPlanId(plan.id);
         setRowsByGroup(next);
-        setEnglishGoal(plan.english_goal || "");
+        setEnglishGoals(parseEnglishGoals(plan.english_goal));
         setLastSavedAt(plan.updated_at || null);
       }
     })()
@@ -425,17 +604,20 @@ export default function SuperadminMonthlyPlanEditor({
   const applyGearSuggestions = (suggestionsByGroup) => {
     const englishSuggestions = Array.isArray(suggestionsByGroup)
       ? suggestionsByGroup
-      : suggestionsByGroup.en || [];
-    setRowsByGroup((previous) => Object.fromEntries(ALL_GROUPS.map(({ id }) => [
-      id,
-      previous[id].map((row, index) => {
+      : suggestionsByGroup.en_5 || suggestionsByGroup.en || [];
+    setRowsByGroup((previous) => ({
+      ...previous,
+      ...Object.fromEntries(activeGroups.map(({ id }) => [
+        id,
+        previous[id].map((row, index) => {
         const groupSuggestions = Array.isArray(suggestionsByGroup)
           ? suggestionsByGroup
           : suggestionsByGroup[id] || [];
         const byWeek = new Map(groupSuggestions.map((suggestion) => [suggestion.weekNumber, suggestion]));
         const suggestion = byWeek.get(index + 1) || groupSuggestions[index];
         if (!suggestion) return row;
-        const isEnglish = id === "en";
+        const isEnglish = id.startsWith("en_");
+        const age = englishAgeLevel(id);
         return {
           ...row,
           activity_name: isEnglish
@@ -443,47 +625,54 @@ export default function SuperadminMonthlyPlanEditor({
             : (suggestion.name || row.activity_name),
           activity_description: (
             isEnglish
-              ? suggestion.englishActivity
+              ? buildEnglishActivity(suggestion, age, index)
               : (suggestion.activityDescriptions?.[id] || suggestion.activityDescription)
           ) || row.activity_description,
-          key_expression: (isEnglish ? suggestion.keyExpression : "") || row.key_expression,
+          key_expression: (isEnglish ? buildEnglishPurpose(suggestion, age, index) : "") || row.key_expression,
           image_path: suggestion.photoUrl || row.image_path,
           image_url: suggestion.photoUrl || row.image_url,
         };
-      }),
-    ])));
-    setEnglishGoal(buildMonthlyEnglishGoal(englishSuggestions, month));
+        }),
+      ])),
+    }));
+    if (language === "en") {
+      setEnglishGoals(Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age, id }) => [
+        age,
+        buildMonthlyEnglishGoal(Array.isArray(suggestionsByGroup) ? englishSuggestions : (suggestionsByGroup[id] || englishSuggestions), month, age),
+      ])));
+    }
     setGearPickerOpen(false);
     setMessage("선택한 교구의 이름·사진·활동 내용을 불러왔습니다.");
   };
 
   const fillFromGear = () => {
-    if (!normalizedSuggestions.length) {
+    if (!normalizedSuggestions.length && !normalizedCompanyEquipment.length) {
       setMessage("선택한 달에 등록된 내 교구가 없습니다.");
       return;
     }
-    const hasMultiple = normalizedSuggestions.some((suggestion) => suggestion.options.length > 1);
+    const hasMultiple = gearPickerSuggestions.some((suggestion) => suggestion.options.length > 1) || normalizedCompanyEquipment.length > 0;
     if (!hasMultiple) {
-      applyGearSuggestions(normalizedSuggestions.map((suggestion) => suggestion.options[0] || suggestion));
+      applyGearSuggestions(gearPickerSuggestions.map((suggestion) => suggestion.options[0] || suggestion));
       return;
     }
-    setSelectedGearByWeek(Object.fromEntries(ALL_GROUPS.flatMap(({ id }) => (
-      normalizedSuggestions.map((suggestion) => [
+    setSelectedGearByWeek(Object.fromEntries(activeGroups.flatMap(({ id }) => (
+      gearPickerSuggestions.map((suggestion) => [
         `${id}-${suggestion.weekNumber}`,
         suggestion.options[0]?.id || "",
       ])
     ))));
     setGearPickerOpen(true);
-    setMessage("각 연령과 영어 계획안에 사용할 교구를 하나씩 선택해 주세요.");
+    setMessage(`${language === "ko" ? "한국어" : "영어"} 연령별 계획안에 사용할 교구를 하나씩 선택해 주세요.`);
   };
 
   const confirmGearSelection = () => {
-    const selected = Object.fromEntries(ALL_GROUPS.map(({ id }) => [
+    const selected = Object.fromEntries(activeGroups.map(({ id }) => [
       id,
-      normalizedSuggestions.map((suggestion) => {
+      gearPickerSuggestions.map((suggestion) => {
         const options = suggestion.options.length ? suggestion.options : [suggestion];
         const selectedId = selectedGearByWeek[`${id}-${suggestion.weekNumber}`];
-        const option = options.find((candidate) => candidate.id === selectedId) || options[0];
+        const companyOption = normalizedCompanyEquipment.find((candidate) => candidate.id === selectedId);
+        const option = companyOption || options.find((candidate) => candidate.id === selectedId) || options[0];
         return { ...option, weekNumber: suggestion.weekNumber };
       }),
     ]));
@@ -523,23 +712,31 @@ export default function SuperadminMonthlyPlanEditor({
       ? `Children discover the story and special atmosphere of the ${englishName} through playful, age-appropriate experiences. They take part in themed games and missions while creating joyful memories with friends.`
       : customEventDescription);
 
-    setRowsByGroup((previous) => Object.fromEntries(ALL_GROUPS.map(({ id }) => [
-      id,
-      previous[id].map((row, index) => {
+    setRowsByGroup((previous) => ({
+      ...previous,
+      ...Object.fromEntries(activeGroups.map(({ id }) => [
+        id,
+        previous[id].map((row, index) => {
         if (index !== weekIndex || !eventTargets.includes(id)) return row;
-        const isEnglish = id === "en";
+        const isEnglish = id.startsWith("en_");
         return {
           ...row,
           activity_name: isEnglish ? englishName : koreanName,
           activity_description: isEnglish ? englishDescription : eventDescriptionForAge(baseDescription, id),
-          key_expression: isEnglish ? `Let's enjoy ${englishName} and work together!` : "",
+          key_expression: isEnglish ? "Encourages cultural curiosity, creative movement, confidence, and positive teamwork." : "",
           image_path: program?.photoUrl || "",
           image_url: program?.photoUrl || "",
         };
-      }),
-    ])));
-    if (eventTargets.includes("en")) {
-      setEnglishGoal(`${ENGLISH_MONTHLY_THEMES[monthNumber(month)]} The ${englishName} adds a special opportunity for creativity, confidence, and teamwork.`);
+        }),
+      ])),
+    }));
+    if (eventTargets.some((id) => id.startsWith("en_"))) {
+      setEnglishGoals((previous) => Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age, id }) => [
+        age,
+        eventTargets.includes(id)
+          ? `${ENGLISH_MONTHLY_THEMES[monthNumber(month)]} The ${englishName} adds a special opportunity for creativity, confidence, and teamwork.`
+          : previous[age],
+      ])));
     }
     setEventPickerOpen(false);
     setMessage(`${eventWeek}주차에 ${koreanName} 이벤트를 적용했습니다. 내용과 사진은 표에서 바로 수정할 수 있습니다.`);
@@ -590,7 +787,7 @@ export default function SuperadminMonthlyPlanEditor({
           owner_id: me.id,
           year_month: `${month}-01`,
           title: monthTitle(month),
-          english_goal: englishGoal.trim(),
+          english_goal: JSON.stringify(englishGoals),
           status: "draft",
           updated_at: now,
         }, { onConflict: "owner_id,year_month" })
@@ -618,7 +815,7 @@ export default function SuperadminMonthlyPlanEditor({
 
       setPlanId(plan.id);
       setLastSavedAt(plan.updated_at || now);
-      setMessage("한국어·영어 계획안이 임시 저장되었습니다. 현재는 본인에게만 보입니다.");
+      setMessage(`${language === "ko" ? "한국어" : "영어"} 계획안이 임시 저장되었습니다. 다른 언어의 기존 내용도 그대로 유지됩니다.`);
     } catch (error) {
       if (isMissingSchema(error)) setSetupRequired(true);
       setMessage(error?.message || "계획안 저장에 실패했습니다.");
@@ -639,9 +836,11 @@ export default function SuperadminMonthlyPlanEditor({
       language,
       month,
       rowsByGroup,
-      englishGoal,
+      englishGoals,
       selectedAge: pdfAge,
+      englishAge,
       logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
+      templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
     }));
     reportWindow.document.close();
   };
@@ -673,7 +872,7 @@ export default function SuperadminMonthlyPlanEditor({
         <div>
           <span className="monthly-plan-editor__eyebrow">내 월간 계획안 · 임시저장</span>
           <h2><FileText size={21} /> 월간 계획안 작성</h2>
-          <p>한국어는 연령별로, 영어는 공통 계획안 한 장으로 작성합니다.</p>
+          <p>한국어 또는 영어를 선택해 필요한 연령별 계획안만 작성하고 A4 PDF로 저장할 수 있습니다.</p>
         </div>
         <div className="monthly-plan-editor__controls">
           <label><span>작성 월</span><input type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} /></label>
@@ -693,7 +892,12 @@ export default function SuperadminMonthlyPlanEditor({
                 {AGE_GROUPS.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
               </select>
             </label>
-          ) : null}
+          ) : (
+            <div className="monthly-plan-editor__pdf-age" aria-label="영어 PDF 전체 연령">
+              <span>PDF 연령</span>
+              <strong>AGE 5 · 6 · 7 전체</strong>
+            </div>
+          )}
           <button type="button" className="monthly-plan-editor__pdf-button" onClick={saveAsPdf} disabled={setupRequired}>
             <Download size={15} /> PDF 저장
           </button>
@@ -722,7 +926,7 @@ export default function SuperadminMonthlyPlanEditor({
           ) : null}
           <fieldset className="monthly-plan-event-picker__targets">
             <legend>적용할 계획안</legend>
-            {ALL_GROUPS.map(({ id, label }) => <label key={id}><input type="checkbox" checked={eventTargets.includes(id)} onChange={() => toggleEventTarget(id)} /> {label}</label>)}
+            {activeGroups.map(({ id, label }) => <label key={id}><input type="checkbox" checked={eventTargets.includes(id)} onChange={() => toggleEventTarget(id)} /> {label}</label>)}
           </fieldset>
           {eventChoice.startsWith("program:") ? (
             <p className="monthly-plan-event-picker__gear-list">필요 교구: {normalizedPrograms.find((program) => `program:${program.id}` === eventChoice)?.requiredGear.join(", ") || "등록된 교구 없음"}</p>
@@ -733,13 +937,17 @@ export default function SuperadminMonthlyPlanEditor({
 
       <div className="monthly-plan-language-tabs" role="tablist" aria-label="계획안 언어 선택">
         <button type="button" className={language === "ko" ? "is-active" : ""} onClick={() => setLanguage("ko")}>
-          <FileText size={16} /> 한국어 계획안 <small>연령별</small>
+          <FileText size={16} /> 한국어 계획안 만들기 <small>3~4세 · 5~6세 · 7세</small>
         </button>
         <button type="button" className={language === "en" ? "is-active" : ""} onClick={() => setLanguage("en")}>
-          <Languages size={16} /> English Lesson Plan <small>공통 1개</small>
+          <Languages size={16} /> 영어 계획안 만들기 <small>AGE 5 · 6 · 7</small>
         </button>
       </div>
-      <p className="monthly-plan-editor__edit-hint">교구명, 활동 내용과 핵심 표현은 불러온 뒤 표 안에서 자유롭게 수정할 수 있습니다.</p>
+      <p className="monthly-plan-editor__edit-hint">
+        현재 <strong>{language === "ko" ? "한국어 계획안" : "영어 계획안"}</strong>을 작성하고 있습니다.
+        {language === "ko" ? " 3~4세, 5~6세, 7세 계획안이 아래에 이어집니다." : " AGE 5, AGE 6, AGE 7 계획안이 아래에 이어집니다."}
+        {" "}교구명, 활동 내용과 운동발달 목적은 표 안에서 자유롭게 수정할 수 있습니다.
+      </p>
 
       {setupRequired ? (
         <div className="monthly-plan-editor__setup">
@@ -751,22 +959,25 @@ export default function SuperadminMonthlyPlanEditor({
       {gearPickerOpen ? (
         <section className="monthly-plan-gear-picker" aria-label="계획안 교구 선택">
           <div className="monthly-plan-gear-picker__heading">
-            <div><strong>연령별 계획안 교구 선택</strong><span>같은 주차라도 연령별로 서로 다른 교구를 고를 수 있습니다.</span></div>
+            <div>
+              <strong>{language === "ko" ? "한국어" : "영어"} 연령별 계획안 교구 선택</strong>
+              <span>같은 주차라도 연령별로 서로 다른 교구를 고를 수 있습니다.</span>
+            </div>
             <button type="button" onClick={() => setGearPickerOpen(false)}>취소</button>
           </div>
           <div className="monthly-plan-gear-picker__groups">
-            {ALL_GROUPS.map(({ id, label }) => (
-              <section key={id} className={`monthly-plan-gear-picker__group${id === "en" ? " is-english" : ""}`}>
-                <h4>{id === "en" ? "English · 공통" : label}</h4>
+            {activeGroups.map(({ id, label }) => (
+              <section key={id} className={`monthly-plan-gear-picker__group${id.startsWith("en_") ? " is-english" : ""}`}>
+                <h4>{label}</h4>
                 <div className="monthly-plan-gear-picker__weeks">
-                  {normalizedSuggestions.map((suggestion) => {
+                  {gearPickerSuggestions.map((suggestion) => {
                     const options = suggestion.options.length ? suggestion.options : [suggestion];
                     const selectionKey = `${id}-${suggestion.weekNumber}`;
                     return (
                       <fieldset key={selectionKey}>
                         <legend>{suggestion.weekNumber}주차</legend>
                         <div className="monthly-plan-gear-picker__options">
-                          {options.map((option) => (
+                          {options.filter((option) => option.name).map((option) => (
                             <label key={option.id || option.name} className={selectedGearByWeek[selectionKey] === option.id ? "is-selected" : ""}>
                               <input
                                 type="radio"
@@ -775,9 +986,34 @@ export default function SuperadminMonthlyPlanEditor({
                                 onChange={() => setSelectedGearByWeek((previous) => ({ ...previous, [selectionKey]: option.id }))}
                               />
                               {option.photoUrl ? <img src={option.photoUrl} alt="" /> : <FileImage size={24} />}
-                              <span>{id === "en" ? (option.englishName || option.name) : option.name}</span>
+                              <span>{id.startsWith("en_") ? (option.englishName || option.name) : option.name}</span>
                             </label>
                           ))}
+                          {normalizedCompanyEquipment.length ? (
+                            <label className={`monthly-plan-gear-picker__other${String(selectedGearByWeek[selectionKey] || "").startsWith("company:") ? " is-selected" : ""}`}>
+                              <input
+                                type="radio"
+                                name={`monthly-plan-${selectionKey}`}
+                                checked={String(selectedGearByWeek[selectionKey] || "").startsWith("company:")}
+                                onChange={() => setSelectedGearByWeek((previous) => ({
+                                  ...previous,
+                                  [selectionKey]: normalizedCompanyEquipment[0]?.id || "",
+                                }))}
+                              />
+                              <span>기타 · 회사 등록 교구</span>
+                              <select
+                                value={String(selectedGearByWeek[selectionKey] || "").startsWith("company:") ? selectedGearByWeek[selectionKey] : ""}
+                                onChange={(event) => setSelectedGearByWeek((previous) => ({ ...previous, [selectionKey]: event.target.value }))}
+                                onClick={(event) => event.stopPropagation()}
+                                aria-label={`${label} ${suggestion.weekNumber}주차 기타 교구 선택`}
+                              >
+                                <option value="" disabled>교구 선택</option>
+                                {normalizedCompanyEquipment.map((item) => (
+                                  <option key={item.id} value={item.id}>{id.startsWith("en_") ? (item.englishName || item.name) : item.name}</option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : null}
                         </div>
                       </fieldset>
                     );
@@ -793,10 +1029,25 @@ export default function SuperadminMonthlyPlanEditor({
       ) : null}
 
       <div className={`monthly-plan-document monthly-plan-document--${language}`}>
-        <header className="monthly-plan-document__title">
-          <h1>{monthTitle(month)}</h1>
-          <span>{planId ? "저장된 초안" : "새 계획안"}</span>
-        </header>
+        {language === "en" ? (
+          <>
+            <header className="monthly-plan-report-brand">
+              <div className="monthly-plan-report-brand__identity">
+                <img src="/brand/gts-company-logo.png" alt="GTS" />
+                <div><strong>GTS</strong><small>GROW THROUGH SPORTS</small></div>
+              </div>
+              <span>MONTHLY PHYSICAL EDUCATION REPORT</span>
+            </header>
+            <header className="monthly-plan-document__title monthly-plan-document__title--en">
+              <h1>{monthTitle(month)}</h1>
+            </header>
+          </>
+        ) : (
+          <header className="monthly-plan-document__title">
+            <h1>{monthTitle(month)}</h1>
+            <span>{planId ? "저장된 초안" : "새 계획안"}</span>
+          </header>
+        )}
 
         {language === "ko" ? AGE_GROUPS.map(({ id, label }) => (
           <section key={id} className="monthly-plan-age-section">
@@ -822,31 +1073,37 @@ export default function SuperadminMonthlyPlanEditor({
             </div>
             <p className="monthly-plan-english-note">This monthly plan is subject to change depending on circumstances.</p>
           </section>
-        )) : (
-          <section className="monthly-plan-english-section">
+        )) : ENGLISH_AGE_GROUPS.map(({ id, age, label }) => (
+          <section key={id} className="monthly-plan-age-section monthly-plan-age-section--en">
+            <h3><span>AGE {age}</span></h3>
             <label className="monthly-plan-goal">
-              <span>✅ Goal</span>
-              <textarea value={englishGoal} onChange={(event) => setEnglishGoal(event.target.value)} placeholder="Write the monthly learning goal." />
+              <span>MONTHLY<br />GOAL</span>
+              <textarea
+                value={englishGoals[age] || ""}
+                onChange={(event) => setEnglishGoals((previous) => ({ ...previous, [age]: event.target.value }))}
+                placeholder="Write the monthly learning goal."
+                aria-label={`${label} monthly goal`}
+              />
             </label>
-            <div className="monthly-plan-table monthly-plan-table--en" role="table" aria-label="English monthly lesson plan">
+            <div className="monthly-plan-table monthly-plan-table--en" role="table" aria-label={label}>
               <div className="monthly-plan-table__header" role="row">
-                <div role="columnheader">Week</div><div role="columnheader">Equipment</div><div role="columnheader">Activity</div><div role="columnheader">Key Expression</div>
+                <div role="columnheader">WEEK</div><div role="columnheader">EQUIPMENT</div><div role="columnheader">ACTIVITY</div><div role="columnheader">PURPOSE</div>
               </div>
-              {rowsByGroup.en.map((row, index) => (
-                <div className="monthly-plan-table__row" role="row" key={`en-${row.position}`}>
-                  <div className="monthly-plan-week" role="cell">Week<br />{index + 1}</div>
+              {rowsByGroup[id].map((row, index) => (
+                <div className="monthly-plan-table__row" role="row" key={`${id}-${row.position}`}>
+                  <div className="monthly-plan-week" role="cell"><span>{index + 1}</span></div>
                   <div className="monthly-plan-equipment" role="cell">
-                    <input value={row.activity_name} onChange={(event) => setRow("en", index, "activity_name", event.target.value)} placeholder="Equipment" />
-                    {imageCell("en", row, index)}
+                    <input value={row.activity_name} onChange={(event) => setRow(id, index, "activity_name", event.target.value)} placeholder="Equipment" />
+                    {imageCell(id, row, index)}
                   </div>
-                  <div role="cell"><textarea value={row.activity_description} onChange={(event) => setRow("en", index, "activity_description", event.target.value)} placeholder="Describe the activity and developmental goal." /></div>
-                  <div role="cell"><textarea value={row.key_expression} onChange={(event) => setRow("en", index, "key_expression", event.target.value)} placeholder="Key expression" /></div>
+                  <div role="cell"><textarea value={row.activity_description} onChange={(event) => setRow(id, index, "activity_description", event.target.value)} placeholder="Describe the age-appropriate activity." /></div>
+                  <div className="monthly-plan-purpose" role="cell"><textarea value={row.key_expression} onChange={(event) => setRow(id, index, "key_expression", event.target.value)} placeholder="Describe the motor-development purpose." /></div>
                 </div>
               ))}
             </div>
-            <p className="monthly-plan-english-note">📌 This monthly plan is subject to change depending on circumstances.</p>
+            <p className="monthly-plan-english-note">This monthly plan is subject to change depending on circumstances.</p>
           </section>
-        )}
+        ))}
       </div>
 
       <footer className="monthly-plan-editor__footer">

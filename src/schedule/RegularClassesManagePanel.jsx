@@ -1,14 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
-import { CLASS_TYPES, DAY_LABELS, fmtLocalDate } from "./constants.js";
+import { CalendarX2, History, Pencil, Plus } from "lucide-react";
 import {
-  deleteWeeklySlot,
+  CLASS_TYPES,
+  DAY_LABELS,
+  classTypeLabel,
+  fmtLocalDate,
+  minutesBetween,
+  resolveInstitutionSlotPayType,
+  timesOverlap,
+} from "./constants.js";
+import {
+  createWeeklySlotVersion,
+  endWeeklySlot,
   fetchAssignments,
   fetchInstitutions,
   fetchTeachers,
   fetchWeeklySchedule,
   saveAssignment,
   saveWeeklySlot,
+  syncPayrollEntriesForWeeklySlotPayType,
   upsertInstitution,
 } from "./api.js";
 import InstitutionSearchSelect from "./InstitutionSearchSelect.jsx";
@@ -18,15 +28,46 @@ import {
   isScheduleSuperAdmin,
 } from "./managerScope.js";
 import { isScheduleAdmin } from "./roles.js";
+import {
+  findOverlappingInstitutionSlots,
+  formatInstitutionOverlapWarning,
+} from "./weeklySlotOverlap.js";
 
 function formatTime(t) {
   return t ? String(t).slice(0, 5) : "";
+}
+
+function slotMinutes(slot) {
+  return minutesBetween(formatTime(slot.start_time), formatTime(slot.end_time));
 }
 
 function formatDateShort(d) {
   if (!d) return "—";
   const [, m, day] = String(d).slice(0, 10).split("-");
   return `${Number(m)}/${Number(day)}`;
+}
+
+function formatChangedAt(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function slotSummary(slot, institutionMap, teacherLabel) {
+  if (!slot) return "—";
+  const institution = institutionMap.get(slot.institution_id)?.name
+    || slot.institutions?.name
+    || "기관";
+  return `${DAY_LABELS[slot.day_of_week]} ${formatTime(slot.start_time)}–${formatTime(slot.end_time)} · ${classTypeLabel(resolveInstitutionSlotPayType(slot))} · ${institution} · ${teacherLabel(slot.teacher_id)}`;
 }
 
 function emptyPeriod(index = 0) {
@@ -55,14 +96,33 @@ function emptyEdit(slot) {
     effective_from: slot.effective_from ? String(slot.effective_from).slice(0, 10) : "",
     effective_to: slot.effective_to ? String(slot.effective_to).slice(0, 10) : "",
     institution_id: slot.institution_id || "",
-    class_type: slot.class_type || "정규",
+    class_type: resolveInstitutionSlotPayType(slot) || "정규",
+    label: slot.label || "",
     start_time: formatTime(slot.start_time),
     end_time: formatTime(slot.end_time),
+    change_effective_date: fmtLocalDate(new Date()),
+    change_reason: "",
   };
+}
+
+function slotStatus(slot, today) {
+  const from = slot.effective_from ? String(slot.effective_from).slice(0, 10) : null;
+  const to = slot.effective_to ? String(slot.effective_to).slice(0, 10) : null;
+  if (from && from > today) return "upcoming";
+  if (to && to < today) return "ended";
+  return "current";
+}
+
+function statusLabel(status) {
+  if (status === "upcoming") return "변경 예정";
+  if (status === "ended") return "종료";
+  return "현재";
 }
 
 function periodLabel(classType, index) {
   if (classType === "방과후") return "방과후";
+  if (classType === "참관수업") return "참관수업";
+  if (classType === "센터보조") return `센터보조 ${index + 1}타임`;
   if (classType === "어린이집") {
     return index === 0 ? "어린이집" : `어린이집 ${index + 1}`;
   }
@@ -75,13 +135,21 @@ function classTypeTone(classType) {
   if (classType === "센터") return "center";
   if (classType === "센터보조") return "center-assist";
   if (classType === "가정방문") return "home-visit";
+  if (classType === "참관수업") return "observation";
   return "regular";
 }
 
 function assignmentPayTypes(classType) {
   if (classType === "방과후") return ["방과후"];
   if (classType === "어린이집") return ["어린이집"];
+  if (classType === "센터보조") return ["센터보조"];
+  if (classType === "참관수업") return ["참관수업"];
   return ["정규"];
+}
+
+/** 센터보조는 기존 DB 호환을 위해 방과후 + label 조합으로 저장 */
+function storedClassType(classType) {
+  return classType === "센터보조" ? "방과후" : classType;
 }
 
 export default function RegularClassesManagePanel({ me }) {
@@ -91,6 +159,7 @@ export default function RegularClassesManagePanel({ me }) {
   const canEdit = admin;
 
   const [teachers, setTeachers] = useState([]);
+  const [teacherNameById, setTeacherNameById] = useState(() => new Map());
   const [institutions, setInstitutions] = useState([]);
   const [slots, setSlots] = useState([]);
   const [managedTeacherIds, setManagedTeacherIds] = useState(() => new Set());
@@ -100,6 +169,7 @@ export default function RegularClassesManagePanel({ me }) {
 
   const [teacherFilter, setTeacherFilter] = useState(() => (admin ? "" : me?.id || ""));
   const [dayFilter, setDayFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("current");
 
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState(() => ({
@@ -108,6 +178,8 @@ export default function RegularClassesManagePanel({ me }) {
     effective_from: fmtLocalDate(new Date()),
   }));
   const [editForm, setEditForm] = useState(null);
+  const [endForm, setEndForm] = useState(null);
+  const [historySlot, setHistorySlot] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,6 +200,12 @@ export default function RegularClassesManagePanel({ me }) {
         ? filterInstitutionsForManagerScope(allInst, me)
         : allInst;
       setInstitutions(scopedInst);
+
+      const names = new Map();
+      for (const t of allTeachers || []) {
+        if (t?.id) names.set(t.id, t.name || "선생님");
+      }
+      setTeacherNameById(names);
 
       const roleTeachers = allTeachers.filter(t => t.role === "teacher");
       let allowedTeachers = roleTeachers;
@@ -183,10 +261,12 @@ export default function RegularClassesManagePanel({ me }) {
   }, [institutions]);
 
   const filteredSlots = useMemo(() => {
+    const today = fmtLocalDate(new Date());
     return slots
       .filter(s => {
         if (teacherFilter && s.teacher_id !== teacherFilter) return false;
         if (dayFilter !== "all" && String(s.day_of_week) !== dayFilter) return false;
+        if (statusFilter !== "all" && slotStatus(s, today) !== statusFilter) return false;
         return true;
       })
       .sort((a, b) => {
@@ -194,7 +274,25 @@ export default function RegularClassesManagePanel({ me }) {
         if (dow !== 0) return dow;
         return formatTime(a.start_time).localeCompare(formatTime(b.start_time));
       });
-  }, [slots, teacherFilter, dayFilter]);
+  }, [slots, teacherFilter, dayFilter, statusFilter]);
+
+  const slotsByDay = useMemo(() => DAY_LABELS.map((day, dayIndex) => {
+    const rows = filteredSlots.filter(slot => Number(slot.day_of_week) === dayIndex);
+    return {
+      day,
+      dayIndex,
+      rows,
+      totalMinutes: rows.reduce((sum, slot) => sum + slotMinutes(slot), 0),
+    };
+  }).filter(group => group.rows.length > 0), [filteredSlots]);
+
+  const historyRows = useMemo(() => {
+    if (!historySlot) return [];
+    const seriesId = historySlot.schedule_series_id || historySlot.id;
+    return slots
+      .filter(s => (s.schedule_series_id || s.id) === seriesId)
+      .sort((a, b) => String(b.effective_from || "").localeCompare(String(a.effective_from || "")));
+  }, [historySlot, slots]);
 
   const openCreate = () => {
     setCreateForm({
@@ -250,6 +348,15 @@ export default function RegularClassesManagePanel({ me }) {
     return managedTeacherIds.has(teacherId);
   };
 
+  const teacherLabel = (teacherId) => teacherNameById.get(teacherId) || teacherMap.get(teacherId) || "강사 미지정";
+
+  const confirmInstitutionTimeOverlap = (hits) => {
+    if (!hits.length) return true;
+    return window.confirm(
+      `${formatInstitutionOverlapWarning(hits[0], teacherNameById)}\n\n그래도 저장할까요?`,
+    );
+  };
+
   const handleCreateSubmit = async (e) => {
     e.preventDefault();
     if (!canEdit) return;
@@ -274,6 +381,32 @@ export default function RegularClassesManagePanel({ me }) {
       if (!p.start_time || !p.end_time) return alert("시작·종료 시간을 모두 입력해주세요.");
       if (p.start_time >= p.end_time) return alert("종료 시간은 시작 시간보다 늦어야 합니다.");
     }
+    for (let i = 0; i < periods.length; i++) {
+      for (let j = i + 1; j < periods.length; j++) {
+        if (timesOverlap(periods[i].start_time, periods[i].end_time, periods[j].start_time, periods[j].end_time)) {
+          return alert("같은 요일에 겹치는 수업 시간이 있어요. 시간을 조정해주세요.");
+        }
+      }
+    }
+
+    const overlapHits = [];
+    const seenOverlap = new Set();
+    for (const p of periods) {
+      for (const hit of findOverlappingInstitutionSlots({
+        slots,
+        institutionId: institution_id,
+        dayOfWeek: day_of_week,
+        startTime: p.start_time,
+        endTime: p.end_time,
+        effectiveFrom: effective_from,
+        effectiveTo: effective_to || null,
+      })) {
+        if (seenOverlap.has(hit.id)) continue;
+        seenOverlap.add(hit.id);
+        overlapHits.push(hit);
+      }
+    }
+    if (!confirmInstitutionTimeOverlap(overlapHits)) return;
 
     setSaving(true);
     try {
@@ -293,13 +426,15 @@ export default function RegularClassesManagePanel({ me }) {
           institution_id,
           teacher_id,
           day_of_week: Number(day_of_week),
-          class_type,
+          class_type: storedClassType(class_type),
           start_time: p.start_time,
           end_time: p.end_time,
           label: periodLabel(class_type, i),
           sort_order: i,
           effective_from,
           effective_to: effective_to || null,
+          change_reason: "신규 수업 등록",
+          changed_by: me?.id || null,
         });
       }
       setShowCreate(false);
@@ -325,19 +460,74 @@ export default function RegularClassesManagePanel({ me }) {
       return alert("종료 날짜는 시작 날짜 이후여야 합니다.");
     }
 
+    const originalForOverlap = slots.find(s => s.id === editForm.id);
+    const overlapFrom = editForm.change_effective_date
+      || (originalForOverlap?.effective_from ? String(originalForOverlap.effective_from).slice(0, 10) : null);
+    const overlapTo = originalForOverlap?.effective_to
+      ? String(originalForOverlap.effective_to).slice(0, 10)
+      : null;
+    const editOverlaps = findOverlappingInstitutionSlots({
+      slots,
+      institutionId: editForm.institution_id,
+      dayOfWeek: editForm.day_of_week,
+      startTime: editForm.start_time,
+      endTime: editForm.end_time,
+      effectiveFrom: overlapFrom,
+      effectiveTo: overlapTo,
+      excludeSlotIds: [editForm.id],
+    });
+    if (!confirmInstitutionTimeOverlap(editOverlaps)) return;
+
     setSaving(true);
     try {
-      await saveWeeklySlot({
-        id: editForm.id,
+      const original = slots.find(s => s.id === editForm.id);
+      if (!original) throw new Error("기존 수업을 찾지 못했습니다.");
+      if (!editForm.change_effective_date) return alert("변경 적용일을 입력해주세요.");
+      const nextPayload = {
         institution_id: editForm.institution_id,
         teacher_id: editForm.teacher_id || null,
         day_of_week: Number(editForm.day_of_week),
-        class_type: editForm.class_type,
+        class_type: storedClassType(editForm.class_type),
         start_time: editForm.start_time,
         end_time: editForm.end_time,
-        effective_from: editForm.effective_from || null,
-        effective_to: editForm.effective_to || null,
-      });
+        label: editForm.class_type === "센터보조"
+          ? (String(editForm.label || "").startsWith("센터보조")
+            ? editForm.label
+            : "센터보조")
+          : periodLabel(editForm.class_type, 0),
+      };
+      const originalFrom = original.effective_from
+        ? String(original.effective_from).slice(0, 10)
+        : null;
+      const today = fmtLocalDate(new Date());
+      if (originalFrom && originalFrom >= today
+        && editForm.change_effective_date <= originalFrom) {
+        // 아직 시작하지 않은 예정 수업은 같은 예정 행을 정정합니다.
+        const savedSlot = await saveWeeklySlot({
+          ...nextPayload,
+          id: original.id,
+          effective_from: original.effective_from,
+          effective_to: original.effective_to,
+          schedule_series_id: original.schedule_series_id || original.id,
+          previous_slot_id: original.previous_slot_id || null,
+          change_reason: editForm.change_reason || "시작 전 예정 수업 수정",
+          changed_by: me?.id || null,
+          updated_at: new Date().toISOString(),
+        });
+        await syncPayrollEntriesForWeeklySlotPayType(
+          savedSlot.id,
+          resolveInstitutionSlotPayType(savedSlot),
+          slotMinutes(savedSlot),
+        );
+      } else {
+        await createWeeklySlotVersion(
+          original,
+          nextPayload,
+          editForm.change_effective_date,
+          editForm.change_reason,
+          me?.id,
+        );
+      }
       setEditForm(null);
       await load();
     } catch (err) {
@@ -347,18 +537,22 @@ export default function RegularClassesManagePanel({ me }) {
     }
   };
 
-  const handleDelete = async (slot) => {
-    if (!canEdit) return;
-    if (!canEditTeacher(slot.teacher_id)) return alert("담당 선생님만 삭제할 수 있습니다.");
-    const instName = institutionMap.get(slot.institution_id)?.name || slot.institutions?.name || "기관";
-    const label = `${DAY_LABELS[slot.day_of_week]} ${formatTime(slot.start_time)}–${formatTime(slot.end_time)} · ${instName}`;
-    if (!confirm(`이 수업을 삭제할까요?\n\n${label}`)) return;
+  const handleEndSubmit = async (e) => {
+    e.preventDefault();
+    if (!endForm || !canEdit) return;
+    if (!canEditTeacher(endForm.slot.teacher_id)) return alert("담당 선생님만 종료할 수 있습니다.");
     setSaving(true);
     try {
-      await deleteWeeklySlot(slot.id);
+      await endWeeklySlot(
+        endForm.slot,
+        endForm.effective_to,
+        endForm.reason,
+        me?.id,
+      );
+      setEndForm(null);
       await load();
     } catch (err) {
-      alert("삭제 실패: " + err.message);
+      alert("종료 처리 실패: " + err.message);
     } finally {
       setSaving(false);
     }
@@ -401,10 +595,28 @@ export default function RegularClassesManagePanel({ me }) {
         ) : null}
       </div>
 
+      <div className="sch-chip-row sch-regular-classes-status-filter" aria-label="수업 상태 필터">
+        {[
+          ["current", "현재 수업"],
+          ["upcoming", "변경 예정"],
+          ["ended", "종료된 수업"],
+          ["all", "전체 이력"],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={`sch-chip${statusFilter === value ? " active" : ""}`}
+            onClick={() => setStatusFilter(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <p className="sch-muted sch-regular-classes-hint">
         {canEdit
-          ? "등록된 정규·방과후·어린이집 주간 수업입니다. 수업을 클릭하면 수정할 수 있습니다."
-          : "담당 기관의 정규·방과후·어린이집 주간 수업을 조회합니다."}
+          ? "수업은 삭제하지 않고 적용일 기준으로 변경하거나 종료합니다. 과거 수업과 급여 기록은 그대로 유지됩니다."
+          : "담당 기관의 정규·방과후·어린이집·보조 주간 수업을 조회합니다."}
       </p>
 
       {loading ? (
@@ -412,38 +624,68 @@ export default function RegularClassesManagePanel({ me }) {
       ) : filteredSlots.length === 0 ? (
         <p className="sch-muted">등록된 수업이 없습니다.</p>
       ) : (
-        <ul className="sch-regular-classes-list">
-          {filteredSlots.map(slot => {
+        <div className="sch-regular-classes-day-list">
+          {slotsByDay.map(group => (
+            <section
+              key={group.dayIndex}
+              className={`sch-regular-classes-day sch-regular-classes-day--${group.dayIndex}`}
+            >
+              <header className="sch-regular-classes-day-header">
+                <div className="sch-regular-classes-day-title">
+                  <span className="sch-regular-classes-day-badge">{group.day}</span>
+                  <strong>{group.day}요일 수업</strong>
+                </div>
+                <span>{group.rows.length}개 수업 · 총 {group.totalMinutes}분</span>
+              </header>
+              <div className="sch-regular-classes-table-head" aria-hidden="true">
+                <span>시간</span>
+                <span>유형</span>
+                <span>기관</span>
+                <span>반(연령)</span>
+                <span>선생님</span>
+                <span>적용 기간</span>
+                <span>상태</span>
+                <span>관리</span>
+              </div>
+              <ul className="sch-regular-classes-list">
+              {group.rows.map(slot => {
             const inst = institutionMap.get(slot.institution_id);
             const instName = inst?.name || slot.institutions?.name || "—";
             const editable = canEditTeacher(slot.teacher_id);
+            const status = slotStatus(slot, fmtLocalDate(new Date()));
+            const mins = slotMinutes(slot);
+            const teacherName = teacherLabel(slot.teacher_id);
             return (
-              <li key={slot.id} className="sch-regular-classes-item">
+              <li
+                key={slot.id}
+                className={`sch-regular-classes-item sch-regular-classes-item--${status}`}
+              >
                 <button
                   type="button"
                   className="sch-regular-classes-main"
                   disabled={!editable}
                   onClick={() => editable && setEditForm(emptyEdit(slot))}
                 >
-                  <span className="sch-regular-classes-dow">{DAY_LABELS[slot.day_of_week]}</span>
-                  <span className="sch-regular-classes-time">
-                    {formatTime(slot.start_time)}–{formatTime(slot.end_time)}
+                  <span className="sch-regular-classes-time-block">
+                    <strong>{formatTime(slot.start_time)}–{formatTime(slot.end_time)}</strong>
+                    <small>{mins}분</small>
                   </span>
-                  <span className={`sch-regular-classes-type sch-regular-classes-type--${classTypeTone(slot.class_type)}`}>
-                    {slot.class_type}
+                  <span className={`sch-regular-classes-type sch-regular-classes-type--${classTypeTone(resolveInstitutionSlotPayType(slot))}`}>
+                    {classTypeLabel(resolveInstitutionSlotPayType(slot))}
                   </span>
-                  <span className="sch-regular-classes-inst" title={instName}>{instName}</span>
-                  <span className="sch-regular-classes-teacher">
-                    {teacherMap.get(slot.teacher_id) || "강사 미지정"}
-                  </span>
+                  <span className="sch-regular-classes-inst">{instName}</span>
+                  <span className="sch-regular-classes-class-label">{slot.label || "—"}</span>
+                  <span className="sch-regular-classes-teacher">{teacherName}</span>
                   <span className="sch-regular-classes-range">
-                    {formatDateShort(slot.effective_from)}
-                    {" ~ "}
-                    {slot.effective_to ? formatDateShort(slot.effective_to) : "계속"}
+                    {formatDateShort(slot.effective_from)} ~ {slot.effective_to ? formatDateShort(slot.effective_to) : "계속"}
+                  </span>
+                  <span className={`sch-regular-classes-status sch-regular-classes-status--${status}`}>
+                    {statusLabel(status)}
                   </span>
                 </button>
-                {editable ? (
-                  <div className="sch-regular-classes-actions">
+                <div className="sch-regular-classes-actions">
+                  {editable ? (
+                    <>
                     <button
                       type="button"
                       className="sch-btn sch-btn--ghost sch-btn--sm"
@@ -452,20 +694,37 @@ export default function RegularClassesManagePanel({ me }) {
                     >
                       <Pencil size={13}/> 수정
                     </button>
+                    {status !== "ended" ? (
                     <button
                       type="button"
                       className="sch-btn sch-btn--ghost sch-btn--sm sch-regular-classes-delete"
                       disabled={saving}
-                      onClick={() => handleDelete(slot)}
+                      onClick={() => setEndForm({
+                        slot,
+                        effective_to: fmtLocalDate(new Date()),
+                        reason: "",
+                      })}
                     >
-                      <Trash2 size={13}/> 삭제
+                      <CalendarX2 size={13}/> 종료
                     </button>
-                  </div>
-                ) : null}
+                    ) : null}
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="sch-btn sch-btn--ghost sch-btn--sm"
+                    onClick={() => setHistorySlot(slot)}
+                  >
+                    <History size={13}/> 변경 이력
+                  </button>
+                </div>
               </li>
             );
-          })}
-        </ul>
+              })}
+              </ul>
+            </section>
+          ))}
+        </div>
       )}
 
       {showCreate && canEdit ? (
@@ -568,6 +827,9 @@ export default function RegularClassesManagePanel({ me }) {
                       )),
                     }))}
                   />
+                  <span className="sch-regular-classes-period-mins">
+                    총 {minutesBetween(p.start_time, p.end_time)}분
+                  </span>
                   {createForm.periods.length > 1 ? (
                     <button
                       type="button"
@@ -618,7 +880,7 @@ export default function RegularClassesManagePanel({ me }) {
                     className={`sch-chip${createForm.class_type === t ? " active" : ""}`}
                     onClick={() => setCreateForm(f => ({ ...f, class_type: t }))}
                   >
-                    {t}
+                    {classTypeLabel(t)}
                   </button>
                 ))}
               </div>
@@ -678,6 +940,7 @@ export default function RegularClassesManagePanel({ me }) {
                 />
               </label>
             </div>
+            <p className="sch-muted">총 {minutesBetween(editForm.start_time, editForm.end_time)}분</p>
             <label className="sch-field">
               <span>기관</span>
               <InstitutionSearchSelect
@@ -700,31 +963,36 @@ export default function RegularClassesManagePanel({ me }) {
                     className={`sch-chip${editForm.class_type === t ? " active" : ""}`}
                     onClick={() => setEditForm(f => ({ ...f, class_type: t }))}
                   >
-                    {t}
+                    {classTypeLabel(t)}
                   </button>
                 ))}
               </div>
             </label>
             <div className="sch-time-row">
               <label className="sch-field">
-                <span>시작 날짜</span>
+                <span>변경 적용일</span>
                 <input
                   type="date"
                   className="sch-input"
-                  value={editForm.effective_from}
-                  onChange={e => setEditForm(f => ({ ...f, effective_from: e.target.value }))}
+                  required
+                  value={editForm.change_effective_date}
+                  onChange={e => setEditForm(f => ({ ...f, change_effective_date: e.target.value }))}
                 />
               </label>
               <label className="sch-field">
-                <span>종료 날짜</span>
+                <span>변경 사유</span>
                 <input
-                  type="date"
+                  type="text"
                   className="sch-input"
-                  value={editForm.effective_to}
-                  onChange={e => setEditForm(f => ({ ...f, effective_to: e.target.value }))}
+                  value={editForm.change_reason}
+                  placeholder="예: 수업 시간 변경"
+                  onChange={e => setEditForm(f => ({ ...f, change_reason: e.target.value }))}
                 />
               </label>
             </div>
+            <p className="sch-muted">
+              적용일 전날까지는 기존 수업으로 남고, 적용일부터 변경된 수업이 새 기록으로 저장됩니다.
+            </p>
             <div className="sch-form-actions">
               <button type="button" className="sch-btn sch-btn--ghost" onClick={() => setEditForm(null)}>
                 취소
@@ -734,6 +1002,115 @@ export default function RegularClassesManagePanel({ me }) {
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {endForm && canEdit ? (
+        <div className="sch-modal-overlay" onClick={() => setEndForm(null)}>
+          <form
+            className="sch-modal sch-form"
+            onClick={e => e.stopPropagation()}
+            onSubmit={handleEndSubmit}
+          >
+            <h3>수업 종료 처리</h3>
+            <p className="sch-muted">
+              {DAY_LABELS[endForm.slot.day_of_week]} {formatTime(endForm.slot.start_time)}–{formatTime(endForm.slot.end_time)} · {institutionMap.get(endForm.slot.institution_id)?.name || "기관"}
+            </p>
+            <label className="sch-field">
+              <span>마지막 수업일</span>
+              <input
+                type="date"
+                className="sch-input"
+                required
+                value={endForm.effective_to}
+                onChange={e => setEndForm(f => ({ ...f, effective_to: e.target.value }))}
+              />
+            </label>
+            <label className="sch-field">
+              <span>종료 사유</span>
+              <input
+                type="text"
+                className="sch-input"
+                value={endForm.reason}
+                placeholder="예: 기관 계약 종료"
+                onChange={e => setEndForm(f => ({ ...f, reason: e.target.value }))}
+              />
+            </label>
+            <p className="sch-muted">과거 수업과 급여 기록은 삭제되지 않습니다.</p>
+            <div className="sch-form-actions">
+              <button type="button" className="sch-btn sch-btn--ghost" onClick={() => setEndForm(null)}>취소</button>
+              <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
+                {saving ? "처리 중..." : "종료 처리"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {historySlot ? (
+        <div className="sch-modal-overlay" onClick={() => setHistorySlot(null)}>
+          <section className="sch-modal sch-modal--wide" onClick={e => e.stopPropagation()}>
+            <div className="sch-section-header-row">
+              <div>
+                <h3>수업 변경 이력</h3>
+                <p className="sch-muted">
+                  {institutionMap.get(historySlot.institution_id)?.name || historySlot.institutions?.name || "기관"}
+                </p>
+              </div>
+              <button type="button" className="sch-btn sch-btn--ghost" onClick={() => setHistorySlot(null)}>닫기</button>
+            </div>
+            <div className="sch-regular-classes-history-list">
+              {historyRows.map((row, index) => {
+                const status = slotStatus(row, fmtLocalDate(new Date()));
+                const previous = historyRows[index + 1] || null;
+                return (
+                  <article key={row.id} className="sch-regular-classes-history-row">
+                    <div>
+                      <strong>{index === 0 ? "최근 기록" : `이전 기록 ${index}`}</strong>
+                      <span className={`sch-regular-classes-status sch-regular-classes-status--${status}`}>
+                        {statusLabel(status)}
+                      </span>
+                    </div>
+                    {previous ? (
+                      <div className="sch-regular-classes-history-compare">
+                        <div>
+                          <span>변경 전</span>
+                          <p>{slotSummary(previous, institutionMap, teacherLabel)}</p>
+                        </div>
+                        <span className="sch-regular-classes-history-arrow" aria-hidden="true">→</span>
+                        <div>
+                          <span>변경 후</span>
+                          <p>{slotSummary(row, institutionMap, teacherLabel)}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="sch-regular-classes-history-first">
+                        최초 등록 · {slotSummary(row, institutionMap, teacherLabel)}
+                      </p>
+                    )}
+                    <dl className="sch-regular-classes-history-details">
+                      <div>
+                        <dt>적용 기간</dt>
+                        <dd>{formatDateShort(row.effective_from)} ~ {row.effective_to ? formatDateShort(row.effective_to) : "계속"}</dd>
+                      </div>
+                      <div>
+                        <dt>변경 사유</dt>
+                        <dd>{row.change_reason || (previous ? "수업 조건 변경" : "최초 등록")}</dd>
+                      </div>
+                      <div>
+                        <dt>처리자</dt>
+                        <dd>{row.changed_by ? teacherLabel(row.changed_by) : "기존 등록 자료"}</dd>
+                      </div>
+                      <div>
+                        <dt>처리 일시</dt>
+                        <dd>{formatChangedAt(row.updated_at || row.created_at)}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
         </div>
       ) : null}
     </div>

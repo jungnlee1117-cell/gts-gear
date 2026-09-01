@@ -1,6 +1,6 @@
 import { resolveTeacherMonthlyGross } from "./additionalPayments.js";
 import { createClient } from "@supabase/supabase-js";
-import { yearMonthFirstDay, yearMonthKey, yearMonthLastDay } from "./constants.js";
+import { minutesBetween, yearMonthFirstDay, yearMonthKey, yearMonthLastDay } from "./constants.js";
 import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, isPerCapitaBilling, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
 import {
   computeInstitutionInstructorCost,
@@ -652,6 +652,10 @@ export async function saveWeeklySlot(payload) {
       ? String(payload.effective_to).slice(0, 10)
       : null;
   }
+  for (const key of ["schedule_series_id", "previous_slot_id", "change_reason", "changed_by"]) {
+    if (key in payload) row[key] = payload[key] || null;
+  }
+  if ("updated_at" in payload) row.updated_at = payload.updated_at;
   if (payload.id) {
     const { data, error } = await scheduleSupabase
       .from("institution_weekly_schedule")
@@ -669,6 +673,135 @@ export async function saveWeeklySlot(payload) {
     .single();
   if (error) throw error;
   return data;
+}
+
+function previousDate(dateStr) {
+  const date = new Date(`${dateStr}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+/** 기존 행을 닫고 새 행을 만드는 방식으로 정규 수업 변경 이력을 보존합니다. */
+export async function createWeeklySlotVersion(original, next, effectiveFrom, reason, changedBy) {
+  if (!original?.id || !effectiveFrom) throw new Error("변경 적용일을 확인해주세요.");
+  const originalFrom = original.effective_from ? String(original.effective_from).slice(0, 10) : null;
+  if (originalFrom && effectiveFrom <= originalFrom) {
+    throw new Error(`변경 적용일은 기존 시작일(${originalFrom}) 이후여야 합니다.`);
+  }
+  const oldTo = original.effective_to ? String(original.effective_to).slice(0, 10) : null;
+  if (oldTo && effectiveFrom > oldTo) {
+    throw new Error("변경 적용일이 기존 수업 종료일보다 늦습니다.");
+  }
+
+  await saveWeeklySlot({
+    ...original,
+    id: original.id,
+    effective_to: previousDate(effectiveFrom),
+    change_reason: original.change_reason || "변경 전 수업",
+    changed_by: changedBy || original.changed_by || null,
+    updated_at: new Date().toISOString(),
+  });
+
+  let savedSlot;
+  try {
+    savedSlot = await saveWeeklySlot({
+      ...next,
+      id: null,
+      effective_from: effectiveFrom,
+      effective_to: oldTo && oldTo >= effectiveFrom ? oldTo : null,
+      schedule_series_id: original.schedule_series_id || original.id,
+      previous_slot_id: original.id,
+      change_reason: reason || "수업 조건 변경",
+      changed_by: changedBy || null,
+      updated_at: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    // 새 버전 생성 실패 시 기존 종료일을 복원합니다.
+    await saveWeeklySlot({
+      ...original,
+      id: original.id,
+      effective_to: oldTo,
+      updated_at: new Date().toISOString(),
+    }).catch(() => {});
+    throw error;
+  }
+
+  // 적용일 이후 이미 생성된 급여 행도 새 스케줄 버전으로 옮깁니다.
+  // 사용자가 직접 시간 수정(custom)한 행은 분을 보존하고,
+  // 기본대로 확정된 행(as_scheduled)만 새 시작·종료 시간으로 갱신합니다.
+  const nextMinutes = minutesBetween(savedSlot.start_time, savedSlot.end_time);
+  const nextPayType = String(savedSlot.label || "").startsWith("센터보조")
+    ? "센터보조"
+    : savedSlot.class_type;
+  const { data: linkedEntries, error: linkedError } = await scheduleSupabase
+    .from("payroll_entries")
+    .select("id, entry_status, minutes")
+    .eq("schedule_slot_id", original.id)
+    .gte("class_date", effectiveFrom);
+  if (linkedError) throw linkedError;
+
+  for (const entry of linkedEntries || []) {
+    const update = {
+      schedule_slot_id: savedSlot.id,
+      institution_id: savedSlot.institution_id,
+      teacher_id: savedSlot.teacher_id,
+      pay_type: nextPayType,
+      updated_at: new Date().toISOString(),
+    };
+    if (entry.entry_status === "as_scheduled" && nextMinutes > 0) {
+      update.minutes = nextMinutes;
+    }
+    const { error: payrollError } = await scheduleSupabase
+      .from("payroll_entries")
+      .update(update)
+      .eq("id", entry.id);
+    if (payrollError) throw payrollError;
+  }
+
+  return savedSlot;
+}
+
+/** 삭제하지 않고 종료일과 사유를 기록합니다. */
+export async function endWeeklySlot(slot, effectiveTo, reason, changedBy) {
+  if (!slot?.id || !effectiveTo) throw new Error("종료일을 확인해주세요.");
+  const from = slot.effective_from ? String(slot.effective_from).slice(0, 10) : null;
+  if (from && effectiveTo < from) throw new Error("종료일은 시작일보다 빠를 수 없습니다.");
+  return saveWeeklySlot({
+    ...slot,
+    id: slot.id,
+    effective_to: effectiveTo,
+    change_reason: reason || "수업 종료",
+    changed_by: changedBy || null,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+/** 수업 유형 수정 시 이미 입력된 연결 급여 행의 단가 분류도 함께 변경 */
+export async function syncPayrollEntriesForWeeklySlotPayType(scheduleSlotId, payType, scheduledMinutes = null) {
+  if (!scheduleSlotId || !payType) return [];
+  const { data: linkedEntries, error: findError } = await scheduleSupabase
+    .from("payroll_entries")
+    .select("id, entry_status")
+    .eq("schedule_slot_id", scheduleSlotId);
+  if (findError) throw findError;
+
+  const results = [];
+  for (const entry of linkedEntries || []) {
+    const update = { pay_type: payType, updated_at: new Date().toISOString() };
+    if (entry.entry_status === "as_scheduled" && Number(scheduledMinutes) > 0) {
+      update.minutes = Number(scheduledMinutes);
+    }
+    const { data, error } = await scheduleSupabase
+    .from("payroll_entries")
+      .update(update)
+      .eq("id", entry.id)
+      .select("id, class_date, pay_type, minutes")
+      .single();
+    if (error) throw error;
+    results.push(data);
+  }
+  return results;
 }
 
 export async function deleteWeeklySlot(id) {
@@ -2132,7 +2265,7 @@ export async function loadPayrollDashboard(yearMonth) {
         payMode: eng.pay_mode,
         rateAmount: Number(eng.rate_amount) || 0,
         payType: eng.pay_type || "정규",
-        byType: { 정규: 0, 방과후: 0, 어린이집: 0, 가정방문: 0, 센터: 0, 센터보조: 0 },
+        byType: { 정규: 0, 방과후: 0, 어린이집: 0, 가정방문: 0, 센터: 0, 센터보조: 0, 참관수업: 0 },
         paySummaryLabel: `대체수업 ${lessons.length}회`,
         isSubstitute: false,
         substituteTeacherName: null,

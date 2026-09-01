@@ -1,7 +1,12 @@
-export const PAY_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조"];
+export const PAY_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조", "참관수업"];
 /** 급여 요약 집계·표시 순서 */
-export const PAYROLL_SUMMARY_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조"];
-export const CLASS_TYPES = ["정규", "방과후", "어린이집"];
+export const PAYROLL_SUMMARY_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조", "참관수업"];
+export const CLASS_TYPES = ["정규", "방과후", "어린이집", "센터보조", "참관수업"];
+
+/** 화면에서는 기존 내부값 「센터보조」를 간결하게 「보조」로 표시 */
+export function classTypeLabel(classType) {
+  return classType === "센터보조" ? "보조" : classType;
+}
 
 const DAYCARE_INSTITUTION_NAME_KEYS = ["어린이집", "유치원"];
 
@@ -122,18 +127,8 @@ export function resolveInstitutionSlotPayType(slot) {
   return slot?.class_type;
 }
 
-/**
- * 급여·집계용 분 — 센터보조는 시계 길이가 아니라 타임당 60분
- * (라벨 `×2` = 2타임 통합 → 120분)
- */
+/** 급여·집계용 분 — 보조 수업도 등록된 실제 시작·종료 시간으로 계산 */
 export function resolveInstitutionSlotBillableMinutes(slot) {
-  const payType = resolveInstitutionSlotPayType(slot);
-  if (payType !== "센터보조") {
-    return minutesBetween(slot.start_time, slot.end_time);
-  }
-  const label = String(slot?.label ?? "").trim();
-  if (/[×x]2\b/i.test(label)) return 120;
-  if (label.startsWith("센터보조")) return 60;
   return minutesBetween(slot.start_time, slot.end_time);
 }
 

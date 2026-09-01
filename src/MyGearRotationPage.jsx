@@ -27,7 +27,7 @@ import {
 } from "./lessonPlan.js";
 import { itemPhotoStyle } from "./gearPhoto.js";
 import { buildCurrentRentals } from "./teacherGearStatus.js";
-import { isScheduleAdmin, isSuperAdmin } from "./authRoles.js";
+import { isScheduleAdmin } from "./authRoles.js";
 import TeacherRotationRentalStatusSection from "./TeacherRotationRentalStatusSection.jsx";
 import SuperadminMonthlyPlanEditor from "./SuperadminMonthlyPlanEditor.jsx";
 import {
@@ -596,7 +596,7 @@ export default function MyGearRotationPage({
   const schoolMonths = useMemo(() => schoolYearMonths(startYear), [startYear]);
   const canUseRotationSearch = isScheduleAdmin(me);
   const canViewRotationRentalStatus = isScheduleAdmin(me);
-  const canWritePrivateMonthlyPlan = isSuperAdmin(me) || me?.role === "teacher";
+  const canWritePrivateMonthlyPlan = isScheduleAdmin(me) || me?.role === "teacher";
   const pageTabs = useMemo(
     () => {
       const visible = canViewRotationRentalStatus ? PAGE_TABS : PAGE_TABS.filter((tab) => tab.id === "mine");
@@ -1305,6 +1305,7 @@ export default function MyGearRotationPage({
           month={viewMonth}
           onMonthChange={(nextMonth) => setViewMonth(clampToSchoolYear(nextMonth, startYear))}
           suggestedActivities={monthlyPlanGearSuggestions}
+          companyEquipment={items}
           programSuggestions={itemSets.map((program) => ({
             id: program.id,
             name: program.name,
@@ -1463,15 +1464,4 @@ export function formatRotationConflictConfirmMessage(conflicts, { actionLabel = 
   return `${lines.join("\n")}\n\n그래도 ${actionLabel}하시겠습니까?`;
 }
 
-/** 승인 직후 반납기한 안내용: 교구별 가장 빠른 순환 겹침 */
-export function earliestRotationConflictByItem(conflicts) {
-  const byItem = new Map();
-  for (const c of conflicts || []) {
-    if (!c.itemName || !c.weekStart) continue;
-    const prev = byItem.get(c.itemId || c.itemName);
-    if (!prev || c.weekStart < prev.weekStart) {
-      byItem.set(c.itemId || c.itemName, c);
-    }
-  }
-  return [...byItem.values()];
-}
+export { earliestRotationConflictByItem } from "./rotationDueNotice.js";

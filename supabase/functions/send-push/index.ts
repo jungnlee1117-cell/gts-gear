@@ -1358,7 +1358,15 @@ async function resolveNotification(event, payload, userId, adminClient) {
         return { error: "Forbidden", status: 403 };
       }
       const itemName = String(payload.item_name || "").trim() || "교구";
-      const returnBy = formatKoMonthDay(payload.return_by) || formatKoMonthDay(payload.week_start);
+      const returnByYmd = String(payload.return_by || payload.week_start || "").slice(0, 10);
+      if (returnByYmd && returnByYmd < kstYmd(0)) {
+        console.warn("[send-push] skip rental_rotation_due_notice: return_by is in the past", {
+          return_by: returnByYmd,
+          week_start: payload.week_start,
+        });
+        return { teacherIds: [], title: "", body: "", url: "/gear" };
+      }
+      const returnBy = formatKoMonthDay(returnByYmd);
       const nextTeacher = String(payload.next_teacher_name || "").trim();
       const nextPart = nextTeacher
         ? ` (다음: ${nextTeacher} 선생님 정규수업/순환)`

@@ -338,7 +338,7 @@ export function buildTempTeacherPayrollRows({
     const institution = instMap[eng.institution_id];
     const substituteTeacher = (teachers || []).find(t => t.id === eng.substitute_teacher_id);
     const payType = eng.pay_type || "정규";
-    const byType = { 정규: 0, 방과후: 0, 어린이집: 0, 가정방문: 0, 센터: 0, 센터보조: 0 };
+    const byType = { 정규: 0, 방과후: 0, 어린이집: 0, 가정방문: 0, 센터: 0, 센터보조: 0, 참관수업: 0 };
     if (eng.pay_mode === "hourly" && workHours > 0) {
       byType[payType] = Math.round(workHours * 60);
     }

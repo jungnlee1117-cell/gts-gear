@@ -80,7 +80,7 @@ export function buildScheduleChangeNotificationRow(planned, payload, handlingExt
 export function resolveNotificationPayType(item) {
   if (item?.pay_type) return item.pay_type;
   const text = item?.original_schedule || "";
-  for (const t of ["가정방문", "센터보조", "어린이집", "방과후", "센터", "정규"]) {
+  for (const t of ["가정방문", "센터보조", "참관수업", "어린이집", "방과후", "센터", "정규"]) {
     if (text.endsWith(` ${t}`)) return t;
   }
   return null;
