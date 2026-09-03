@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, FileImage, FileText, Languages, PartyPopper, RefreshCw, Save, Upload } from "lucide-react";
+import { naturalEnglishEquipmentName } from "./lessonPlan.js";
 
 const AGE_GROUPS = [
   { id: "3_4", label: "3~4세" },
@@ -24,6 +25,17 @@ const EVENT_PRESETS = [
 
 function planDisplayName(value) {
   return String(value || "").trim().replace(/\s*프로그램\s*$/u, "").replace(/\s*program\s*$/iu, "").trim();
+}
+
+function isGenericEnglishEquipmentName(value) {
+  return /^(selected equipment|movement activity equipment|activity equipment|sports equipment|equipment)$/i.test(String(value || "").trim());
+}
+
+function loadedEnglishEquipmentName(value, position, suggestions) {
+  if (!isGenericEnglishEquipmentName(value)) return value || "";
+  const suggestion = (suggestions || []).find((item) => Number(item?.weekNumber) === Number(position))
+    || suggestions?.[Number(position) - 1];
+  return suggestion?.englishName || naturalEnglishEquipmentName(suggestion?.name || "", value);
 }
 
 function eventDescriptionForAge(description, ageGroup) {
@@ -519,7 +531,10 @@ export default function SuperadminMonthlyPlanEditor({
   const normalizedCompanyEquipment = useMemo(() => companyEquipment.map((item) => ({
     id: `company:${item.id}`,
     name: String(item.name || item.item_name || "").trim(),
-    englishName: String(item.english_name || item.name_en || item.alias || item.name || item.item_name || "").trim(),
+    englishName: naturalEnglishEquipmentName(
+      item.name || item.item_name || "",
+      item.english_name || item.name_en || item.alias || "",
+    ),
     photoUrl: String(item.photo_url || item.image_url || "").trim(),
     activityDescription: String(item.usage_description || item.activity_description || item.description || "").trim(),
     englishActivity: String(item.english_activity || item.activity_description_en || item.english_description || "").trim(),
@@ -620,7 +635,9 @@ export default function SuperadminMonthlyPlanEditor({
         }
         group[index] = {
           position: index + 1,
-          activity_name: entry.activity_name || "",
+          activity_name: entry.age_group?.startsWith("en")
+            ? loadedEnglishEquipmentName(entry.activity_name, entry.position, suggestedActivities)
+            : (entry.activity_name || ""),
           activity_description: entry.age_group?.startsWith("en")
             ? normalizeEnglishActivitySubject(entry.activity_description)
             : (entry.activity_description || ""),
@@ -647,7 +664,7 @@ export default function SuperadminMonthlyPlanEditor({
             }
             next[id][index] = {
               position: index + 1,
-              activity_name: entry.activity_name || "",
+              activity_name: loadedEnglishEquipmentName(entry.activity_name, entry.position, suggestedActivities),
               activity_description: normalizeEnglishActivitySubject(entry.activity_description),
               key_expression: entry.key_expression || "",
               image_path: entry.image_path || "",
@@ -683,7 +700,7 @@ export default function SuperadminMonthlyPlanEditor({
       });
 
     return () => { cancelled = true; };
-  }, [me?.id, month, supabase]);
+  }, [me?.id, month, supabase, suggestedActivities]);
 
   const setRow = (groupId, index, key, value) => {
     setRowsByGroup((previous) => ({
@@ -1112,7 +1129,7 @@ export default function SuperadminMonthlyPlanEditor({
                               />
                               <small className="monthly-plan-gear-picker__option-label">교구 {optionIndex + 1}</small>
                               {option.photoUrl ? <img src={option.photoUrl} alt="" /> : <FileImage size={24} />}
-                              <span>{id.startsWith("en_") ? (option.englishName || option.name) : option.name}</span>
+                              <span>{id.startsWith("en_") ? `${option.name} · ${option.englishName || naturalEnglishEquipmentName(option.name)}` : option.name}</span>
                             </label>
                           ))}
                           {normalizedCompanyEquipment.length ? (
@@ -1147,7 +1164,7 @@ export default function SuperadminMonthlyPlanEditor({
                                   const query = String(companyGearSearchByWeek[selectionKey] || "").trim().toLowerCase();
                                   return !query || `${item.name} ${item.englishName}`.toLowerCase().includes(query);
                                 }).map((item) => (
-                                  <option key={item.id} value={item.id}>{id.startsWith("en_") ? (item.englishName || item.name) : item.name}</option>
+                                  <option key={item.id} value={item.id}>{id.startsWith("en_") ? `${item.name} · ${item.englishName || naturalEnglishEquipmentName(item.name)}` : item.name}</option>
                                 ))}
                               </select>
                             </label>

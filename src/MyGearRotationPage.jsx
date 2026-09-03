@@ -23,6 +23,7 @@ import {
   monthLabel,
   resolveEnglishFromKorean,
   buildAliasMaps,
+  naturalEnglishEquipmentName,
   schoolYearStartYear,
 } from "./lessonPlan.js";
 import { itemPhotoStyle } from "./gearPhoto.js";
@@ -30,6 +31,7 @@ import { buildCurrentRentals } from "./teacherGearStatus.js";
 import { isScheduleAdmin } from "./authRoles.js";
 import TeacherRotationRentalStatusSection from "./TeacherRotationRentalStatusSection.jsx";
 import SuperadminMonthlyPlanEditor from "./SuperadminMonthlyPlanEditor.jsx";
+import AfterSchoolPlanEditor from "./AfterSchoolPlanEditor.jsx";
 import {
   ROTATION_SEARCH_MODES,
   buildTeacherMonthAssignmentSummary,
@@ -288,31 +290,6 @@ function fallbackKoreanPlanText(name, ageGroup = "5") {
   if (ageGroup === "3_4") return `${objectName} 천천히 탐색하고 간단한 이동 동작을 따라 하며 대근육과 균형감각, 기본적인 신체 조절력과 자신감을 기릅니다.`;
   if (ageGroup === "7") return `${objectName} 활용한 복합 움직임 과제를 빠르고 정확하게 수행하며 민첩성과 전신 협응력, 판단력과 협동심을 기릅니다.`;
   return `${objectName} 활용해 방향과 빠르기를 바꾸며 연속 동작을 수행해 전신 협응력과 대근육, 공간 인지력과 신체 조절력을 기릅니다.`;
-}
-
-function naturalEnglishEquipmentName(koreanName, registeredEnglishName = "") {
-  if (registeredEnglishName && !hasKorean(registeredEnglishName)) return registeredEnglishName;
-  const value = String(koreanName || "");
-  if (/꽃게.*낚시|낚시.*꽃게/i.test(value)) return "Crab Fishing Game";
-  if (/도넛/i.test(value)) return "Donut Rings";
-  if (/에어\s*T\s*터널|에어\s*티\s*터널|T\s*터널|티\s*터널/i.test(value)) return "Air T-Tunnel";
-  if (/에어.*터널|터널/i.test(value)) return "Air Tunnel";
-  if (/에어.*(둥근|동근).*클라이밍/i.test(value)) return "Air Round Climbing Mat";
-  if (/에어.*클라이밍|클라이밍.*매트/i.test(value)) return "Air Climbing Mat";
-  if (/에어.*장애물|장애물/i.test(value)) return "Air Obstacle Course";
-  if (/파이프.*공.*나르|공.*나르/i.test(value)) return "Pipe Ball Relay";
-  if (/판.*뒤집/i.test(value)) return "Flip Board Game";
-  if (/스펀지.*체조.*볼/i.test(value)) return "Sponge Exercise Balls";
-  if (/밸런스|균형|징검|스톤/i.test(value)) return "Balance Stepping Stones";
-  if (/오자미|빈백/i.test(value)) return "Bean Bags";
-  if (/바스켓/i.test(value)) return "Moving Basket";
-  if (/공|볼/i.test(value)) return "Soft Balls";
-  if (/줄넘/i.test(value)) return "Jump Rope";
-  if (/허들/i.test(value)) return "Hurdles";
-  if (/컵/i.test(value)) return "Jumbo Cups";
-  if (/도미노/i.test(value)) return "Domino Blocks";
-  if (/사다리/i.test(value)) return "Activity Ladder";
-  return "Movement Activity Equipment";
 }
 
 function fallbackEnglishPlanText(koreanName, englishName) {
@@ -602,7 +579,7 @@ export default function MyGearRotationPage({
     () => {
       const visible = canViewRotationRentalStatus ? PAGE_TABS : PAGE_TABS.filter((tab) => tab.id === "mine");
       return canWritePrivateMonthlyPlan
-        ? [...visible, { id: "monthly-plan", label: "월간 계획안 작성" }]
+        ? [...visible, { id: "monthly-plan", label: "월간 계획안 작성" }, { id: "after-school", label: "방과후" }]
         : visible;
     },
     [canViewRotationRentalStatus, canWritePrivateMonthlyPlan],
@@ -1315,6 +1292,12 @@ export default function MyGearRotationPage({
             photoUrl: program.photo_url || "",
             requiredGear: (program.components || []).map((component) => component.name).filter(Boolean),
           }))}
+        />
+      ) : pageTab === "after-school" && canWritePrivateMonthlyPlan ? (
+        <AfterSchoolPlanEditor
+          me={me}
+          month={viewMonth}
+          onMonthChange={(nextMonth) => setViewMonth(clampToSchoolYear(nextMonth, startYear))}
         />
       ) : (
         <TeacherRotationRentalStatusSection
