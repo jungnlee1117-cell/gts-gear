@@ -1,3 +1,5 @@
+import { formatInstitutionManagerLabel } from "./managerScope.js";
+
 /** GTS 공식 등 먼저, manager_personal·partner_billing(담당자몫/GTS몫 —) 맨 아래 */
 export function institutionContractSortKey(institution) {
   const type = institution?.contract_type;
@@ -8,8 +10,8 @@ export function institutionContractSortKey(institution) {
 export function compareInstitutionDashboardRows(a, b, managerMap = {}) {
   const mgrIdA = a.displayManagerId !== undefined ? a.displayManagerId : a.institution?.manager_id;
   const mgrIdB = b.displayManagerId !== undefined ? b.displayManagerId : b.institution?.manager_id;
-  const mgrA = managerMap[mgrIdA]?.name ?? "";
-  const mgrB = managerMap[mgrIdB]?.name ?? "";
+    const mgrA = formatInstitutionManagerLabel(managerMap[mgrIdA]);
+    const mgrB = formatInstitutionManagerLabel(managerMap[mgrIdB]);
   const mgrCmp = mgrA.localeCompare(mgrB, "ko");
   if (mgrCmp !== 0) return mgrCmp;
 

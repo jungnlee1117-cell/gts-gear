@@ -12,7 +12,11 @@ import {
   previousYearMonth,
 } from "./monthlyBilling.js";
 import { computePerCapitaRevenue, computePerSessionRevenue, pickSessionRate } from "./settlement.js";
-import { canViewInstitutionRevenue, isScheduleSuperAdmin } from "./managerScope.js";
+import {
+  canViewInstitutionRevenue,
+  formatInstitutionManagerLabel,
+  isScheduleSuperAdmin,
+} from "./managerScope.js";
 
 function sourceHint(source, previousYearMonth) {
   if (source === "previous_month") {
@@ -341,7 +345,7 @@ export default function InstitutionBulkRevenueView({ onBack, me }) {
                   key={inst.id}
                   institution={inst}
                   draft={drafts[inst.id]}
-                  managerName={managerMap[inst.manager_id]?.name || "본사"}
+                  managerName={formatInstitutionManagerLabel(managerMap[inst.manager_id])}
                   sessionRates={sessionRates}
                   yearMonth={yearMonth}
                   onDraftChange={handleDraftChange}

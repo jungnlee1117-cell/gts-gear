@@ -39,10 +39,10 @@ import {
   hasHolidayDataForYear,
   holidayShortLabel,
 } from "./koreanHolidays.js";
-import { expandMonthSchedule, uniqueCalendarMarkersForDate } from "./payrollCalendar.js";
+import { buildScheduleCalendarDayLines, expandMonthSchedule, plannedSlotDisplayLabel } from "./payrollCalendar.js";
 import { patternsForCalendarMonth } from "./homeVisitPatterns.js";
 import { buildHomeVisitLegend, buildInstitutionLegend } from "./calendarLegend.js";
-import { plannedSlotDisplayLabel } from "./payrollCalendar.js";
+import CalendarClassLines from "./CalendarClassLines.jsx";
 import CalendarDayStatusIcon, { calendarDayStatusKind } from "./CalendarDayStatusIcon.jsx";
 import { applySubstituteOverlaysToSchedule } from "./substituteSchedule.js";
 import { applySubstituteLessonsToSchedule, calendarSubstituteBadge } from "./substituteLessons.js";
@@ -53,7 +53,6 @@ import { cancelSubstituteLesson } from "./substituteLessonService.js";
 import OneoffLessonModal from "./OneoffLessonModal.jsx";
 import { deleteOneoffLessonRecord } from "./oneoffLessonService.js";
 import {
-  hasOneoffLessonOnDate,
   mergeOneoffLessonsIntoSchedule,
   ONEOFF_LESSON_COLOR,
 } from "./oneoffLessons.js";
@@ -352,12 +351,6 @@ export default function TeacherMonthlyScheduleView({
     });
   };
 
-  const uniqueInstitutionsForCell = (date) => {
-    const dateStr = fmtLocalDate(date);
-    if (getKoreanHoliday(dateStr)) return [];
-    return uniqueCalendarMarkersForDate(scheduleByDate[dateStr] || []);
-  };
-
   return (
     <div className={`sch-view${embedded ? " sch-view--embedded-calendar" : ""}`}>
       {!embedded ? (
@@ -419,10 +412,19 @@ export default function TeacherMonthlyScheduleView({
       {loading ? (
         <p className="sch-muted">달력을 불러오는 중...</p>
       ) : (
-        <div className="sch-cal-grid" role="grid" aria-label={`${monthLabel} 일정`}>
+        <div className="sch-cal-grid sch-cal-grid--class-lines" role="grid" aria-label={`${monthLabel} 일정`}>
           <div className="sch-cal-head-row" role="row">
-            {DAY_LABELS.map(label => (
-              <div key={label} className="sch-cal-head-cell" role="columnheader">{label}</div>
+            {DAY_LABELS.map((label, i) => (
+              <div
+                key={label}
+                className={[
+                  "sch-cal-head-cell",
+                  (i === 0 || i === 6) && "sch-cal-head-cell--weekend",
+                ].filter(Boolean).join(" ")}
+                role="columnheader"
+              >
+                {label}
+              </div>
             ))}
           </div>
           <div className="sch-cal-body">
@@ -431,14 +433,16 @@ export default function TeacherMonthlyScheduleView({
                 const isToday = isSameDay(date, TODAY);
                 const isSelected = isSameDay(date, selectedDate);
                 const holiday = getKoreanHoliday(dateStr);
-                const markers = uniqueInstitutionsForCell(date);
                 const dayEvents = inMonth ? (exceptionsByDate[dateStr] || []) : [];
                 const planned = inMonth ? (displayScheduleByDate[dateStr] || []) : [];
+                const classLines = inMonth && !holiday
+                  ? buildScheduleCalendarDayLines(planned)
+                  : [];
                 const subBadge = inMonth
                   ? calendarSubstituteBadge(substituteLessons, teacherId, dateStr)
                   : null;
-                const hasOneoff = inMonth && hasOneoffLessonOnDate(oneoffLessons, dateStr);
                 const statusKind = calendarDayStatusKind(planned, entries, { isHoliday: !!holiday });
+                const classLineLabel = classLines.map((l) => l.label).join(", ");
 
                 return (
                   <button
@@ -452,46 +456,28 @@ export default function TeacherMonthlyScheduleView({
                       isSelected && "sch-cal-cell--selected",
                       holiday && "sch-cal-cell--holiday",
                       dayEvents.length > 0 && "sch-cal-cell--has-events",
+                      classLines.length > 0 && "sch-cal-cell--has-mark",
                     ].filter(Boolean).join(" ")}
                     onClick={() => handleCalendarDateSelect(date, { inMonth, holiday })}
-                    aria-label={`${date.getMonth() + 1}월 ${date.getDate()}일${holiday ? ` ${holiday.name}` : ""}${statusKind === "unconfirmed" ? " 미확인" : statusKind === "confirmed" ? " 등록완료" : ""}`}
+                    aria-label={`${date.getMonth() + 1}월 ${date.getDate()}일${holiday ? ` ${holiday.name}` : ""}${classLineLabel ? ` ${classLineLabel}` : ""}${statusKind === "unconfirmed" ? " 미확인" : statusKind === "confirmed" ? " 등록완료" : ""}`}
                     aria-selected={isSelected}
                   >
                     {inMonth ? <CalendarDayStatusIcon kind={statusKind} /> : null}
                     <span className="sch-cal-day-num">{date.getDate()}</span>
+                    {subBadge ? (
+                      <span className={`sch-cal-sub-badge sch-cal-sub-badge--${subBadge.kind}`}>
+                        {subBadge.label}
+                      </span>
+                    ) : null}
                     {holiday ? (
                       <span className="sch-cal-holiday-label" title={holiday.name}>
                         {holidayShortLabel(holiday.name)}
                       </span>
-                    ) : subBadge ? (
-                      <span className={`sch-cal-sub-badge sch-cal-sub-badge--${subBadge.kind}`}>
-                        {subBadge.label}
-                      </span>
-                    ) : hasOneoff ? (
-                      <span className="sch-cal-dots">
-                        <span className="sch-cal-dot sch-cal-dot--oneoff" title="일회성 수업"/>
-                      </span>
+                    ) : classLines.length > 0 ? (
+                      <CalendarClassLines lines={classLines} />
                     ) : dayEvents.length > 0 ? (
                       <CalendarEventBadges events={dayEvents} maxVisible={2} compact/>
-                    ) : (
-                      <span className="sch-cal-dots">
-                        {markers.map(marker => (
-                          <span
-                            key={marker.key}
-                            className={[
-                              "sch-cal-dot",
-                              marker.type === "home_visit" && "sch-cal-dot--home-visit",
-                            ].filter(Boolean).join(" ")}
-                            style={{
-                              background: marker.type === "home_visit"
-                                ? homeVisitColor(marker.id)
-                                : institutionColor(marker.id),
-                            }}
-                            title={marker.type === "home_visit" ? `가정방문 · ${marker.label}` : undefined}
-                          />
-                        ))}
-                      </span>
-                    )}
+                    ) : null}
                   </button>
                 );
               })}

@@ -38,8 +38,10 @@ export default function TimeDualInput({
   onChange,
   disabled = false,
   required = false,
+  compact = false,
   id,
   placeholder = "14:30",
+  ariaLabel = "시간 입력",
 }) {
   const [text, setText] = useState(value ? String(value).slice(0, 5) : "");
   const pickerRef = useRef(null);
@@ -51,6 +53,10 @@ export default function TimeDualInput({
   const commit = (raw) => {
     const trimmed = String(raw ?? "").trim();
     if (!trimmed) {
+      if (required) {
+        setText(value ? String(value).slice(0, 5) : "");
+        return;
+      }
       setText("");
       onChange?.("");
       return;
@@ -58,7 +64,7 @@ export default function TimeDualInput({
     const parsed = parseFlexibleTime(trimmed);
     if (parsed) {
       setText(parsed);
-      onChange?.(parsed);
+      if (parsed !== (value ? String(value).slice(0, 5) : "")) onChange?.(parsed);
       return;
     }
     setText(value ? String(value).slice(0, 5) : "");
@@ -78,7 +84,7 @@ export default function TimeDualInput({
   };
 
   return (
-    <div className="sch-time-field">
+    <div className={`sch-time-field${compact ? " sch-time-field--compact" : ""}`}>
       <div className="sch-time-field-control">
         <input
           id={id}
@@ -98,7 +104,7 @@ export default function TimeDualInput({
               commit(text);
             }
           }}
-          aria-label="시간 입력"
+          aria-label={ariaLabel}
         />
         <button
           type="button"
@@ -125,7 +131,7 @@ export default function TimeDualInput({
           aria-hidden
         />
       </div>
-      <p className="sch-time-field-hint">1430 또는 14:30</p>
+      {compact ? null : <p className="sch-time-field-hint">1430 또는 14:30</p>}
     </div>
   );
 }

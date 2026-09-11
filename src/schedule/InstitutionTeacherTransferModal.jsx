@@ -10,6 +10,12 @@ import { sendPushEvent } from "../pushNotifications.js";
 import { scheduleSupabase } from "./api.js";
 import { isTeacherVisibleInYearMonth } from "./teacherEmployment.js";
 import { yearMonthKey } from "./constants.js";
+import {
+  formatInstitutionManagerLabel,
+  HQ_MANAGER_LABEL,
+  isHeadquartersManager,
+  regionalManagerOptions,
+} from "./managerScope.js";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -38,22 +44,30 @@ export default function InstitutionTeacherTransferModal({
   const [saving, setSaving] = useState(false);
 
   // ── 담당자 탭 ──
-  const [managerId, setManagerId] = useState(institution?.manager_id || "");
-  const [managerSearch, setManagerSearch] = useState("");
-
-  useEffect(() => {
-    setManagerId(institution?.manager_id || "");
-  }, [institution?.manager_id]);
-
   const currentManager = useMemo(
     () => teachers.find(t => t.id === institution?.manager_id) || null,
     [teachers, institution?.manager_id],
   );
+  const currentIsHq = isHeadquartersManager(currentManager);
+
+  const [managerId, setManagerId] = useState(
+    () => (isHeadquartersManager(
+      teachers.find(t => t.id === institution?.manager_id) || null,
+    ) ? "" : (institution?.manager_id || "")),
+  );
+  const [managerSearch, setManagerSearch] = useState("");
+
+  useEffect(() => {
+    const current = teachers.find(t => t.id === institution?.manager_id) || null;
+    setManagerId(isHeadquartersManager(current) ? "" : (institution?.manager_id || ""));
+  }, [institution?.manager_id, teachers]);
 
   const managerCandidates = useMemo(() => {
-    let list = (adminList.length ? adminList : teachers.filter(t =>
-      t.role === "admin" || t.role === "superadmin",
-    )).filter(t => isTeacherVisibleInYearMonth(t, yearMonthKey()));
+    let list = regionalManagerOptions(
+      (adminList.length ? adminList : teachers.filter(t =>
+        t.role === "admin" || t.role === "superadmin",
+      )).filter(t => isTeacherVisibleInYearMonth(t, yearMonthKey())),
+    );
     if (managerSearch.trim()) {
       const q = managerSearch.trim().toLowerCase();
       list = list.filter(t => String(t.name || "").toLowerCase().includes(q));
@@ -61,30 +75,37 @@ export default function InstitutionTeacherTransferModal({
     return list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"));
   }, [adminList, teachers, managerSearch]);
 
+  const showHqOption = !managerSearch.trim()
+    || HQ_MANAGER_LABEL.toLowerCase().includes(managerSearch.trim().toLowerCase());
+
   const handleManagerSave = async (e) => {
     e.preventDefault();
-    if (!managerId) return alert("담당 관리자를 선택해 주세요.");
-    if (managerId === (institution?.manager_id || "")) {
+    const currentId = currentIsHq ? "" : (institution?.manager_id || "");
+    if (managerId === currentId) {
       return alert("현재 담당자와 동일합니다.");
     }
-    const next = teachers.find(t => t.id === managerId);
-    if (!confirm(`${institution?.name || "기관"} 담당자를 ${next?.name || "선택한 관리자"}(으)로 변경할까요?`)) {
+    const nextName = managerId
+      ? (teachers.find(t => t.id === managerId)?.name || "선택한 관리자")
+      : HQ_MANAGER_LABEL;
+    if (!confirm(`${institution?.name || "기관"} 담당자를 ${nextName}(으)로 변경할까요?`)) {
       return;
     }
     setSaving(true);
     try {
       const { before } = await changeInstitutionManager({
         institutionId: institution.id,
-        managerId,
+        managerId: managerId || null,
       });
       const name = institution.name || "기관";
-      try {
-        await sendPushEvent(scheduleSupabase, "institution_teacher_assigned", {
-          teacher_id: managerId,
-          body: `${name} 담당이 배정됐습니다`,
-          institution_name: name,
-        });
-      } catch (_) { /* ignore */ }
+      if (managerId) {
+        try {
+          await sendPushEvent(scheduleSupabase, "institution_teacher_assigned", {
+            teacher_id: managerId,
+            body: `${name} 담당이 배정됐습니다`,
+            institution_name: name,
+          });
+        } catch (_) { /* ignore */ }
+      }
       if (before?.manager_id) {
         try {
           await sendPushEvent(scheduleSupabase, "institution_teacher_changed", {
@@ -243,7 +264,7 @@ export default function InstitutionTeacherTransferModal({
             <div className="sch-field">
               <span>현재 담당자 (관리자)</span>
               <p style={{ margin: 0, fontWeight: 700 }}>
-                {currentManager?.name || "미지정"}
+                {formatInstitutionManagerLabel(currentManager)}
               </p>
               <p className="sch-muted" style={{ marginTop: 6 }}>
                 담당자는 해당 기관을 관리하는 관리자입니다. 수업 시간표는 이관되지 않습니다.
@@ -269,9 +290,12 @@ export default function InstitutionTeacherTransferModal({
                 className="sch-select"
                 value={managerId}
                 onChange={e => setManagerId(e.target.value)}
-                required
               >
-                <option value="">선택하세요</option>
+                {showHqOption ? (
+                  <option value="">{HQ_MANAGER_LABEL}</option>
+                ) : (
+                  <option value="">선택하세요</option>
+                )}
                 {managerCandidates.map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}

@@ -7,7 +7,6 @@ import {
   canAccessHr,
   canListHrStatus,
   canRevealSettlement,
-  isHrSuperAdmin,
   maskAccountNumber,
   maskResidentId,
   publicSettlementPayload,
@@ -18,7 +17,7 @@ import {
   validateSettlementInput,
 } from "./hrRules.js";
 import { generateGtsContractPdf, appendSignedPartyPage } from "./contractPdf.js";
-import { formatResidentFront, formatSignedAtKst } from "./contractTemplate.js";
+import { buildContractDocument, formatResidentFront, formatSignedAtKst } from "./contractTemplate.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -252,14 +251,14 @@ async function upsertSettlement(adminClient, {
   return getSettlement(adminClient, teacherId);
 }
 
-async function listHrStatus(adminClient) {
+async function listHrStatus(adminClient, contractOwner = false) {
   const [{ data: settlements, error: sErr }, { data: contracts, error: cErr }] = await Promise.all([
     adminClient
       .from("teacher_settlement_profiles")
       .select("teacher_id, bank_name, account_holder, account_number_mask, resident_id_mask"),
-    adminClient
+    contractOwner ? adminClient
       .from("teacher_contracts")
-      .select("teacher_id, status"),
+      .select("teacher_id, status") : Promise.resolve({ data: [], error: null }),
   ]);
   if (sErr) throw sErr;
   if (cErr) throw cErr;
@@ -452,6 +451,10 @@ async function issueContract(adminClient, {
   endDate,
   contractDate,
   rates,
+  contractYears,
+  sectionEdits,
+  previewOnly = false,
+  documentOnly = false,
   secret,
 }: {
   teacherId: string;
@@ -460,11 +463,15 @@ async function issueContract(adminClient, {
   endDate: string;
   contractDate: string;
   rates: unknown;
+  contractYears?: number;
+  sectionEdits?: Record<string, string>;
+  previewOnly?: boolean;
+  documentOnly?: boolean;
   secret: string;
 }) {
   const ctx = await getIssueContext(adminClient, teacherId, secret);
 
-  const { bytes, document } = await generateGtsContractPdf({
+  const documentInput = {
     teacherName: ctx.teacher_name,
     teacherPhone: ctx.teacher_phone,
     residentFront: ctx.resident_id_front,
@@ -473,7 +480,13 @@ async function issueContract(adminClient, {
     endDate,
     contractDate,
     rates,
-  });
+    contractYears,
+    sectionEdits,
+  };
+  if (documentOnly) return buildContractDocument(documentInput);
+  const { bytes, document } = await generateGtsContractPdf(documentInput);
+
+  if (previewOnly) return { pdf_base64: bytesToB64(bytes), file_name: `${document.fileTitle}.pdf` };
 
   const { count, error: cErr } = await adminClient
     .from("teacher_contracts")
@@ -591,6 +604,13 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action || "");
     const targetTeacherId = String(body.teacher_id || caller.id);
+    const contractActions = new Set(["get_contract_issue_context", "preview_contract_document", "preview_contract", "issue_contract", "cancel_pending_contract"]);
+    let contractOwner = false;
+    if (contractActions.has(action) || action === "list_hr_status") {
+      const { data: allowed, error: accessError } = await userClient.rpc("is_contract_owner");
+      contractOwner = !accessError && allowed === true;
+      if (contractActions.has(action) && !contractOwner) return jsonError("FORBIDDEN", "계약서 서식과 발행 기능은 대표님만 사용할 수 있습니다.", 403);
+    }
 
     if (action === "get_settlement" || action === "upsert_settlement" || action === "reveal_settlement") {
       const allowed = action === "reveal_settlement"
@@ -632,20 +652,20 @@ Deno.serve(async (req) => {
       if (!canListHrStatus(caller, superAdminId)) {
         return jsonError("FORBIDDEN", "상태 목록에 접근할 수 없습니다.", 403);
       }
-      const data = await listHrStatus(adminClient);
+      const data = await listHrStatus(adminClient, contractOwner);
       return jsonResponse({ data });
     }
 
     if (action === "get_contract_issue_context") {
-      if (!isHrSuperAdmin(caller, superAdminId)) {
+      if (!contractOwner) {
         return jsonError("FORBIDDEN", "계약서를 발행할 권한이 없습니다.", 403);
       }
       const data = await getIssueContext(adminClient, targetTeacherId, secret);
       return jsonResponse({ data });
     }
 
-    if (action === "issue_contract") {
-      if (!isHrSuperAdmin(caller, superAdminId)) {
+    if (action === "issue_contract" || action === "preview_contract" || action === "preview_contract_document") {
+      if (!contractOwner) {
         return jsonError("FORBIDDEN", "계약서를 발행할 권한이 없습니다.", 403);
       }
       const data = await issueContract(adminClient, {
@@ -655,13 +675,17 @@ Deno.serve(async (req) => {
         endDate: body.end_date,
         contractDate: body.contract_date,
         rates: body.rates,
+        contractYears: body.contract_years,
+        sectionEdits: body.section_edits,
+        previewOnly: action === "preview_contract",
+        documentOnly: action === "preview_contract_document",
         secret,
       });
       return jsonResponse({ data });
     }
 
     if (action === "cancel_pending_contract") {
-      if (!isHrSuperAdmin(caller, superAdminId)) {
+      if (!contractOwner) {
         return jsonError("FORBIDDEN", "계약서를 취소할 권한이 없습니다.", 403);
       }
       const data = await cancelPendingContract(adminClient, String(body.contract_id || ""));

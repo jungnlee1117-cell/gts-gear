@@ -1,0 +1,6 @@
+.gts-contract-clause-editor { display:block; box-sizing:border-box; width:100%; margin:12px 0 24px; padding:14px 16px; border:1px solid #cedbd4; border-radius:10px; background:#fbfdfb; color:#243a30; font:inherit; font-size:14px; line-height:1.8; resize:vertical; }
+.gts-contract-clause-editor:focus { outline:2px solid #238252; outline-offset:2px; }
+.gts-contract-sign-summary { padding:20px; margin-top:24px; background:#edf5ef; border-radius:12px; color:#184633; }
+.gts-contract-final-preview { margin-top:20px; border:1px solid #dbe6de; border-radius:12px; padding:12px; }
+.gts-contract-final-preview iframe { margin-top:12px; min-height:540px; width:100%; }
+@media (max-width:600px) { .gts-contract-clause-editor { font-size:16px; padding:12px; } .gts-contract-final-preview { padding:6px; } }

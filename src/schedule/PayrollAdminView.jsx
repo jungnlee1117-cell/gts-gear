@@ -26,6 +26,7 @@ import {
   managerFixedPayoutNet,
 } from "./fixedPayoutDisplay.js";
 import {
+  formatInstitutionManagerLabel,
   canSeeAllInstitutions,
   canViewInstitutionRevenue,
   isScheduleRegionalManager,
@@ -445,6 +446,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     () => ({
       ...resolveManagerFilterIds(data?.managerMap),
       selfId: me?.id,
+      managerMap: data?.managerMap,
     }),
     [data?.managerMap, me?.id],
   );
@@ -520,7 +522,11 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   );
 
   const displayInstitutionRows = useMemo(() => {
-    const expanded = expandFixedPayoutDashboardRows(filteredCanonicalRows, effectiveManagerFilter);
+    const expanded = expandFixedPayoutDashboardRows(
+      filteredCanonicalRows,
+      effectiveManagerFilter,
+      data?.managerMap ?? {},
+    );
     return sortInstitutionDashboardRows(expanded, data?.managerMap ?? {}, {
       groupByManager: effectiveManagerFilter === "all",
     });
@@ -941,7 +947,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                                 {row.institution.name}
                               </button>
                             </td>
-                            <td>{manager?.name || "—"}</td>
+                            <td>{formatInstitutionManagerLabel(manager)}</td>
                             <td>{contractTypeLabel(row.institution)}</td>
                             <td className="sch-td-num"><InstitutionRevenueInputCell row={row}/></td>
                             <td className="sch-td-num"><InstitutionVatCell row={row}/></td>

@@ -49,8 +49,8 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
   const isPerCapita = isPerCapitaBilling(institution, sessionRates, sessionCounts);
   const isMonthlyFixed = isMonthlyFixedBilling(institution);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const [c, rates, counts] = await Promise.all([
         fetchMonthlyContracts(institutionId),
@@ -73,7 +73,7 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [institutionId, yearMonth, isPartner]);
 
@@ -110,7 +110,7 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
         year_month: yearMonthFirstDay(yearMonth),
         contract_amount: Number(amount.replace(/,/g, "")) || 0,
       });
-      await load();
+      await load({ silent: true });
     } catch (err) {
       alert(err.message);
     }
@@ -130,25 +130,50 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
         rate_per_session: Number(rate.replace(/,/g, "")) || 0,
         effective_from: effectiveFrom,
       });
-      await load();
+      await load({ silent: true });
     } catch (err) {
       alert(err.message);
     }
   };
 
   const saveCount = async (sessionType, count, note, existingId) => {
+    const nextCount = Number(count) || 0;
+    const nextNote = note || null;
+    const prev = sessionCounts.find(c => c.id === existingId || c.session_type === sessionType);
+    if (
+      prev
+      && Number(prev.session_count) === nextCount
+      && (prev.note || "") === (nextNote || "")
+    ) {
+      return;
+    }
+    setSessionCounts((list) => {
+      const idx = list.findIndex(c => c.id === existingId || c.session_type === sessionType);
+      if (idx >= 0) {
+        return list.map((c, i) => (
+          i === idx ? { ...c, session_count: nextCount, note: nextNote } : c
+        ));
+      }
+      return [...list, {
+        institution_id: institutionId,
+        session_type: sessionType,
+        session_count: nextCount,
+        note: nextNote,
+      }];
+    });
     try {
       await saveMonthlySessionCount({
         id: existingId,
         institution_id: institutionId,
         year_month: yearMonthFirstDay(yearMonth),
         session_type: sessionType,
-        session_count: Number(count) || 0,
-        note: note || null,
+        session_count: nextCount,
+        note: nextNote,
       });
-      await load();
+      await load({ silent: true });
     } catch (err) {
       alert(err.message);
+      await load({ silent: true });
     }
   };
 
@@ -232,7 +257,7 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
                   onSave={(count, note) => saveCount(PER_CAPITA_SESSION_TYPE, count, note, capitaRow?.id)}
                   onDelete={capitaRow?.id ? async () => {
                     await deleteMonthlySessionCount(capitaRow.id);
-                    await load();
+                    await load({ silent: true });
                   } : null}
                 />
               </ul>
@@ -291,7 +316,7 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
                       onSave={(count, note) => saveCount(type, count, note, row?.id)}
                       onDelete={row?.id ? async () => {
                         await deleteMonthlySessionCount(row.id);
-                        await load();
+                        await load({ silent: true });
                       } : null}
                     />
                   );
@@ -309,14 +334,14 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
           yearMonth={yearMonth}
           contracts={contracts}
           institutionId={institutionId}
-          onSaved={load}
+          onSaved={() => load({ silent: true })}
         />
       ) : isMonthlyFixed ? (
         <MonthlyFixedContractPanel
           yearMonth={yearMonth}
           contracts={contracts}
           institutionId={institutionId}
-          onSaved={load}
+          onSaved={() => load({ silent: true })}
         />
       ) : (
         <section className="sch-billing-panel">
@@ -542,11 +567,18 @@ function ThresholdSplitBillingPanel({ yearMonth, contracts, institutionId, onSav
 function SessionCountRow({ sessionType, row, rate, subtotal, onSave, onDelete, unitLabel = "회" }) {
   const [count, setCount] = useState(String(row?.session_count ?? 0));
   const [note, setNote] = useState(row?.note || "");
+  const savedCount = String(row?.session_count ?? 0);
+  const savedNote = row?.note || "";
 
   useEffect(() => {
-    setCount(String(row?.session_count ?? 0));
-    setNote(row?.note || "");
-  }, [row]);
+    setCount(savedCount);
+    setNote(savedNote);
+  }, [savedCount, savedNote]);
+
+  const commit = () => {
+    if (count === savedCount && (note || "") === savedNote) return;
+    onSave(count, note);
+  };
 
   return (
     <li className="sch-session-count-row">
@@ -555,12 +587,13 @@ function SessionCountRow({ sessionType, row, rate, subtotal, onSave, onDelete, u
         <span className="sch-muted">{Number(rate).toLocaleString()}원/{unitLabel === "명" ? "인" : "회"}</span>
       </div>
       <input
-        type="number"
+        type="text"
+        inputMode="numeric"
         className="sch-input sch-input--narrow"
-        min={0}
         value={count}
-        onChange={e => setCount(e.target.value)}
-        onBlur={() => onSave(count, note)}
+        onChange={e => setCount(e.target.value.replace(/[^\d]/g, ""))}
+        onBlur={commit}
+        aria-label={`${sessionType} ${unitLabel}`}
       />
       <span className="sch-muted">{unitLabel}</span>
       <input
@@ -568,7 +601,7 @@ function SessionCountRow({ sessionType, row, rate, subtotal, onSave, onDelete, u
         placeholder="메모 (특수수업 등)"
         value={note}
         onChange={e => setNote(e.target.value)}
-        onBlur={() => onSave(count, note)}
+        onBlur={commit}
       />
       <span className="sch-session-subtotal">{formatWon(subtotal)}</span>
       {onDelete ? (

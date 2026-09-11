@@ -26,6 +26,8 @@ import {
 } from "./fixedPayoutDisplay.js";
 import {
   canViewInstitutionRevenue,
+  formatInstitutionManagerLabel,
+  HQ_MANAGER_LABEL,
   isScheduleSuperAdmin,
 } from "./managerScope.js";
 
@@ -112,7 +114,7 @@ export default function MonthlySettlementView({ me, onBack }) {
         fetchTeachersUnfiltered(),
       ]);
       const mgr = {};
-      teachers.forEach(t => { mgr[t.id] = t.name; });
+      teachers.forEach(t => { mgr[t.id] = t; });
       setManagerMap(mgr);
       const [entries, rates] = await Promise.all([
         fetchPayrollEntries({ yearMonth }),
@@ -164,12 +166,12 @@ export default function MonthlySettlementView({ me, onBack }) {
         if (isFixedPayoutGtsSlice(s)) return false;
         return s.institutions?.manager_id === me?.id;
       });
-    const { regular, partner } = expandFixedPayoutSettlements(scoped);
+    const { regular, partner } = expandFixedPayoutSettlements(scoped, managerMap);
     for (const [mgrId, rows] of regular) {
       regular.set(mgrId, sortSettlementRows(rows));
     }
     return { regularGroups: regular, partnerRows: partner };
-  }, [settlements, me]);
+  }, [settlements, me, managerMap]);
 
   const totals = useMemo(() => {
     const visible = isScheduleSuperAdmin(me)
@@ -241,8 +243,8 @@ export default function MonthlySettlementView({ me, onBack }) {
             <section key={mgrId} className="sch-table-section">
               <h3>
                 {mgrId === "none"
-                  ? "본사 그룹"
-                  : `${managerMap[mgrId] || "담당자"} 그룹`}
+                  ? `${HQ_MANAGER_LABEL} 그룹`
+                  : `${formatInstitutionManagerLabel(managerMap[mgrId], "담당자")} 그룹`}
               </h3>
               <div className="sch-table-wrap">
                 <table className="sch-table sch-table--compact">
@@ -292,7 +294,7 @@ export default function MonthlySettlementView({ me, onBack }) {
                       return (
                       <tr key={s.id}>
                         <td>{s.institutions?.name}</td>
-                        <td>{managerMap[s.institutions?.manager_id] || "—"}</td>
+                        <td>{formatInstitutionManagerLabel(managerMap[s.institutions?.manager_id])}</td>
                         <td>
                           {payable && amt > 0 ? (
                             <>

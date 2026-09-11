@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
+import TeacherContractsHub from "./TeacherContractsHub.jsx";
+import { canUploadTeacherContract } from "./teacherProfile.js";
 import PlatformMainButton from "./PlatformMainButton.jsx";
 import PeMediaLibrary from "./peMedia/PeMediaLibrary.jsx";
 import {
@@ -17,7 +19,7 @@ const PE_ADMIN = (u) => u?.role === "superadmin" || u?.role === "admin";
 const FULL_LIBRARY_USER_NAMES = new Set(["오정석", "양의인", "안소연", "어욱진"]);
 
 function canAccessFullLibrary(user) {
-  return user?.role === "superadmin"
+  return canUploadTeacherContract(user)
     || FULL_LIBRARY_USER_NAMES.has(String(user?.name || "").trim());
 }
 
@@ -83,7 +85,8 @@ function normalizeLibraryCategory(cat) {
 function hubCategoriesForUser(allCategories, me) {
   const base = (allCategories || [])
     .map(normalizeLibraryCategory)
-    .filter(cat => !["videos", "video-media", "audio-media"].includes(cat.id));
+    .filter(cat => !["videos", "video-media", "audio-media"].includes(cat.id))
+    .filter(cat => cat.id !== "child-dev" || canUploadTeacherContract(me));
   const visible = canAccessFullLibrary(me) ? [...base, ...MEDIA_HUB_CATEGORIES] : MEDIA_HUB_CATEGORIES;
   return visible
     .map(withCategoryStatus)
@@ -1402,7 +1405,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
 
   const loadResources = async () => {
     const data = await fetchResources();
-    setResources(data);
+    setResources(data.filter(item => item.category_id !== "child-dev" || canUploadTeacherContract(me)));
   };
 
   const loadCategories = async () => {
@@ -1422,7 +1425,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
     if (isEnglishPeRedirect) {
       navigate(fullLibraryAccess ? "/english-script" : "/pe-resources", { replace: true });
     }
-  }, [isEnglishPeRedirect, fullLibraryAccess, navigate]);
+  }, [isEnglishPeRedirect, fullLibraryAccess, me, navigate]);
 
   useEffect(() => {
     if (!directCategoryId || !categories.length || isEnglishPeRedirect) return;
@@ -1430,7 +1433,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
     const mediaOnlyCategory = directCategoryId === "videos"
       || directCategoryId === "video-media"
       || directCategoryId === "audio-media";
-    if (!fullLibraryAccess && !mediaOnlyCategory) {
+    if ((!fullLibraryAccess && !mediaOnlyCategory) || (directCategoryId === "child-dev" && !canUploadTeacherContract(me))) {
       setCategory(null);
       setView("hub");
       navigate("/pe-resources", { replace: true });
@@ -1440,7 +1443,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
       setCategory(cat);
       setView("list");
     }
-  }, [directCategoryId, categories, isEnglishPeRedirect, fullLibraryAccess, navigate]);
+  }, [directCategoryId, categories, isEnglishPeRedirect, fullLibraryAccess, me, navigate]);
 
   const hubCategories = useMemo(
     () => hubCategoriesForUser(categories, me),
@@ -1461,6 +1464,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   }, [resources]);
 
   const goCategory = (cat) => {
+    if (cat.id === "child-dev" && !canUploadTeacherContract(me)) return;
     if (cat.status === "coming-soon") return;
     if (cat.externalPath) {
       (onNavigate || navigate)(cat.externalPath);
@@ -1556,6 +1560,8 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
             fullLibraryAccess={fullLibraryAccess}
             onManageCategories={() => setShowCatManage(true)}
           />
+        ) : activeCategory?.id === "child-dev" && !canUploadTeacherContract(me) ? (
+          <p>계약서 서식은 대표님만 볼 수 있습니다.</p>
         ) : activeCategory?.id === "videos" ? (
           <PeMediaLibrary
             me={me}
@@ -1564,6 +1570,8 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
             onRefresh={loadAll}
           />
         ) : (
+          <>
+          {activeCategory?.id === "child-dev" && <TeacherContractsHub supabase={supabase} me={me} />}
           <ResourceListPage
             category={activeCategory}
             search={listSearch}
@@ -1572,6 +1580,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
             loading={loading}
             onRefresh={loadAll}
           />
+          </>
         )}
       </main>
 

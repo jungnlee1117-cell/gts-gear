@@ -19,6 +19,7 @@ import {
   canEditTeacherActivityStatus,
   canEditTeacherProfile,
   canUploadTeacherContract,
+  canViewTeacherContract,
   canRevealTeacherSettlement,
   canViewTeacherProfile,
   formatProfileDate,
@@ -644,7 +645,7 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
           </div>
         ) : tab === "contract" ? (
           <div role="tabpanel" id="my-profile-panel-contract" aria-labelledby="my-profile-tab-contract">
-            {canHr ? (
+            {canViewTeacherContract(me, requestedId) ? (
               <MyProfileContractsTab
                 supabase={supabase}
                 me={me}
@@ -657,7 +658,7 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
                 onChanged={refreshHrBadges}
               />
             ) : (
-              <p className="my-profile-empty">계약서는 본인과 슈퍼관리자만 볼 수 있습니다.</p>
+              <p className="my-profile-empty">계약서는 해당 선생님과 대표님만 볼 수 있습니다.</p>
             )}
           </div>
         ) : (

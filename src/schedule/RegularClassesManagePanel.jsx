@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarX2, History, Pencil, Plus } from "lucide-react";
+import { CalendarX2, History, Pencil, Plus, Search } from "lucide-react";
 import {
   CLASS_TYPES,
   DAY_LABELS,
@@ -67,7 +67,14 @@ function slotSummary(slot, institutionMap, teacherLabel) {
   const institution = institutionMap.get(slot.institution_id)?.name
     || slot.institutions?.name
     || "기관";
-  return `${DAY_LABELS[slot.day_of_week]} ${formatTime(slot.start_time)}–${formatTime(slot.end_time)} · ${classTypeLabel(resolveInstitutionSlotPayType(slot))} · ${institution} · ${teacherLabel(slot.teacher_id)}`;
+  const classGroup = classGroupFromStoredLabel(slot.label);
+  return [
+    `${DAY_LABELS[slot.day_of_week]} ${formatTime(slot.start_time)}–${formatTime(slot.end_time)}`,
+    classTypeLabel(resolveInstitutionSlotPayType(slot)),
+    institution,
+    classGroup || null,
+    teacherLabel(slot.teacher_id),
+  ].filter(Boolean).join(" · ");
 }
 
 function emptyPeriod(index = 0) {
@@ -75,7 +82,26 @@ function emptyPeriod(index = 0) {
     key: `p-${Date.now()}-${index}`,
     start_time: index === 0 ? "10:00" : "11:00",
     end_time: index === 0 ? "10:30" : "12:00",
+    label: "",
   };
+}
+
+/** 센터보조는 label 접두로 급여 유형을 구분하므로, 화면용 반(연령)만 분리한다. */
+function classGroupFromStoredLabel(label) {
+  const raw = String(label || "").trim();
+  if (!raw || raw === "센터보조") return "";
+  if (raw.startsWith("센터보조 ")) return raw.slice("센터보조 ".length).trim();
+  return raw;
+}
+
+function storedSlotLabel(classType, classGroup) {
+  const name = String(classGroup || "").trim();
+  if (classType === "센터보조") {
+    if (!name) return "센터보조";
+    if (name.startsWith("센터보조")) return name;
+    return `센터보조 ${name}`;
+  }
+  return name || null;
 }
 
 const EMPTY_CREATE = {
@@ -97,7 +123,7 @@ function emptyEdit(slot) {
     effective_to: slot.effective_to ? String(slot.effective_to).slice(0, 10) : "",
     institution_id: slot.institution_id || "",
     class_type: resolveInstitutionSlotPayType(slot) || "정규",
-    label: slot.label || "",
+    class_group: classGroupFromStoredLabel(slot.label),
     start_time: formatTime(slot.start_time),
     end_time: formatTime(slot.end_time),
     change_effective_date: fmtLocalDate(new Date()),
@@ -152,7 +178,14 @@ function storedClassType(classType) {
   return classType === "센터보조" ? "방과후" : classType;
 }
 
-export default function RegularClassesManagePanel({ me }) {
+export default function RegularClassesManagePanel({
+  me,
+  lockedInstitutionId = null,
+  initialInstitutionId = "",
+  onOpenInstitution,
+  onOpenChangeAlerts,
+  onSlotsChanged,
+}) {
   const admin = isScheduleAdmin(me);
   const superAdmin = isScheduleSuperAdmin(me);
   const regional = isScheduleRegionalManager(me);
@@ -168,6 +201,10 @@ export default function RegularClassesManagePanel({ me }) {
   const [creatingInst, setCreatingInst] = useState(false);
 
   const [teacherFilter, setTeacherFilter] = useState(() => (admin ? "" : me?.id || ""));
+  const [institutionFilter, setInstitutionFilter] = useState(
+    () => lockedInstitutionId || initialInstitutionId || "",
+  );
+  const [institutionQuery, setInstitutionQuery] = useState("");
   const [dayFilter, setDayFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("current");
 
@@ -248,6 +285,17 @@ export default function RegularClassesManagePanel({ me }) {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (lockedInstitutionId) {
+      setInstitutionFilter(lockedInstitutionId);
+      return;
+    }
+    if (!initialInstitutionId) return;
+    setInstitutionFilter(initialInstitutionId);
+    const inst = institutions.find(i => i.id === initialInstitutionId);
+    if (inst?.name) setInstitutionQuery(inst.name);
+  }, [lockedInstitutionId, initialInstitutionId, institutions]);
+
   const teacherMap = useMemo(() => {
     const m = new Map();
     for (const t of teachers) m.set(t.id, t.name);
@@ -262,8 +310,21 @@ export default function RegularClassesManagePanel({ me }) {
 
   const filteredSlots = useMemo(() => {
     const today = fmtLocalDate(new Date());
+    const instQuery = institutionQuery.trim().toLowerCase();
     return slots
       .filter(s => {
+        if (lockedInstitutionId && s.institution_id !== lockedInstitutionId) return false;
+        if (!lockedInstitutionId && institutionFilter && s.institution_id !== institutionFilter) {
+          return false;
+        }
+        if (!lockedInstitutionId && !institutionFilter && instQuery) {
+          const name = (
+            institutionMap.get(s.institution_id)?.name
+            || s.institutions?.name
+            || ""
+          ).toLowerCase();
+          if (!name.includes(instQuery)) return false;
+        }
         if (teacherFilter && s.teacher_id !== teacherFilter) return false;
         if (dayFilter !== "all" && String(s.day_of_week) !== dayFilter) return false;
         if (statusFilter !== "all" && slotStatus(s, today) !== statusFilter) return false;
@@ -274,7 +335,10 @@ export default function RegularClassesManagePanel({ me }) {
         if (dow !== 0) return dow;
         return formatTime(a.start_time).localeCompare(formatTime(b.start_time));
       });
-  }, [slots, teacherFilter, dayFilter, statusFilter]);
+  }, [
+    slots, teacherFilter, dayFilter, statusFilter,
+    lockedInstitutionId, institutionFilter, institutionQuery, institutionMap,
+  ]);
 
   const slotsByDay = useMemo(() => DAY_LABELS.map((day, dayIndex) => {
     const rows = filteredSlots.filter(slot => Number(slot.day_of_week) === dayIndex);
@@ -298,6 +362,7 @@ export default function RegularClassesManagePanel({ me }) {
     setCreateForm({
       ...EMPTY_CREATE,
       teacher_id: teacherFilter || (admin ? "" : me.id),
+      institution_id: lockedInstitutionId || institutionFilter || "",
       effective_from: fmtLocalDate(new Date()),
       periods: [emptyPeriod(0)],
     });
@@ -429,7 +494,7 @@ export default function RegularClassesManagePanel({ me }) {
           class_type: storedClassType(class_type),
           start_time: p.start_time,
           end_time: p.end_time,
-          label: periodLabel(class_type, i),
+          label: storedSlotLabel(class_type, p.label),
           sort_order: i,
           effective_from,
           effective_to: effective_to || null,
@@ -439,6 +504,7 @@ export default function RegularClassesManagePanel({ me }) {
       }
       setShowCreate(false);
       await load();
+      onSlotsChanged?.();
     } catch (err) {
       alert("저장 실패: " + err.message);
     } finally {
@@ -490,11 +556,7 @@ export default function RegularClassesManagePanel({ me }) {
         class_type: storedClassType(editForm.class_type),
         start_time: editForm.start_time,
         end_time: editForm.end_time,
-        label: editForm.class_type === "센터보조"
-          ? (String(editForm.label || "").startsWith("센터보조")
-            ? editForm.label
-            : "센터보조")
-          : periodLabel(editForm.class_type, 0),
+        label: storedSlotLabel(editForm.class_type, editForm.class_group),
       };
       const originalFrom = original.effective_from
         ? String(original.effective_from).slice(0, 10)
@@ -530,6 +592,7 @@ export default function RegularClassesManagePanel({ me }) {
       }
       setEditForm(null);
       await load();
+      onSlotsChanged?.();
     } catch (err) {
       alert("수정 실패: " + err.message);
     } finally {
@@ -551,6 +614,7 @@ export default function RegularClassesManagePanel({ me }) {
       );
       setEndForm(null);
       await load();
+      onSlotsChanged?.();
     } catch (err) {
       alert("종료 처리 실패: " + err.message);
     } finally {
@@ -558,8 +622,13 @@ export default function RegularClassesManagePanel({ me }) {
     }
   };
 
+  const hideInstitutionColumn = Boolean(lockedInstitutionId);
+  const lockedInstitutionName = lockedInstitutionId
+    ? (institutionMap.get(lockedInstitutionId)?.name || "")
+    : "";
+
   return (
-    <div className="sch-regular-classes">
+    <div className={`sch-regular-classes${hideInstitutionColumn ? " sch-regular-classes--no-inst" : ""}`}>
       <div className="sch-regular-classes-toolbar">
         <label className="sch-field sch-regular-classes-filter">
           <span>선생님</span>
@@ -575,6 +644,23 @@ export default function RegularClassesManagePanel({ me }) {
             ))}
           </select>
         </label>
+        {lockedInstitutionId ? null : (
+          <label className="sch-field sch-regular-classes-filter">
+            <span>원</span>
+            <div className="sch-search-inline">
+              <Search size={14} aria-hidden />
+              <input
+                className="sch-input"
+                placeholder="원 이름 검색"
+                value={institutionQuery}
+                onChange={e => {
+                  setInstitutionQuery(e.target.value);
+                  setInstitutionFilter("");
+                }}
+              />
+            </div>
+          </label>
+        )}
         <label className="sch-field sch-regular-classes-filter">
           <span>요일</span>
           <select
@@ -591,6 +677,11 @@ export default function RegularClassesManagePanel({ me }) {
         {canEdit ? (
           <button type="button" className="sch-btn sch-btn--primary" onClick={openCreate}>
             <Plus size={14}/> 정규 수업 등록
+          </button>
+        ) : null}
+        {lockedInstitutionId && onOpenChangeAlerts ? (
+          <button type="button" className="sch-btn sch-btn--ghost" onClick={onOpenChangeAlerts}>
+            수업등록/변경에서 열기
           </button>
         ) : null}
       </div>
@@ -614,9 +705,11 @@ export default function RegularClassesManagePanel({ me }) {
       </div>
 
       <p className="sch-muted sch-regular-classes-hint">
-        {canEdit
-          ? "수업은 삭제하지 않고 적용일 기준으로 변경하거나 종료합니다. 과거 수업과 급여 기록은 그대로 유지됩니다."
-          : "담당 기관의 정규·방과후·어린이집·보조 주간 수업을 조회합니다."}
+        {lockedInstitutionId
+          ? "수업등록/변경과 같은 현재 수업을 요일·시간 순으로 보여줍니다. 종료·변경 예정은 아래 상태로 볼 수 있습니다."
+          : canEdit
+            ? "수업은 삭제하지 않고 적용일 기준으로 변경하거나 종료합니다. 과거 수업과 급여 기록은 그대로 유지됩니다."
+            : "담당 기관의 정규·방과후·어린이집·보조 주간 수업을 조회합니다."}
       </p>
 
       {loading ? (
@@ -640,7 +733,7 @@ export default function RegularClassesManagePanel({ me }) {
               <div className="sch-regular-classes-table-head" aria-hidden="true">
                 <span>시간</span>
                 <span>유형</span>
-                <span>기관</span>
+                {hideInstitutionColumn ? null : <span>기관</span>}
                 <span>반(연령)</span>
                 <span>선생님</span>
                 <span>적용 기간</span>
@@ -673,8 +766,20 @@ export default function RegularClassesManagePanel({ me }) {
                   <span className={`sch-regular-classes-type sch-regular-classes-type--${classTypeTone(resolveInstitutionSlotPayType(slot))}`}>
                     {classTypeLabel(resolveInstitutionSlotPayType(slot))}
                   </span>
-                  <span className="sch-regular-classes-inst">{instName}</span>
-                  <span className="sch-regular-classes-class-label">{slot.label || "—"}</span>
+                  {hideInstitutionColumn ? null : (
+                    <span
+                      className={`sch-regular-classes-inst${onOpenInstitution ? " sch-regular-classes-inst--link" : ""}`}
+                      onClick={onOpenInstitution ? (e) => {
+                        e.stopPropagation();
+                        onOpenInstitution(slot.institution_id);
+                      } : undefined}
+                    >
+                      {instName}
+                    </span>
+                  )}
+                  <span className="sch-regular-classes-class-label">
+                    {classGroupFromStoredLabel(slot.label) || "—"}
+                  </span>
                   <span className="sch-regular-classes-teacher">{teacherName}</span>
                   <span className="sch-regular-classes-range">
                     {formatDateShort(slot.effective_from)} ~ {slot.effective_to ? formatDateShort(slot.effective_to) : "계속"}
@@ -785,7 +890,7 @@ export default function RegularClassesManagePanel({ me }) {
 
             <div className="sch-regular-classes-periods">
               <div className="sch-section-header-row">
-                <span className="sch-field-label">수업 시간</span>
+                <span className="sch-field-label">수업 시간 · 반(연령)</span>
                 <button
                   type="button"
                   className="sch-btn sch-btn--ghost sch-btn--sm"
@@ -827,6 +932,19 @@ export default function RegularClassesManagePanel({ me }) {
                       )),
                     }))}
                   />
+                  <input
+                    type="text"
+                    className="sch-input sch-regular-classes-class-group"
+                    placeholder="반(연령) 예: 만 5세"
+                    aria-label="반(연령)"
+                    value={p.label}
+                    onChange={e => setCreateForm(f => ({
+                      ...f,
+                      periods: f.periods.map((row, i) => (
+                        i === idx ? { ...row, label: e.target.value } : row
+                      )),
+                    }))}
+                  />
                   <span className="sch-regular-classes-period-mins">
                     총 {minutesBetween(p.start_time, p.end_time)}분
                   </span>
@@ -848,16 +966,20 @@ export default function RegularClassesManagePanel({ me }) {
 
             <label className="sch-field">
               <span>기관</span>
-              <InstitutionSearchSelect
-                institutions={institutions}
-                value={createForm.institution_id}
-                onChange={id => setCreateForm(f => ({ ...f, institution_id: id }))}
-                required
-                allowCreate
-                creating={creatingInst}
-                onCreateInstitution={handleCreateInstitution}
-                placeholder="기관명 검색 또는 새 기관 입력"
-              />
+              {lockedInstitutionId ? (
+                <input className="sch-input" value={lockedInstitutionName} readOnly />
+              ) : (
+                <InstitutionSearchSelect
+                  institutions={institutions}
+                  value={createForm.institution_id}
+                  onChange={id => setCreateForm(f => ({ ...f, institution_id: id }))}
+                  required
+                  allowCreate
+                  creating={creatingInst}
+                  onCreateInstitution={handleCreateInstitution}
+                  placeholder="기관명 검색 또는 새 기관 입력"
+                />
+              )}
             </label>
             {createForm.institution_id ? (
               <button
@@ -943,15 +1065,23 @@ export default function RegularClassesManagePanel({ me }) {
             <p className="sch-muted">총 {minutesBetween(editForm.start_time, editForm.end_time)}분</p>
             <label className="sch-field">
               <span>기관</span>
-              <InstitutionSearchSelect
-                institutions={institutions}
-                value={editForm.institution_id}
-                onChange={id => setEditForm(f => ({ ...f, institution_id: id }))}
-                required
-                allowCreate
-                creating={creatingInst}
-                onCreateInstitution={handleCreateInstitution}
-              />
+              {lockedInstitutionId ? (
+                <input
+                  className="sch-input"
+                  value={institutionMap.get(editForm.institution_id)?.name || lockedInstitutionName}
+                  readOnly
+                />
+              ) : (
+                <InstitutionSearchSelect
+                  institutions={institutions}
+                  value={editForm.institution_id}
+                  onChange={id => setEditForm(f => ({ ...f, institution_id: id }))}
+                  required
+                  allowCreate
+                  creating={creatingInst}
+                  onCreateInstitution={handleCreateInstitution}
+                />
+              )}
             </label>
             <label className="sch-field">
               <span>수업 유형</span>
@@ -967,6 +1097,16 @@ export default function RegularClassesManagePanel({ me }) {
                   </button>
                 ))}
               </div>
+            </label>
+            <label className="sch-field">
+              <span>반(연령)</span>
+              <input
+                type="text"
+                className="sch-input"
+                placeholder="예: 만 5세, 해바라기반"
+                value={editForm.class_group}
+                onChange={e => setEditForm(f => ({ ...f, class_group: e.target.value }))}
+              />
             </label>
             <div className="sch-time-row">
               <label className="sch-field">

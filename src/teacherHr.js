@@ -6,6 +6,7 @@ function userMessageForAction(action) {
   if (action === "upsert_settlement") return USER_SAVE_ERROR;
   if (action === "get_settlement") return USER_LOAD_ERROR;
   if (action === "reveal_settlement") return "정산정보를 확인할 수 없습니다. 잠시 후 다시 시도해주세요.";
+  if (action === "preview_contract" || action === "preview_contract_document") return "계약서 PDF 미리보기를 만들지 못했습니다. 다시 시도해 주세요.";
   if (action === "issue_contract") return "계약서를 발행하지 못했습니다. 잠시 후 다시 시도해주세요.";
   if (action === "cancel_pending_contract") return "계약서 발행을 취소하지 못했습니다.";
   if (action === "get_contract_issue_context") return "계약 정보를 불러오지 못했습니다.";
@@ -103,9 +104,10 @@ export async function createContractPdfUrl(supabase, path) {
   if (!path) return null;
   const { data, error } = await supabase.storage
     .from("teacher-contracts")
-    .createSignedUrl(path, 60 * 60);
+    .download(path);
   if (error) throw error;
-  return data?.signedUrl || null;
+  if (!data) throw new Error("계약서를 불러오지 못했습니다.");
+  return URL.createObjectURL(data);
 }
 
 export function signedContractPdfPath(row) {

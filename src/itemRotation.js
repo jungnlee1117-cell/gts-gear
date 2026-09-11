@@ -268,14 +268,13 @@ function toYmd(date) {
   return `${y}-${m}-${d}`;
 }
 
-/** 오늘(또는 지정일)이 속한 주 — 월요일 00:00 ~ 일요일 (날짜만) */
+/** 오늘(또는 지정일)이 속한 주 — 일요일 00:00 ~ 토요일 (날짜만) */
 export function getCalendarWeekRange(date = new Date()) {
   const d = parseLocalDay(date instanceof Date ? toYmd(date) : date) || new Date();
   d.setHours(0, 0, 0, 0);
   const dow = d.getDay();
-  const diff = dow === 0 ? -6 : 1 - dow;
   const monday = new Date(d);
-  monday.setDate(d.getDate() + diff);
+  monday.setDate(d.getDate() - dow);
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   return {

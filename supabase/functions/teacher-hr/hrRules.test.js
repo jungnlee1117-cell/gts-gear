@@ -292,7 +292,9 @@ describe("GTS contract rates and template", () => {
     assert.equal(body.includes("1234567"), false);
     assert.equal(JSON.stringify(doc.placeholders).includes("1234567"), false);
     const signText = doc.signatureBlock.lines.join("\n");
-    assert.match(signText, /^갑$/m);
+    assert.doesNotMatch(signText, /^(갑|을)$/m);
+    assert.doesNotMatch(signText, /서명일시/);
+    assert.match(body, /위 계약 내용을 충분히 확인하고 이에 동의/);
     assert.match(signText, /회사명: 지티에스/);
     assert.match(signText, /대표자: 정형신/);
     assert.match(signText, /900101-\*\*\*\*\*\*\*/);

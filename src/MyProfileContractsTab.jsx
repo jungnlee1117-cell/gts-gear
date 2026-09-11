@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { FileText, PenLine, Plus, Upload, X } from "lucide-react";
+import ContractPdfActions from "./ContractPdfActions.jsx";
 import SignaturePad from "./SignaturePad.jsx";
 import ContractIssueModal from "./ContractIssueModal.jsx";
 import { createContractPdfUrl, invokeTeacherHr, sha256HexOfFile, signedContractPdfPath, TeacherHrError } from "./teacherHr.js";
-import { formatDotDate, formatRateLine } from "../supabase/functions/teacher-hr/contractTemplate.js";
+import { formatDotDate, formatRateLine } from "../supabase/functions/teacher-hr/contractFields.js";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -93,7 +94,11 @@ export default function MyProfileContractsTab({
     return undefined;
   }, [teacherId]);
 
-  const visibleRows = canUpload ? rows : rows.filter((row) => row.status === "서명대기");
+  useEffect(() => () => { if (viewer?.url?.startsWith("blob:")) URL.revokeObjectURL(viewer.url); }, [viewer]);
+
+  useEffect(() => () => { if (signing?.url?.startsWith("blob:")) URL.revokeObjectURL(signing.url); }, [signing]);
+
+  const visibleRows = rows;
 
   const openPdf = async (row, kind = "auto") => {
     const signedPath = row.signed_pdf_path || row.signed_pdf_url;
@@ -164,6 +169,7 @@ export default function MyProfileContractsTab({
   };
 
   const startSign = async (row) => {
+    if (!canSign || row.status !== "서명대기") return;
     try {
       const url = await createContractPdfUrl(supabase, row.original_pdf_path);
       setSigning({ ...row, url });
@@ -190,7 +196,7 @@ export default function MyProfileContractsTab({
   };
 
   const submitSign = async () => {
-    if (!signing) return;
+    if (!signing || !canSign) return;
     if (!agreed) return alert("계약 내용을 확인하고 전자서명에 동의해 주세요.");
     if (!signature) return alert("서명을 입력해 주세요.");
     setSavingSign(true);
@@ -226,7 +232,7 @@ export default function MyProfileContractsTab({
       <p className="my-profile-hint" style={{ marginTop: 0 }}>
         {canUpload
           ? "서명 완료된 계약서는 수정할 수 없습니다. 내용이 바뀌면 발행 취소(서명 대기만) 또는 새 계약서를 발행하세요."
-          : "계약 내용을 모두 확인한 뒤 전자서명해 주세요. 서명이 끝나면 이 탭은 닫힙니다."}
+          : "계약 내용을 모두 확인한 뒤 전자서명해 주세요. 서명 후에도 이곳에서 계약서를 다시 확인할 수 있습니다."}
       </p>
 
       {canUpload ? (
@@ -275,7 +281,7 @@ export default function MyProfileContractsTab({
       {loading ? (
         <p className="my-profile-muted">계약서 불러오는 중...</p>
       ) : visibleRows.length === 0 ? (
-        <p className="my-profile-muted">{canUpload ? "계약 없음" : "서명할 계약서가 없습니다."}</p>
+        <p className="my-profile-muted">{canUpload ? "계약 없음" : "등록된 계약서가 없습니다."}</p>
       ) : canUpload ? (
         <div className="my-profile-contract-list">
           {visibleRows.map((row) => {
@@ -337,16 +343,19 @@ export default function MyProfileContractsTab({
             <div key={row.id} className="my-profile-pending-contract">
               <div className="my-profile-pending-contract-head">
                 <div className="my-profile-contract-title">GTS 교육용역 위탁 계약서</div>
-                <span className="my-profile-status my-profile-status--wait">서명 필요</span>
+                <span className={`my-profile-status my-profile-status--${row.status === "서명완료" ? "done" : "wait"}`}>{row.status === "서명완료" ? "서명 완료" : "서명 필요"}</span>
               </div>
               <div className="my-profile-pending-period-label">계약기간</div>
               <div className="my-profile-pending-period">
                 {formatDotDate(row.start_date)} ~ {formatDotDate(row.end_date)}
               </div>
               <div className="my-profile-contract-actions">
-                <button type="button" className="my-profile-save" onClick={() => startSign(row)}>
-                  <PenLine size={14}/> 계약서 확인
-                </button>
+                {row.status === "서명완료" ? (
+                  <button type="button" className="my-profile-save" onClick={() => openPdf(row, "signed")}><FileText size={14}/> 서명한 계약서 보기</button>
+                ) : canSign ? (
+                  <button type="button" className="my-profile-save" onClick={() => startSign(row)}><PenLine size={14}/> 계약서 확인 · 서명</button>
+                ) : null}
+                <button type="button" className="my-profile-btn-ghost" onClick={() => openPdf(row, "original")}><FileText size={14}/> 원본 보기</button>
               </div>
             </div>
           ))}
@@ -376,7 +385,7 @@ export default function MyProfileContractsTab({
             <div className="sch-modal-head">
               <h3>{viewer.title} · {viewer.label}</h3>
               <div className="my-profile-contract-actions">
-                <a className="my-profile-btn-ghost" href={viewer.url} target="_blank" rel="noreferrer">새 탭</a>
+                <ContractPdfActions url={viewer.url} filename={`${teacherName || "GTS"}_${viewer.label}_계약서.pdf`} />
                 <button type="button" className="sch-icon-btn" onClick={() => setViewer(null)}>닫기</button>
               </div>
             </div>

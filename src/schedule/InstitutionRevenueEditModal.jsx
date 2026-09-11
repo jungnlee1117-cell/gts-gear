@@ -3,6 +3,11 @@ import { formatWon } from "./constants.js";
 import { bulkSaveMonthlyRevenue, upsertInstitution } from "./api.js";
 import { previousYearMonth } from "./monthlyBilling.js";
 import { previewPerCapitaRevenueFromDraft, previewPerSessionRevenueFromDraft } from "./institutionRevenueDisplay.js";
+import {
+  HQ_MANAGER_LABEL,
+  isHeadquartersManager,
+  regionalManagerOptions,
+} from "./managerScope.js";
 
 export default function InstitutionRevenueEditModal({
   institution,
@@ -16,7 +21,10 @@ export default function InstitutionRevenueEditModal({
   onSaved,
 }) {
   const [draft, setDraft] = useState(initialDraft);
-  const [managerId, setManagerId] = useState(institution.manager_id || "");
+  const [managerId, setManagerId] = useState(() => {
+    const current = teachers.find(t => t.id === institution.manager_id);
+    return isHeadquartersManager(current) ? "" : (institution.manager_id || "");
+  });
   const [saving, setSaving] = useState(false);
 
   const preview = useMemo(() => {
@@ -83,8 +91,8 @@ export default function InstitutionRevenueEditModal({
               value={managerId}
               onChange={e => setManagerId(e.target.value)}
             >
-              <option value="">선택</option>
-              {teachers.map(t => (
+              <option value="">{HQ_MANAGER_LABEL}</option>
+              {regionalManagerOptions(teachers).map(t => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>

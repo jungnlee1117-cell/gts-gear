@@ -380,6 +380,113 @@ export function uniqueCalendarMarkersForDate(planned) {
   return markers;
 }
 
+/** 선생님 월간 시간표 — 예정 수업을 급여 달력과 같은 "원 유형 N분" 줄로 */
+export function buildScheduleCalendarDayLines(planned = []) {
+  /** @type {Map<string, { key: string, name: string, payType: string, minutes: number, sort: string, label?: string, sublabel?: string, colorId: string, colorKind: string }>} */
+  const groups = new Map();
+
+  const addLine = ({
+    groupKey,
+    name,
+    payType,
+    minutes,
+    sort,
+    colorId,
+    colorKind,
+    label,
+    sublabel,
+  }) => {
+    const key = groupKey || `${name}::${payType}`;
+    const prev = groups.get(key);
+    if (prev && !label) {
+      prev.minutes += minutes;
+      return;
+    }
+    if (prev && label) return;
+    groups.set(key, {
+      key,
+      name,
+      payType,
+      minutes,
+      colorId: colorId || name,
+      colorKind: colorKind || "institution",
+      sort: sort || `${name}\0${payType}`,
+      label: label || null,
+      sublabel: sublabel || null,
+    });
+  };
+
+  for (const p of planned || []) {
+    if (p.isSubstituteCancelled) continue;
+    const minutes = Number(p.scheduledMinutes) || 0;
+    const isHome = p.source === "home_visit" || Boolean(p.patternId);
+    const isOneoff = Boolean(p.isOneoffLesson);
+    const name = isHome
+      ? (p.studentName || p.institutionName || "가정방문")
+      : (p.institutionName || "원");
+    const payType = p.payType || "";
+    const colorId = isHome
+      ? (p.patternId || name)
+      : (p.institutionId || name);
+
+    if (p.isSubstituteCover) {
+      const originalName = p.substituteLesson?.original_teacher?.name;
+      addLine({
+        groupKey: `substitute:${p.substituteLesson?.id || p.slot?.id || name}`,
+        name,
+        payType,
+        minutes,
+        colorId,
+        colorKind: isHome ? "home_visit" : "institution",
+        sort: `${p.startTime || "00:00"}\0sub\0${name}`,
+        label: `${name} 대체 ${minutes}분`,
+        sublabel: originalName ? `${originalName} 선생님 수업` : null,
+      });
+      continue;
+    }
+
+    if (isOneoff) {
+      addLine({
+        groupKey: `oneoff:${p.oneoffLesson?.id || p.slot?.id || name}`,
+        name,
+        payType,
+        minutes,
+        colorId,
+        colorKind: "oneoff",
+        sort: `${p.startTime || "00:00"}\0oneoff\0${name}`,
+        label: `${name} 일회성 ${minutes}분`,
+      });
+      continue;
+    }
+
+    addLine({
+      groupKey: isHome
+        ? `hv:${p.patternId || name}:${payType}`
+        : `inst:${p.institutionId || name}:${payType}`,
+      name,
+      payType,
+      minutes,
+      colorId,
+      colorKind: isHome ? "home_visit" : "institution",
+      sort: `${p.startTime || "99:99"}\0${name}\0${payType}`,
+    });
+  }
+
+  return [...groups.values()]
+    .sort((a, b) => a.sort.localeCompare(b.sort, "ko"))
+    .map((row) => ({
+      key: row.key,
+      name: row.name,
+      payType: row.payType,
+      minutes: row.minutes,
+      colorId: row.colorId,
+      colorKind: row.colorKind,
+      sublabel: row.sublabel || null,
+      label: row.label
+        || `${row.name} ${row.payType} ${row.minutes}분`.replace(/\s+/g, " ").trim(),
+    }));
+}
+
 export function dayConfirmState(planned, entries) {
   if (!planned.length) return "empty";
   let resolved = 0;

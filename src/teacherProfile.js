@@ -1,4 +1,4 @@
-import { isScheduleAdmin, isSuperAdmin } from "./authRoles.js";
+import { isScheduleAdmin, isSuperAdmin, SUPER_ADMIN_ID } from "./authRoles.js";
 
 export const TEACHER_CONTRACT_TYPES = ["정규직", "위탁계약", "파트타임"];
 export const TEACHER_ACTIVITY_STATUSES = ["활동중", "휴직중", "계약종료"];
@@ -9,10 +9,11 @@ export const MY_PROFILE_TABS = [
   { id: "etc", label: "기타" },
 ];
 
-export function visibleMyProfileTabs(me, { teacherId, hasPendingContract } = {}) {
-  if (isSuperAdmin(me)) return MY_PROFILE_TABS;
+export function visibleMyProfileTabs(me, { teacherId } = {}) {
+  if (canUploadTeacherContract(me)) return MY_PROFILE_TABS;
+  if (isSuperAdmin(me)) return MY_PROFILE_TABS.filter(tab => tab.id !== "contract" || me?.id === teacherId);
   const tabs = [{ id: "basic", label: "기본정보" }];
-  if (hasPendingContract && me?.id && me.id === teacherId) {
+  if (me?.id && me.id === teacherId) {
     tabs.push({ id: "contract", label: "계약" });
   }
   return tabs;
@@ -91,7 +92,11 @@ export function canRevealTeacherSettlement(me, teacherId) {
 }
 
 export function canUploadTeacherContract(me) {
-  return isSuperAdmin(me);
+  return Boolean(SUPER_ADMIN_ID && me?.id && me.id === SUPER_ADMIN_ID);
+}
+
+export function canViewTeacherContract(me, teacherId) {
+  return Boolean(me?.id && teacherId && (me.id === teacherId || canUploadTeacherContract(me)));
 }
 
 export function canViewTeacherHrStatusList(me) {

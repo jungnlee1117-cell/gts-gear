@@ -1,39 +1,47 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, Pencil, Trash2 } from "lucide-react";
 import {
-  BILLING_TYPES, CLASS_TYPES, CONTRACT_TYPES, DAY_LABELS,
-  EXCEPTION_LABELS, sortSlotsByTime,
+  BILLING_TYPES, CONTRACT_TYPES, EXCEPTION_LABELS, sortSlotsByTime,
 } from "./constants.js";
 import {
   deleteScheduleException,
-  deleteWeeklySlot,
   fetchAssignments,
   fetchInstitution,
   fetchScheduleExceptions,
   fetchTeachers,
   fetchWeeklySchedule,
   saveScheduleException,
-  saveWeeklySlot,
   upsertInstitution,
 } from "./api.js";
 import InstitutionAssignmentsTab from "./InstitutionAssignmentsTab.jsx";
 import InstitutionBillingTab from "./InstitutionBillingTab.jsx";
 import InstitutionTeacherPayTypesModal from "./InstitutionTeacherPayTypesModal.jsx";
 import InstitutionTeacherTransferModal from "./InstitutionTeacherTransferModal.jsx";
+import RegularClassesManagePanel from "./RegularClassesManagePanel.jsx";
 import { filterClassTeacherAssignments } from "./assignmentRoles.js";
 import { formatExceptionNotice } from "./scheduleExceptions.js";
 import { notifyEventScheduled } from "./pushScheduleNotification.js";
 import { isScheduleAdmin } from "./roles.js";
 import {
   canViewInstitutionRevenue,
+  formatInstitutionManagerLabel,
+  HQ_MANAGER_LABEL,
   institutionInManagerScope,
+  isHeadquartersManager,
   isScheduleSuperAdmin,
+  regionalManagerOptions,
 } from "./managerScope.js";
 
 const TABS = ["기본정보", "시간표", "계약/매출", "수업 선생님"];
 
-export default function InstitutionDetailView({ institutionId, onBack, me }) {
-  const [tab, setTab] = useState("기본정보");
+export default function InstitutionDetailView({
+  institutionId,
+  onBack,
+  me,
+  onOpenRegularClasses,
+  initialTab = "기본정보",
+}) {
+  const [tab, setTab] = useState(TABS.includes(initialTab) ? initialTab : "기본정보");
   const [inst, setInst] = useState(null);
   const [teachers, setTeachers] = useState([]);
   const [weekly, setWeekly] = useState([]);
@@ -51,8 +59,8 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
   });
   const [exSaving, setExSaving] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
+  const load = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const [i, ts, w, ex, a] = await Promise.all([
         fetchInstitution(institutionId),
@@ -69,35 +77,27 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => { load(); }, [institutionId]);
 
+  useEffect(() => {
+    if (TABS.includes(initialTab)) setTab(initialTab);
+  }, [institutionId, initialTab]);
+
   const saveInfo = async (e) => {
     e.preventDefault();
     try {
-      await upsertInstitution(inst);
+      const manager = teachers.find(t => t.id === inst.manager_id);
+      await upsertInstitution({
+        ...inst,
+        manager_id: isHeadquartersManager(manager) ? null : (inst.manager_id || null),
+      });
       alert("저장되었습니다.");
     } catch (err) {
       alert("저장 실패: " + err.message);
-    }
-  };
-
-  const addWeeklySlot = async () => {
-    try {
-      await saveWeeklySlot({
-        institution_id: institutionId,
-        day_of_week: 1,
-        class_type: "정규",
-        start_time: "09:00",
-        end_time: "10:00",
-        sort_order: weekly.length,
-      });
-      await load();
-    } catch (err) {
-      alert(err.message);
     }
   };
 
@@ -122,7 +122,7 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
         event_date: exForm.start_date,
       });
       setExForm({ start_date: "", end_date: "", note: "", exception_type: "cancelled" });
-      await load();
+      await load({ silent: true });
     } catch (err) {
       alert("저장 실패: " + err.message);
     } finally {
@@ -151,7 +151,9 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
   const canEditContract = isScheduleSuperAdmin(me);
   const canManageRoles = isScheduleAdmin(me);
   const classTeachers = filterClassTeacherAssignments(assignments);
-  const managerName = teachers.find(t => t.id === inst.manager_id)?.name || "미지정";
+  const currentManager = teachers.find(t => t.id === inst.manager_id);
+  const managerName = formatInstitutionManagerLabel(currentManager);
+  const managerSelectValue = isHeadquartersManager(currentManager) ? "" : (inst.manager_id || "");
 
   return (
     <div className="sch-view">
@@ -261,10 +263,10 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
           {canEditContract ? (
             <label className="sch-field">
               <span>담당 관리자 (고급)</span>
-              <select className="sch-select" value={inst.manager_id || ""}
+              <select className="sch-select" value={managerSelectValue}
                 onChange={e => setInst({ ...inst, manager_id: e.target.value || null })}>
-                <option value="">선택</option>
-                {admins.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                <option value="">{HQ_MANAGER_LABEL}</option>
+                {regionalManagerOptions(admins).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
               <span className="sch-muted">슈퍼관리자만. 일반 변경은 &quot;담당자 변경&quot; 버튼을 사용하세요.</span>
             </label>
@@ -312,46 +314,12 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
 
       {tab === "시간표" && (
         <div>
-          <button type="button" className="sch-btn sch-btn--ghost" onClick={addWeeklySlot}>
-            <Plus size={14}/> 슬롯 추가
-          </button>
-          <ul className="sch-slot-edit-list">
-            {weekly.map(slot => (
-              <li key={slot.id} className="sch-slot-edit-item">
-                <select value={slot.day_of_week} onChange={async e => {
-                  await saveWeeklySlot({ ...slot, day_of_week: Number(e.target.value) });
-                  load();
-                }}>
-                  {DAY_LABELS.map((d, i) => <option key={d} value={i}>{d}</option>)}
-                </select>
-                <select value={slot.class_type} onChange={async e => {
-                  await saveWeeklySlot({ ...slot, class_type: e.target.value });
-                  load();
-                }}>
-                  {CLASS_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <input type="time" value={slot.start_time?.slice(0, 5)} onChange={async e => {
-                  await saveWeeklySlot({ ...slot, start_time: e.target.value });
-                  load();
-                }}/>
-                <input type="time" value={slot.end_time?.slice(0, 5)} onChange={async e => {
-                  await saveWeeklySlot({ ...slot, end_time: e.target.value });
-                  load();
-                }}/>
-                <select value={slot.teacher_id || ""} onChange={async e => {
-                  await saveWeeklySlot({ ...slot, teacher_id: e.target.value || null });
-                  load();
-                }}>
-                  <option value="">수업 선생님</option>
-                  {teacherList.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-                <button type="button" className="sch-icon-btn" onClick={async () => {
-                  await deleteWeeklySlot(slot.id);
-                  load();
-                }}><Trash2 size={14}/></button>
-              </li>
-            ))}
-          </ul>
+          <RegularClassesManagePanel
+            me={me}
+            lockedInstitutionId={institutionId}
+            onOpenChangeAlerts={onOpenRegularClasses}
+            onSlotsChanged={() => load({ silent: true })}
+          />
 
           <h4 className="sch-subtitle">휴원/행사 안내</h4>
           <p className="sch-muted">단일 날짜 또는 기간 + 메모. 강사 캘린더 하단에 이번 달 안내로 표시됩니다.</p>
@@ -362,7 +330,7 @@ export default function InstitutionDetailView({ institutionId, onBack, me }) {
                 <button type="button" className="sch-icon-btn" onClick={async () => {
                   if (!confirm("이 안내를 삭제할까요?")) return;
                   await deleteScheduleException(ex.id);
-                  load();
+                  load({ silent: true });
                 }}><Trash2 size={14}/></button>
               </li>
             ))}

@@ -1,173 +1,30 @@
-/**
- * GTS 교육용역 위탁 계약서 템플릿.
- * 첨부 표준 계약서 제1조~제13조를 유지하고, 선생님별로 달라지는 값만 치환한다.
- */
+export * from "./contractFields.js";
+import { COMPANY_NAME, COMPANY_CEO, EDITABLE_CONTRACT_SECTIONS, contractParagraphEditKey, rateError, validateContractIssueInput, formatResidentFront, formatRateLine, formatWon, formatYmd } from "./contractFields.js";
 
-export const COMPANY_NAME = "지티에스";
-export const COMPANY_CEO = "정형신";
-
-export const RATE_UNIT_CODES = {
-  hour: { label: "시간", phrase: "시간당" },
-  session: { label: "회", phrase: "회당" },
-  day: { label: "일", phrase: "일" },
-  month: { label: "월", phrase: "월" },
-  item: { label: "건", phrase: "건당" },
-};
-
-export const RATE_UNITS = Object.keys(RATE_UNIT_CODES);
-
-export const RATE_PRESETS = [
-  { rate_type: "regular", rate_name: "정규수업", unit: "hour", core: true },
-  { rate_type: "after_school", rate_name: "방과후수업", unit: "hour", core: true },
-  { rate_type: "event", rate_name: "행사수업", unit: "session" },
-  { rate_type: "private", rate_name: "개인레슨", unit: "session" },
-  { rate_type: "center", rate_name: "센터수업", unit: "hour" },
-  { rate_type: "assistant", rate_name: "보조수업", unit: "hour" },
-  { rate_type: "transportation", rate_name: "교통비", unit: "day" },
-  { rate_type: "custom", rate_name: "기타", unit: "item", customName: true },
-];
-
-export const RATE_TYPE_SET = new Set(RATE_PRESETS.map((p) => p.rate_type));
-
-export function defaultCoreRates() {
-  return RATE_PRESETS.filter((p) => p.core).map((p) => ({
-    rate_type: p.rate_type,
-    rate_name: p.rate_name,
-    amount: "",
-    unit: p.unit,
-  }));
-}
-
-export function toUnitCode(unit) {
-  const raw = String(unit || "").trim();
-  if (RATE_UNIT_CODES[raw]) return raw;
-  const found = Object.entries(RATE_UNIT_CODES).find(([, meta]) => meta.label === raw);
-  return found ? found[0] : "";
-}
-
-export function unitLabel(unit) {
-  return RATE_UNIT_CODES[toUnitCode(unit)]?.label || unit || "";
-}
-
-export function unitPhrase(unit) {
-  return RATE_UNIT_CODES[toUnitCode(unit)]?.phrase || unit || "";
-}
-
-export function formatWon(amount) {
-  const n = Number(amount);
-  if (!Number.isFinite(n)) return "0";
-  return Math.round(n).toLocaleString("ko-KR");
-}
-
-export function formatYmd(value) {
-  const raw = String(value || "").slice(0, 10);
-  const [y, m, d] = raw.split("-");
-  if (!y || !m || !d) return raw || "미정";
-  return `${y}년 ${Number(m)}월 ${Number(d)}일`;
-}
-
-export function formatDotDate(value) {
-  const raw = String(value || "").slice(0, 10);
-  const [y, m, d] = raw.split("-");
-  if (!y || !m || !d) return raw || "—";
-  return `${y}.${m}.${d}`;
-}
-
-export function formatResidentFront(front) {
-  const d = String(front || "").replace(/\D/g, "").slice(0, 6);
-  if (d.length !== 6) return "미등록";
-  return `${d}-*******`;
-}
-
-export function formatRateLine(rate) {
-  return `${rate.rate_name}: ${unitPhrase(rate.unit)} ${formatWon(rate.amount)}원`;
-}
-
-export function parseAmount(raw) {
-  const n = Number(String(raw ?? "").replace(/[^\d]/g, ""));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.round(n);
-}
-
-function rateError(message, field = "rates") {
-  const err = new Error(message);
-  err.code = "VALIDATION_ERROR";
-  err.field = field;
-  return err;
-}
-
-export function normalizeContractRates(input) {
-  const list = Array.isArray(input) ? input : [];
-  const out = [];
-  for (let i = 0; i < list.length; i += 1) {
-    const row = list[i] || {};
-    const preset = RATE_PRESETS.find((p) => p.rate_type === row.rate_type);
-    const rateType = String(row.rate_type || "").trim();
-    if (!RATE_TYPE_SET.has(rateType)) throw rateError("급여 항목 종류가 올바르지 않습니다.");
-    const unit = toUnitCode(row.unit || preset?.unit);
-    if (!unit) throw rateError("급여 단위가 올바르지 않습니다.");
-    const amount = parseAmount(row.amount);
-    if (amount == null) {
-      if (preset?.core) throw rateError(`${preset.rate_name} 금액을 입력해 주세요.`);
-      continue;
+function applySectionEdits(sections, edits) {
+  if (edits == null) return sections;
+  if (typeof edits !== "object" || Array.isArray(edits)) throw rateError("수정한 계약 내용을 확인해 주세요.", "section_edits");
+  const paragraphTargets = sections.flatMap((section, si) => section.paragraphs.map((text, pi) => ({ si, pi, key: contractParagraphEditKey(si, pi, text) })));
+  let total = 0;
+  for (const [key, value] of Object.entries(edits)) {
+    const index = Number(key);
+    const paragraphTarget = paragraphTargets.find(item => item.key === key);
+    if ((!paragraphTarget && (String(index) !== key || !EDITABLE_CONTRACT_SECTIONS.includes(index))) || typeof value !== "string") {
+      throw rateError("이 항목은 계약정보 입력 화면에서 수정해 주세요.", "section_edits");
     }
-    if (preset?.core) {
-      out.push({
-        rate_type: rateType,
-        rate_name: preset.rate_name,
-        amount,
-        unit: "hour",
-        sort_order: out.length,
-      });
-      continue;
+    const text = value.trim();
+    total += text.length;
+    if (!text || text.length > 6000 || total > 30000 || /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(text)) {
+      throw rateError("각 조항은 1~6,000자, 전체 수정 내용은 30,000자 이내로 입력해 주세요.", "section_edits");
     }
-    let rateName = String(row.rate_name || preset?.rate_name || "").trim();
-    if (rateType === "custom") {
-      if (!rateName || rateName === "기타") throw rateError("기타 항목 이름을 입력해 주세요.");
-    } else if (!rateName) {
-      rateName = preset?.rate_name || rateType;
+    if (paragraphTarget) {
+      const section = sections[paragraphTarget.si];
+      section.paragraphs[paragraphTarget.pi] = text;
+    } else {
+      sections[index] = { ...sections[index], paragraphs: text.split(/\n+/).filter(Boolean) };
     }
-    out.push({
-      rate_type: rateType,
-      rate_name: rateName,
-      amount,
-      unit,
-      sort_order: out.length,
-    });
   }
-  if (!out.some((r) => r.rate_type === "regular")) {
-    throw rateError("정규수업 금액을 입력해 주세요.");
-  }
-  if (!out.some((r) => r.rate_type === "after_school")) {
-    throw rateError("방과후수업 금액을 입력해 주세요.");
-  }
-  return out;
-}
-
-export function validateContractIssueInput(input = {}) {
-  const teacherName = String(input.teacherName || "").trim();
-  const teacherPhone = String(input.teacherPhone || "").trim();
-  const residentFront = String(input.residentFront || "").replace(/\D/g, "").slice(0, 6);
-  const contractType = String(input.contractType || "위탁계약").trim() || "위탁계약";
-  const startDate = String(input.startDate || "").slice(0, 10);
-  const endDate = String(input.endDate || "").slice(0, 10);
-  const contractDate = String(input.contractDate || input.startDate || "").slice(0, 10);
-  if (!teacherName) throw rateError("선생님 이름이 필요합니다.", "teacher_name");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) throw rateError("계약 시작일을 입력해 주세요.", "start_date");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) throw rateError("계약 종료일을 입력해 주세요.", "end_date");
-  if (endDate < startDate) throw rateError("계약 종료일은 시작일 이후여야 합니다.", "end_date");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(contractDate)) throw rateError("계약일을 입력해 주세요.", "contract_date");
-  const rates = normalizeContractRates(input.rates);
-  return {
-    teacherName,
-    teacherPhone,
-    residentFront: residentFront.length === 6 ? residentFront : "",
-    contractType,
-    startDate,
-    endDate,
-    contractDate,
-    rates,
-  };
+  return sections;
 }
 
 export function buildContractDocument(input) {
@@ -195,7 +52,7 @@ export function buildContractDocument(input) {
   const amountParagraphs = [
     "1. ‘갑’은 ‘을’이 수행한 교육 용역에 대하여 수업 횟수 및 단가 기준으로 산정된 정산금을 지급한다.",
     "2. 수업료는 다음 단가 기준으로 진행한다.",
-    `정규수업: 시간당 ${placeholders.regular_rate}원`,
+    ...(regular ? [`정규수업: 시간당 ${placeholders.regular_rate}원`] : []),
     `방과후수업: 시간당 ${placeholders.after_school_rate}원`,
     ...(additionalLines.length ? ["추가 지급 기준", ...additionalLines] : []),
     "3. 정산금은 근로의 대가가 아닌 교육용역 수행 결과에 대한 보수로 한다.",
@@ -310,27 +167,28 @@ export function buildContractDocument(input) {
       paragraphs: [
         "‘을'의 업무 장소와 일정은 '갑'과 합의된 내용을 기준으로 하며, 장소 및 일정은 매월 초 서면 또는 전자 문서(이메일, 카카오톡 등)를 통해 '을'에게 공지된다.",
         "업무 장소 변경 또는 일정 조정이 필요할 경우, '갑'과 '을'은 상호 협의하여 조율한다.",
-        "각 당사자는 위 계약을 증명하기 위하여 본 계약서 2통을 작성하여, 각각 서명(또는 기명)날인 후 “갑“과 “을“이 각각 1통씩을 보관한다.",
       ],
     },
   ];
+
+  sections.push({
+    heading: "계약 내용 확인",
+    paragraphs: ["본 계약의 당사자는 위 계약 내용을 충분히 확인하고 이에 동의하여 서명 또는 날인한다.", "체결된 계약서는 각 당사자가 전자문서로 보관한다."],
+  });
 
   const signatureBlock = {
     heading: "서명란",
     lines: [
       `계약일자 : ${placeholders.contract_date}`,
       "",
-      "갑",
       `회사명: ${COMPANY_NAME}`,
       `대표자: ${COMPANY_CEO}`,
       "대표자 서명: (인)",
       "",
-      "을",
       `성명: ${placeholders.teacher_name}`,
       `주민등록번호: ${placeholders.resident_number_front}`,
       `연락처: ${placeholders.teacher_phone}`,
       "전자서명: (서명 대기)",
-      "서명일시: ",
     ],
   };
 
@@ -339,22 +197,9 @@ export function buildContractDocument(input) {
     title: "교육용역 위탁 계약서",
     placeholders,
     additionalLines,
-    sections,
+    sections: applySectionEdits(sections, input.sectionEdits),
     signatureBlock,
     fileTitle: `교육용역 위탁 계약서 (${parsed.startDate} ~ ${parsed.endDate})`,
   };
 }
 
-export function formatSignedAtKst(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const pick = (type) => parts.find((p) => p.type === type)?.value || "";
-  return `${pick("year")}-${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}`;
-}

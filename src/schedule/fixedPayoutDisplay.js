@@ -1,3 +1,5 @@
+import { institutionManagerGroupKey, isHeadquartersManagedInstitution } from "./managerScope.js";
+
 export const FIXED_PAYOUT_SLICE = {
   manager: "manager",
   gts: "gts",
@@ -27,14 +29,17 @@ export function rowDisplayManagerId(row) {
 }
 
 /** 고정지급 원 → 담당자 그룹(고정액) + 본사 그룹(GTS 몫) 두 행 */
-export function expandFixedPayoutDashboardRows(rows, managerFilter = "all") {
+export function expandFixedPayoutDashboardRows(rows, managerFilter = "all", managerMap = {}) {
   const result = [];
   for (const row of rows) {
+    const displayManagerId = isHeadquartersManagedInstitution(row.institution, managerMap)
+      ? null
+      : (row.institution.manager_id ?? null);
     if (!isManagerFixedPayout(row.institution)) {
       result.push({
         ...row,
         displayKey: row.institution.id,
-        displayManagerId: row.institution.manager_id ?? null,
+        displayManagerId,
         displaySlice: null,
       });
       continue;
@@ -44,7 +49,7 @@ export function expandFixedPayoutDashboardRows(rows, managerFilter = "all") {
       result.push({
         ...row,
         displayKey: `${id}:${FIXED_PAYOUT_SLICE.manager}`,
-        displayManagerId: row.institution.manager_id ?? null,
+        displayManagerId,
         displaySlice: FIXED_PAYOUT_SLICE.manager,
       });
     }
@@ -64,7 +69,8 @@ export function filterInstitutionRowsForManager(rows, managerFilter, ids) {
   return rows.filter(row => {
     if (managerFilter === "all") return true;
     if (managerFilter === "hq") {
-      return !row.institution.manager_id || isManagerFixedPayout(row.institution);
+      return isHeadquartersManagedInstitution(row.institution, ids?.managerMap)
+        || isManagerFixedPayout(row.institution);
     }
     if (managerFilter === "yang") return row.institution.manager_id === ids.yangId;
     if (managerFilter === "oh") return row.institution.manager_id === ids.ohId;
@@ -75,7 +81,7 @@ export function filterInstitutionRowsForManager(rows, managerFilter, ids) {
   });
 }
 
-export function expandFixedPayoutSettlements(settlements) {
+export function expandFixedPayoutSettlements(settlements, managerMap = {}) {
   const regular = new Map();
   const partner = [];
   for (const s of settlements) {
@@ -84,8 +90,8 @@ export function expandFixedPayoutSettlements(settlements) {
       continue;
     }
     const inst = s.institutions;
+    const mgrId = institutionManagerGroupKey(inst, managerMap);
     if (isManagerFixedPayout(inst)) {
-      const mgrId = inst.manager_id || "none";
       if (!regular.has(mgrId)) regular.set(mgrId, []);
       regular.get(mgrId).push({
         ...s,
@@ -100,7 +106,6 @@ export function expandFixedPayoutSettlements(settlements) {
       });
       continue;
     }
-    const mgrId = inst?.manager_id || "none";
     if (!regular.has(mgrId)) regular.set(mgrId, []);
     regular.get(mgrId).push({
       ...s,

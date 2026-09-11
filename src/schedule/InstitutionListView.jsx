@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Plus } from "lucide-react";
+import { ChevronLeft, Plus, Search } from "lucide-react";
 import { BILLING_TYPES, CONTRACT_TYPES, formatWon, yearMonthKey } from "./constants.js";
 import {
   bulkApplyPreviousMonthContracts,
@@ -28,7 +28,10 @@ import { isManagerFixedPayout } from "./fixedPayoutDisplay.js";
 import {
   canViewInstitutionRevenue,
   filterInstitutionsForManagerScope,
+  formatInstitutionManagerLabel,
+  HQ_MANAGER_LABEL,
   isScheduleSuperAdmin,
+  regionalManagerOptions,
 } from "./managerScope.js";
 import { isScheduleAdmin } from "./roles.js";
 
@@ -43,6 +46,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
   const [loading, setLoading] = useState(true);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [yearMonth, setYearMonth] = useState(yearMonthKey());
+  const [query, setQuery] = useState("");
   const [selectedBulkIds, setSelectedBulkIds] = useState(() => new Set());
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -161,7 +165,23 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
     }
   };
 
-  const managerName = (id) => teachers.find(t => t.id === id)?.name || "—";
+  const managerName = (id) => {
+    if (!id) return HQ_MANAGER_LABEL;
+    return formatInstitutionManagerLabel(teachers.find(t => t.id === id));
+  };
+
+  const visibleRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((inst) => {
+      const manager = teachers.find(t => t.id === inst.manager_id);
+      const managerLabel = formatInstitutionManagerLabel(manager).toLowerCase();
+      const rawManager = String(manager?.name || "").toLowerCase();
+      return String(inst.name || "").toLowerCase().includes(q)
+        || managerLabel.includes(q)
+        || rawManager.includes(q);
+    });
+  }, [rows, query, teachers]);
 
   const revenueLabel = (inst) => {
     if (!canViewInstitutionRevenue(me, inst) && isManagerFixedPayout(inst)) {
@@ -266,6 +286,22 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
         </div>
       ) : null}
 
+      <div className="sch-toolbar sch-toolbar--inst-search">
+        <div className="sch-search-inline">
+          <Search size={15} aria-hidden />
+          <input
+            className="sch-input"
+            placeholder="원 이름 또는 담당 관리자 검색"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            aria-label="원 검색"
+          />
+        </div>
+        {query.trim() ? (
+          <p className="sch-muted">{visibleRows.length}곳</p>
+        ) : null}
+      </div>
+
       {loading ? <p className="sch-muted">불러오는 중...</p> : (
         <div className="sch-table-wrap">
           <table className="sch-table">
@@ -292,7 +328,13 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
               </tr>
             </thead>
             <tbody>
-              {rows.map(inst => {
+              {visibleRows.length === 0 ? (
+                <tr>
+                  <td colSpan={admin ? (superAdmin ? 8 : 7) : 6} className="sch-muted">
+                    {query.trim() ? "검색 결과가 없습니다." : "등록된 원이 없습니다."}
+                  </td>
+                </tr>
+              ) : visibleRows.map(inst => {
                 const label = revenueLabel(inst);
                 const pending = isInstitutionRevenuePending({
                   institution: inst,
@@ -400,8 +442,8 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
               <label className="sch-field"><span>담당 관리자</span>
                 <select className="sch-select" value={form.manager_id}
                   onChange={e => setForm(f => ({ ...f, manager_id: e.target.value }))}>
-                  <option value="">선택</option>
-                  {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  <option value="">{HQ_MANAGER_LABEL}</option>
+                  {regionalManagerOptions(teachers).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </label>
               <label className="sch-field"><span>계약유형</span>

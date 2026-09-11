@@ -50,9 +50,18 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
     return defaultScheduleView(admin);
   });
   const [detailId, setDetailId] = useState(null);
+  const [detailTab, setDetailTab] = useState("기본정보");
+  const [scheduleFocusInstitutionId, setScheduleFocusInstitutionId] = useState("");
 
-  const setView = useCallback((next) => {
+  const setView = useCallback((next, extras = {}) => {
     setViewState(next);
+    if (next === "change-alerts" && extras.institution) {
+      setScheduleFocusInstitutionId(extras.institution);
+    } else if (next !== "change-alerts") {
+      setScheduleFocusInstitutionId("");
+    } else if (!extras.keepInstitution) {
+      setScheduleFocusInstitutionId("");
+    }
     setSearchParams((prev) => {
       const params = new URLSearchParams(prev);
       const defaultView = defaultScheduleView(admin);
@@ -98,6 +107,7 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
     if (admin) {
       setView("hub");
       setDetailId(null);
+      setScheduleFocusInstitutionId("");
     } else {
       onBack?.();
     }
@@ -125,14 +135,30 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
       case "events":
         return <EventsScheduleView me={me} onBack={goHub}/>;
       case "change-alerts":
-        return <ScheduleChangeAlertsView me={me} onBack={goHub}/>;
+        return (
+          <ScheduleChangeAlertsView
+            me={me}
+            onBack={goHub}
+            initialTab={scheduleFocusInstitutionId ? "regular" : undefined}
+            initialInstitutionId={scheduleFocusInstitutionId}
+            onOpenInstitution={id => {
+              setDetailId(id);
+              setDetailTab("시간표");
+              setView("institution-detail", { keepInstitution: true });
+            }}
+          />
+        );
       case "payroll":
         return admin
           ? (
             <PayrollAdminView
               me={me}
               onBack={goHub}
-              onOpenInstitution={id => { setDetailId(id); setView("institution-detail"); }}
+              onOpenInstitution={id => {
+                setDetailId(id);
+                setDetailTab("기본정보");
+                setView("institution-detail");
+              }}
               onOpenSettlement={() => setView("settlement")}
               onOpenPayRates={() => setView("pay-rates")}
               onOpenTemporaryTeachers={() => setView("temporary-teachers")}
@@ -172,7 +198,11 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
           <InstitutionListView
             me={me}
             onBack={goHub}
-            onOpenDetail={id => { setDetailId(id); setView("institution-detail"); }}
+            onOpenDetail={id => {
+              setDetailId(id);
+              setDetailTab("기본정보");
+              setView("institution-detail");
+            }}
             onOpenBulkRevenue={() => setView("institution-bulk-revenue")}
           />
         );
@@ -195,7 +225,11 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
           <InstitutionDetailView
             me={me}
             institutionId={detailId}
+            initialTab={detailTab}
             onBack={() => { setDetailId(null); setView(admin ? "institutions" : "payroll"); }}
+            onOpenRegularClasses={() => {
+              setView("change-alerts", { institution: detailId });
+            }}
           />
         );
       default:

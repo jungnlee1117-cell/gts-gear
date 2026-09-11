@@ -3,6 +3,46 @@ import { isScheduleAdmin } from "./roles.js";
 /** 슈퍼관리자 — 27개 원 전체 */
 export const isScheduleSuperAdmin = (me) => me?.role === "superadmin";
 
+export const HQ_MANAGER_LABEL = "본사";
+const HQ_MANAGER_NAMES = new Set(["정티쳐", "정티처"]);
+
+function normalizeManagerName(name) {
+  return String(name || "").replace(/\s/g, "");
+}
+
+/** 담당자 없음·슈퍼관리자·정티쳐는 본사 */
+export function isHeadquartersManager(personOrName) {
+  if (!personOrName) return true;
+  if (typeof personOrName === "string") {
+    return HQ_MANAGER_NAMES.has(normalizeManagerName(personOrName));
+  }
+  if (personOrName.role === "superadmin") return true;
+  return HQ_MANAGER_NAMES.has(normalizeManagerName(personOrName.name));
+}
+
+export function formatInstitutionManagerLabel(personOrName, fallback = HQ_MANAGER_LABEL) {
+  if (isHeadquartersManager(personOrName)) return fallback;
+  if (typeof personOrName === "string") {
+    return personOrName.trim() || fallback;
+  }
+  return String(personOrName.name || "").trim() || fallback;
+}
+
+export function regionalManagerOptions(teachers = []) {
+  return (teachers || []).filter(t => !isHeadquartersManager(t));
+}
+
+export function isHeadquartersManagedInstitution(institution, managerMap) {
+  if (!institution?.manager_id) return true;
+  return isHeadquartersManager(managerMap?.[institution.manager_id]);
+}
+
+/** 정산 그룹 키 — 본사(없음·정티쳐)는 "none" */
+export function institutionManagerGroupKey(institution, managerMap) {
+  if (isHeadquartersManagedInstitution(institution, managerMap)) return "none";
+  return institution?.manager_id || "none";
+}
+
 /** 일반 관리자(양의인·오정석 등) — manager_id 담당 원만 */
 export const isScheduleRegionalManager = (me) =>
   me?.role === "admin" && !isScheduleSuperAdmin(me);
@@ -64,7 +104,7 @@ export function filterInstitutionRowsForManagerScope(rows, managerFilter, ids, m
     if (managerFilter === "all") return true;
     if (managerFilter === "hq") {
       if (!canSeeAllInstitutions(me)) return false;
-      return !row.institution.manager_id
+      return isHeadquartersManagedInstitution(row.institution, ids?.managerMap)
         || row.institution.contract_type === "manager_fixed_payout";
     }
     if (managerFilter === "yang") return row.institution.manager_id === ids.yangId;

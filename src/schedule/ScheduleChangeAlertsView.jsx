@@ -221,10 +221,17 @@ function ChangeAlertDetail({ item }) {
   );
 }
 
-export default function ScheduleChangeAlertsView({ me, onBack, initialTab }) {
+export default function ScheduleChangeAlertsView({
+  me,
+  onBack,
+  initialTab,
+  initialInstitutionId = "",
+  onOpenInstitution,
+}) {
   const admin = isScheduleAdmin(me);
   const [tab, setTab] = useState(() => {
     if (!admin) return "regular";
+    if (initialInstitutionId) return "regular";
     return ADMIN_TABS.includes(initialTab) ? initialTab : "alerts";
   });
 
@@ -458,7 +465,12 @@ export default function ScheduleChangeAlertsView({ me, onBack, initialTab }) {
       </div>
 
       {tab === "regular" ? (
-        <RegularClassesManagePanel me={me} />
+        <RegularClassesManagePanel
+          key={initialInstitutionId || "all"}
+          me={me}
+          initialInstitutionId={initialInstitutionId}
+          onOpenInstitution={onOpenInstitution}
+        />
       ) : tab === "oneoff" && admin ? (
         <OneoffLessonRegisterPanel me={me} />
       ) : tab === "temp" && admin ? (
