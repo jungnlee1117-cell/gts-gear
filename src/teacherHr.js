@@ -9,6 +9,7 @@ function userMessageForAction(action) {
   if (action === "preview_contract" || action === "preview_contract_document") return "계약서 PDF 미리보기를 만들지 못했습니다. 다시 시도해 주세요.";
   if (action === "issue_contract") return "계약서를 발행하지 못했습니다. 잠시 후 다시 시도해주세요.";
   if (action === "cancel_pending_contract") return "계약서 발행을 취소하지 못했습니다.";
+  if (action === "delete_contract") return "계약서를 삭제하지 못했습니다.";
   if (action === "get_contract_issue_context") return "계약 정보를 불러오지 못했습니다.";
   return USER_GENERIC_ERROR;
 }

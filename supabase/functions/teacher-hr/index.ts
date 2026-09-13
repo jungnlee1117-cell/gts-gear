@@ -1,5 +1,4 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { PDFDocument, rgb, StandardFonts } from "npm:pdf-lib@1.17.1";
 import {
   assertContractMutable,
   buildHrStatusMap,
@@ -9,6 +8,7 @@ import {
   canRevealSettlement,
   maskAccountNumber,
   maskResidentId,
+  normalizeSignerName,
   publicSettlementPayload,
   requireEncryptionKey,
   requireSignAgreement,
@@ -313,46 +313,16 @@ function dataUrlToBytes(dataUrl: string) {
   return b64ToBytes(b64.replace(/\s/g, ""));
 }
 
-async function stampSignaturePdf(originalBytes: Uint8Array, signaturePng: Uint8Array, signedAtLabel: string) {
-  const pdf = await PDFDocument.load(originalBytes);
-  const png = await pdf.embedPng(signaturePng);
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const pages = pdf.getPages();
-  const last = pages[pages.length - 1];
-  const { width } = last.getSize();
-  const sigWidth = Math.min(180, width * 0.28);
-  const sigHeight = sigWidth * (png.height / png.width);
-  const x = width - sigWidth - 36;
-  const y = 36;
-  last.drawRectangle({
-    x: x - 8,
-    y: y - 8,
-    width: sigWidth + 16,
-    height: sigHeight + 28,
-    color: rgb(1, 1, 1),
-    opacity: 0.86,
-    borderColor: rgb(0.8, 0.8, 0.8),
-    borderWidth: 0.6,
-  });
-  last.drawImage(png, { x, y: y + 12, width: sigWidth, height: sigHeight });
-  last.drawText(signedAtLabel, {
-    x,
-    y,
-    size: 8,
-    font,
-    color: rgb(0.25, 0.25, 0.25),
-  });
-  return new Uint8Array(await pdf.save());
-}
-
 async function signContract(adminClient, {
   contractId,
   callerId,
+  signerName,
   signatureDataUrl,
   agreed,
 }: {
   contractId: string;
   callerId: string;
+  signerName: string;
   signatureDataUrl: string;
   agreed: boolean;
 }) {
@@ -369,6 +339,21 @@ async function signContract(adminClient, {
   assertContractMutable(contract, "update");
   if (!contract.original_pdf_path) throw new Error("원본 PDF가 없습니다.");
 
+  const { data: signerRow, error: signerErr } = await adminClient
+    .from("teachers")
+    .select("name, phone")
+    .eq("id", contract.teacher_id)
+    .maybeSingle();
+  if (signerErr) throw signerErr;
+  const registeredName = String(signerRow?.name || "").replace(/\s+/g, " ").trim();
+  const normalizedSignerName = normalizeSignerName(signerName || registeredName);
+  if (registeredName && normalizedSignerName !== registeredName) {
+    const nameError = new Error("등록된 선생님 이름과 동일하게 입력해 주세요.");
+    nameError.code = "VALIDATION_ERROR";
+    nameError.field = "signer_name";
+    throw nameError;
+  }
+
   const { data: originalFile, error: dlErr } = await adminClient.storage
     .from("teacher-contracts")
     .download(contract.original_pdf_path);
@@ -379,23 +364,23 @@ async function signContract(adminClient, {
   if (signatureBytes.length < 80) throw new Error("서명을 입력해 주세요.");
 
   const signedAt = new Date();
-  const signedLabel = `Signed ${signedAt.toISOString().slice(0, 10)}`;
   let signedBytes;
   if (contract.source === "generated") {
-    const { data: teacherRow } = await adminClient
-      .from("teachers")
-      .select("name, phone")
-      .eq("id", contract.teacher_id)
-      .maybeSingle();
     signedBytes = await appendSignedPartyPage(originalBytes, {
-      teacherName: teacherRow?.name || "",
-      teacherPhone: contract.phone_snapshot || teacherRow?.phone || "",
+      teacherName: normalizedSignerName,
+      teacherPhone: contract.phone_snapshot || signerRow?.phone || "",
       residentFront: contract.resident_id_front || "",
       signedAt: formatSignedAtKst(signedAt),
       signaturePng: signatureBytes,
     });
   } else {
-    signedBytes = await stampSignaturePdf(originalBytes, signatureBytes, signedLabel);
+    signedBytes = await appendSignedPartyPage(originalBytes, {
+      teacherName: normalizedSignerName,
+      teacherPhone: contract.phone_snapshot || signerRow?.phone || "",
+      residentFront: contract.resident_id_front || "",
+      signedAt: formatSignedAtKst(signedAt),
+      signaturePng: signatureBytes,
+    });
   }
 
   const prefix = `${contract.teacher_id}/${contract.id}`;
@@ -433,12 +418,13 @@ async function signContract(adminClient, {
       signed_pdf_hash: signedHash,
       signed_at: signedAt.toISOString(),
       signed_by: callerId,
+      signer_name: normalizedSignerName,
       agreed_at: signedAt.toISOString(),
       updated_at: signedAt.toISOString(),
     })
     .eq("id", contractId)
     .eq("status", "서명대기")
-    .select("id, teacher_id, title, contract_date, status, original_pdf_path, original_pdf_url, signed_pdf_path, signed_pdf_url, original_pdf_hash, signed_pdf_hash, signed_at, signed_by, agreed_at")
+    .select("id, teacher_id, title, contract_date, status, original_pdf_path, original_pdf_url, signed_pdf_path, signed_pdf_url, original_pdf_hash, signed_pdf_hash, signed_at, signed_by, signer_name, agreed_at")
     .single();
   if (upErr) throw upErr;
   return updated;
@@ -576,6 +562,35 @@ async function cancelPendingContract(adminClient, contractId: string) {
   return { id: contractId, cancelled: true };
 }
 
+async function deleteContract(adminClient, contractId: string) {
+  const { data: contract, error } = await adminClient
+    .from("teacher_contracts")
+    .select("id, original_pdf_path, signed_pdf_path, signature_path")
+    .eq("id", contractId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!contract) throw new Error("계약서를 찾을 수 없습니다.");
+
+  const { data: deleted, error: deleteError } = await adminClient
+    .from("teacher_contracts")
+    .delete()
+    .eq("id", contractId)
+    .select("id")
+    .single();
+  if (deleteError) throw deleteError;
+
+  const paths = [contract.original_pdf_path, contract.signed_pdf_path, contract.signature_path].filter(Boolean);
+  let filesDeleted = true;
+  if (paths.length) {
+    const { error: removeError } = await adminClient.storage
+      .from("teacher-contracts")
+      .remove(paths);
+    filesDeleted = !removeError;
+    if (removeError) console.error("[teacher-hr] contract storage cleanup failed", { contractId });
+  }
+  return { id: deleted.id, deleted: true, files_deleted: filesDeleted };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { status: 200, headers: corsHeaders });
@@ -604,7 +619,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action || "");
     const targetTeacherId = String(body.teacher_id || caller.id);
-    const contractActions = new Set(["get_contract_issue_context", "preview_contract_document", "preview_contract", "issue_contract", "cancel_pending_contract"]);
+    const contractActions = new Set(["get_contract_issue_context", "preview_contract_document", "preview_contract", "issue_contract", "cancel_pending_contract", "delete_contract"]);
     let contractOwner = false;
     if (contractActions.has(action) || action === "list_hr_status") {
       const { data: allowed, error: accessError } = await userClient.rpc("is_contract_owner");
@@ -692,10 +707,19 @@ Deno.serve(async (req) => {
       return jsonResponse({ data });
     }
 
+    if (action === "delete_contract") {
+      if (!contractOwner) {
+        return jsonError("FORBIDDEN", "계약서를 삭제할 권한이 없습니다.", 403);
+      }
+      const data = await deleteContract(adminClient, String(body.contract_id || ""));
+      return jsonResponse({ data });
+    }
+
     if (action === "sign_contract") {
       const contract = await signContract(adminClient, {
         contractId: String(body.contract_id || ""),
         callerId: caller.id,
+        signerName: String(body.signer_name || ""),
         signatureDataUrl: String(body.signature_data_url || ""),
         agreed: body.agreed === true,
       });

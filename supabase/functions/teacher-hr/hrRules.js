@@ -238,6 +238,26 @@ export function requireSignAgreement(agreed) {
   }
 }
 
+export function normalizeSignerName(value) {
+  const name = String(value || "").replace(/\s+/g, " ").trim();
+  if (name.length < 2 || name.length > 50) {
+    const error = new Error("서명자 이름을 2~50자로 입력해 주세요.");
+    error.code = "VALIDATION_ERROR";
+    error.field = "signer_name";
+    throw error;
+  }
+  if ([...name].some((char) => {
+    const code = char.charCodeAt(0);
+    return code < 32 || code === 127;
+  })) {
+    const error = new Error("서명자 이름에 사용할 수 없는 문자가 포함되어 있습니다.");
+    error.code = "VALIDATION_ERROR";
+    error.field = "signer_name";
+    throw error;
+  }
+  return name;
+}
+
 const SENSITIVE_KEY = /account_number|resident_id|signature|ciphertext|ssn|rrn|password|secret/i;
 
 export function sanitizeLogValue(value, key = "") {

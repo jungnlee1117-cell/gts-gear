@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileText, PenLine, Plus, Upload, X } from "lucide-react";
+import { FileText, PenLine, Plus, Trash2, Upload, X } from "lucide-react";
 import ContractPdfActions from "./ContractPdfActions.jsx";
 import SignaturePad from "./SignaturePad.jsx";
 import ContractIssueModal from "./ContractIssueModal.jsx";
@@ -43,12 +43,14 @@ export default function MyProfileContractsTab({
   const [uploading, setUploading] = useState(false);
   const [issuing, setIssuing] = useState(false);
   const [cancellingId, setCancellingId] = useState("");
+  const [deletingId, setDeletingId] = useState("");
   const [title, setTitle] = useState("");
   const [contractDate, setContractDate] = useState("");
   const [file, setFile] = useState(null);
   const [viewer, setViewer] = useState(null);
   const [signing, setSigning] = useState(null);
   const [signature, setSignature] = useState("");
+  const [signerName, setSignerName] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [savingSign, setSavingSign] = useState(false);
 
@@ -174,9 +176,34 @@ export default function MyProfileContractsTab({
       const url = await createContractPdfUrl(supabase, row.original_pdf_path);
       setSigning({ ...row, url });
       setSignature("");
+      setSignerName(teacherName || "");
       setAgreed(false);
     } catch (err) {
       alert(err.message || "계약서를 열 수 없습니다.");
+    }
+  };
+
+  const deleteSignedContract = async (row) => {
+    if (!canUpload || row.status !== "서명완료") return;
+    if (!window.confirm(
+      `서명 완료된 계약서 “${row.title || "GTS 교육용역 위탁 계약서"}”를 삭제하시겠습니까?\n\n원본 계약서, 서명 이미지와 서명완료 PDF가 모두 삭제되며 복구할 수 없습니다.`
+    )) return;
+    const finalText = window.prompt("최종 확인을 위해 ‘삭제’를 입력해 주세요.", "");
+    if (finalText !== "삭제") {
+      if (finalText !== null) alert("‘삭제’를 정확히 입력해야 삭제할 수 있습니다.");
+      return;
+    }
+    setDeletingId(row.id);
+    try {
+      await invokeTeacherHr(supabase, "delete_contract", { contract_id: row.id });
+      if (viewer?.id === row.id) setViewer(null);
+      await load();
+      onChanged?.();
+      alert("서명된 계약서가 삭제되었습니다.");
+    } catch (err) {
+      alert(err instanceof TeacherHrError ? err.message : (err.message || "계약서 삭제에 실패했습니다."));
+    } finally {
+      setDeletingId("");
     }
   };
 
@@ -198,16 +225,19 @@ export default function MyProfileContractsTab({
   const submitSign = async () => {
     if (!signing || !canSign) return;
     if (!agreed) return alert("계약 내용을 확인하고 전자서명에 동의해 주세요.");
+    if (!signerName.trim()) return alert("서명자 이름을 입력해 주세요.");
     if (!signature) return alert("서명을 입력해 주세요.");
     setSavingSign(true);
     try {
       await invokeTeacherHr(supabase, "sign_contract", {
         contract_id: signing.id,
+        signer_name: signerName.trim(),
         signature_data_url: signature,
         agreed: true,
       });
       setSigning(null);
       setSignature("");
+      setSignerName("");
       setAgreed(false);
       await load();
       onChanged?.();
@@ -316,6 +346,9 @@ export default function MyProfileContractsTab({
                       <button type="button" className="my-profile-save" onClick={() => openPdf(row, "signed")}>
                         <FileText size={14}/> 서명완료 PDF 보기
                       </button>
+                      <button type="button" className="my-profile-btn-ghost" onClick={() => deleteSignedContract(row)} disabled={deletingId === row.id}>
+                        <Trash2 size={14}/> {deletingId === row.id ? "삭제 중..." : "계약서 삭제"}
+                      </button>
                     </>
                   ) : (
                     <button type="button" className="my-profile-btn-ghost" onClick={() => openPdf(row, "original")}>
@@ -412,10 +445,22 @@ export default function MyProfileContractsTab({
               />
               <span>본인은 위 계약 내용을 모두 확인하였으며, 전자문서 및 전자서명 방식의 계약 체결에 동의합니다.</span>
             </label>
+            <label className="my-profile-field" style={{ marginTop: 16 }}>
+              <span>서명자 이름 *</span>
+              <input
+                className="my-profile-input"
+                value={signerName}
+                maxLength={50}
+                autoComplete="name"
+                disabled={savingSign || !agreed}
+                onChange={(e) => setSignerName(e.target.value)}
+                placeholder="계약자 본인의 이름을 입력해 주세요"
+              />
+            </label>
             <span className="my-profile-sign-pad-label">서명하기</span>
             <SignaturePad onChange={setSignature} disabled={savingSign || !agreed}/>
             <div className="my-profile-actions">
-              <button type="button" className="my-profile-save" onClick={submitSign} disabled={savingSign || !signature || !agreed}>
+              <button type="button" className="my-profile-save" onClick={submitSign} disabled={savingSign || !signerName.trim() || !signature || !agreed}>
                 {savingSign ? "처리 중..." : "서명 완료"}
               </button>
             </div>

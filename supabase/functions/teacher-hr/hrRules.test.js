@@ -8,6 +8,7 @@ import {
   canListHrStatus,
   canRevealSettlement,
   isSignedContractLocked,
+  normalizeSignerName,
   publicSettlementPayload,
   requireEncryptionKey,
   requireSignAgreement,
@@ -157,6 +158,12 @@ describe("signed contract lock and agreement", () => {
     assert.throws(() => requireSignAgreement(false), /동의/);
     assert.throws(() => requireSignAgreement(undefined), /동의/);
     assert.doesNotThrow(() => requireSignAgreement(true));
+  });
+
+  it("서명자 이름을 필수로 정규화", () => {
+    assert.equal(normalizeSignerName("  홍  길동  "), "홍 길동");
+    assert.throws(() => normalizeSignerName(""), /2~50자/);
+    assert.throws(() => normalizeSignerName("홍"), /2~50자/);
   });
 
   it("공개 정산 응답에 암호문을 넣지 않는다", () => {
