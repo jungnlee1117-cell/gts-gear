@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { ChevronLeft, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import {
-  BILLING_TYPES, CONTRACT_TYPES, EXCEPTION_LABELS, sortSlotsByTime,
+  BILLING_TYPES, CONTRACT_TYPES, DAY_LABELS, EXCEPTION_LABELS, sortSlotsByTime,
+  yearMonthKey,
 } from "./constants.js";
 import {
   deleteScheduleException,
@@ -20,7 +21,15 @@ import InstitutionTeacherTransferModal from "./InstitutionTeacherTransferModal.j
 import RegularClassesManagePanel from "./RegularClassesManagePanel.jsx";
 import { filterClassTeacherAssignments } from "./assignmentRoles.js";
 import { formatExceptionNotice } from "./scheduleExceptions.js";
+import {
+  buildExceptionsByDateMap,
+  exceptionsForDate,
+  filterExceptionsForMonth,
+} from "./scheduleExceptions.js";
 import { notifyEventScheduled } from "./pushScheduleNotification.js";
+import { fmtLocalDate, getMonthGrid } from "./payrollCalendar.js";
+import CalendarEventBadges from "./CalendarEventBadges.jsx";
+import { getKoreanHoliday, holidayShortLabel } from "./koreanHolidays.js";
 import { isScheduleAdmin } from "./roles.js";
 import {
   canViewInstitutionRevenue,
@@ -33,6 +42,154 @@ import {
 } from "./managerScope.js";
 
 const TABS = ["기본정보", "시간표", "계약/매출", "수업 선생님"];
+
+function moveMonth(yearMonth, amount) {
+  const [year, month] = yearMonth.split("-").map(Number);
+  return yearMonthKey(new Date(year, month - 1 + amount, 1));
+}
+
+function InstitutionCalendarPanel({
+  exceptions,
+  form,
+  setForm,
+  onSubmit,
+  onDelete,
+  saving,
+}) {
+  const [yearMonth, setYearMonth] = useState(yearMonthKey());
+  const [selectedDate, setSelectedDate] = useState(() => fmtLocalDate(new Date()));
+  const [year, month] = yearMonth.split("-").map(Number);
+  const monthStart = `${yearMonth}-01`;
+  const monthEnd = fmtLocalDate(new Date(year, month, 0));
+  const monthExceptions = useMemo(
+    () => filterExceptionsForMonth(exceptions, year, month - 1),
+    [exceptions, year, month],
+  );
+  const exceptionsByDate = useMemo(
+    () => buildExceptionsByDateMap(monthExceptions, monthStart, monthEnd),
+    [monthExceptions, monthStart, monthEnd],
+  );
+  const selectedExceptions = useMemo(
+    () => exceptionsForDate(monthExceptions, selectedDate),
+    [monthExceptions, selectedDate],
+  );
+  const cells = useMemo(() => getMonthGrid(year, month - 1), [year, month]);
+
+  const selectDate = (dateStr) => {
+    setSelectedDate(dateStr);
+    setForm(current => ({ ...current, start_date: dateStr, end_date: "" }));
+  };
+
+  return (
+    <section className="sch-institution-calendar">
+      <div className="sch-institution-calendar__header">
+        <div>
+          <h3 className="sch-institution-calendar__title">원 연간 일정</h3>
+          <p className="sch-muted">방학·휴원·행사를 월별로 등록하면 이 원의 수업 선생님에게 자동으로 안내됩니다.</p>
+        </div>
+        <button type="button" className="sch-btn sch-btn--primary" onClick={() => selectDate(selectedDate)}>
+          <Plus size={15}/> 선택한 날짜에 일정 추가
+        </button>
+      </div>
+
+      <div className="sch-month-nav sch-institution-calendar__nav">
+        <button type="button" className="sch-icon-btn" aria-label="이전 달" onClick={() => {
+          const next = moveMonth(yearMonth, -1);
+          setYearMonth(next);
+          selectDate(`${next}-01`);
+        }}><ChevronLeft size={18}/></button>
+        <input type="month" className="sch-input" value={yearMonth} onChange={e => {
+          setYearMonth(e.target.value);
+          selectDate(`${e.target.value}-01`);
+        }}/>
+        <button type="button" className="sch-icon-btn" aria-label="다음 달" onClick={() => {
+          const next = moveMonth(yearMonth, 1);
+          setYearMonth(next);
+          selectDate(`${next}-01`);
+        }}><ChevronRight size={18}/></button>
+      </div>
+
+      <div className="sch-cal-grid" role="grid" aria-label={`${year}년 ${month}월 원 일정`}>
+        <div className="sch-cal-head-row" role="row">
+          {DAY_LABELS.map(day => <div key={day} role="columnheader">{day}</div>)}
+        </div>
+        <div className="sch-cal-body">
+          {cells.map(({ date, inMonth }) => {
+            const dateStr = fmtLocalDate(date);
+            const dayEvents = inMonth ? (exceptionsByDate[dateStr] || []) : [];
+            const holiday = inMonth ? getKoreanHoliday(dateStr) : null;
+            return (
+              <button
+                key={dateStr}
+                type="button"
+                role="gridcell"
+                disabled={!inMonth}
+                className={[
+                  "sch-cal-cell",
+                  "sch-events-cal-cell",
+                  !inMonth && "sch-cal-cell--muted",
+                  selectedDate === dateStr && "sch-cal-cell--selected",
+                  holiday && "sch-cal-cell--holiday",
+                  dayEvents.length && "sch-events-cal-cell--has",
+                ].filter(Boolean).join(" ")}
+                onClick={() => inMonth && selectDate(dateStr)}
+              >
+                <span className="sch-cal-day-num">{date.getDate()}</span>
+                {holiday ? <span className="sch-cal-holiday-label">{holidayShortLabel(holiday.name)}</span> : null}
+                {dayEvents.length ? <CalendarEventBadges events={dayEvents} maxVisible={3}/> : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="sch-institution-calendar__detail">
+        <div>
+          <h4>{selectedDate} 일정</h4>
+          {selectedExceptions.length ? (
+            <ul className="sch-entry-list">
+              {selectedExceptions.map(ex => (
+                <li key={ex.id} className="sch-entry-item">
+                  <span>{formatExceptionNotice(ex)}</span>
+                  <button type="button" className="sch-icon-btn" aria-label="일정 삭제" onClick={() => onDelete(ex.id)}>
+                    <Trash2 size={14}/>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="sch-muted">등록된 일정이 없습니다.</p>}
+        </div>
+
+        <form className="sch-form sch-institution-calendar__form" onSubmit={onSubmit}>
+          <h4 className="sch-form-title">방학·휴원·행사 등록</h4>
+          <div className="sch-time-row">
+            <label className="sch-field"><span>시작일</span>
+              <input type="date" className="sch-input" required value={form.start_date}
+                onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}/>
+            </label>
+            <label className="sch-field"><span>종료일 (선택)</span>
+              <input type="date" className="sch-input" value={form.end_date}
+                onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}/>
+            </label>
+          </div>
+          <label className="sch-field"><span>유형</span>
+            <select className="sch-select" value={form.exception_type}
+              onChange={e => setForm(f => ({ ...f, exception_type: e.target.value }))}>
+              {Object.entries(EXCEPTION_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </label>
+          <label className="sch-field"><span>일정명</span>
+            <input className="sch-input" required placeholder="예: 여름방학, 학부모 참여수업"
+              value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))}/>
+          </label>
+          <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
+            {saving ? "저장 중..." : "일정 저장 및 선생님 안내"}
+          </button>
+        </form>
+      </div>
+    </section>
+  );
+}
 
 export default function InstitutionDetailView({
   institutionId,
@@ -130,6 +287,16 @@ export default function InstitutionDetailView({
     }
   };
 
+  const removeException = async (id) => {
+    if (!confirm("이 일정을 삭제할까요? 선생님 안내에서도 함께 사라집니다.")) return;
+    try {
+      await deleteScheduleException(id);
+      await load({ silent: true });
+    } catch (err) {
+      alert("삭제 실패: " + err.message);
+    }
+  };
+
   const openTransfer = (which) => {
     setTransferTab(which);
     setTransferOpen(true);
@@ -200,6 +367,7 @@ export default function InstitutionDetailView({
       </div>
 
       {tab === "기본정보" && (
+        <div className="sch-institution-basic">
         <form className="sch-form" onSubmit={saveInfo}>
           <div className="sch-field" style={{
             background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 12,
@@ -310,6 +478,15 @@ export default function InstitutionDetailView({
           ) : null}
           <button type="submit" className="sch-btn sch-btn--primary">저장</button>
         </form>
+        <InstitutionCalendarPanel
+          exceptions={exceptions}
+          form={exForm}
+          setForm={setExForm}
+          onSubmit={addException}
+          onDelete={removeException}
+          saving={exSaving}
+        />
+        </div>
       )}
 
       {tab === "시간표" && (
@@ -327,11 +504,7 @@ export default function InstitutionDetailView({
             {exceptions.map(ex => (
               <li key={ex.id} className="sch-entry-item">
                 <span>{formatExceptionNotice(ex)}</span>
-                <button type="button" className="sch-icon-btn" onClick={async () => {
-                  if (!confirm("이 안내를 삭제할까요?")) return;
-                  await deleteScheduleException(ex.id);
-                  load({ silent: true });
-                }}><Trash2 size={14}/></button>
+                <button type="button" className="sch-icon-btn" onClick={() => removeException(ex.id)}><Trash2 size={14}/></button>
               </li>
             ))}
           </ul>

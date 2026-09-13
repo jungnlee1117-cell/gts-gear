@@ -13625,6 +13625,63 @@ button.pe-res-resource-youtube-thumb:hover {
 
 .sch-exception-form { margin-top: 12px; max-width: 480px; }
 
+/* 원 관리 기본정보 · 월별 방학/휴원/행사 달력 */
+.sch-institution-basic {
+  display: grid;
+  gap: 18px;
+}
+.sch-institution-calendar {
+  padding: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+}
+.sch-institution-calendar__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.sch-institution-calendar__title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  color: #0f172a;
+}
+.sch-institution-calendar__header .sch-muted { margin: 0; }
+.sch-institution-calendar__nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.sch-institution-calendar__nav .sch-input { width: auto; }
+.sch-institution-calendar .sch-cal-grid {
+  margin-bottom: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.sch-institution-calendar__detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+.sch-institution-calendar__detail h4 { margin: 0 0 10px; }
+.sch-institution-calendar__form {
+  padding: 14px;
+  background: #f8fafc;
+}
+@media (max-width: 760px) {
+  .sch-institution-calendar { padding: 14px; }
+  .sch-institution-calendar__header { flex-direction: column; }
+  .sch-institution-calendar__header .sch-btn { width: 100%; }
+  .sch-institution-calendar__detail { grid-template-columns: 1fr; }
+  .sch-institution-calendar .sch-events-cal-cell { min-height: 68px; }
+}
+
 .sch-teacher-notes-month {
   margin: 16px 0; padding: 14px 16px;
   background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
