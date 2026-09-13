@@ -127,6 +127,16 @@ import { yearMonthFirstDay } from "./itemRotation.js";
 import { buildCurrentRentals, buildDueReturns } from "./teacherGearStatus.js";
 import { fetchItemIdeas, insertItemIdea, toggleItemIdeaLike } from "./itemIdeas.js";
 import DataExportPage from "./DataExportPage.jsx";
+import {
+  NoticeAttachmentsDisplay,
+  NoticeAttachmentsField,
+  NoticeBodyDisplay,
+  NoticeContentEditor,
+} from "./NoticeContentEditor.jsx";
+import {
+  deleteNoticeAttachments,
+  uploadNoticeAttachments,
+} from "./noticeAttachments.js";
 
 const GEAR_SCAN_KEY = "gts_gear_scan";
 
@@ -329,10 +339,14 @@ async function persistNotice(notice, existing) {
     event_time: notice.event_time || null,
     event_location: notice.event_location || null,
     schedule_exception_ids: notice.schedule_exception_ids || [],
+    attachments: Array.isArray(notice.attachments) ? notice.attachments : [],
     author_id: notice.author_id,
     author_name: notice.author_name,
   };
   const { data, error } = await supabase.from("notices").insert(row).select("*, institutions(id, name)").single();
+  if (error && /attachments/i.test(error.message || "")) {
+    throw new Error("공지 첨부파일 기능을 위한 데이터베이스 업데이트가 필요합니다.");
+  }
   if (error && /audience_type|audience_teacher_ids|institution_id|event_end_date|exception_type/i.test(error.message || "")) {
     const {
       institution_id, event_end_date, exception_type,
@@ -407,9 +421,13 @@ async function updateNoticeRecord(id, patch, existing) {
     event_time: patch.event_time || null,
     event_location: patch.event_location || null,
     schedule_exception_ids: patch.schedule_exception_ids || [],
+    attachments: Array.isArray(patch.attachments) ? patch.attachments : [],
     updated_at: new Date().toISOString(),
   };
   let { data, error } = await supabase.from("notices").update(payload).eq("id", id).select("*, institutions(id, name)").single();
+  if (error && /attachments/i.test(error.message || "")) {
+    throw new Error("공지 첨부파일 기능을 위한 데이터베이스 업데이트가 필요합니다.");
+  }
   if (error && /audience_type|audience_teacher_ids|institution_id|event_end_date|exception_type/i.test(error.message || "")) {
     const {
       institution_id, event_end_date, exception_type,
@@ -435,7 +453,10 @@ async function removeNotice(id, existing) {
     try { await deleteNoticeEventSchedule(target); } catch { /* ignore */ }
   }
   const { error } = await supabase.from("notices").delete().eq("id", id);
-  if (!error) return existing.filter(n => n.id !== id);
+  if (!error) {
+    try { await deleteNoticeAttachments(supabase, target?.attachments || []); } catch (e) { console.warn("공지 첨부파일 삭제 실패", e); }
+    return existing.filter(n => n.id !== id);
+  }
   const next = existing.filter(n => n.id !== id);
   localStorage.setItem(NOTICES_STORAGE_KEY, JSON.stringify(next));
   return next;
@@ -2491,7 +2512,7 @@ function Txa2({label,...p}) {
   return <Fld label={label}><textarea {...p} style={{...inp,minHeight:72,resize:"vertical",...(p.style||{})}}/></Fld>;
 }
 
-function Modal({title,onClose,children,noPad,dismissible=true,center=false,closeLabel="×"}) {
+function Modal({title,onClose,children,noPad,dismissible=true,center=false,closeLabel="×",sheetClassName=""}) {
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -2504,7 +2525,7 @@ function Modal({title,onClose,children,noPad,dismissible=true,center=false,close
       onClick={handleBackdrop}
     >
       <div
-        className={`app-modal-sheet${center ? " app-modal-sheet--center" : ""}`}
+        className={`app-modal-sheet${center ? " app-modal-sheet--center" : ""}${sheetClassName ? ` ${sheetClassName}` : ""}`}
         style={{ padding: noPad ? 0 : undefined }}
         onClick={e => e.stopPropagation()}
       >
@@ -7389,6 +7410,10 @@ function NoticeFormFields({
   audience, setAudience,
   institutions = [],
   teachers = [],
+  existingAttachments = [],
+  setExistingAttachments,
+  attachmentFiles = [],
+  setAttachmentFiles,
 }) {
   return (
     <>
@@ -7426,11 +7451,16 @@ function NoticeFormFields({
           />
         </div>
       ) : (
-        <>
-          <Inp2 label="제목 *" value={title} onChange={e => setTitle(e.target.value)} placeholder="공지 제목"/>
-          <Txa2 label="내용" value={body} onChange={e => setBody(e.target.value)} placeholder="공지 내용을 입력하세요"/>
-        </>
+        <NoticeContentEditor title={title} setTitle={setTitle} body={body} setBody={setBody}/>
       )}
+
+      <NoticeAttachmentsField
+        supabase={supabase}
+        existing={existingAttachments}
+        onExistingChange={setExistingAttachments}
+        files={attachmentFiles}
+        onFilesChange={setAttachmentFiles}
+      />
 
       <NoticeAudienceField
         audience={audience}
@@ -7537,17 +7567,16 @@ function NoticeDetailModal({
   const scopeTone = audienceBadgeTone(notice);
 
   return (
-    <Modal title={notice.title} onClose={onClose} center closeLabel="×">
+    <Modal title={notice.title} onClose={onClose} center closeLabel="×" sheetClassName="notice-detail-modal">
+      <div className="notice-detail-lead">
+        <NoticeImportanceBadge importance={notice.importance} noticeType={notice.notice_type}/>
+        <span className={`admin-notice-badge admin-notice-badge--${scopeTone}`}>{scopeText}</span>
+        {notice.updated_at && notice.updated_at !== notice.created_at ? <span className="notice-detail-edited">수정됨</span> : null}
+      </div>
       <div className="notice-detail-meta">
         <div className="notice-detail-meta__row">
-          <span className="notice-detail-meta__label">중요도</span>
-          <NoticeImportanceBadge importance={notice.importance} noticeType={notice.notice_type}/>
-        </div>
-        <div className="notice-detail-meta__row">
-          <span className="notice-detail-meta__label">수신 대상</span>
-          <span className="notice-detail-meta__value">
-            <span className={`admin-notice-badge admin-notice-badge--${scopeTone}`}>{scopeText}</span>
-          </span>
+          <span className="notice-detail-meta__label">받는 사람</span>
+          <span className="notice-detail-meta__value">{scopeText}</span>
         </div>
         <div className="notice-detail-meta__row">
           <span className="notice-detail-meta__label">작성자</span>
@@ -7572,8 +7601,9 @@ function NoticeDetailModal({
         className="notice-detail-body"
         style={{ color: isImportant ? "#991b1b" : DS.textSecondary }}
       >
-        {notice.body?.trim() ? notice.body : "내용이 없습니다."}
+        {notice.body?.trim() ? <NoticeBodyDisplay body={notice.body}/> : "내용이 없습니다."}
       </div>
+      <NoticeAttachmentsDisplay supabase={supabase} attachments={notice.attachments || []}/>
 
       {canManage ? (
         <NoticeReadReceiptSection
@@ -7620,6 +7650,8 @@ function NoticeEditModal({ notice, onClose, onSave, institutions = [], teachers 
   const [eventForm, setEventForm] = useState(() => noticeToEventForm(notice));
   const [audience, setAudience] = useState(() => noticeToAudience(notice));
   const [saving, setSaving] = useState(false);
+  const [existingAttachments, setExistingAttachments] = useState(() => notice?.attachments || []);
+  const [attachmentFiles, setAttachmentFiles] = useState([]);
 
   useEffect(() => {
     setTitle(notice?.title || "");
@@ -7627,6 +7659,8 @@ function NoticeEditModal({ notice, onClose, onSave, institutions = [], teachers 
     setKind(noticeToKind(notice));
     setEventForm(noticeToEventForm(notice));
     setAudience(noticeToAudience(notice));
+    setExistingAttachments(notice?.attachments || []);
+    setAttachmentFiles([]);
   }, [notice]);
 
   const submit = async () => {
@@ -7647,14 +7681,31 @@ function NoticeEditModal({ notice, onClose, onSave, institutions = [], teachers 
     setSaving(true);
     const fields = kindToNoticeFields(kind, eventForm, audience);
     const resolvedTitle = kind === "event" ? eventForm.note.trim() : title.trim();
-    const ok = await onSave({
-      id: notice.id,
-      title: resolvedTitle,
-      body: body.trim(),
-      ...fields,
-    });
-    setSaving(false);
-    if (ok) onClose();
+    let uploaded = [];
+    try {
+      uploaded = await uploadNoticeAttachments(supabase, notice.id, attachmentFiles);
+      const attachments = [...existingAttachments, ...uploaded];
+      const ok = await onSave({
+        id: notice.id,
+        title: resolvedTitle,
+        body: body.trim(),
+        attachments,
+        ...fields,
+      });
+      if (ok) {
+        const keptIds = new Set(existingAttachments.map(item => item.id));
+        const removed = (notice?.attachments || []).filter(item => !keptIds.has(item.id));
+        try { await deleteNoticeAttachments(supabase, removed); } catch (e) { console.warn("삭제한 첨부파일 정리 실패", e); }
+        onClose();
+      } else {
+        await deleteNoticeAttachments(supabase, uploaded);
+      }
+    } catch (error) {
+      if (uploaded.length) await deleteNoticeAttachments(supabase, uploaded).catch(() => {});
+      alert(error?.message || "첨부파일 저장에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -7672,6 +7723,10 @@ function NoticeEditModal({ notice, onClose, onSave, institutions = [], teachers 
         setAudience={setAudience}
         institutions={institutions}
         teachers={teachers}
+        existingAttachments={existingAttachments}
+        setExistingAttachments={setExistingAttachments}
+        attachmentFiles={attachmentFiles}
+        setAttachmentFiles={setAttachmentFiles}
       />
       <Btn full onClick={submit} disabled={saving}>{saving ? "저장 중..." : "저장"}</Btn>
     </Modal>
@@ -8476,6 +8531,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   const [institutions, setInstitutions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [attachmentFiles, setAttachmentFiles] = useState([]);
   const [editNotice, setEditNotice] = useState(null);
   const [viewNotice, setViewNotice] = useState(null);
   const [feedItems, setFeedItems] = useState([]);
@@ -8492,6 +8548,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
     setKind("normal");
     setEventForm({ ...EMPTY_EVENT_FORM });
     setAudience({ ...EMPTY_NOTICE_AUDIENCE });
+    setAttachmentFiles([]);
   }, []);
 
   const refreshFeed = useCallback(() => {
@@ -8640,7 +8697,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
     try {
       const fields = kindToNoticeFields(kind, eventForm, audience);
       const resolvedTitle = kind === "event" ? eventForm.note.trim() : title.trim();
-      await onAdd({ title: resolvedTitle, body: body.trim(), ...fields });
+      await onAdd({ title: resolvedTitle, body: body.trim(), attachmentFiles, ...fields });
       resetComposeForm();
       setComposeOpen(false);
     } catch (err) {
@@ -8697,6 +8754,10 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
             setAudience={setAudience}
             institutions={institutions}
             teachers={teachers}
+            existingAttachments={[]}
+            setExistingAttachments={() => {}}
+            attachmentFiles={attachmentFiles}
+            setAttachmentFiles={setAttachmentFiles}
           />
           <Btn full onClick={handleAdd} disabled={saving}>{saving ? "등록 중..." : "공지 등록"}</Btn>
         </Modal>
@@ -12404,19 +12465,39 @@ function EquipmentApp({ onBack, me, session }) {
       event_time: payload.event_time || null,
       event_location: payload.event_location || null,
       schedule_exception_ids: payload.schedule_exception_ids || [],
+      attachments: [],
       author_id: me.id,
       author_name: me.name,
       created_at: new Date().toISOString(),
     };
     const { list, savedToDb, notice: saved } = await persistNotice(row, notices);
-    setNotices(list);
+    let finalList = list;
+    let finalSaved = saved;
+    const pendingFiles = Array.from(payload.attachmentFiles || []);
+    if (pendingFiles.length) {
+      if (!savedToDb || !saved?.id) {
+        throw new Error("첨부파일이 있는 공지는 서버 연결 상태에서만 등록할 수 있습니다.");
+      }
+      let uploaded = [];
+      try {
+        uploaded = await uploadNoticeAttachments(supabase, saved.id, pendingFiles);
+        finalList = await updateNoticeRecord(saved.id, { ...saved, attachments: uploaded }, list);
+        finalSaved = finalList.find(n => n.id === saved.id) || { ...saved, attachments: uploaded };
+      } catch (error) {
+        if (uploaded.length) await deleteNoticeAttachments(supabase, uploaded).catch(() => {});
+        if (saved.notice_type === "event") await deleteNoticeEventSchedule(saved).catch(() => {});
+        await supabase.from("notices").delete().eq("id", saved.id);
+        throw error;
+      }
+    }
+    setNotices(finalList);
     if (savedToDb) {
       void sendPushEvent(supabase, "notice_posted", {
         title: row.title,
-        notice_id: saved?.id,
-        audience_type: saved?.audience_type || row.audience_type,
-        institution_id: saved?.institution_id || row.institution_id,
-        audience_teacher_ids: saved?.audience_teacher_ids || row.audience_teacher_ids,
+        notice_id: finalSaved?.id,
+        audience_type: finalSaved?.audience_type || row.audience_type,
+        institution_id: finalSaved?.institution_id || row.institution_id,
+        audience_teacher_ids: finalSaved?.audience_teacher_ids || row.audience_teacher_ids,
       });
     }
     alert(row.notice_type === "event" ? "행사 공지와 일정이 등록되었습니다." : "공지가 등록되었습니다.");
@@ -12524,6 +12605,7 @@ function EquipmentApp({ onBack, me, session }) {
       event_time: patch.event_time || null,
       event_location: patch.event_location || null,
       schedule_exception_ids: existing?.schedule_exception_ids || [],
+      attachments: Array.isArray(patch.attachments) ? patch.attachments : (existing?.attachments || []),
     };
 
     try {
