@@ -31,17 +31,29 @@ const TEMPLATES = [
   },
 ];
 
-function InlineText({ text }) {
-  const parts = String(text || "").split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((part, index) => part.startsWith("**") && part.endsWith("**")
-    ? <strong key={index}>{part.slice(2, -2)}</strong>
-    : <span key={index}>{part}</span>);
+export const DEFAULT_NOTICE_BODY_STYLE = { font: "sans", size: "medium" };
+
+export function normalizeNoticeBodyStyle(value) {
+  const font = ["sans", "serif", "rounded"].includes(value?.font) ? value.font : "sans";
+  const size = ["small", "medium", "large"].includes(value?.size) ? value.size : "medium";
+  return { font, size };
 }
 
-export function NoticeBodyDisplay({ body }) {
+function InlineText({ text }) {
+  const parts = String(text || "").split(/(\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("__") && part.endsWith("__")) return <u key={index}>{part.slice(2, -2)}</u>;
+    if (part.startsWith("*") && part.endsWith("*")) return <em key={index}>{part.slice(1, -1)}</em>;
+    return <span key={index}>{part}</span>;
+  });
+}
+
+export function NoticeBodyDisplay({ body, bodyStyle }) {
   const lines = String(body || "").split("\n");
+  const style = normalizeNoticeBodyStyle(bodyStyle);
   return (
-    <div className="notice-rich-body">
+    <div className={`notice-rich-body notice-rich-body--font-${style.font} notice-rich-body--size-${style.size}`}>
       {lines.map((line, index) => {
         const value = line.trimEnd();
         if (!value) return <div key={index} className="notice-rich-body__space"/>;
@@ -54,8 +66,9 @@ export function NoticeBodyDisplay({ body }) {
   );
 }
 
-export function NoticeContentEditor({ title, setTitle, body, setBody }) {
+export function NoticeContentEditor({ title, setTitle, body, setBody, bodyStyle, setBodyStyle }) {
   const textareaRef = useRef(null);
+  const style = normalizeNoticeBodyStyle(bodyStyle);
 
   const applyTemplate = template => {
     if ((title.trim() || body.trim()) && !confirm("현재 작성 중인 내용을 선택한 양식으로 바꿀까요?")) return;
@@ -98,9 +111,21 @@ export function NoticeContentEditor({ title, setTitle, body, setBody }) {
       <div className="notice-composer__field">
         <span className="notice-form-label">내용</span>
         <div className="notice-editor-toolbar" aria-label="글 서식">
+          <select value={style.font} onChange={e => setBodyStyle({ ...style, font: e.target.value })} aria-label="글꼴">
+            <option value="sans">기본 고딕</option>
+            <option value="serif">명조체</option>
+            <option value="rounded">둥근 고딕</option>
+          </select>
+          <select value={style.size} onChange={e => setBodyStyle({ ...style, size: e.target.value })} aria-label="글자 크기">
+            <option value="small">작게</option>
+            <option value="medium">보통</option>
+            <option value="large">크게</option>
+          </select>
           <button type="button" onClick={() => insertText("■ ")} title="소제목">소제목</button>
           <button type="button" onClick={() => insertText("- ")} title="글머리표">• 목록</button>
           <button type="button" onClick={() => insertText("**", "**")} title="강조"><strong>굵게</strong></button>
+          <button type="button" onClick={() => insertText("*", "*")} title="기울임"><em>기울임</em></button>
+          <button type="button" onClick={() => insertText("__", "__")} title="밑줄"><u>밑줄</u></button>
         </div>
         <textarea
           ref={textareaRef}
@@ -117,7 +142,7 @@ export function NoticeContentEditor({ title, setTitle, body, setBody }) {
           <summary>선생님에게 보이는 모습 미리보기</summary>
           <div className="notice-preview__paper">
             <h3>{title.trim() || "공지 제목"}</h3>
-            <NoticeBodyDisplay body={body}/>
+            <NoticeBodyDisplay body={body} bodyStyle={style}/>
           </div>
         </details>
       ) : null}
@@ -137,6 +162,10 @@ export function NoticeAttachmentsField({
   const [localUrls, setLocalUrls] = useState([]);
 
   useEffect(() => {
+    if (!existing.length) {
+      setExistingWithUrls(current => current.length ? [] : current);
+      return undefined;
+    }
     let cancelled = false;
     createNoticeAttachmentUrls(supabase, existing).then(rows => {
       if (!cancelled) setExistingWithUrls(rows);
@@ -203,6 +232,10 @@ export function NoticeAttachmentsField({
 export function NoticeAttachmentsDisplay({ supabase, attachments = [] }) {
   const [rows, setRows] = useState([]);
   useEffect(() => {
+    if (!attachments.length) {
+      setRows(current => current.length ? [] : current);
+      return undefined;
+    }
     let cancelled = false;
     createNoticeAttachmentUrls(supabase, attachments).then(result => !cancelled && setRows(result));
     return () => { cancelled = true; };

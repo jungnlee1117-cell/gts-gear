@@ -17568,6 +17568,17 @@ button.pe-res-resource-youtube-thumb:hover {
 .notice-composer__field > input + small { position: absolute; right: 10px; top: 37px; background: rgba(255,255,255,.9); }
 .notice-editor-toolbar { display: flex; gap: 6px; padding: 8px; border: 1px solid #d7dee6; border-bottom: 0; border-radius: 10px 10px 0 0; background: #f8fafc; }
 .notice-editor-toolbar button { padding: 6px 9px; }
+.notice-editor-toolbar { flex-wrap: wrap; }
+.notice-editor-toolbar select {
+  min-height: 30px;
+  padding: 5px 26px 5px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font: 700 12px/1.2 inherit;
+  cursor: pointer;
+}
 .notice-preview { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
 .notice-preview summary { padding: 10px 12px; background: #f8fafc; color: #475569; font-size: 12px; font-weight: 800; cursor: pointer; }
 .notice-preview__paper { padding: 14px; border-top: 1px solid #e2e8f0; }
@@ -17578,6 +17589,12 @@ button.pe-res-resource-youtube-thumb:hover {
 .notice-rich-body h4 { margin: 8px 0 2px; font-size: 14px; color: #1e293b; }
 .notice-rich-body__space { height: 8px; }
 .notice-rich-body__bullet { display: grid; grid-template-columns: 12px 1fr; gap: 5px; }
+.notice-rich-body--font-sans { font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif; }
+.notice-rich-body--font-serif { font-family: "Noto Serif KR", "AppleMyungjo", "Batang", serif; }
+.notice-rich-body--font-rounded { font-family: "Arial Rounded MT Bold", "NanumSquareRound", Pretendard, sans-serif; }
+.notice-rich-body--size-small { font-size: 13px; }
+.notice-rich-body--size-medium { font-size: 15px; }
+.notice-rich-body--size-large { font-size: 17px; }
 .notice-attachments-field { margin: 0 0 14px; padding: 12px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
 .notice-attachments-field__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .notice-attachments-field__head p { margin: -2px 0 8px; color: #94a3b8; font-size: 11px; line-height: 1.45; }

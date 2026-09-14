@@ -128,6 +128,7 @@ import { buildCurrentRentals, buildDueReturns } from "./teacherGearStatus.js";
 import { fetchItemIdeas, insertItemIdea, toggleItemIdeaLike } from "./itemIdeas.js";
 import DataExportPage from "./DataExportPage.jsx";
 import {
+  DEFAULT_NOTICE_BODY_STYLE,
   NoticeAttachmentsDisplay,
   NoticeAttachmentsField,
   NoticeBodyDisplay,
@@ -326,6 +327,7 @@ async function persistNotice(notice, existing) {
   const row = {
     title: notice.title,
     body: notice.body,
+    body_style: notice.body_style || DEFAULT_NOTICE_BODY_STYLE,
     importance: normalizeNoticeImportance(notice.importance),
     notice_type: notice.notice_type || "general",
     institution_id: notice.institution_id || null,
@@ -344,8 +346,8 @@ async function persistNotice(notice, existing) {
     author_name: notice.author_name,
   };
   const { data, error } = await supabase.from("notices").insert(row).select("*, institutions(id, name)").single();
-  if (error && /attachments/i.test(error.message || "")) {
-    throw new Error("공지 첨부파일 기능을 위한 데이터베이스 업데이트가 필요합니다.");
+  if (error && /attachments|body_style/i.test(error.message || "")) {
+    throw new Error("공지 서식·첨부 기능을 위한 데이터베이스 업데이트가 필요합니다.");
   }
   if (error && /audience_type|audience_teacher_ids|institution_id|event_end_date|exception_type/i.test(error.message || "")) {
     const {
@@ -408,6 +410,7 @@ async function updateNoticeRecord(id, patch, existing) {
   const payload = {
     title: patch.title,
     body: patch.body ?? "",
+    body_style: patch.body_style || DEFAULT_NOTICE_BODY_STYLE,
     importance: normalizeNoticeImportance(patch.importance),
     notice_type: patch.notice_type || "general",
     institution_id: patch.institution_id || null,
@@ -425,8 +428,8 @@ async function updateNoticeRecord(id, patch, existing) {
     updated_at: new Date().toISOString(),
   };
   let { data, error } = await supabase.from("notices").update(payload).eq("id", id).select("*, institutions(id, name)").single();
-  if (error && /attachments/i.test(error.message || "")) {
-    throw new Error("공지 첨부파일 기능을 위한 데이터베이스 업데이트가 필요합니다.");
+  if (error && /attachments|body_style/i.test(error.message || "")) {
+    throw new Error("공지 서식·첨부 기능을 위한 데이터베이스 업데이트가 필요합니다.");
   }
   if (error && /audience_type|audience_teacher_ids|institution_id|event_end_date|exception_type/i.test(error.message || "")) {
     const {
@@ -2665,11 +2668,19 @@ function PasswordResetLink({ variant = "block" }) {
   const [email,setEmail] = useState("");
   const [sent,setSent] = useState(false);
   const [loading,setLoading] = useState(false);
+  const [error,setError] = useState("");
   const handle = async () => {
     if (!email.trim()) return alert("이메일을 입력하세요");
-    setLoading(true);
-    await supabase.auth.resetPasswordForEmail(email.trim(),{redirectTo:window.location.origin});
-    setLoading(false); setSent(true);
+    setLoading(true); setError("");
+    const redirectTo = new URL("/reset-password", window.location.origin).toString();
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+    setLoading(false);
+    if (resetError) {
+      console.error("Password reset request failed", resetError);
+      setError("재설정 메일을 보내지 못했습니다. 이메일 주소를 확인하거나 관리자에게 문의해주세요.");
+      return;
+    }
+    setSent(true);
   };
   const trigger = variant === "inline" ? (
     <button type="button" onClick={()=>setOpen(true)} style={{
@@ -2702,12 +2713,62 @@ function PasswordResetLink({ variant = "block" }) {
           ) : (
             <>
               <Inp2 label="가입한 이메일" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="example@gts.com"/>
+              {error && <div role="alert" style={{margin:"-4px 0 14px",color:"#dc2626",fontSize:13,lineHeight:1.55}}>{error}</div>}
               <Btn full onClick={handle} disabled={loading}>{loading?"전송 중...":"재설정 링크 보내기"}</Btn>
             </>
           )}
         </Modal>
       )}
     </>
+  );
+}
+
+function RecoveryPasswordPage({ session }) {
+  const navigate = useNavigate();
+  const [password,setPassword] = useState("");
+  const [confirmPassword,setConfirmPassword] = useState("");
+  const [loading,setLoading] = useState(false);
+  const [message,setMessage] = useState("");
+  const [error,setError] = useState("");
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError(""); setMessage("");
+    if (password.length < 8) return setError("새 비밀번호는 8자 이상으로 입력해주세요.");
+    if (password !== confirmPassword) return setError("새 비밀번호가 서로 일치하지 않습니다.");
+    if (!session) return setError("재설정 링크가 만료되었거나 올바르지 않습니다. 로그인 화면에서 다시 요청해주세요.");
+    setLoading(true);
+    const { error: updateError } = await supabase.auth.updateUser({
+      password,
+      data: { ...(session.user.user_metadata || {}), must_change_password: false },
+    });
+    setLoading(false);
+    if (updateError) {
+      console.error("Password recovery update failed", updateError);
+      setError("비밀번호를 변경하지 못했습니다. 링크를 다시 요청하거나 관리자에게 문의해주세요.");
+      return;
+    }
+    setMessage("비밀번호가 변경되었습니다. 새 비밀번호로 다시 로그인해주세요.");
+    setTimeout(async () => {
+      await supabase.auth.signOut();
+      navigate("/", { replace: true });
+    }, 1200);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0D1829 0%,#1C2951 50%,#0D1829 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Noto Sans KR',sans-serif"}}>
+      <form onSubmit={submit} style={{width:"100%",maxWidth:440,background:"#fff",borderRadius:24,padding:"34px 30px",boxShadow:"0 24px 70px rgba(0,0,0,.32)"}}>
+        <div style={{fontSize:22,fontWeight:800,color:"#0f172a",marginBottom:8}}>새 비밀번호 설정</div>
+        <div style={{fontSize:14,color:"#64748b",lineHeight:1.6,marginBottom:24}}>앞으로 로그인할 새 비밀번호를 입력해주세요.</div>
+        {!session && <div role="alert" style={{padding:14,borderRadius:12,background:"#fff7ed",color:"#9a3412",fontSize:13,lineHeight:1.55,marginBottom:18}}>재설정 링크가 만료되었거나 올바르지 않습니다. 로그인 화면에서 재설정 메일을 다시 요청해주세요.</div>}
+        <Inp2 label="새 비밀번호" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="8자 이상"/>
+        <Inp2 label="새 비밀번호 확인" type="password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="한 번 더 입력"/>
+        {error && <div role="alert" style={{margin:"-4px 0 14px",color:"#dc2626",fontSize:13,lineHeight:1.55}}>{error}</div>}
+        {message && <div role="status" style={{margin:"-4px 0 14px",color:"#15803d",fontSize:13,lineHeight:1.55}}>{message}</div>}
+        <Btn full type="submit" disabled={loading || !session}>{loading?"변경 중...":"비밀번호 변경"}</Btn>
+        <button type="button" onClick={()=>navigate("/",{replace:true})} style={{width:"100%",marginTop:14,border:0,background:"transparent",color:"#64748b",fontSize:13,cursor:"pointer"}}>로그인 화면으로 돌아가기</button>
+      </form>
+    </div>
   );
 }
 
@@ -7405,6 +7466,7 @@ function NoticeAudienceField({ audience, setAudience, institutions = [], teacher
 function NoticeFormFields({
   title, setTitle,
   body, setBody,
+  bodyStyle, setBodyStyle,
   kind, setKind,
   eventForm, setEventForm,
   audience, setAudience,
@@ -7451,7 +7513,14 @@ function NoticeFormFields({
           />
         </div>
       ) : (
-        <NoticeContentEditor title={title} setTitle={setTitle} body={body} setBody={setBody}/>
+        <NoticeContentEditor
+          title={title}
+          setTitle={setTitle}
+          body={body}
+          setBody={setBody}
+          bodyStyle={bodyStyle}
+          setBodyStyle={setBodyStyle}
+        />
       )}
 
       <NoticeAttachmentsField
@@ -7601,7 +7670,7 @@ function NoticeDetailModal({
         className="notice-detail-body"
         style={{ color: isImportant ? "#991b1b" : DS.textSecondary }}
       >
-        {notice.body?.trim() ? <NoticeBodyDisplay body={notice.body}/> : "내용이 없습니다."}
+        {notice.body?.trim() ? <NoticeBodyDisplay body={notice.body} bodyStyle={notice.body_style}/> : "내용이 없습니다."}
       </div>
       <NoticeAttachmentsDisplay supabase={supabase} attachments={notice.attachments || []}/>
 
@@ -7646,6 +7715,7 @@ function noticeToEventForm(notice) {
 function NoticeEditModal({ notice, onClose, onSave, institutions = [], teachers = [] }) {
   const [title, setTitle] = useState(notice?.title || "");
   const [body, setBody] = useState(notice?.body || "");
+  const [bodyStyle, setBodyStyle] = useState(notice?.body_style || DEFAULT_NOTICE_BODY_STYLE);
   const [kind, setKind] = useState(noticeToKind(notice));
   const [eventForm, setEventForm] = useState(() => noticeToEventForm(notice));
   const [audience, setAudience] = useState(() => noticeToAudience(notice));
@@ -7656,6 +7726,7 @@ function NoticeEditModal({ notice, onClose, onSave, institutions = [], teachers 
   useEffect(() => {
     setTitle(notice?.title || "");
     setBody(notice?.body || "");
+    setBodyStyle(notice?.body_style || DEFAULT_NOTICE_BODY_STYLE);
     setKind(noticeToKind(notice));
     setEventForm(noticeToEventForm(notice));
     setAudience(noticeToAudience(notice));
@@ -7689,6 +7760,7 @@ function NoticeEditModal({ notice, onClose, onSave, institutions = [], teachers 
         id: notice.id,
         title: resolvedTitle,
         body: body.trim(),
+        body_style: bodyStyle,
         attachments,
         ...fields,
       });
@@ -7715,6 +7787,8 @@ function NoticeEditModal({ notice, onClose, onSave, institutions = [], teachers 
         setTitle={setTitle}
         body={body}
         setBody={setBody}
+        bodyStyle={bodyStyle}
+        setBodyStyle={setBodyStyle}
         kind={kind}
         setKind={setKind}
         eventForm={eventForm}
@@ -8525,6 +8599,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   const showUnreadStyles = isGearTeacher(me) || (!canManage && me?.role === "teacher");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [bodyStyle, setBodyStyle] = useState(DEFAULT_NOTICE_BODY_STYLE);
   const [kind, setKind] = useState("normal");
   const [eventForm, setEventForm] = useState({ ...EMPTY_EVENT_FORM });
   const [audience, setAudience] = useState({ ...EMPTY_NOTICE_AUDIENCE });
@@ -8545,6 +8620,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   const resetComposeForm = useCallback(() => {
     setTitle("");
     setBody("");
+    setBodyStyle(DEFAULT_NOTICE_BODY_STYLE);
     setKind("normal");
     setEventForm({ ...EMPTY_EVENT_FORM });
     setAudience({ ...EMPTY_NOTICE_AUDIENCE });
@@ -8697,7 +8773,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
     try {
       const fields = kindToNoticeFields(kind, eventForm, audience);
       const resolvedTitle = kind === "event" ? eventForm.note.trim() : title.trim();
-      await onAdd({ title: resolvedTitle, body: body.trim(), attachmentFiles, ...fields });
+      await onAdd({ title: resolvedTitle, body: body.trim(), body_style: bodyStyle, attachmentFiles, ...fields });
       resetComposeForm();
       setComposeOpen(false);
     } catch (err) {
@@ -8746,6 +8822,8 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
             setTitle={setTitle}
             body={body}
             setBody={setBody}
+            bodyStyle={bodyStyle}
+            setBodyStyle={setBodyStyle}
             kind={kind}
             setKind={setKind}
             eventForm={eventForm}
@@ -11408,6 +11486,9 @@ export default function App() {
   const location = useLocation();
   const [session,    setSession]    = useState(null);
   const [authReady,  setAuthReady]  = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState(
+    () => window.location.pathname === "/reset-password" || window.location.hash.includes("type=recovery")
+  );
   const [me,         setMe]         = useState(null);
   const [meLoading,  setMeLoading]  = useState(false);
   const isKioskRoute = location.pathname === "/kiosk" || location.pathname.startsWith("/kiosk/");
@@ -11431,6 +11512,7 @@ export default function App() {
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
       if (event === "SIGNED_OUT" || !session) {
         setMe(null);
         markRestoreAfterLogin();
@@ -11486,6 +11568,7 @@ export default function App() {
       <Spinner/>
     </div>
   );
+  if (passwordRecovery || location.pathname === "/reset-password") return <RecoveryPasswordPage session={session}/>;
   if (!session) return <LoginPage/>;
   if (!me && meLoading) return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(160deg,#0D1829 0%,#1C2951 50%,#0D1829 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans KR',sans-serif" }}>
@@ -12452,6 +12535,7 @@ function EquipmentApp({ onBack, me, session }) {
     const row = {
       title: payload.title,
       body: payload.body || "",
+      body_style: payload.body_style || DEFAULT_NOTICE_BODY_STYLE,
       importance: payload.importance || "normal",
       notice_type: payload.notice_type || "general",
       institution_id: payload.institution_id || null,
@@ -12592,6 +12676,7 @@ function EquipmentApp({ onBack, me, session }) {
     const payload = {
       title: patch.title,
       body: patch.body || "",
+      body_style: patch.body_style || existing?.body_style || DEFAULT_NOTICE_BODY_STYLE,
       importance: normalizeNoticeImportance(patch.importance),
       notice_type: patch.notice_type || "general",
       institution_id: patch.institution_id || null,
