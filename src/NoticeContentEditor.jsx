@@ -231,6 +231,7 @@ export function NoticeAttachmentsField({
 
 export function NoticeAttachmentsDisplay({ supabase, attachments = [] }) {
   const [rows, setRows] = useState([]);
+  const [activeImage, setActiveImage] = useState(null);
   useEffect(() => {
     if (!attachments.length) {
       setRows(current => current.length ? [] : current);
@@ -246,15 +247,22 @@ export function NoticeAttachmentsDisplay({ supabase, attachments = [] }) {
       <h4>첨부파일 {attachments.length}개</h4>
       <div className="notice-detail-attachments__grid">
         {rows.map(item => isNoticeImage(item) ? (
-          <a key={item.id} href={item.url || undefined} target="_blank" rel="noreferrer" className="notice-detail-image">
+          <button key={item.id} type="button" onClick={() => item.url && setActiveImage(item)} className="notice-detail-image">
             {item.url ? <img src={item.url} alt={item.name}/> : <Image size={22}/>}<span>{item.name}</span>
-          </a>
+          </button>
         ) : (
           <a key={item.id} href={item.url || undefined} target="_blank" rel="noreferrer" download={item.name} className="notice-detail-file">
             <FileText size={20}/><span><strong>{item.name}</strong><small>{formatAttachmentSize(item.size)}</small></span>
           </a>
         ))}
       </div>
+      {activeImage ? (
+        <div className="notice-image-lightbox" role="dialog" aria-modal="true" aria-label="첨부 이미지 확대" onClick={() => setActiveImage(null)}>
+          <button type="button" className="notice-image-lightbox__close" onClick={() => setActiveImage(null)}>닫기</button>
+          <img src={activeImage.url} alt={activeImage.name} onClick={event => event.stopPropagation()}/>
+          <strong>{activeImage.name}</strong>
+        </div>
+      ) : null}
     </section>
   );
 }

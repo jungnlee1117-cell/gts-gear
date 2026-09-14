@@ -7616,8 +7616,13 @@ function NoticeDetailModal({
   onMarkedRead,
   onResendUnread,
 }) {
+  const requiresConfirmation = normalizeNoticeImportance(notice?.importance) === "important";
+  const [confirmed, setConfirmed] = useState(false);
   const shouldAutoRead = Boolean(notice?.id && me?.id)
-    && (isGearTeacher(me) || me?.role === "teacher");
+    && (isGearTeacher(me) || me?.role === "teacher")
+    && !requiresConfirmation;
+
+  useEffect(() => setConfirmed(false), [notice?.id]);
 
   useEffect(() => {
     if (!shouldAutoRead || !notice?.id) return;
@@ -7634,6 +7639,14 @@ function NoticeDetailModal({
   const eventSummary = formatEventSummary(notice);
   const scopeText = audienceLabel(notice, notice.institutions?.name);
   const scopeTone = audienceBadgeTone(notice);
+
+  const confirmRead = async () => {
+    if (!notice?.id || !me?.id) return;
+    const ok = await markNoticeAsRead(supabase, notice.id, me.id);
+    if (!ok) return alert("확인 처리에 실패했습니다. 잠시 후 다시 시도해주세요.");
+    setConfirmed(true);
+    onMarkedRead?.(notice.id);
+  };
 
   return (
     <Modal title={notice.title} onClose={onClose} center closeLabel="×" sheetClassName="notice-detail-modal">
@@ -7673,6 +7686,14 @@ function NoticeDetailModal({
         {notice.body?.trim() ? <NoticeBodyDisplay body={notice.body} bodyStyle={notice.body_style}/> : "내용이 없습니다."}
       </div>
       <NoticeAttachmentsDisplay supabase={supabase} attachments={notice.attachments || []}/>
+
+      {requiresConfirmation && !canManage ? (
+        <div className="notice-required-confirmation">
+          <strong>확인이 필요한 중요 공지입니다.</strong>
+          <span>내용을 확인한 뒤 아래 버튼을 눌러주세요.</span>
+          <Btn full onClick={confirmRead} disabled={confirmed}>{confirmed ? "확인 완료" : "공지 내용을 확인했습니다"}</Btn>
+        </div>
+      ) : null}
 
       {canManage ? (
         <NoticeReadReceiptSection
@@ -8615,7 +8636,9 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   const [readNoticeIds, setReadNoticeIds] = useState(() => new Set());
   const [readStatsByNoticeId, setReadStatsByNoticeId] = useState(() => new Map());
   const [readsTick, setReadsTick] = useState(0);
+  const [draftRestored, setDraftRestored] = useState(false);
   const deepLinkOpenedRef = useRef(null);
+  const noticeDraftKey = `gts_notice_draft_${me?.id || "admin"}`;
 
   const resetComposeForm = useCallback(() => {
     setTitle("");
@@ -8625,7 +8648,34 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
     setEventForm({ ...EMPTY_EVENT_FORM });
     setAudience({ ...EMPTY_NOTICE_AUDIENCE });
     setAttachmentFiles([]);
-  }, []);
+    setDraftRestored(false);
+    try { localStorage.removeItem(noticeDraftKey); } catch { /* ignore */ }
+  }, [noticeDraftKey]);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(noticeDraftKey) || "null");
+      if (!saved || (!saved.title && !saved.body)) return;
+      setTitle(saved.title || "");
+      setBody(saved.body || "");
+      setBodyStyle(saved.bodyStyle || DEFAULT_NOTICE_BODY_STYLE);
+      setKind(saved.kind || "normal");
+      setEventForm(saved.eventForm || { ...EMPTY_EVENT_FORM });
+      setAudience(saved.audience || { ...EMPTY_NOTICE_AUDIENCE });
+      setDraftRestored(true);
+    } catch { /* ignore damaged local draft */ }
+  }, [noticeDraftKey]);
+
+  useEffect(() => {
+    if (!composeOpen) return;
+    const timer = setTimeout(() => {
+      try {
+        if (!title.trim() && !body.trim()) localStorage.removeItem(noticeDraftKey);
+        else localStorage.setItem(noticeDraftKey, JSON.stringify({ title, body, bodyStyle, kind, eventForm, audience, savedAt: new Date().toISOString() }));
+      } catch { /* ignore storage quota */ }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [composeOpen, title, body, bodyStyle, kind, eventForm, audience, noticeDraftKey]);
 
   const refreshFeed = useCallback(() => {
     setFeedTick(t => t + 1);
@@ -8817,6 +8867,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
 
       {canManage && composeOpen ? (
         <Modal title="공지 작성" onClose={() => setComposeOpen(false)} center>
+          {draftRestored ? <div className="notice-draft-restored">작성 중이던 임시저장 내용을 불러왔습니다.</div> : null}
           <NoticeFormFields
             title={title}
             setTitle={setTitle}
@@ -8837,6 +8888,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
             attachmentFiles={attachmentFiles}
             setAttachmentFiles={setAttachmentFiles}
           />
+          <div className="notice-compose-save-hint">작성 내용은 이 기기에 자동으로 임시저장됩니다.</div>
           <Btn full onClick={handleAdd} disabled={saving}>{saving ? "등록 중..." : "공지 등록"}</Btn>
         </Modal>
       ) : null}

@@ -354,6 +354,9 @@ export default function UnifiedNoticesFeed({
   const [detailException, setDetailException] = useState(null);
   const [editException, setEditException] = useState(null);
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [unreadOnly, setUnreadOnly] = useState(false);
 
   const isTable = variant === "table";
   const readSet = readNoticeIds instanceof Set
@@ -366,6 +369,20 @@ export default function UnifiedNoticesFeed({
     && item.raw?.id
     && !readSet.has(item.raw.id);
 
+  const filteredItems = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return (items || []).filter(item => {
+      if (typeFilter !== "all" && item.type !== typeFilter) return false;
+      if (unreadOnly && !isUnreadNotice(item)) return false;
+      if (!needle) return true;
+      const haystack = [item.title, item.subtitle, noticeAuthor(item), item.scopeLabel]
+        .filter(Boolean).join(" ").toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [items, query, typeFilter, unreadOnly, showUnreadStyles, readSet]);
+
+  useEffect(() => setPage(1), [query, typeFilter, unreadOnly, items]);
+
   const readStatLabel = (item) => {
     if (!readStatsByNoticeId || item.source !== "notice" || !item.raw?.id) return null;
     const s = readStatsByNoticeId.get?.(item.raw.id) || readStatsByNoticeId[item.raw.id];
@@ -374,16 +391,34 @@ export default function UnifiedNoticesFeed({
   };
 
   const preview = useMemo(
-    () => (items || []).slice(0, previewCount),
-    [items, previewCount],
+    () => filteredItems.slice(0, previewCount),
+    [filteredItems, previewCount],
   );
 
-  const totalPages = Math.max(1, Math.ceil((items?.length || 0) / TABLE_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / TABLE_PAGE_SIZE));
   const tableRows = useMemo(() => {
-    const list = items || [];
     const start = (page - 1) * TABLE_PAGE_SIZE;
-    return list.slice(start, start + TABLE_PAGE_SIZE);
-  }, [items, page]);
+    return filteredItems.slice(start, start + TABLE_PAGE_SIZE);
+  }, [filteredItems, page]);
+
+  const filters = (
+    <div className="admin-notice-filters">
+      <input
+        type="search"
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        placeholder="제목·내용·작성자 검색"
+        aria-label="공지 검색"
+      />
+      <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} aria-label="공지 유형 필터">
+        <option value="all">전체 유형</option>
+        {Object.entries(UNIFIED_NOTICE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select>
+      {showUnreadStyles ? (
+        <label><input type="checkbox" checked={unreadOnly} onChange={e => setUnreadOnly(e.target.checked)}/> 안 읽은 공지만</label>
+      ) : null}
+    </div>
+  );
 
   const handleRowClick = (item) => {
     if (item.source === "notice") {
@@ -465,11 +500,12 @@ export default function UnifiedNoticesFeed({
           </header>
 
           {unreadBanner}
+          {filters}
 
           {loading ? (
             <div className="hub-panel-card__empty">공지를 불러오는 중...</div>
-          ) : (items?.length || 0) === 0 ? (
-            <div className="hub-panel-card__empty">등록된 공지가 없습니다.</div>
+          ) : filteredItems.length === 0 ? (
+            <div className="hub-panel-card__empty">조건에 맞는 공지가 없습니다.</div>
           ) : (
             <>
               <div className="admin-notice-table-wrap">
@@ -556,8 +592,9 @@ export default function UnifiedNoticesFeed({
                 <button type="button" className="hub-modal__close" onClick={() => setShowAll(false)}>닫기</button>
               </div>
               {unreadBanner}
+              {filters}
               <div className="hub-feed-list hub-feed-list--modal hub-feed-list--unified">
-                {(items || []).map(item => (
+                {filteredItems.map(item => (
                   <div key={item.id} className="hub-feed-row-wrap">
                     <FeedRow
                       item={item}
@@ -634,8 +671,9 @@ export default function UnifiedNoticesFeed({
               <button type="button" className="hub-modal__close" onClick={() => setShowAll(false)}>닫기</button>
             </div>
             {unreadBanner}
+            {filters}
             <div className="hub-feed-list hub-feed-list--modal hub-feed-list--unified">
-              {(items || []).map(item => (
+              {filteredItems.map(item => (
                 <div key={item.id} className="hub-feed-row-wrap">
                   <FeedRow
                     item={item}
