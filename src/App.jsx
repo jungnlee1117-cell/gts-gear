@@ -2626,6 +2626,7 @@ function InfList({all,renderItem}) {
 // ═══════════════════════════════════════════════════════════════════════
 const LOGIN_GREEN = "#16a34a";
 const LOGIN_EMAIL_KEY = "gts_remember_email";
+const PASSWORD_RECOVERY_URL = "https://gts-gear.vercel.app";
 
 function LoginUserIcon() {
   return (
@@ -2672,8 +2673,11 @@ function PasswordResetLink({ variant = "block" }) {
   const handle = async () => {
     if (!email.trim()) return alert("이메일을 입력하세요");
     setLoading(true); setError("");
-    const redirectTo = new URL("/reset-password", window.location.origin).toString();
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+    // Supabase에 등록된 운영 URL로 고정합니다. localhost/dev 주소가 이메일에 들어가면
+    // 선생님의 기기에서는 열 수 없으므로 현재 브라우저 origin을 사용하지 않습니다.
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: PASSWORD_RECOVERY_URL,
+    });
     setLoading(false);
     if (resetError) {
       console.error("Password reset request failed", resetError);
