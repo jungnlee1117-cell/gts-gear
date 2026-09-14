@@ -3089,27 +3089,29 @@ function ChangePwModal({ email, onClose, required = false }) {
   const [ok, setOk] = useState(false);
 
   const handle = async () => {
-    if (!current) { setErr("현재 비밀번호를 입력하세요"); return; }
-    if (next.length < 6) { setErr("새 비밀번호는 6자 이상이어야 합니다"); return; }
+    if (!required && !current) { setErr("현재 비밀번호를 입력하세요"); return; }
+    if (next.length < 8) { setErr("새 비밀번호는 8자 이상이어야 합니다"); return; }
     if (next !== conf) { setErr("새 비밀번호가 일치하지 않습니다"); return; }
-    if (current === next) { setErr("새 비밀번호는 현재 비밀번호와 달라야 합니다"); return; }
+    if (!required && current === next) { setErr("새 비밀번호는 현재 비밀번호와 달라야 합니다"); return; }
     if (!email?.trim()) { setErr("로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요."); return; }
 
     setLoading(true);
     setErr("");
 
-    const { error: verifyError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password: current,
-    });
-    if (verifyError) {
-      setLoading(false);
-      setErr(
-        verifyError.message.includes("Invalid login")
-          ? "현재 비밀번호가 올바르지 않습니다"
-          : verifyError.message
-      );
-      return;
+    if (!required) {
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: current,
+      });
+      if (verifyError) {
+        setLoading(false);
+        setErr(
+          verifyError.message.includes("Invalid login")
+            ? "현재 비밀번호가 올바르지 않습니다"
+            : verifyError.message
+        );
+        return;
+      }
     }
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -3128,9 +3130,11 @@ function ChangePwModal({ email, onClose, required = false }) {
     setOk(true);
   };
 
-  const finish = () => {
-    if (required) window.location.reload();
-    else onClose?.();
+  const finish = async () => {
+    if (required) {
+      await supabase.auth.signOut();
+      window.location.assign("/");
+    } else onClose?.();
   };
 
   return (
@@ -3151,21 +3155,21 @@ function ChangePwModal({ email, onClose, required = false }) {
         <div style={{ textAlign: "center", padding: "28px 0" }}>
           <div style={{ fontWeight: 700, fontSize: 16, color: DS.textPrimary, marginBottom: 8 }}>변경 완료</div>
           <div style={{ fontSize: 13, color: DS.textMuted, marginBottom: 18, lineHeight: 1.5 }}>
-            비밀번호가 변경되었습니다.
+            비밀번호가 변경되었습니다.{required ? " 새 비밀번호로 다시 로그인해주세요." : ""}
           </div>
           <Btn full onClick={finish}>확인</Btn>
         </div>
       ) : (
         <>
-          <Inp2
+          {!required ? <Inp2
             label="현재 비밀번호"
             type="password"
             value={current}
             onChange={e => setCurrent(e.target.value)}
             autoComplete="current-password"
-          />
+          /> : null}
           <Inp2
-            label="새 비밀번호 (6자 이상)"
+            label="새 비밀번호 (8자 이상)"
             type="password"
             value={next}
             onChange={e => setNext(e.target.value)}
