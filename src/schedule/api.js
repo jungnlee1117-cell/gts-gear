@@ -1,6 +1,6 @@
 import { resolveTeacherMonthlyGross } from "./additionalPayments.js";
 import { createClient } from "@supabase/supabase-js";
-import { minutesBetween, yearMonthFirstDay, yearMonthKey, yearMonthLastDay } from "./constants.js";
+import { fmtLocalDate, minutesBetween, yearMonthFirstDay, yearMonthKey, yearMonthLastDay } from "./constants.js";
 import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, isPerCapitaBilling, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
 import {
   computeInstitutionInstructorCost,
@@ -20,6 +20,7 @@ import {
   countSkippedEntries,
   countUnconfirmedDays,
   expandMonthSchedule,
+  getSlotsForDate,
   groupPayrollByTypeConfirmed,
 } from "./payrollCalendar.js";
 import {
@@ -619,7 +620,7 @@ export async function deleteAssignment(id) {
 export async function fetchWeeklySchedule(institutionId, teacherId) {
   let q = scheduleSupabase
     .from("institution_weekly_schedule")
-    .select("*, institutions(id, name, address, parking_info)")
+    .select("*, institutions(id, name, address, parking_info), teachers!institution_weekly_schedule_teacher_id_fkey(id, name)")
     .order("day_of_week")
     .order("sort_order");
   if (institutionId) q = q.eq("institution_id", institutionId);
@@ -813,12 +814,20 @@ export async function deleteWeeklySlot(id) {
 }
 
 export async function fetchScheduleExceptions(institutionId, fromDate, toDate) {
-  let q = scheduleSupabase
-    .from("institution_schedule_exceptions")
-    .select("*, institutions(id, name)")
-    .order("exception_date");
-  if (institutionId) q = q.eq("institution_id", institutionId);
-  const { data, error } = await q;
+  const runQuery = async (withSelectedClasses) => {
+    let q = scheduleSupabase
+      .from("institution_schedule_exceptions")
+      .select(withSelectedClasses
+        ? "*, institutions(id, name), institution_schedule_exception_classes(*)"
+        : "*, institutions(id, name)")
+      .order("exception_date");
+    if (institutionId) q = q.eq("institution_id", institutionId);
+    return q;
+  };
+  let { data, error } = await runQuery(true);
+  if (error && /institution_schedule_exception_classes|relationship|schema cache/i.test(error.message || "")) {
+    ({ data, error } = await runQuery(false));
+  }
   if (error) throw error;
   let rows = data || [];
   if (fromDate && toDate) {
@@ -830,6 +839,43 @@ export async function fetchScheduleExceptions(institutionId, fromDate, toDate) {
   return rows;
 }
 
+function parseDateOnly(dateStr) {
+  const [year, month, day] = String(dateStr).slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+/** 원과 날짜 범위에 실제 유효한 정규 수업을 날짜별 체크박스 후보로 반환 */
+export async function fetchInstitutionClassesForDateRange(institutionId, fromDate, toDate = fromDate) {
+  if (!institutionId || !fromDate) return [];
+  const start = parseDateOnly(fromDate);
+  const end = parseDateOnly(toDate || fromDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
+  const rangeDays = Math.round((end - start) / 86_400_000) + 1;
+  if (rangeDays > 93) throw new Error("수업 선택 휴강은 최대 93일까지 등록할 수 있습니다.");
+
+  const weeklySlots = await fetchWeeklySchedule(institutionId, null);
+  const rows = [];
+  for (let i = 0; i < rangeDays; i += 1) {
+    const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    const classDate = fmtLocalDate(date);
+    for (const planned of getSlotsForDate(weeklySlots, date, [])) {
+      rows.push({
+        key: `${classDate}:${planned.slot.schedule_series_id || planned.slot.id}`,
+        class_date: classDate,
+        schedule_slot_id: planned.slot.id,
+        schedule_series_id: planned.slot.schedule_series_id || planned.slot.id,
+        teacher_id: planned.slot.teacher_id || null,
+        teacher_name: planned.slot.teachers?.name || "",
+        display_label: planned.displayLabel,
+        class_type: planned.payType,
+        start_time: planned.startTime,
+        end_time: planned.endTime,
+      });
+    }
+  }
+  return rows;
+}
+
 export async function saveScheduleException(payload) {
   const { data, error } = await scheduleSupabase
     .from("institution_schedule_exceptions")
@@ -837,6 +883,37 @@ export async function saveScheduleException(payload) {
     .select()
     .single();
   if (error) throw error;
+  return data;
+}
+
+/** 예외 본문과 날짜별 선택 휴강 수업을 DB 트랜잭션 하나로 저장 */
+export async function saveScheduleExceptionWithClasses(payload, classes = []) {
+  const { data, error } = await scheduleSupabase
+    .rpc("save_schedule_exception_with_classes", {
+      p_id: payload.id || null,
+      p_institution_id: payload.institution_id,
+      p_exception_date: payload.exception_date,
+      p_end_date: payload.end_date || null,
+      p_exception_type: payload.exception_type,
+      p_note: payload.note || "",
+      p_notice_id: payload.notice_id || null,
+      p_classes: classes.map(row => ({
+        class_date: row.class_date,
+        schedule_slot_id: row.schedule_slot_id,
+        display_label: row.display_label,
+      })),
+    })
+    .single();
+  if (error) {
+    const migrationMissing = /save_schedule_exception_with_classes|schema cache|function/i.test(error.message || "");
+    if (migrationMissing && payload.exception_type !== "class_cancelled") {
+      return saveScheduleException(payload);
+    }
+    if (migrationMissing) {
+      throw new Error("수업 선택 휴강 DB 업데이트를 먼저 적용해주세요.");
+    }
+    throw error;
+  }
   return data;
 }
 

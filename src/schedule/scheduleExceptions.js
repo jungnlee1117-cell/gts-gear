@@ -21,6 +21,52 @@ export function isInstitutionCancelledOnDate(exceptions, institutionId, dateStr)
   );
 }
 
+export function isClosureException(ex) {
+  return ["cancelled", "class_cancelled", "cancelled_am", "cancelled_pm"].includes(ex?.exception_type);
+}
+
+function timeMinutes(time) {
+  const [hour, minute] = String(time || "00:00").slice(0, 5).split(":").map(Number);
+  return (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0);
+}
+
+export function isInstitutionSlotCancelledOnDate(
+  exceptions,
+  institutionId,
+  dateStr,
+  slotOrStartTime,
+) {
+  const slot = typeof slotOrStartTime === "object" ? slotOrStartTime : null;
+  const slotStartTime = slot?.start_time || slotOrStartTime;
+  const slotSeriesId = slot?.schedule_series_id || slot?.id || null;
+  const startsInMorning = timeMinutes(slotStartTime) < 12 * 60;
+  return exceptions.some(ex => {
+    if (ex.institution_id !== institutionId || !isExceptionActiveOnDate(ex, dateStr)) return false;
+    if (ex.exception_type === "cancelled") return true;
+    if (ex.exception_type === "class_cancelled") {
+      return (ex.institution_schedule_exception_classes || []).some(selected => (
+        selected.class_date === dateStr
+        && (
+          selected.schedule_series_id === slotSeriesId
+          || selected.schedule_slot_id === slot?.id
+        )
+      ));
+    }
+    if (ex.exception_type === "cancelled_am") return startsInMorning;
+    if (ex.exception_type === "cancelled_pm") return !startsInMorning;
+    return false;
+  });
+}
+
+function exceptionDisplayLabel(ex) {
+  const typeLabel = EXCEPTION_LABELS[ex.exception_type] || "안내";
+  const note = ex.note?.trim();
+  if (isClosureException(ex)) {
+    return note && note !== typeLabel ? `${typeLabel} · ${note}` : typeLabel;
+  }
+  return note || typeLabel;
+}
+
 export function daysInclusive(startStr, endStr) {
   const start = parseLocalDate(startStr);
   const end = parseLocalDate(endStr);
@@ -33,7 +79,7 @@ export function formatShortDate(dateStr) {
 }
 
 export function formatExceptionNotice(ex) {
-  const note = ex.note?.trim() || EXCEPTION_LABELS[ex.exception_type] || "안내";
+  const note = exceptionDisplayLabel(ex);
   const end = exceptionEndDate(ex);
   if (ex.end_date && ex.end_date !== ex.exception_date) {
     const days = daysInclusive(ex.exception_date, end);
@@ -75,9 +121,7 @@ export function buildExceptionsByDateMap(exceptions, monthStart, monthEnd) {
 }
 
 export function exceptionBadgeLabel(ex) {
-  const note = ex.note?.trim();
-  if (note) return note;
-  return EXCEPTION_LABELS[ex.exception_type] || "안내";
+  return exceptionDisplayLabel(ex);
 }
 
 export function filterExceptionsForInstitutions(exceptions, institutionIds) {

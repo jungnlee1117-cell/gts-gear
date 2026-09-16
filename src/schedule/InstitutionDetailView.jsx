@@ -175,7 +175,9 @@ function InstitutionCalendarPanel({
           <label className="sch-field"><span>유형</span>
             <select className="sch-select" value={form.exception_type}
               onChange={e => setForm(f => ({ ...f, exception_type: e.target.value }))}>
-              {Object.entries(EXCEPTION_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              {Object.entries(EXCEPTION_LABELS)
+                .filter(([key]) => !["class_cancelled", "cancelled_am", "cancelled_pm"].includes(key))
+                .map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select>
           </label>
           <label className="sch-field"><span>일정명</span>
@@ -527,9 +529,11 @@ export default function InstitutionDetailView({
               <span>유형</span>
               <select className="sch-select" value={exForm.exception_type}
                 onChange={e => setExForm(f => ({ ...f, exception_type: e.target.value }))}>
-                {Object.entries(EXCEPTION_LABELS).map(([k, v]) => (
+                {Object.entries(EXCEPTION_LABELS)
+                  .filter(([key]) => !["class_cancelled", "cancelled_am", "cancelled_pm"].includes(key))
+                  .map(([k, v]) => (
                   <option key={k} value={k}>{v}</option>
-                ))}
+                  ))}
               </select>
             </label>
             <label className="sch-field">

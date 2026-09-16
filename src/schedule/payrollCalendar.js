@@ -12,6 +12,7 @@ import {
 import { expandPatternsForRange } from "./homeVisitPatterns.js";
 import { isKoreanHoliday } from "./koreanHolidays.js";
 import { withoutLegacyPayrollDuplicates } from "./payrollEntryDedupe.js";
+import { isInstitutionSlotCancelledOnDate } from "./scheduleExceptions.js";
 
 export { getMonthGrid, fmtLocalDate, isSameDay };
 
@@ -70,11 +71,11 @@ export function getSlotsForDate(weeklySlots, date, exceptions = []) {
   const exList = exceptions ?? [];
   if (exList.length) {
     slots = slots.filter(s => {
-      const cancelled = exList.some(ex =>
-        ex.institution_id === s.institution_id
-        && ex.exception_type === "cancelled"
-        && ex.exception_date <= dateStr
-        && dateStr <= (ex.end_date || ex.exception_date),
+      const cancelled = isInstitutionSlotCancelledOnDate(
+        exList,
+        s.institution_id,
+        dateStr,
+        s,
       );
       return !cancelled;
     });

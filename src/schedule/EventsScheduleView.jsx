@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   DAY_LABELS,
   EXCEPTION_LABELS,
@@ -11,7 +11,7 @@ import {
   deleteScheduleException,
   fetchInstitutions,
   fetchScheduleExceptions,
-  saveScheduleException,
+  saveScheduleExceptionWithClasses,
 } from "./api.js";
 import {
   exceptionsForDate,
@@ -27,16 +27,35 @@ import {
   holidayShortLabel,
 } from "./koreanHolidays.js";
 import { isScheduleAdmin } from "./roles.js";
-import { notifyEventScheduled } from "./pushScheduleNotification.js";
+import {
+  attachScheduleEventNoticeMetadata,
+  createScheduleEventNotice,
+  deleteScheduleEventNotice,
+  isScheduleEventNotice,
+  linkScheduleExceptionToNotice,
+  updateScheduleEventNotice,
+} from "./eventNoticeSync.js";
+import { createScheduleEvent } from "./createScheduleEvent.js";
 import EventRegisterForm, {
   EMPTY_EVENT_FORM,
   exceptionToEventForm,
 } from "./EventRegisterForm.jsx";
+import ScheduleClassCancellationPicker from "./ScheduleClassCancellationPicker.jsx";
 
 const EMPTY_FORM = EMPTY_EVENT_FORM;
 
 function exceptionToForm(ex) {
   return exceptionToEventForm(ex);
+}
+
+function isManagedInNotices(ex) {
+  return Boolean(ex?.notice_id) && !isScheduleEventNotice(ex);
+}
+
+function offsetYearMonth(yearMonth, offset) {
+  const [year, month] = yearMonth.split("-").map(Number);
+  const next = new Date(year, month - 1 + offset, 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
 }
 
 export default function EventsScheduleView({ me, onBack }) {
@@ -64,7 +83,7 @@ export default function EventsScheduleView({ me, onBack }) {
         fetchScheduleExceptions(null, monthStart, monthEnd),
       ]);
       setInstitutions(insts);
-      setExceptions(ex);
+      setExceptions(await attachScheduleEventNoticeMetadata(ex));
     } catch (e) {
       console.error(e);
     } finally {
@@ -92,6 +111,16 @@ export default function EventsScheduleView({ me, onBack }) {
   const gridCells = useMemo(() => getMonthGrid(y, m - 1), [y, m]);
 
   const instName = (id) => institutions.find(i => i.id === id)?.name || "—";
+
+  const changeMonth = (nextMonth) => {
+    if (!/^\d{4}-\d{2}$/.test(nextMonth)) return;
+    setYearMonth(nextMonth);
+    setSelectedDate(`${nextMonth}-01`);
+  };
+
+  const moveMonth = (offset) => {
+    changeMonth(offsetYearMonth(yearMonth, offset));
+  };
 
   const openRegisterForDate = (dateStr) => {
     setSelectedDate(dateStr);
@@ -122,24 +151,70 @@ export default function EventsScheduleView({ me, onBack }) {
     if (!form.note.trim()) return alert("메모를 입력해주세요.");
     const end = form.end_date || form.start_date;
     if (end < form.start_date) return alert("종료일은 시작일 이후여야 합니다.");
+    const selectedClasses = Array.isArray(form.cancelled_classes) ? form.cancelled_classes : [];
+    if (form.exception_type === "class_cancelled" && selectedClasses.length === 0) {
+      return alert("휴강할 수업을 한 개 이상 선택해주세요.");
+    }
     setSaving(true);
     try {
       const isNew = !form.id;
+      const existing = form.id
+        ? (editingException || exceptions.find(ex => ex.id === form.id))
+        : null;
+      const allClassesSelected = (
+        form.exception_type === "class_cancelled"
+        && form.class_candidate_count > 0
+        && selectedClasses.length === form.class_candidate_count
+      );
       const payload = {
         institution_id: form.institution_id,
         exception_date: form.start_date,
         end_date: form.end_date && form.end_date !== form.start_date ? form.end_date : null,
-        exception_type: form.exception_type,
+        exception_type: allClassesSelected ? "cancelled" : form.exception_type,
         note: form.note.trim(),
       };
       if (form.id) payload.id = form.id;
 
-      await saveScheduleException(payload);
+      let savedException;
       if (isNew) {
-        void notifyEventScheduled({
-          institution_id: payload.institution_id,
-          note: payload.note,
-          event_date: payload.exception_date,
+        savedException = await createScheduleEvent({ payload, selectedClasses, author: me });
+      } else {
+        let noticeId = existing?.notice_id || null;
+        if (!noticeId) {
+          const notice = await createScheduleEventNotice(payload, me);
+          noticeId = notice.id;
+        }
+
+        try {
+          savedException = await saveScheduleExceptionWithClasses(
+            { ...payload, notice_id: noticeId },
+            payload.exception_type === "class_cancelled" ? selectedClasses : [],
+          );
+          if (existing?.notice_id) {
+            await updateScheduleEventNotice(noticeId, payload);
+          }
+        } catch (error) {
+          if (!existing?.notice_id && noticeId) {
+            await deleteScheduleEventNotice(noticeId).catch(() => {});
+          } else if (existing) {
+            await saveScheduleExceptionWithClasses(
+              {
+                id: existing.id,
+                institution_id: existing.institution_id,
+                exception_date: existing.exception_date,
+                end_date: existing.end_date,
+                exception_type: existing.exception_type,
+                note: existing.note,
+                notice_id: existing.notice_id,
+              },
+              existing.institution_schedule_exception_classes || [],
+            ).catch(() => {});
+          }
+          throw error;
+        }
+
+        await linkScheduleExceptionToNotice(noticeId, savedException.id).catch(error => {
+          console.warn("행사 공지 연결 ID 저장 실패:", error);
         });
       }
       setForm(EMPTY_FORM);
@@ -159,7 +234,16 @@ export default function EventsScheduleView({ me, onBack }) {
     if (!confirm("이 안내를 삭제할까요?")) return;
     setSaving(true);
     try {
-      await deleteScheduleException(id);
+      const target = exceptions.find(ex => ex.id === id);
+      if (isManagedInNotices(target)) {
+        alert("공지사항에서 등록한 행사는 공지사항 화면에서 수정·삭제해주세요.");
+        return;
+      }
+      if (target?.notice_id) {
+        await deleteScheduleEventNotice(target.notice_id);
+      } else {
+        await deleteScheduleException(id);
+      }
       await load();
     } catch (err) {
       alert("삭제 실패: " + err.message);
@@ -195,7 +279,33 @@ export default function EventsScheduleView({ me, onBack }) {
       </p>
 
       <div className="sch-toolbar">
-        <input type="month" className="sch-input" value={yearMonth} onChange={e => setYearMonth(e.target.value)}/>
+        <div className="sch-events-month-nav" aria-label="행사 달력 월 이동">
+          <button
+            type="button"
+            className="sch-events-month-arrow"
+            onClick={() => moveMonth(-1)}
+            aria-label="이전 달"
+            title="이전 달"
+          >
+            <ChevronLeft size={19}/>
+          </button>
+          <input
+            type="month"
+            className="sch-input"
+            value={yearMonth}
+            aria-label="표시할 월"
+            onChange={e => changeMonth(e.target.value)}
+          />
+          <button
+            type="button"
+            className="sch-events-month-arrow"
+            onClick={() => moveMonth(1)}
+            aria-label="다음 달"
+            title="다음 달"
+          >
+            <ChevronRight size={19}/>
+          </button>
+        </div>
         {admin ? (
           <p className="sch-muted sch-toolbar-hint">달력 날짜를 더블클릭하면 해당 날짜로 안내를 등록할 수 있습니다.</p>
         ) : null}
@@ -287,7 +397,8 @@ export default function EventsScheduleView({ me, onBack }) {
                         <button
                           type="button"
                           className="sch-btn sch-btn--ghost sch-btn--sm"
-                          disabled={saving}
+                          disabled={saving || isManagedInNotices(ex)}
+                          title={isManagedInNotices(ex) ? "공지사항에서 수정하세요" : "수정"}
                           onClick={() => openEdit(ex)}
                           aria-label="수정"
                         >
@@ -296,7 +407,8 @@ export default function EventsScheduleView({ me, onBack }) {
                         <button
                           type="button"
                           className="sch-btn sch-btn--ghost sch-btn--sm"
-                          disabled={saving}
+                          disabled={saving || isManagedInNotices(ex)}
+                          title={isManagedInNotices(ex) ? "공지사항에서 삭제하세요" : "삭제"}
                           onClick={() => handleDelete(ex.id)}
                           aria-label="삭제"
                         >
@@ -356,8 +468,8 @@ export default function EventsScheduleView({ me, onBack }) {
                               <button
                                 type="button"
                                 className="sch-btn sch-btn--ghost sch-btn--sm"
-                                disabled={saving || !!ex.notice_id}
-                                title={ex.notice_id ? "공지사항에서 수정하세요" : "수정"}
+                                disabled={saving || isManagedInNotices(ex)}
+                                title={isManagedInNotices(ex) ? "공지사항에서 수정하세요" : "수정"}
                                 onClick={() => openEdit(ex)}
                                 aria-label="수정"
                               >
@@ -366,8 +478,8 @@ export default function EventsScheduleView({ me, onBack }) {
                               <button
                                 type="button"
                                 className="sch-btn sch-btn--ghost sch-btn--sm"
-                                disabled={saving || !!ex.notice_id}
-                                title={ex.notice_id ? "공지사항에서 삭제하세요" : "삭제"}
+                                disabled={saving || isManagedInNotices(ex)}
+                                title={isManagedInNotices(ex) ? "공지사항에서 삭제하세요" : "삭제"}
                                 onClick={() => handleDelete(ex.id)}
                                 aria-label="삭제"
                               >
@@ -400,6 +512,9 @@ export default function EventsScheduleView({ me, onBack }) {
               onSubmit={handleSubmit}
               onCancel={closeRegisterModal}
               showCancel
+              useSearchSelect
+              allowClassCancellation
+              classCancellationField={<ScheduleClassCancellationPicker form={form} setForm={setForm}/>}
             />
           </div>
         </div>
@@ -420,6 +535,9 @@ export default function EventsScheduleView({ me, onBack }) {
               onCancel={closeEditModal}
               showCancel
               submitLabel="수정 저장"
+              useSearchSelect
+              allowClassCancellation
+              classCancellationField={<ScheduleClassCancellationPicker form={form} setForm={setForm}/>}
             />
           </div>
         </div>

@@ -46,7 +46,10 @@ export const BILLING_TYPES = {
 };
 export const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 export const EXCEPTION_LABELS = {
-  cancelled: "휴원",
+  cancelled: "전체휴강",
+  class_cancelled: "수업 선택 휴강",
+  cancelled_am: "오전휴강",
+  cancelled_pm: "오후휴강",
   event: "행사",
   time_change: "시간변경",
 };

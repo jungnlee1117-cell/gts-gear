@@ -8,6 +8,8 @@ export const EMPTY_EVENT_FORM = {
   end_date: "",
   exception_type: "event",
   note: "",
+  cancelled_classes: [],
+  class_candidate_count: 0,
 };
 
 export function exceptionToEventForm(ex) {
@@ -18,6 +20,11 @@ export function exceptionToEventForm(ex) {
     end_date: ex.end_date && ex.end_date !== ex.exception_date ? ex.end_date : "",
     exception_type: ex.exception_type || "event",
     note: ex.note || "",
+    cancelled_classes: (ex.institution_schedule_exception_classes || []).map(row => ({
+      ...row,
+      key: `${row.class_date}:${row.schedule_series_id || row.schedule_slot_id}`,
+    })),
+    class_candidate_count: 0,
   };
 }
 
@@ -31,8 +38,15 @@ export function EventScheduleFields({
   institutions = [],
   allowGlobal = false,
   useSearchSelect = false,
+  allowClassCancellation = false,
+  classCancellationField = null,
 }) {
   const isGlobal = allowGlobal && (form.scope !== "institution");
+  const exceptionOptions = Object.entries(EXCEPTION_LABELS).filter(([key]) => {
+    if (key === "cancelled_am" || key === "cancelled_pm") return allowClassCancellation;
+    if (key === "class_cancelled") return allowClassCancellation;
+    return true;
+  });
 
   return (
     <>
@@ -71,6 +85,8 @@ export function EventScheduleFields({
                     ...f,
                     scope: "institution",
                     institution_id: id || "",
+                    cancelled_classes: [],
+                    class_candidate_count: 0,
                   }))}
                   required
                   placeholder="기관 이름 검색"
@@ -86,7 +102,12 @@ export function EventScheduleFields({
             className="sch-select"
             required={!allowGlobal}
             value={form.institution_id}
-            onChange={e => setForm(f => ({ ...f, institution_id: e.target.value }))}
+            onChange={e => setForm(f => ({
+              ...f,
+              institution_id: e.target.value,
+              cancelled_classes: [],
+              class_candidate_count: 0,
+            }))}
           >
             {allowGlobal ? (
               <option value="">전체 공개</option>
@@ -107,7 +128,12 @@ export function EventScheduleFields({
             className="sch-input"
             required
             value={form.start_date}
-            onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+            onChange={e => setForm(f => ({
+              ...f,
+              start_date: e.target.value,
+              cancelled_classes: [],
+              class_candidate_count: 0,
+            }))}
           />
         </label>
         <label className="sch-field">
@@ -116,7 +142,12 @@ export function EventScheduleFields({
             type="date"
             className="sch-input"
             value={form.end_date}
-            onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+            onChange={e => setForm(f => ({
+              ...f,
+              end_date: e.target.value,
+              cancelled_classes: [],
+              class_candidate_count: 0,
+            }))}
           />
         </label>
       </div>
@@ -125,13 +156,19 @@ export function EventScheduleFields({
         <select
           className="sch-select"
           value={form.exception_type}
-          onChange={e => setForm(f => ({ ...f, exception_type: e.target.value }))}
+          onChange={e => setForm(f => ({
+            ...f,
+            exception_type: e.target.value,
+            cancelled_classes: e.target.value === "class_cancelled" ? f.cancelled_classes : [],
+            class_candidate_count: e.target.value === "class_cancelled" ? f.class_candidate_count : 0,
+          }))}
         >
-          {Object.entries(EXCEPTION_LABELS).map(([k, v]) => (
+          {exceptionOptions.map(([k, v]) => (
             <option key={k} value={k}>{v}</option>
           ))}
         </select>
       </label>
+      {form.exception_type === "class_cancelled" ? classCancellationField : null}
       <label className="sch-field">
         <span>메모</span>
         <input
@@ -158,6 +195,8 @@ export default function EventRegisterForm({
   submitLabel = "안내 저장",
   allowGlobal = false,
   useSearchSelect = false,
+  allowClassCancellation = false,
+  classCancellationField = null,
 }) {
   return (
     <form className="sch-form sch-events-form" onSubmit={onSubmit}>
@@ -167,6 +206,8 @@ export default function EventRegisterForm({
         institutions={institutions}
         allowGlobal={allowGlobal}
         useSearchSelect={useSearchSelect}
+        allowClassCancellation={allowClassCancellation}
+        classCancellationField={classCancellationField}
       />
       <div className="sch-form-actions">
         {showCancel ? (
