@@ -579,7 +579,11 @@ export default function MyGearRotationPage({
     () => {
       const visible = canViewRotationRentalStatus ? PAGE_TABS : PAGE_TABS.filter((tab) => tab.id === "mine");
       return canWritePrivateMonthlyPlan
-        ? [...visible, { id: "monthly-plan", label: "월간 계획안 작성" }, { id: "after-school", label: "방과후" }]
+        ? [
+          ...visible,
+          { id: "monthly-plan", label: "월간 계획안 작성" },
+          { id: "after-school", label: "방과후" },
+        ]
         : visible;
     },
     [canViewRotationRentalStatus, canWritePrivateMonthlyPlan],
