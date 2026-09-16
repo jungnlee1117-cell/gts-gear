@@ -68,6 +68,14 @@ export function formatKoreanEventDate(dateStr) {
   return `${d.getMonth() + 1}월 ${d.getDate()}일(${DAY_LABELS[d.getDay()]})`;
 }
 
+export function isNoticeCurrentlyVisible(notice, now = new Date()) {
+  if (notice?.notice_type !== "event") return true;
+  const visibleThrough = notice.event_end_date || notice.event_date;
+  if (!visibleThrough) return true;
+  const remainingDays = daysUntil(visibleThrough, now);
+  return !Number.isFinite(remainingDays) || remainingDays >= 0;
+}
+
 function formatExceptionSubtitle(ex) {
   const start = formatKoreanEventDate(ex.exception_date);
   const end = exceptionEndDate(ex);
@@ -195,7 +203,8 @@ export function sortUnifiedFeedItems(items, now = new Date()) {
 /** @param {object[]} notices @param {object[]} exceptions */
 export function buildUnifiedFeed(notices = [], exceptions = [], now = new Date()) {
   const linkedExceptionIds = new Set();
-  for (const notice of notices) {
+  const visibleNotices = (notices || []).filter(notice => isNoticeCurrentlyVisible(notice, now));
+  for (const notice of visibleNotices) {
     if (notice.notice_type === "event" && notice.schedule_exception_ids?.length) {
       notice.schedule_exception_ids.forEach(id => linkedExceptionIds.add(id));
     }
@@ -204,7 +213,7 @@ export function buildUnifiedFeed(notices = [], exceptions = [], now = new Date()
     ex => !ex.notice_id && !linkedExceptionIds.has(ex.id),
   );
   const items = [
-    ...notices.map(noticeToFeedItem),
+    ...visibleNotices.map(noticeToFeedItem),
     ...standaloneExceptions.map(exceptionToFeedItem),
   ];
   return sortUnifiedFeedItems(items, now);

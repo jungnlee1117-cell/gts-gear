@@ -12,6 +12,8 @@ export default function CalendarEventBadges({ events, maxVisible = 4, compact = 
       {visible.map(ex => {
         const color = institutionColor(ex.institution_id);
         const label = exceptionBadgeLabel(ex);
+        const institutionName = ex.institutions?.name?.trim() || "원";
+        const fullLabel = `${institutionName} - ${label}`;
         return (
           <span
             key={ex.id}
@@ -21,9 +23,10 @@ export default function CalendarEventBadges({ events, maxVisible = 4, compact = 
               borderColor: `${color}66`,
               color: "#334155",
             }}
-            title={ex.institutions?.name ? `${ex.institutions.name} · ${label}` : label}
+            title={fullLabel}
           >
-            {label}
+            <span className="sch-cal-event-badge__institution">{institutionName}</span>
+            <span className="sch-cal-event-badge__event"> - {label}</span>
           </span>
         );
       })}
