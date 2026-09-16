@@ -452,6 +452,7 @@ export default function GearRotationManagePage({
   return (
     <PageShell>
       <PageHeader me={me} subtitle="알파벳별 주차 교구 목록을 수정합니다. (관리자 전용)"/>
+      <div className="gear-rotation-manage-page">
 
       {registerName && (
         <QuickRegisterModal
@@ -666,6 +667,7 @@ export default function GearRotationManagePage({
           </div>
         </>
       )}
+      </div>
     </PageShell>
   );
 }

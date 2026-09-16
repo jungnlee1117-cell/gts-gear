@@ -59,6 +59,7 @@ import {
   selectableTodoTeachers,
 } from "./todoAudience.js";
 import UnifiedNoticesFeed from "./UnifiedNoticesFeed.jsx";
+import HubTodoCalendar from "./HubTodoCalendar.jsx";
 import TeacherAccountsPage from "./TeacherAccountsPage.jsx";
 import { getTeacherAccessBlock } from "./teacherResign.js";
 import { loadUnifiedNoticeFeed } from "./unifiedNotices.js";
@@ -89,8 +90,9 @@ import {
 } from "./noticeReads.js";
 import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin, canPersonalGearRental } from "./authRoles.js";
 import {
-  RETURN_PHOTO_REQUIRED,
+  RETURN_PHOTO_REQUIRED_MESSAGE,
   compressReturnPhoto,
+  isReturnPhotoRequired,
   uploadReturnPhoto,
   validateReturnLocationGroups,
 } from "./returnPhoto.js";
@@ -5282,6 +5284,7 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
       {reserveItem && (
         <ReservationModal
           item={reserveItem}
+          me={me}
           onClose={() => setReserveItem(null)}
           onSubmit={(payload) => {
             onSubmitReservation?.({ ...payload, item_id: reserveItem.id });
@@ -6032,6 +6035,7 @@ function ItemsBrowsePage({
       {reserveItem && (
         <ReservationModal
           item={reserveItem}
+          me={me}
           onClose={() => setReserveItem(null)}
           onSubmit={(payload) => {
             onSubmitReservation?.({ ...payload, item_id: reserveItem.id });
@@ -7942,19 +7946,36 @@ function AdminTodoRow({ todo, who, period, onToggle, onDelete, onUpdate, onItemC
   );
 }
 
-function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd, onToggle, onDelete, onUpdate, hideAuto = false, readOnly = false }) {
+function AdminTodoSection({
+  me,
+  teachers,
+  todos,
+  reqs,
+  ris,
+  rets,
+  setPage,
+  onAdd,
+  onToggle,
+  onDelete,
+  onUpdate,
+  hideAuto = false,
+  readOnly = false,
+  allowCompletion = false,
+  quickCreateDate = "",
+}) {
   const canEditTodo = isSuperAdmin(me);
+  const canToggleTodo = Boolean(onToggle) && (!readOnly || allowCompletion);
   const [content, setContent] = useState("");
-  const [audienceMode, setAudienceMode] = useState("shared"); // assignee | selected_teachers | all_teachers | shared
-  const [assignee, setAssignee] = useState("");
+  const [audienceMode, setAudienceMode] = useState(quickCreateDate ? "assignee" : "shared"); // assignee | selected_teachers | all_teachers | shared
+  const [assignee, setAssignee] = useState(quickCreateDate ? me?.id || "" : "");
   const [selectedTeacherIds, setSelectedTeacherIds] = useState([]);
   const [priority, setPriority] = useState("normal");
   const [start, setStart] = useState("");
-  const [due, setDue] = useState("");
+  const [due, setDue] = useState(quickCreateDate);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState("all"); // all | active | done
   const [filterAssignee, setFilterAssignee] = useState("all");
-  const [composing, setComposing] = useState(false);
+  const [composing, setComposing] = useState(Boolean(quickCreateDate));
   const [editingTodo, setEditingTodo] = useState(null);
   const [draftItems, setDraftItems] = useState([]);
   const [subDraft, setSubDraft] = useState("");
@@ -8332,6 +8353,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
       ) : shownTodos.length > 0 ? (
         <div className="admin-todo-table-wrap">
           <div className="admin-todo-table-head">
+            <span aria-hidden/>
             <span>우선순위</span>
             <span>할 일 제목</span>
             <span>상세</span>
@@ -8347,6 +8369,16 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
             return (
               <div key={t.id} className="admin-todo-table-block">
                 <div className={`admin-todo-table-row${t.is_completed ? " is-done" : ""}`}>
+                  <input
+                    type="checkbox"
+                    className="admin-todo-quick-check"
+                    checked={!!t.is_completed}
+                    disabled={!canToggleTodo}
+                    aria-label={`${t.content} ${t.is_completed ? "완료 취소" : "완료 처리"}`}
+                    title={t.is_completed ? "진행 중으로 변경" : "완료 처리"}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => canToggleTodo && onToggle(t.id, e.target.checked)}
+                  />
                   <span className={`admin-todo-pri ${pri.cls}`}><i/><span>{pri.label}</span></span>
                   <button type="button" className="admin-todo-table-row__title" onClick={() => setExpandedId(expanded ? null : t.id)}>
                     <span>{t.content}</span>
@@ -8483,7 +8515,7 @@ function AdminTodoSection({ me, teachers, todos, reqs, ris, rets, setPage, onAdd
         </div>
       ) : null}
 
-      {((!readOnly && composing) || (canEditTodo && editingTodo)) && (
+      {(((!readOnly || Boolean(quickCreateDate)) && composing) || (canEditTodo && editingTodo)) && (
         <div className="admin-todo-modal-backdrop" onClick={resetModalForm}>
           <div className="admin-todo-modal-card" onClick={e => e.stopPropagation()}>
             <div className="admin-todo-modal-card__head">
@@ -9312,6 +9344,7 @@ function TeacherRentalReturnPage({
       {editReq && (
         <EditRentalRequestModal
           req={editReq}
+          me={me}
           reqRIs={editReqRIs}
           items={items}
           ris={ris}
@@ -10539,8 +10572,104 @@ function validateReservationDates(startYmd, endYmd) {
   return null;
 }
 
-function ReservationModal({ item, onClose, onSubmit }) {
+function canChooseAnyRentalInstitution(me) {
+  return isSuperAdmin(me) || isItemAdmin(me) || isGearPlatformAdmin(me);
+}
+
+async function fetchRentalInstitutionOptions(me) {
+  if (!me?.id) throw new Error("로그인 정보를 확인할 수 없습니다.");
+  const { data, error } = canChooseAnyRentalInstitution(me)
+    ? await supabase.from("institutions").select("id, name, is_active").eq("is_active", true).order("name")
+    : await supabase.rpc("get_teacher_assigned_institutions");
+  if (error) throw error;
+  const unique = new Map();
+  for (const institution of data || []) {
+    if (institution?.id && institution?.name && institution.is_active !== false) {
+      unique.set(institution.id, institution);
+    }
+  }
+  return [...unique.values()];
+}
+
+async function resolveRentalInstitutionName(me, requestedName) {
+  const options = await fetchRentalInstitutionOptions(me);
+  if (!options.length) throw new Error("등록된 소속 기관이 없습니다. 관리자에게 문의해 주세요.");
+  if (!canChooseAnyRentalInstitution(me) && options.length === 1) return options[0].name;
+  const matched = options.find(institution => institution.name === requestedName);
+  if (!matched) throw new Error("사용 기관을 선택해 주세요.");
+  return matched.name;
+}
+
+function useRentalInstitutionOptions(me) {
+  const canChooseAll = canChooseAnyRentalInstitution(me);
+  const [state, setState] = useState({ options: [], loading: true, error: "" });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ options: [], loading: true, error: "" });
+    fetchRentalInstitutionOptions(me)
+      .then(options => {
+        if (!cancelled) setState({ options, loading: false, error: "" });
+      })
+      .catch(error => {
+        if (!cancelled) setState({ options: [], loading: false, error: error.message });
+      });
+    return () => { cancelled = true; };
+  }, [me, canChooseAll]);
+
+  return {
+    ...state,
+    canChooseAll,
+    canChoose: canChooseAll || state.options.length > 1,
+  };
+}
+
+function RentalInstitutionField({ institutionState, value, onChange }) {
+  const { options, loading, error, canChoose, canChooseAll } = institutionState;
+  if (loading) {
+    return <div style={{ fontSize: 12, color: DS.textMuted, marginBottom: 14 }}>소속 기관을 확인하는 중...</div>;
+  }
+  if (error || options.length === 0) {
+    return (
+      <div style={{ fontSize: 12, color: DS.danger, marginBottom: 14 }}>
+        {error ? `기관 정보를 불러오지 못했습니다: ${error}` : "등록된 소속 기관이 없습니다. 관리자에게 문의해 주세요."}
+      </div>
+    );
+  }
+  if (!canChoose) {
+    return (
+      <Fld label="사용 기관">
+        <div style={{
+          ...inp,
+          minHeight: 42,
+          display: "flex",
+          alignItems: "center",
+          background: "#f8fafc",
+          color: DS.textPrimary,
+          fontWeight: 700,
+        }}>
+          {options[0].name}
+        </div>
+      </Fld>
+    );
+  }
+  const hasLegacyValue = canChooseAll && value && !options.some(institution => institution.name === value);
+  return (
+    <Fld label="사용 기관 *">
+      <select value={value} onChange={event => onChange(event.target.value)} style={{ ...inp, minHeight: 42 }}>
+        <option value="">기관 선택</option>
+        {hasLegacyValue ? <option value={value}>{value}</option> : null}
+        {options.map(institution => (
+          <option key={institution.id} value={institution.name}>{institution.name}</option>
+        ))}
+      </select>
+    </Fld>
+  );
+}
+
+function ReservationModal({ item, me, onClose, onSubmit }) {
   const initialDates = useMemo(() => defaultReservationDates(), []);
+  const institutionState = useRentalInstitutionOptions(me);
   const [f, setF] = useState({
     location: "",
     start_date: initialDates.start_date,
@@ -10549,8 +10678,18 @@ function ReservationModal({ item, onClose, onSubmit }) {
   });
   const startMin = reservationMinStartYmd();
 
+  useEffect(() => {
+    if (!institutionState.loading && !institutionState.canChoose && institutionState.options.length === 1) {
+      setF(previous => ({ ...previous, location: institutionState.options[0].name }));
+    }
+  }, [institutionState.loading, institutionState.canChoose, institutionState.options]);
+
   const submit = () => {
-    if (!f.location.trim()) return alert("사용 장소를 입력하세요");
+    if (institutionState.loading) return alert("소속 기관을 확인하는 중입니다.");
+    if (institutionState.error || institutionState.options.length === 0) {
+      return alert("소속 기관을 확인할 수 없습니다. 관리자에게 문의해 주세요.");
+    }
+    if (!f.location.trim()) return alert("사용 기관을 선택하세요");
     const dateErr = validateReservationDates(f.start_date, f.end_date);
     if (dateErr) return alert(dateErr);
     const maxQty = item?.total_quantity || 1;
@@ -10565,7 +10704,11 @@ function ReservationModal({ item, onClose, onSubmit }) {
 
   return (
     <Modal title={`교구 예약 · ${item?.name || ""}`} onClose={onClose}>
-      <Inp2 label="사용 장소 *" value={f.location} onChange={e => setF(p => ({ ...p, location: e.target.value }))} placeholder="예: 은빛유치원 (성동구)"/>
+      <RentalInstitutionField
+        institutionState={institutionState}
+        value={f.location}
+        onChange={location => setF(previous => ({ ...previous, location }))}
+      />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
         <Inp2 label="예약 시작일 *" type="date" min={startMin} value={f.start_date} onChange={e => setF(p => ({ ...p, start_date: e.target.value }))}/>
         <Inp2 label="예약 종료일 *" type="date" min={f.start_date || startMin} value={f.end_date} onChange={e => setF(p => ({ ...p, end_date: e.target.value }))}/>
@@ -10689,8 +10832,9 @@ function ExtensionPromptModal({ candidates, maxExtensions, onConfirm, onSkip, on
   );
 }
 
-function CartModal({cart,setCart,items,itemSets,ris,rets,onSubmit,onClose}) {
+function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose}) {
   const initialDates = useMemo(() => defaultRentalDates(), []);
+  const institutionState = useRentalInstitutionOptions(me);
   const[f,setF]=useState(()=>({
     dispatch_location:"",
     dispatch_start: initialDates.dispatch_start,
@@ -10716,6 +10860,12 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,onSubmit,onClose}) {
       };
     }));
   }, [cart, f.dispatch_end]);
+
+  useEffect(() => {
+    if (!institutionState.loading && !institutionState.canChoose && institutionState.options.length === 1) {
+      setF(previous => ({ ...previous, dispatch_location: institutionState.options[0].name }));
+    }
+  }, [institutionState.loading, institutionState.canChoose, institutionState.options]);
 
   const cartAvail = (c) => {
     if (c.set_id && c.component_name) {
@@ -10756,7 +10906,9 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,onSubmit,onClose}) {
   };
   const remove=(idKey)=>{setCart(p=>p.filter(c=>cartLineKey(c)!==idKey));setDetails(p=>p.filter(c=>cartLineKey(c)!==idKey));};
   const submit=()=>{
-    if(!f.dispatch_location.trim())return alert("사용 장소를 입력하세요");
+    if(institutionState.loading)return alert("소속 기관을 확인하는 중입니다.");
+    if(institutionState.error||institutionState.options.length===0)return alert("소속 기관을 확인할 수 없습니다. 관리자에게 문의해 주세요.");
+    if(!f.dispatch_location.trim())return alert("사용 기관을 선택하세요");
     if(!f.dispatch_start||!f.dispatch_end)return alert("대여 기간을 입력하세요");
     if(!details.length)return alert("교구를 담아주세요");
     const dateErr = validateCartRentalDates(f.dispatch_start, f.dispatch_end, details);
@@ -10769,7 +10921,11 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,onSubmit,onClose}) {
   };
   return(
     <Modal title={`대여 신청 (${details.length}종)`} onClose={onClose}>
-      <Inp2 label="사용 장소 *" value={f.dispatch_location} onChange={e=>setF(p=>({...p,dispatch_location:e.target.value}))} placeholder="예: 은빛유치원 (성동구)"/>
+      <RentalInstitutionField
+        institutionState={institutionState}
+        value={f.dispatch_location}
+        onChange={dispatch_location => setF(previous => ({ ...previous, dispatch_location }))}
+      />
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
         <Inp2 label="대여 시작일 *" type="date" value={f.dispatch_start} onChange={e=>setF(p=>({...p,dispatch_start:e.target.value}))}/>
         <Inp2 label="대여 종료일 *" type="date" value={f.dispatch_end} onChange={e=>handleEndDateChange(e.target.value)}/>
@@ -10826,7 +10982,8 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,onSubmit,onClose}) {
   );
 }
 
-function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClose }) {
+function EditRentalRequestModal({ req, reqRIs, items, ris, rets, me, onSubmit, onClose }) {
+  const institutionState = useRentalInstitutionOptions(me);
   const endDefault = toDateInputValue(req.dispatch_end);
   const [f, setF] = useState({
     dispatch_location: req.dispatch_location || "",
@@ -10847,6 +11004,12 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClo
   }));
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    if (!institutionState.loading && !institutionState.canChoose && institutionState.options.length === 1) {
+      setF(previous => ({ ...previous, dispatch_location: institutionState.options[0].name }));
+    }
+  }, [institutionState.loading, institutionState.canChoose, institutionState.options]);
+
   const setD = (rentalItemId, k, v) => {
     if (k === "due_date") {
       setDetails(p => p.map(c => c.rental_item_id === rentalItemId ? { ...c, due_date: v, due_date_custom: true } : c));
@@ -10860,7 +11023,11 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClo
   };
 
   const submit = async () => {
-    if (!f.dispatch_location.trim()) return alert("사용 장소를 입력하세요");
+    if (institutionState.loading) return alert("소속 기관을 확인하는 중입니다.");
+    if (institutionState.error || institutionState.options.length === 0) {
+      return alert("소속 기관을 확인할 수 없습니다. 관리자에게 문의해 주세요.");
+    }
+    if (!f.dispatch_location.trim()) return alert("사용 기관을 선택하세요");
     if (!f.dispatch_start || !f.dispatch_end) return alert("대여 기간을 입력하세요");
     const dateErr = validateCartRentalDates(f.dispatch_start, f.dispatch_end, details);
     if (dateErr) return alert(dateErr);
@@ -10891,7 +11058,11 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClo
 
   return (
     <Modal title="대여 신청 수정" onClose={onClose}>
-      <Inp2 label="사용 장소 *" value={f.dispatch_location} onChange={e => setF(p => ({ ...p, dispatch_location: e.target.value }))}/>
+      <RentalInstitutionField
+        institutionState={institutionState}
+        value={f.dispatch_location}
+        onChange={dispatch_location => setF(previous => ({ ...previous, dispatch_location }))}
+      />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
         <Inp2 label="대여 시작일 *" type="date" value={f.dispatch_start} onChange={e => setF(p => ({ ...p, dispatch_start: e.target.value }))}/>
         <Inp2 label="대여 종료일 *" type="date" value={f.dispatch_end} onChange={e => handleEndDateChange(e.target.value)}/>
@@ -10930,6 +11101,7 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClo
 }
 
 function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
+  const photoRequired = isReturnPhotoRequired();
   const initialGroups = useMemo(() => {
     const list = groupsProp?.length ? groupsProp : (group ? [group] : []);
     return list.map(g => ({
@@ -11051,15 +11223,15 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
     const state = photoByLocation[loc] || {};
     let nextPhotos = photoByLocation;
     if (skipped) {
-      if (RETURN_PHOTO_REQUIRED) {
-        return alert("사진이 필수입니다. 촬영하거나 업로드해 주세요.");
+      if (isReturnPhotoRequired()) {
+        return alert(RETURN_PHOTO_REQUIRED_MESSAGE);
       }
       const patch = { skipped: true, file: null, preview: null };
       nextPhotos = { ...photoByLocation, [loc]: { ...(state), ...patch } };
       setPhotoByLocation(nextPhotos);
     } else if (!state.file && !state.skipped) {
-      if (RETURN_PHOTO_REQUIRED) {
-        return alert("사진을 촬영하거나 업로드해 주세요.");
+      if (isReturnPhotoRequired()) {
+        return alert(RETURN_PHOTO_REQUIRED_MESSAGE);
       }
       return alert("사진을 업로드하거나 「사진 없이 이 위치 반납」을 눌러 주세요.");
     }
@@ -11080,7 +11252,9 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
         skippedPhoto: Boolean(st.skipped) && !st.file,
       };
     });
-    const err = validateReturnLocationGroups(groupsForValidate);
+    const err = validateReturnLocationGroups(groupsForValidate, {
+      photoRequired: isReturnPhotoRequired(),
+    });
     if (err) return alert(err);
 
     setSaving(true);
@@ -11124,7 +11298,7 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
             borderRadius: 10, padding: "10px 13px", marginBottom: 14, fontSize: 12, color: RETURN_THEME.text, lineHeight: 1.55,
           }}>
             반납 위치는 필수입니다. 같은 위치로 가는 교구는 묶어서 사진 1장으로 처리할 수 있습니다.
-            {RETURN_PHOTO_REQUIRED
+            {photoRequired
               ? " 사진은 필수입니다."
               : " 사진은 권장이며, 다음 단계에서 건너뛸 수 있습니다."}
           </div>
@@ -11198,7 +11372,7 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
           ))}
 
           <Btn full color={RETURN_THEME.primary} onClick={goPhotoStep}>
-            다음 · 사진 {RETURN_PHOTO_REQUIRED ? "(필수)" : "(권장)"}
+            다음 · 사진 {photoRequired ? "(필수)" : "(권장)"}
           </Btn>
         </>
       ) : (
@@ -11241,7 +11415,7 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <Btn ghost onClick={() => setStep("location")} disabled={saving}>이전</Btn>
-                {!RETURN_PHOTO_REQUIRED && (
+                {!photoRequired && (
                   <Btn ghost onClick={() => finishCurrentLocAndMaybeNext(true)} disabled={saving}>
                     사진 없이 이 위치 반납
                   </Btn>
@@ -11256,7 +11430,7 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
                     ? "처리 중..."
                     : (photoLocIndex < locationGroups.length - 1
                       ? "다음 위치"
-                      : (RETURN_PHOTO_REQUIRED || currentPhoto?.file ? "반납 완료" : "사진 확인 후 완료"))}
+                      : (photoRequired || currentPhoto?.file ? "반납 완료" : "사진 확인 후 완료"))}
                 </Btn>
               </div>
             </>
@@ -11955,7 +12129,9 @@ function HubPage({ me, onSelect, onLogout }) {
   const [viewNotice, setViewNotice] = useState(null);
   const [readNoticeIds, setReadNoticeIds] = useState(() => new Set());
 
-  const showTodo = isItemAdmin(me);
+  const showTodo = isItemAdmin(me) || isScheduleAdmin(me);
+  const canRegisterHubEvents = isScheduleAdmin(me);
+  const showStandaloneCalendar = !showTodo && (me?.role === "teacher" || canRegisterHubEvents);
   const showGitiReport = isSuperAdmin(me);
   const showUnreadStyles = isGearTeacher(me) || me?.role === "teacher";
   const [todos, setTodos] = useState([]);
@@ -11963,6 +12139,7 @@ function HubPage({ me, onSelect, onLogout }) {
   const [todoReqs, setTodoReqs] = useState([]);
   const [todoRIs, setTodoRIs] = useState([]);
   const [todoRets, setTodoRets] = useState([]);
+  const [quickTodoRequest, setQuickTodoRequest] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -12194,23 +12371,51 @@ function HubPage({ me, onSelect, onLogout }) {
           </div>
 
           {showTodo && (
-            <div className="hub-todo-section">
-              <AdminTodoSection
-                me={me}
-                teachers={todoTeachers}
+            <div className="hub-todo-layout">
+              <HubTodoCalendar
+                supabase={supabase}
                 todos={todos}
-                reqs={todoReqs}
-                ris={todoRIs}
-                rets={todoRets}
-                setPage={(p) => navigate(`/gear?page=${p}`)}
-                onAdd={addTodo}
-                onToggle={toggleTodo}
-                onDelete={deleteTodo}
-                onUpdate={updateTodo}
-                readOnly
+                teacherId={me.id}
+                me={me}
+                canRegisterEvents={canRegisterHubEvents}
+                onRequestTodoCreate={(date) => setQuickTodoRequest(previous => ({
+                  date,
+                  token: (previous?.token || 0) + 1,
+                }))}
               />
+              <div className="hub-todo-section">
+                <AdminTodoSection
+                  key={`hub-todos-${quickTodoRequest?.token || 0}`}
+                  me={me}
+                  teachers={todoTeachers}
+                  todos={todos}
+                  reqs={todoReqs}
+                  ris={todoRIs}
+                  rets={todoRets}
+                  setPage={(p) => navigate(`/gear?page=${p}`)}
+                  onAdd={addTodo}
+                  onToggle={toggleTodo}
+                  onDelete={deleteTodo}
+                  onUpdate={updateTodo}
+                  readOnly
+                  allowCompletion
+                  quickCreateDate={quickTodoRequest?.date || ""}
+                />
+              </div>
             </div>
           )}
+
+          {showStandaloneCalendar ? (
+            <div className="hub-teacher-calendar-section">
+              <HubTodoCalendar
+                supabase={supabase}
+                teacherId={me.id}
+                showTodos={false}
+                me={me}
+                canRegisterEvents={canRegisterHubEvents}
+              />
+            </div>
+          ) : null}
         </div>
       </main>
 
@@ -12790,6 +12995,13 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   const doSubmitRent = async ({dispatch_location,dispatch_start,dispatch_end,memo,items:ci}) => {
+    let resolvedLocation;
+    try {
+      resolvedLocation = await resolveRentalInstitutionName(me, dispatch_location);
+    } catch (institutionError) {
+      alert(institutionError.message);
+      return;
+    }
     const conflicts = await checkRotationRentalConflicts(supabase, {
       me, cartItems: ci, items, dispatch_start, dispatch_end, teachers,
     });
@@ -12797,7 +13009,7 @@ function EquipmentApp({ onBack, me, session }) {
       const msg = formatRotationConflictConfirmMessage(conflicts, { actionLabel: "대여" });
       if (!confirm(msg)) return;
     }
-    const {data:newReq,error}=await supabase.from("rental_requests").insert({teacher_id:me.id,dispatch_location,dispatch_start,dispatch_end,memo,status:"pending"}).select().single();
+    const {data:newReq,error}=await supabase.from("rental_requests").insert({teacher_id:me.id,dispatch_location:resolvedLocation,dispatch_start,dispatch_end,memo,status:"pending"}).select().single();
     if(error||!newReq){alert("신청 오류: "+error?.message);return;}
     const {data:newRIs}=await supabase.from("rental_items").insert(ci.map(c=>({
       request_id:newReq.id,
@@ -12873,6 +13085,13 @@ function EquipmentApp({ onBack, me, session }) {
       alert(`수량은 1~${maxQty}개까지 가능합니다`);
       return false;
     }
+    let resolvedLocation;
+    try {
+      resolvedLocation = await resolveRentalInstitutionName(me, location);
+    } catch (institutionError) {
+      alert(institutionError.message);
+      return false;
+    }
     const existing = getTeacherPendingReservation(reservations, me.id, item_id);
     if (existing) {
       alert("이미 예약 대기 중인 교구입니다.");
@@ -12898,7 +13117,7 @@ function EquipmentApp({ onBack, me, session }) {
       quantity,
       start_date,
       end_date,
-      location: location.trim(),
+      location: resolvedLocation,
       status: "pending",
     }).select().single();
 
@@ -13147,9 +13366,16 @@ function EquipmentApp({ onBack, me, session }) {
       alert("수정할 수 없는 신청입니다.");
       return false;
     }
+    let resolvedLocation;
+    try {
+      resolvedLocation = await resolveRentalInstitutionName(me, dispatch_location);
+    } catch (institutionError) {
+      alert(institutionError.message);
+      return false;
+    }
 
     const { error: reqErr } = await supabase.from("rental_requests").update({
-      dispatch_location,
+      dispatch_location: resolvedLocation,
       dispatch_start,
       dispatch_end,
       memo: memo || "",
@@ -13171,7 +13397,7 @@ function EquipmentApp({ onBack, me, session }) {
     }
 
     setReqs(p => p.map(r => (
-      r.id === reqId ? { ...r, dispatch_location, dispatch_start, dispatch_end, memo: memo || "" } : r
+      r.id === reqId ? { ...r, dispatch_location: resolvedLocation, dispatch_start, dispatch_end, memo: memo || "" } : r
     )));
     setRIs(p => p.map(ri => {
       const line = ci.find(c => c.rental_item_id === ri.id);
@@ -13189,6 +13415,10 @@ function EquipmentApp({ onBack, me, session }) {
     const allCreated = [];
 
     for (const { quantity, condition, memo, lines, itemId, idea, return_location, return_photo_url } of list) {
+      if (isReturnPhotoRequired() && !return_photo_url) {
+        alert(RETURN_PHOTO_REQUIRED_MESSAGE);
+        return;
+      }
       if (!String(return_location || "").trim()) {
         alert("반납 위치가 없습니다.");
         return;
@@ -14084,7 +14314,7 @@ function EquipmentApp({ onBack, me, session }) {
           {renderPage()}
         </div>
 
-        {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
+        {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} me={me} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
         {extPrompt&&(
           <ExtensionPromptModal
             candidates={extPrompt.candidates}
@@ -14425,7 +14655,7 @@ function EquipmentApp({ onBack, me, session }) {
         </div>
       </nav>
 
-      {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
+      {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} me={me} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
       {extPrompt&&(
         <ExtensionPromptModal
           candidates={extPrompt.candidates}

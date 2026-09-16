@@ -1,17 +1,31 @@
 /**
  * 반납 사진·위치 헬퍼
  *
- * RETURN_PHOTO_REQUIRED
- *   false → 사진 권장(건너뛰기 가능), 위치는 항상 필수
- *   true  → 사진도 필수 (그룹/개별 모두)
+ * 2026-09-23 (한국 시간) 전 → 사진 권장(건너뛰기 가능)
+ * 2026-09-23 (한국 시간)부터 → 사진 필수
  */
 
-/** @type {boolean} 나중에 true로 바꾸면 반납 사진 필수 */
-export const RETURN_PHOTO_REQUIRED = false;
+export const RETURN_PHOTO_REQUIRED_FROM = "2026-09-23";
+export const RETURN_PHOTO_REQUIRED_MESSAGE = "반납 사진을 업로드해야 반납이 완료됩니다";
 
 export const RETURN_PHOTO_BUCKET = "item-photos";
 export const RETURN_PHOTO_MAX_WIDTH = 1280;
 export const RETURN_PHOTO_JPEG_QUALITY = 0.72;
+
+export function kstDateYmd(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+export function isReturnPhotoRequired(date = new Date()) {
+  return kstDateYmd(date) >= RETURN_PHOTO_REQUIRED_FROM;
+}
 
 export function returnPhotoStoragePath(itemId) {
   return `returns/${itemId}.jpg`;
@@ -73,17 +87,17 @@ export async function uploadReturnPhoto(client, itemId, blob) {
  * @returns {string|null} 오류 메시지 또는 null
  */
 export function validateReturnLocationGroups(locationGroups, opts = {}) {
-  const photoRequired = opts.photoRequired ?? RETURN_PHOTO_REQUIRED;
+  const photoRequired = opts.photoRequired ?? isReturnPhotoRequired();
   if (!locationGroups?.length) return "반납할 항목이 없습니다";
   for (const g of locationGroups) {
     if (!String(g.location || "").trim()) {
       return "반납 위치를 모두 선택해 주세요";
     }
     if (photoRequired && !g.photoFile && !g.skippedPhoto) {
-      return `"${g.location}" 위치 그룹의 사진을 촬영하거나 업로드해 주세요`;
+      return RETURN_PHOTO_REQUIRED_MESSAGE;
     }
     if (photoRequired && g.skippedPhoto && !g.photoFile) {
-      return "사진이 필수입니다. 건너뛰기를 사용할 수 없습니다";
+      return RETURN_PHOTO_REQUIRED_MESSAGE;
     }
   }
   return null;
