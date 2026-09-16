@@ -79,6 +79,7 @@ import PayrollDebugPanel from "./PayrollDebugPanel.jsx";
 import { applySubstituteOverlaysToSchedule } from "./substituteSchedule.js";
 import { applySubstituteLessonsToSchedule } from "./substituteLessons.js";
 import { isScheduleSuperAdmin } from "./managerScope.js";
+import { isScheduleAdmin } from "./roles.js";
 import { useScheduleAuthReady } from "./ScheduleAuthContext.jsx";
 import CalendarClassLines from "./CalendarClassLines.jsx";
 
@@ -242,6 +243,7 @@ export default function PayrollTeacherView({
     const assignmentOverlay = applySubstituteOverlaysToSchedule(
       scheduleByDate,
       substituteAssignments,
+      { showSubstituteDetails: isScheduleAdmin(me) },
     );
     const institutionMap = Object.fromEntries(
       (allInstitutions || []).map(institution => [institution.id, institution]),
@@ -249,8 +251,9 @@ export default function PayrollTeacherView({
     return applySubstituteLessonsToSchedule(assignmentOverlay, substituteLessons, {
       viewerTeacherId: teacherId,
       institutionMap,
+      showSubstituteDetails: isScheduleAdmin(me),
     });
-  }, [scheduleByDate, substituteAssignments, substituteLessons, teacherId, allInstitutions]);
+  }, [scheduleByDate, substituteAssignments, substituteLessons, teacherId, allInstitutions, me]);
 
   const homeVisitLegend = useMemo(
     () => buildHomeVisitLegend(monthHomeVisitPatterns),

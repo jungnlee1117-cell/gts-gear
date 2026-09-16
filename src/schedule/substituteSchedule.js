@@ -18,10 +18,16 @@ export function findSubstituteForPlanned(planned, dateStr, assignments) {
   ) ?? null;
 }
 
-export function applySubstituteToPlanned(planned, assignment) {
+export function applySubstituteToPlanned(
+  planned,
+  assignment,
+  { showSubstituteDetails = true } = {},
+) {
   if (!assignment) return planned;
   const inst = planned.institutionName || "";
-  const substituteLabel = `대체: ${assignment.name} 선생님`;
+  const substituteLabel = showSubstituteDetails
+    ? `대체: ${assignment.name} 선생님`
+    : "대강";
   return {
     ...planned,
     displayLabel: inst ? `${inst} · ${substituteLabel}` : substituteLabel,
@@ -30,18 +36,26 @@ export function applySubstituteToPlanned(planned, assignment) {
   };
 }
 
-export function applySubstituteOverlaysToSchedule(scheduleByDate, assignments) {
+export function applySubstituteOverlaysToSchedule(
+  scheduleByDate,
+  assignments,
+  { showSubstituteDetails = true } = {},
+) {
   const result = {};
   for (const [dateStr, list] of Object.entries(scheduleByDate || {})) {
     result[dateStr] = (list || []).map(p => {
       const sub = findSubstituteForPlanned(p, dateStr, assignments);
-      return applySubstituteToPlanned(p, sub);
+      return applySubstituteToPlanned(p, sub, { showSubstituteDetails });
     });
   }
   return result;
 }
 
-export function enrichWeeklyItemsWithSubstitutes(items, assignments) {
+export function enrichWeeklyItemsWithSubstitutes(
+  items,
+  assignments,
+  { showSubstituteDetails = true } = {},
+) {
   return (items || []).map(item => {
     if (item.source !== "institution") return item;
     const instId = item.raw?.institution_id;
@@ -51,9 +65,11 @@ export function enrichWeeklyItemsWithSubstitutes(items, assignments) {
       && a.institution_id === instId,
     );
     if (!matches.length) return item;
-    const substituteNote = matches
-      .map(a => `대체: ${a.name} 선생님 (${formatShortDateRange(a.substitute_start_date, a.substitute_end_date)})`)
-      .join(" · ");
+    const substituteNote = showSubstituteDetails
+      ? matches
+        .map(a => `대체: ${a.name} 선생님 (${formatShortDateRange(a.substitute_start_date, a.substitute_end_date)})`)
+        .join(" · ")
+      : "대강";
     return { ...item, substituteNote };
   });
 }

@@ -38,7 +38,15 @@ export function lessonMatchesPlanned(lesson, planned, dateStr) {
     && lesson.institution_id === planned.institutionId;
 }
 
-export function applySubstituteLessonsToSchedule(scheduleByDate, lessons, { viewerTeacherId, institutionMap = {} }) {
+export function applySubstituteLessonsToSchedule(
+  scheduleByDate,
+  lessons,
+  {
+    viewerTeacherId,
+    institutionMap = {},
+    showSubstituteDetails = true,
+  },
+) {
   const result = {};
   for (const [dateStr, list] of Object.entries(scheduleByDate || {})) {
     result[dateStr] = (list || []).map(planned => {
@@ -48,14 +56,16 @@ export function applySubstituteLessonsToSchedule(scheduleByDate, lessons, { view
         && lessonMatchesPlanned(l, planned, dateStr),
       );
       if (asOriginal) {
-        const subName = asOriginal.substitute_teacher?.name
-          || asOriginal.substitute_temp_teacher?.name
-          || "대체 선생님";
+        const substituteName = asOriginal.substitute_teacher?.name
+          || asOriginal.substitute_temp_teacher?.name;
+        const substituteLabel = showSubstituteDetails
+          ? (substituteName ? `${substituteName} 선생님` : "대체 선생님")
+          : "대강";
         return {
           ...planned,
           isSubstituteCancelled: true,
           substituteLesson: asOriginal,
-          displayLabel: `${planned.institutionName || "원"} · 휴강 🔴 (대체: ${subName})`,
+          displayLabel: `${planned.institutionName || "원"} · 휴강 🔴 (${substituteLabel})`,
         };
       }
 

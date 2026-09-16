@@ -28,8 +28,10 @@ function TeacherWeeklyScheduleContent({ activeTeacherId, admin, selectedTeacher 
       slot => !String(slot?.label || "").startsWith(ONEOFF_LABEL_PREFIX),
     );
     const built = buildUnifiedWeeklyItems(recurringSlots, homeVisitPatterns);
-    return enrichWeeklyItemsWithSubstitutes(built, substituteAssignments);
-  }, [institutionSlots, homeVisitPatterns, substituteAssignments]);
+    return enrichWeeklyItemsWithSubstitutes(built, substituteAssignments, {
+      showSubstituteDetails: admin,
+    });
+  }, [institutionSlots, homeVisitPatterns, substituteAssignments, admin]);
 
   if (!activeTeacherId) {
     return (

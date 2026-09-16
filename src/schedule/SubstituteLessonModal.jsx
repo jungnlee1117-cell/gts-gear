@@ -95,31 +95,43 @@ export default function SubstituteLessonModal({
     [tempTeachers, form.substitute_temp_teacher_id],
   );
 
-  const handleRegisterTemp = async () => {
-    if (!tempForm.name.trim()) {
-      alert("임시 선생님 이름을 입력해 주세요.");
-      return;
+  const validateTempForm = () => {
+    if (!tempForm.name.trim()) return "임시 선생님 이름을 입력해 주세요.";
+    if (!Number.isFinite(Number(tempForm.rate_amount)) || Number(tempForm.rate_amount) <= 0) {
+      return "수업료를 입력해 주세요.";
     }
+    return "";
+  };
+
+  const createTempTeacherFromForm = async () => registerTemporaryTeacher({
+    name: tempForm.name,
+    institution_id: form.institution_id,
+    pay_mode: tempForm.pay_mode,
+    rate_amount: tempForm.rate_amount,
+    work_hours: tempForm.work_hours || null,
+    pay_type: form.pay_type,
+    engagement_start_date: lessonDate,
+    created_by: me?.id,
+  });
+
+  const selectCreatedTempTeacher = (created) => {
+    setTempTeachers(prev => [created, ...prev]);
+    setForm(f => ({ ...f, substitute_temp_teacher_id: created.id }));
+    setShowTempRegister(false);
+    setTempForm({ ...EMPTY_TEMP_FORM });
+  };
+
+  const handleRegisterTemp = async () => {
+    const validationMessage = validateTempForm();
+    if (validationMessage) return alert(validationMessage);
     if (!form.institution_id) {
       alert("기관을 먼저 선택해 주세요.");
       return;
     }
     setSaving(true);
     try {
-      const created = await registerTemporaryTeacher({
-        name: tempForm.name,
-        institution_id: form.institution_id,
-        pay_mode: tempForm.pay_mode,
-        rate_amount: tempForm.rate_amount,
-        work_hours: tempForm.work_hours || null,
-        pay_type: form.pay_type,
-        engagement_start_date: lessonDate,
-        created_by: me?.id,
-      });
-      setTempTeachers(prev => [created, ...prev]);
-      setForm(f => ({ ...f, substitute_temp_teacher_id: created.id }));
-      setShowTempRegister(false);
-      setTempForm({ ...EMPTY_TEMP_FORM });
+      const created = await createTempTeacherFromForm();
+      selectCreatedTempTeacher(created);
     } catch (err) {
       alert("임시 선생님 등록 실패: " + err.message);
     } finally {
@@ -138,10 +150,18 @@ export default function SubstituteLessonModal({
       return;
     }
     const substituteTeacherId = subTab === "regular" ? form.substitute_teacher_id : null;
-    const substituteTempTeacherId = subTab === "temp" ? form.substitute_temp_teacher_id : null;
-    if (!substituteTeacherId && !substituteTempTeacherId) {
+    let substituteTempTeacherId = subTab === "temp" ? form.substitute_temp_teacher_id : null;
+    let substituteTempTeacher = selectedTempTeacher;
+    const hasNewTempDraft = subTab === "temp"
+      && showTempRegister
+      && Boolean(tempForm.name.trim() || tempForm.rate_amount || tempForm.work_hours);
+    if (!substituteTeacherId && !substituteTempTeacherId && !hasNewTempDraft) {
       alert("대체 선생님을 선택해 주세요.");
       return;
+    }
+    if (!substituteTempTeacherId && hasNewTempDraft) {
+      const validationMessage = validateTempForm();
+      if (validationMessage) return alert(validationMessage);
     }
     if (substituteTeacherId === form.original_teacher_id) {
       alert("원래 선생님과 대체 선생님이 같을 수 없습니다.");
@@ -150,6 +170,11 @@ export default function SubstituteLessonModal({
 
     setSaving(true);
     try {
+      if (!substituteTempTeacherId && hasNewTempDraft) {
+        substituteTempTeacher = await createTempTeacherFromForm();
+        substituteTempTeacherId = substituteTempTeacher.id;
+        selectCreatedTempTeacher(substituteTempTeacher);
+      }
       await registerSubstituteLesson({
         me,
         planned: planned || {
@@ -163,7 +188,7 @@ export default function SubstituteLessonModal({
         originalTeacherId: form.original_teacher_id,
         substituteTeacherId,
         substituteTempTeacherId,
-        substituteTempTeacher: selectedTempTeacher,
+        substituteTempTeacher,
         lessonDate,
         reason: form.reason,
         teachersById,

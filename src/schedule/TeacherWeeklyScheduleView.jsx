@@ -35,8 +35,10 @@ export default function TeacherWeeklyScheduleView({ me, onBack }) {
       slot => !String(slot?.label || "").startsWith(ONEOFF_LABEL_PREFIX),
     );
     const built = buildUnifiedWeeklyItems(recurringSlots, homeVisitPatterns);
-    return enrichWeeklyItemsWithSubstitutes(built, substituteAssignments);
-  }, [institutionSlots, homeVisitPatterns, substituteAssignments]);
+    return enrichWeeklyItemsWithSubstitutes(built, substituteAssignments, {
+      showSubstituteDetails: admin,
+    });
+  }, [institutionSlots, homeVisitPatterns, substituteAssignments, admin]);
 
   return (
     <div className="sch-view sch-unified-schedule-view">

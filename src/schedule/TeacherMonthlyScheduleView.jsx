@@ -216,13 +216,26 @@ export default function TeacherMonthlyScheduleView({
   );
 
   const displayScheduleByDate = useMemo(() => {
-    const withTempSubs = applySubstituteOverlaysToSchedule(scheduleByDate, substituteAssignments);
+    const withTempSubs = applySubstituteOverlaysToSchedule(
+      scheduleByDate,
+      substituteAssignments,
+      { showSubstituteDetails: canManageSchedule },
+    );
     const withSubstitutes = applySubstituteLessonsToSchedule(withTempSubs, substituteLessons, {
       viewerTeacherId: teacherId,
       institutionMap,
+      showSubstituteDetails: canManageSchedule,
     });
     return mergeOneoffLessonsIntoSchedule(withSubstitutes, oneoffLessons, { teacherId });
-  }, [scheduleByDate, substituteAssignments, substituteLessons, oneoffLessons, teacherId, institutionMap]);
+  }, [
+    scheduleByDate,
+    substituteAssignments,
+    substituteLessons,
+    oneoffLessons,
+    teacherId,
+    institutionMap,
+    canManageSchedule,
+  ]);
 
   const homeVisitLegend = useMemo(
     () => buildHomeVisitLegend(monthHomeVisitPatterns),
@@ -473,11 +486,14 @@ export default function TeacherMonthlyScheduleView({
                       <span className="sch-cal-holiday-label" title={holiday.name}>
                         {holidayShortLabel(holiday.name)}
                       </span>
-                    ) : classLines.length > 0 ? (
-                      <CalendarClassLines lines={classLines} />
-                    ) : dayEvents.length > 0 ? (
-                      <CalendarEventBadges events={dayEvents} maxVisible={2} compact/>
-                    ) : null}
+                    ) : (
+                      <>
+                        {classLines.length > 0 ? <CalendarClassLines lines={classLines} /> : null}
+                        {dayEvents.length > 0 ? (
+                          <CalendarEventBadges events={dayEvents} maxVisible={2} compact/>
+                        ) : null}
+                      </>
+                    )}
                   </button>
                 );
               })}

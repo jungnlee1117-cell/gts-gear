@@ -73,6 +73,7 @@ export default function MyWeeklySchedulePanel({
   title = "내 주간 시간표",
   description = "매주 반복되는 기본 수업 일정을 확인하세요.",
   showInstitutionFilter = true,
+  showSubstituteDetails = false,
 }) {
   const todayDow = new Date().getDay();
   const defaultDow = WEEKDAY_TABS.includes(todayDow) ? todayDow : 1;
@@ -89,8 +90,10 @@ export default function MyWeeklySchedulePanel({
   const weeklyItems = useMemo(() => {
     const recurringSlots = filterRecurringWeeklySlots(institutionSlots);
     const built = buildUnifiedWeeklyItems(recurringSlots, homeVisitPatterns);
-    return enrichWeeklyItemsWithSubstitutes(built, substituteAssignments);
-  }, [institutionSlots, homeVisitPatterns, substituteAssignments]);
+    return enrichWeeklyItemsWithSubstitutes(built, substituteAssignments, {
+      showSubstituteDetails,
+    });
+  }, [institutionSlots, homeVisitPatterns, substituteAssignments, showSubstituteDetails]);
 
   const institutionFilters = useMemo(() => {
     const map = new Map();
