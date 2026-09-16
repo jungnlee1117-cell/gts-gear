@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, FileImage, FileText, Languages, PartyPopper, RefreshCw, Save, Upload } from "lucide-react";
+import { Download, FileImage, FileText, Languages, PartyPopper, RefreshCw, Save, Sparkles, Upload } from "lucide-react";
 import { naturalEnglishEquipmentName } from "./lessonPlan.js";
+import { buildMonthlyPlanPdfBlob, downloadPdfBlob } from "./monthlyPlanPdf.js";
+import {
+  monthlyPlanPdfFileName,
+  upsertMonthlyPlanResourceFile,
+} from "./monthlyPlanResources.js";
 
 const AGE_GROUPS = [
   { id: "3_4", label: "3~4세" },
@@ -169,8 +174,15 @@ function monthNumber(month) {
   return value >= 1 && value <= 12 ? value : new Date().getMonth() + 1;
 }
 
-function printableEnglishTemplateHtml({ month, rowsByGroup, englishGoals, selectedEnglishAges, templateUrl }) {
-  const title = monthTitle(month);
+function printableEnglishTemplateHtml({
+  month,
+  rowsByGroup,
+  englishGoals,
+  selectedEnglishAges,
+  templateUrl,
+  documentTitle,
+}) {
+  const title = documentTitle || monthTitle(month);
   const pages = ENGLISH_AGE_GROUPS.filter(({ age }) => selectedEnglishAges.includes(age));
   const pageMarkup = pages.map((selectedEnglishAge) => {
     const rows = rowsByGroup[selectedEnglishAge.id] || [];
@@ -215,22 +227,19 @@ function printableEnglishTemplateHtml({ month, rowsByGroup, englishGoals, select
       .footer-clean span { color: #6f8971; font-size: 2.25mm; line-height: 1; white-space: nowrap; }
       @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     </style></head><body>${pageMarkup}
-      <script>
-        window.addEventListener('load', function () {
-          var images = Array.from(document.images);
-          Promise.all(images.map(function (image) {
-            if (image.complete) return Promise.resolve();
-            return new Promise(function (resolve) { image.onload = resolve; image.onerror = resolve; });
-          })).then(function () { setTimeout(function () { window.print(); }, 350); });
-        });
-      </script>
     </body></html>`;
 }
 
-function printableKoreanTemplateHtml({ month, rowsByGroup, selectedAge, templateUrl }) {
+function printableKoreanTemplateHtml({
+  month,
+  rowsByGroup,
+  selectedAge,
+  templateUrl,
+  documentTitle,
+}) {
   const selectedAgeMeta = AGE_GROUPS.find(({ id }) => id === selectedAge) || AGE_GROUPS[0];
   const rows = rowsByGroup[selectedAgeMeta.id] || [];
-  const title = monthTitle(month);
+  const title = documentTitle || monthTitle(month);
   const rowMarkup = rows.slice(0, 5).map((row, index) => `
     <div class="ko-row">
       <div class="ko-week">${index + 1}주</div>
@@ -269,7 +278,7 @@ function printableKoreanTemplateHtml({ month, rowsByGroup, selectedAge, template
       <div class="goal-text">${escapeHtml(buildMonthlyKoreanGoal(rows, selectedAgeMeta.label, month))}</div>
       <div class="ko-table"><div class="ko-head"><div>주차</div><div>교구 및 활동</div><div>활동 내용 및 발달 도움</div></div>${rowMarkup}</div>
       <div class="footer-clean"><span>This monthly plan is subject to change depending on circumstances.</span></div>
-    </main><script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 450); });</script></body></html>`;
+    </main></body></html>`;
 }
 
 const KOREAN_MONTHLY_THEMES = {
@@ -352,13 +361,39 @@ function buildMonthlyKoreanGoal(rows, ageLabel, month) {
   return `${monthlyTheme}, 스스로 생각하고 움직임을 조절하며 친구와 협력하는 힘이 자라나는 아이들에게 깊이 있는 신체 활동과 즐거운 도전 과제를 제공합니다. 모든 아이가 성취의 기쁨을 느끼도록 따뜻하게 격려하며 ${focus}을 균형 있게 기르겠습니다.`;
 }
 
-function printableReportHtml({ language, month, rowsByGroup, englishGoals, selectedAge, selectedEnglishAges, logoUrl, templateUrl }) {
+// 월간 계획안 화면과 계획안 빌더가 동일한 출력 HTML을 공유한다.
+// eslint-disable-next-line react-refresh/only-export-components
+export function printableReportHtml({
+  language,
+  month,
+  rowsByGroup,
+  englishGoals,
+  selectedAge,
+  selectedEnglishAges,
+  logoUrl,
+  templateUrl,
+  documentTitle,
+}) {
+  /* eslint-disable no-unreachable */
   const isEnglish = language === "en";
   const englishAge = selectedEnglishAges[0] || "5";
   if (isEnglish) {
-    return printableEnglishTemplateHtml({ month, rowsByGroup, englishGoals, selectedEnglishAges, templateUrl });
+    return printableEnglishTemplateHtml({
+      month,
+      rowsByGroup,
+      englishGoals,
+      selectedEnglishAges,
+      templateUrl,
+      documentTitle,
+    });
   }
-  return printableKoreanTemplateHtml({ month, rowsByGroup, selectedAge, templateUrl });
+  return printableKoreanTemplateHtml({
+    month,
+    rowsByGroup,
+    selectedAge,
+    templateUrl,
+    documentTitle,
+  });
   const selectedAgeMeta = AGE_GROUPS.find(({ id }) => id === selectedAge) || AGE_GROUPS[0];
   const selectedEnglishAge = ENGLISH_AGE_GROUPS.find(({ age }) => age === englishAge) || ENGLISH_AGE_GROUPS[0];
   const title = monthTitle(month);
@@ -459,6 +494,7 @@ function printableReportHtml({ language, month, rowsByGroup, englishGoals, selec
       <script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 450); });</script>
     </body></html>`;
 }
+/* eslint-enable no-unreachable */
 
 export default function SuperadminMonthlyPlanEditor({
   supabase,
@@ -477,6 +513,7 @@ export default function SuperadminMonthlyPlanEditor({
   const [selectedEnglishAges, setSelectedEnglishAges] = useState(() => ENGLISH_AGE_GROUPS.map(({ age }) => age));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pdfSaving, setPdfSaving] = useState(false);
   const [uploadingKey, setUploadingKey] = useState("");
   const [message, setMessage] = useState("");
   const [setupRequired, setSetupRequired] = useState(false);
@@ -755,7 +792,7 @@ export default function SuperadminMonthlyPlanEditor({
       ])));
     }
     setGearPickerOpen(false);
-    setMessage("선택한 교구의 이름·사진·활동 내용을 불러왔습니다.");
+    setMessage("선택한 교구를 불러와 교육계획안을 자동완성했습니다. 아래 표에서 내용을 확인하고 수정할 수 있습니다.");
   };
 
   const fillFromGear = () => {
@@ -912,6 +949,7 @@ export default function SuperadminMonthlyPlanEditor({
     if (!me?.id || !month || saving || setupRequired) return;
     setSaving(true);
     setMessage("");
+    let draftSaved = false;
     try {
       const now = new Date().toISOString();
       const { data: plan, error: planError } = await supabase
@@ -948,34 +986,77 @@ export default function SuperadminMonthlyPlanEditor({
 
       setPlanId(plan.id);
       setLastSavedAt(plan.updated_at || now);
-      setMessage(`${language === "ko" ? "한국어" : "영어"} 계획안이 임시 저장되었습니다. 다른 언어의 기존 내용도 그대로 유지됩니다.`);
+      draftSaved = true;
+
+      const pdfBlob = await buildMonthlyPlanPdfBlob(printableReportHtml({
+        language,
+        month,
+        rowsByGroup,
+        englishGoals,
+        selectedAge: pdfAge,
+        selectedEnglishAges,
+        logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
+        templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
+      }));
+      await upsertMonthlyPlanResourceFile(supabase, {
+        me,
+        month,
+        language,
+        pdfAge,
+        selectedEnglishAges,
+        pdfBlob,
+      });
+      setMessage(`${language === "ko" ? "한국어" : "영어"} 계획안을 임시 저장하고 자료실에도 최신 PDF를 올렸습니다.`);
     } catch (error) {
       if (isMissingSchema(error)) setSetupRequired(true);
-      setMessage(error?.message || "계획안 저장에 실패했습니다.");
+      setMessage(draftSaved
+        ? `계획안은 임시 저장했지만 자료실 PDF 저장에 실패했습니다: ${error?.message || "알 수 없는 오류"}`
+        : (error?.message || "계획안 저장에 실패했습니다."));
     } finally {
       setSaving(false);
     }
   };
 
-  const saveAsPdf = () => {
-    const reportWindow = window.open("", "_blank");
-    if (!reportWindow) {
-      setMessage("PDF 창을 열 수 없습니다. 브라우저의 팝업 차단을 해제해 주세요.");
-      return;
+  const saveAsPdf = async () => {
+    if (pdfSaving) return;
+    setPdfSaving(true);
+    setMessage("");
+    let downloaded = false;
+    try {
+      const pdfBlob = await buildMonthlyPlanPdfBlob(printableReportHtml({
+        language,
+        month,
+        rowsByGroup,
+        englishGoals,
+        selectedAge: pdfAge,
+        selectedEnglishAges,
+        logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
+        templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
+      }));
+      const fileName = monthlyPlanPdfFileName({
+        month,
+        language,
+        pdfAge,
+        selectedEnglishAges,
+      });
+      downloadPdfBlob(pdfBlob, fileName);
+      downloaded = true;
+      await upsertMonthlyPlanResourceFile(supabase, {
+        me,
+        month,
+        language,
+        pdfAge,
+        selectedEnglishAges,
+        pdfBlob,
+      });
+      setMessage("동일한 계획안 PDF를 내 컴퓨터와 자료실에 저장했습니다.");
+    } catch (error) {
+      setMessage(downloaded
+        ? `PDF는 내 컴퓨터에 저장했지만 자료실 업로드에 실패했습니다: ${error?.message || "알 수 없는 오류"}`
+        : (error?.message || "PDF 생성에 실패했습니다."));
+    } finally {
+      setPdfSaving(false);
     }
-    reportWindow.opener = null;
-    reportWindow.document.open();
-    reportWindow.document.write(printableReportHtml({
-      language,
-      month,
-      rowsByGroup,
-      englishGoals,
-      selectedAge: pdfAge,
-      selectedEnglishAges,
-      logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
-      templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
-    }));
-    reportWindow.document.close();
   };
 
   const imageCell = (groupId, row, index) => (
@@ -1010,7 +1091,7 @@ export default function SuperadminMonthlyPlanEditor({
         <div className="monthly-plan-editor__controls">
           <label><span>작성 월</span><input type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} /></label>
           <button type="button" className="monthly-plan-editor__gear-button" onClick={fillFromGear} disabled={setupRequired}>
-            <RefreshCw size={15} /> 교구 선택·변경
+            <RefreshCw size={18} /> 이번 달 교구 선택하기
           </button>
           <button type="button" className="monthly-plan-editor__save-button" onClick={save} disabled={saving || setupRequired}>
             <Save size={15} /> {saving ? "저장 중..." : "임시 저장"}
@@ -1040,8 +1121,8 @@ export default function SuperadminMonthlyPlanEditor({
               </div>
             </fieldset>
           )}
-          <button type="button" className="monthly-plan-editor__pdf-button" onClick={saveAsPdf} disabled={setupRequired || (language === "en" && !selectedEnglishAges.length)}>
-            <Download size={15} /> PDF 저장
+          <button type="button" className="monthly-plan-editor__pdf-button" onClick={saveAsPdf} disabled={pdfSaving || setupRequired || (language === "en" && !selectedEnglishAges.length)}>
+            <Download size={15} /> {pdfSaving ? "PDF 저장 중..." : "PDF 저장"}
           </button>
         </div>
       </div>
@@ -1103,7 +1184,7 @@ export default function SuperadminMonthlyPlanEditor({
           <div className="monthly-plan-gear-picker__heading">
             <div>
               <strong>{language === "ko" ? "한국어" : "영어"} 연령별 계획안 교구 선택</strong>
-              <span>같은 주차라도 연령별로 서로 다른 교구를 고를 수 있습니다.</span>
+              <span>주차마다 교구를 고른 뒤, 아래(또는 화면 하단) 큰 초록 버튼으로 교육계획안을 자동완성하세요. 같은 주차라도 연령별로 다른 교구를 고를 수 있습니다.</span>
             </div>
             <div className="monthly-plan-gear-picker__heading-actions"><button type="button" onClick={() => setGearPickerOpen(false)}>취소</button></div>
           </div>
@@ -1159,7 +1240,7 @@ export default function SuperadminMonthlyPlanEditor({
                                 onClick={(event) => event.stopPropagation()}
                                 aria-label={`${label} ${suggestion.weekNumber}주차 기타 교구 선택`}
                               >
-                                <option value="" disabled>교구 선택</option>
+                                <option value="" disabled>회사 교구 목록에서 선택</option>
                                 {normalizedCompanyEquipment.filter((item) => {
                                   const query = String(companyGearSearchByWeek[selectionKey] || "").trim().toLowerCase();
                                   return !query || `${item.name} ${item.englishName}`.toLowerCase().includes(query);
@@ -1201,9 +1282,15 @@ export default function SuperadminMonthlyPlanEditor({
               </section>
             ))}
           </div>
-          <button type="button" className="monthly-plan-editor__save-button monthly-plan-gear-picker__confirm" onClick={confirmGearSelection}>
-            선택한 교구 불러오기
-          </button>
+          <div className="monthly-plan-gear-picker__confirm-bar">
+            <button type="button" className="monthly-plan-gear-picker__confirm" onClick={confirmGearSelection}>
+              <Sparkles size={26} aria-hidden="true" />
+              <span className="monthly-plan-gear-picker__confirm-copy">
+                <strong>현재 선택한 교구를 불러오면서 교육계획안 자동완성하기</strong>
+                <em>교구를 다 고른 뒤 이 버튼을 꼭 눌러 주세요 · 이름 · 사진 · 활동 내용이 계획안 표에 채워집니다</em>
+              </span>
+            </button>
+          </div>
         </section>
       ) : null}
 

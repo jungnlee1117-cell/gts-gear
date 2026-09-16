@@ -9,6 +9,7 @@ import {
   Users, Trophy, Languages, ClipboardList, PartyPopper,
   Baby, GraduationCap, Video, Music, ChevronLeft, Search, X, Upload, Download,
   Pencil, Trash2, Eye, Settings, Plus, ExternalLink, ChevronUp, ChevronDown,
+  Folder, FolderOpen,
 } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://YOUR.supabase.co";
@@ -16,6 +17,8 @@ const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "YOUR_ANON_KEY";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
 const PE_ADMIN = (u) => u?.role === "superadmin" || u?.role === "admin";
+const LESSON_PLAN_CATEGORY_ID = "lesson-plans";
+const isLessonPlanFolderCategory = (category) => category?.id === LESSON_PLAN_CATEGORY_ID;
 const FULL_LIBRARY_USER_NAMES = new Set(["오정석", "양의인", "안소연", "어욱진"]);
 
 function canAccessFullLibrary(user) {
@@ -87,7 +90,10 @@ function hubCategoriesForUser(allCategories, me) {
     .map(normalizeLibraryCategory)
     .filter(cat => !["videos", "video-media", "audio-media"].includes(cat.id))
     .filter(cat => cat.id !== "child-dev" || canUploadTeacherContract(me));
-  const visible = canAccessFullLibrary(me) ? [...base, ...MEDIA_HUB_CATEGORIES] : MEDIA_HUB_CATEGORIES;
+  const lessonPlanCategories = base.filter(cat => cat.id === LESSON_PLAN_CATEGORY_ID);
+  const visible = canAccessFullLibrary(me)
+    ? [...base, ...MEDIA_HUB_CATEGORIES]
+    : [...lessonPlanCategories, ...MEDIA_HUB_CATEGORIES];
   return visible
     .map(withCategoryStatus)
     .sort((a, b) => Number(a.num || 0) - Number(b.num || 0));
@@ -394,6 +400,21 @@ async function fetchResources() {
   if (error) { console.warn("resources fetch:", error.message); return BUNDLED_RESOURCES; }
   const rows = data || [];
   return [...rows, ...BUNDLED_RESOURCES.filter(item => !rows.some(row => row.id === item.id))];
+}
+
+async function fetchResourceFolders(me) {
+  let query = supabase
+    .from("resource_folders")
+    .select("id, category_id, teacher_id, name, created_at")
+    .eq("category_id", LESSON_PLAN_CATEGORY_ID)
+    .order("name", { ascending: true });
+  if (!PE_ADMIN(me)) query = query.eq("teacher_id", me?.id || "");
+  const { data, error } = await query;
+  if (error) {
+    console.warn("resource_folders fetch:", error.message);
+    return [];
+  }
+  return data || [];
 }
 
 async function fetchCategories() {
@@ -1088,20 +1109,37 @@ function SubcategoryManageModal({ category, resources, onClose, onSaved }) {
   );
 }
 
-function ResourceListPage({ category, search, me, resources, loading, onRefresh }) {
+function ResourceListPage({ category, search, me, resources, resourceFolders, loading, onRefresh }) {
   const [showUpload, setShowUpload] = useState(false);
   const [showSubManage, setShowSubManage] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [previewTarget, setPreviewTarget] = useState(null);
   const [detailTarget, setDetailTarget] = useState(null);
   const [localSub, setLocalSub] = useState("ALL");
+  const [selectedFolderId, setSelectedFolderId] = useState(null);
   const admin = PE_ADMIN(me);
   const isEventsList = isEventsCategory(category);
-  const canManageSubs = admin && category && Array.isArray(category.subs);
+  const folderCategory = isLessonPlanFolderCategory(category);
+  const canManageSubs = admin && category && !folderCategory && Array.isArray(category.subs);
+
+  const lessonPlanFolders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (resourceFolders || [])
+      .filter(folder => folder.category_id === LESSON_PLAN_CATEGORY_ID)
+      .filter(folder => !q || String(folder.name || "").toLowerCase().includes(q));
+  }, [resourceFolders, search]);
+
+  const selectedFolder = useMemo(
+    () => (resourceFolders || []).find(folder => folder.id === selectedFolderId) || null,
+    [resourceFolders, selectedFolderId],
+  );
 
   const filtered = useMemo(() => {
     let r = resources;
     if (category) r = r.filter(x => x.category_id === category.id);
+    if (folderCategory) {
+      r = selectedFolderId ? r.filter(x => x.folder_id === selectedFolderId) : [];
+    }
     if (localSub !== "ALL") r = r.filter(x => x.subcategory === localSub || x.tags?.includes(localSub));
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -1112,9 +1150,9 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
       );
     }
     return r;
-  }, [resources, category, localSub, search]);
+  }, [resources, category, folderCategory, selectedFolderId, localSub, search]);
 
-  const pageTitle = category ? category.title : "검색 결과";
+  const pageTitle = selectedFolder?.name || (category ? category.title : "검색 결과");
   const accent = category?.color || "#22c55e";
 
   const handleDelete = async (res) => {
@@ -1150,7 +1188,7 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
           <h1 className="pe-res-list-title">{pageTitle}</h1>
           {search && <p className="pe-res-list-search-note">검색: &quot;{search}&quot;</p>}
         </div>
-        {admin && category && (
+        {admin && category && !folderCategory && (
           <div className="pe-res-list-header-actions">
             {canManageSubs && (
               <button type="button" onClick={() => setShowSubManage(true)} className="pe-res-manage-subs-btn">
@@ -1164,7 +1202,17 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
         )}
       </div>
 
-      {category?.subs?.length > 0 && (
+      {folderCategory && selectedFolder ? (
+        <button
+          type="button"
+          className="pe-res-folder-back"
+          onClick={() => setSelectedFolderId(null)}
+        >
+          <ChevronLeft size={17} /> 선생님 폴더 목록
+        </button>
+      ) : null}
+
+      {!folderCategory && category?.subs?.length > 0 && (
         <div className="pe-res-sub-filters">
           <button type="button" onClick={() => setLocalSub("ALL")} style={peTagBtn(localSub === "ALL", accent)}>전체</button>
           {category.subs.map(s => (
@@ -1175,6 +1223,31 @@ function ResourceListPage({ category, search, me, resources, loading, onRefresh 
 
       {loading ? (
         <div className="pe-res-empty">불러오는 중...</div>
+      ) : folderCategory && !selectedFolderId ? (
+        lessonPlanFolders.length === 0 ? (
+          <div className="pe-res-empty pe-res-empty-box">생성된 선생님 폴더가 없습니다</div>
+        ) : (
+          <div className="pe-res-folder-grid">
+            {lessonPlanFolders.map(folder => {
+              const fileCount = resources.filter(resource => resource.folder_id === folder.id).length;
+              return (
+                <button
+                  key={folder.id}
+                  type="button"
+                  className="pe-res-folder-card"
+                  onClick={() => setSelectedFolderId(folder.id)}
+                >
+                  <span className="pe-res-folder-card__icon"><Folder size={28} /></span>
+                  <span className="pe-res-folder-card__copy">
+                    <strong>{folder.name || "선생님"}</strong>
+                    <small>{fileCount}개 계획안</small>
+                  </span>
+                  <FolderOpen size={18} className="pe-res-folder-card__open" />
+                </button>
+              );
+            })}
+          </div>
+        )
       ) : filtered.length === 0 ? (
         <div className="pe-res-empty pe-res-empty-box">등록된 자료가 없습니다</div>
       ) : (
@@ -1399,6 +1472,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   const [search, setSearch] = useState("");
   const [listSearch, setListSearch] = useState("");
   const [resources, setResources] = useState([]);
+  const [resourceFolders, setResourceFolders] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_PE_CATEGORIES);
   const [loading, setLoading] = useState(true);
   const [showCatManage, setShowCatManage] = useState(false);
@@ -1413,9 +1487,14 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
     setCategories(data);
   };
 
+  const loadResourceFolders = async () => {
+    const data = await fetchResourceFolders(me);
+    setResourceFolders(data);
+  };
+
   const loadAll = async () => {
     setLoading(true);
-    await Promise.all([loadCategories(), loadResources()]);
+    await Promise.all([loadCategories(), loadResources(), loadResourceFolders()]);
     setLoading(false);
   };
 
@@ -1433,7 +1512,11 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
     const mediaOnlyCategory = directCategoryId === "videos"
       || directCategoryId === "video-media"
       || directCategoryId === "audio-media";
-    if ((!fullLibraryAccess && !mediaOnlyCategory) || (directCategoryId === "child-dev" && !canUploadTeacherContract(me))) {
+    const teacherFolderCategory = directCategoryId === LESSON_PLAN_CATEGORY_ID;
+    if (
+      (!fullLibraryAccess && !mediaOnlyCategory && !teacherFolderCategory)
+      || (directCategoryId === "child-dev" && !canUploadTeacherContract(me))
+    ) {
       setCategory(null);
       setView("hub");
       navigate("/pe-resources", { replace: true });
@@ -1573,10 +1656,12 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
           <>
           {activeCategory?.id === "child-dev" && <TeacherContractsHub supabase={supabase} me={me} />}
           <ResourceListPage
+            key={activeCategory?.id || "search"}
             category={activeCategory}
             search={listSearch}
             me={me}
             resources={resources}
+            resourceFolders={resourceFolders}
             loading={loading}
             onRefresh={loadAll}
           />
