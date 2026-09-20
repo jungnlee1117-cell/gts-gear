@@ -8,13 +8,14 @@ import {
   upsertHomeVisitPattern,
 } from "./api.js";
 import { fmtLocalDate, getMonthGrid } from "./payrollCalendar.js";
+import { getKoreanHoliday, holidayShortLabel } from "./koreanHolidays.js";
 import {
   expandPatternsForRange,
   formatPatternSchedule,
   groupOccurrencesByDate,
   patternStatusLabel,
 } from "./homeVisitPatterns.js";
-import { isScheduleAdmin } from "./roles.js";
+import { filterAssignableClassTeachers, isScheduleAdmin } from "./roles.js";
 
 const EMPTY_FORM = {
   id: "",
@@ -66,7 +67,7 @@ export default function HomeVisitScheduleView({ me, onBack }) {
         fetchTeachers(),
         fetchHomeVisitPatterns({ teacherId: teacherFilter || undefined }),
       ]);
-      setTeachers(ts.filter(t => t.role === "teacher"));
+      setTeachers(filterAssignableClassTeachers(ts));
       setPatterns(rows);
     } catch (e) {
       console.error(e);
@@ -235,6 +236,7 @@ export default function HomeVisitScheduleView({ me, onBack }) {
               {gridCells.map(({ date, inMonth }) => {
                 const dateStr = fmtLocalDate(date);
                 const dayVisits = inMonth ? (visitsByDate[dateStr] || []) : [];
+                const holiday = inMonth ? getKoreanHoliday(dateStr) : null;
                 return (
                   <button
                     key={dateStr}
@@ -245,11 +247,18 @@ export default function HomeVisitScheduleView({ me, onBack }) {
                       "sch-cal-cell",
                       "sch-home-visit-cell",
                       !inMonth && "sch-cal-cell--muted",
+                      holiday && "sch-cal-cell--holiday",
                       dayVisits.length > 0 && "sch-home-visit-cell--has",
                     ].filter(Boolean).join(" ")}
                     onDoubleClick={() => inMonth && openRegisterForDate(dateStr)}
+                    aria-label={`${date.getMonth() + 1}월 ${date.getDate()}일${holiday ? ` ${holiday.name}` : ""}`}
                   >
                     <span className="sch-cal-day-num">{date.getDate()}</span>
+                    {holiday ? (
+                      <span className="sch-cal-holiday-label" title={holiday.name}>
+                        {holidayShortLabel(holiday.name)}
+                      </span>
+                    ) : null}
                     {dayVisits.length > 0 ? (
                       <span className="sch-home-visit-count">{dayVisits.length}건</span>
                     ) : null}

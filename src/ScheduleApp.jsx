@@ -14,8 +14,12 @@ import EventsScheduleView from "./schedule/EventsScheduleView.jsx";
 import ScheduleChangeAlertsView from "./schedule/ScheduleChangeAlertsView.jsx";
 import MonthlySettlementView from "./schedule/MonthlySettlementView.jsx";
 import TeacherPayRatesView from "./schedule/TeacherPayRatesView.jsx";
+import TeacherDocumentTypesView from "./schedule/TeacherDocumentTypesView.jsx";
+import ClassIncidentInboxView from "./schedule/ClassIncidentInboxView.jsx";
+import ClassCheckInView from "./schedule/ClassCheckInView.jsx";
 import { ScheduleAuthContext } from "./schedule/ScheduleAuthContext.jsx";
 import { syncScheduleAuthSession, scheduleSupabase } from "./schedule/api.js";
+import { isGearOnlyAccess } from "./authRoles.js";
 import { isScheduleAdmin } from "./schedule/roles.js";
 import { isScheduleSuperAdmin } from "./schedule/managerScope.js";
 import UserMenuDropdown from "./UserMenuDropdown.jsx";
@@ -31,8 +35,9 @@ function ScheduleAccessDenied({ message, onBack }) {
 
 const SCHEDULE_VIEWS = new Set([
   "hub", "teacher-monthly", "institution-schedule", "home-visit", "events",
-  "change-alerts", "payroll", "settlement", "temporary-teachers", "pay-rates",
+  "change-alerts", "class-incidents", "class-checkin", "payroll", "settlement", "temporary-teachers", "pay-rates",
   "institutions", "institution-bulk-revenue", "institution-detail",
+  "document-types",
 ]);
 
 function defaultScheduleView(admin) {
@@ -135,7 +140,7 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
       case "events":
         return <EventsScheduleView me={me} onBack={goHub}/>;
       case "change-alerts":
-        return (
+        return admin ? (
           <ScheduleChangeAlertsView
             me={me}
             onBack={goHub}
@@ -146,6 +151,27 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
               setDetailTab("시간표");
               setView("institution-detail", { keepInstitution: true });
             }}
+          />
+        ) : (
+          <ScheduleAccessDenied
+            message="수업등록/변경은 관리자만 이용할 수 있습니다."
+            onBack={goHub}
+          />
+        );
+      case "class-incidents":
+        return admin ? (
+          <ClassIncidentInboxView me={me} onBack={goHub} />
+        ) : (
+          <ScheduleAccessDenied
+            message="수업 특이사항은 관리자만 이용할 수 있습니다."
+            onBack={goHub}
+          />
+        );
+      case "class-checkin":
+        return (
+          <ClassCheckInView
+            me={me}
+            onBack={() => setView("payroll")}
           />
         );
       case "payroll":
@@ -162,6 +188,7 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
               onOpenSettlement={() => setView("settlement")}
               onOpenPayRates={() => setView("pay-rates")}
               onOpenTemporaryTeachers={() => setView("temporary-teachers")}
+              onOpenClassIncidents={() => setView("class-incidents")}
             />
           )
           : <PayrollTeacherView me={me}/>;
@@ -206,6 +233,15 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
             onOpenBulkRevenue={() => setView("institution-bulk-revenue")}
           />
         );
+      case "document-types":
+        return admin
+          ? <TeacherDocumentTypesView onBack={goHub}/>
+          : (
+            <ScheduleAccessDenied
+              message="서류 종류 관리는 관리자만 이용할 수 있습니다."
+              onBack={goHub}
+            />
+          );
       case "institution-bulk-revenue":
         return isScheduleSuperAdmin(me)
           ? (
@@ -227,6 +263,8 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
             institutionId={detailId}
             initialTab={detailTab}
             onBack={() => { setDetailId(null); setView(admin ? "institutions" : "payroll"); }}
+            onSwitchInstitution={setDetailId}
+            onTabChange={setDetailTab}
             onOpenRegularClasses={() => {
               setView("change-alerts", { institution: detailId });
             }}
@@ -236,6 +274,15 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
         return <ScheduleHub me={me} onSelect={setView}/>;
     }
   };
+
+  if (isGearOnlyAccess(me)) {
+    return (
+      <ScheduleAccessDenied
+        message="이 계정은 교구 대여/반납만 이용할 수 있습니다."
+        onBack={onBack || (() => navigate("/gear"))}
+      />
+    );
+  }
 
   return (
     <div className="schedule-app schedule-app--with-sidebar">

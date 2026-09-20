@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, Settings } from "lucide-react";
+import { KeyRound, LogOut, Settings } from "lucide-react";
 
 export default function UserMenuDropdown({
   me,
@@ -9,6 +9,8 @@ export default function UserMenuDropdown({
   extraItems = [],
   triggerClassName = "",
   menuClassName = "",
+  hideProfile = false,
+  onChangePassword,
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -34,7 +36,7 @@ export default function UserMenuDropdown({
       >
         <span className="user-menu__profile-link" aria-hidden>
           <Settings size={14} strokeWidth={2} />
-          내 정보
+          {hideProfile ? "계정" : "내 정보"}
         </span>
         <span className="user-menu__caret" aria-hidden>▾</span>
       </button>
@@ -44,6 +46,7 @@ export default function UserMenuDropdown({
             <div className="user-menu__head-name">{me?.name}</div>
             {email ? <div className="user-menu__head-email">{email}</div> : null}
           </div>
+          {hideProfile ? null : (
           <button
             type="button"
             role="menuitem"
@@ -56,6 +59,21 @@ export default function UserMenuDropdown({
             <Settings size={15} strokeWidth={2} />
             내 정보
           </button>
+          )}
+          {onChangePassword ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="user-menu__item"
+            onClick={() => {
+              setOpen(false);
+              onChangePassword();
+            }}
+          >
+            <KeyRound size={15} strokeWidth={2} />
+            비밀번호 변경
+          </button>
+          ) : null}
           {extraItems.map((item) => (
             <button
               key={item.label}

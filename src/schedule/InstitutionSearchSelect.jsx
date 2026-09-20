@@ -5,6 +5,8 @@ import { Search } from "lucide-react";
  * 기관 검색 선택.
  * allowCreate: 목록에 없으면 새 기관명으로 추가 가능
  * showInactive: 비활성 기관도 결과에 포함
+ * clearable: 검색어를 지우면 선택값도 비움
+ * syncQueryToValue: 닫힌 상태에서 입력칸을 선택된 기관명과 맞춤. 원 전환처럼 검색 전용일 때는 false
  */
 export default function InstitutionSearchSelect({
   institutions = [],
@@ -16,6 +18,8 @@ export default function InstitutionSearchSelect({
   onCreateInstitution,
   creating = false,
   showInactive = false,
+  clearable = true,
+  syncQueryToValue = true,
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -51,9 +55,9 @@ export default function InstitutionSearchSelect({
 
   useEffect(() => {
     if (!open) {
-      setQuery(selected?.name || "");
+      setQuery(syncQueryToValue ? (selected?.name || "") : "");
     }
-  }, [selected, open]);
+  }, [selected, open, syncQueryToValue]);
 
   useEffect(() => {
     const onDocClick = (e) => {
@@ -65,7 +69,7 @@ export default function InstitutionSearchSelect({
 
   const pick = (inst) => {
     onChange(inst?.id || "");
-    setQuery(inst?.name || "");
+    setQuery(syncQueryToValue ? (inst?.name || "") : "");
     setOpen(false);
   };
 
@@ -87,11 +91,12 @@ export default function InstitutionSearchSelect({
           className="sch-input"
           value={query}
           placeholder={placeholder}
+          aria-label={placeholder}
           required={required && !value}
           onChange={(e) => {
             setQuery(e.target.value);
             setOpen(true);
-            if (!e.target.value.trim()) onChange("");
+            if (clearable && !e.target.value.trim()) onChange("");
           }}
           onFocus={() => setOpen(true)}
         />

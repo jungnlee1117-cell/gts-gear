@@ -49,6 +49,13 @@ describe("teacher-hr settlement access (API rules)", () => {
     assert.equal(canListHrStatus(teacher), false);
   });
 
+  it("gear_only: 본인 정산정보도 거부", () => {
+    const restricted = { id: "teacher-1", role: "teacher", access_scope: "gear_only" };
+    assert.equal(canAccessHr(restricted, restricted.id), false);
+    assert.equal(canRevealSettlement(restricted, restricted.id), false);
+    assert.equal(canListHrStatus(restricted), false);
+  });
+
   it("admin: 다른 선생님 정산정보 get/upsert 거부, 목록 배지만 허용", () => {
     assert.equal(canAccessHr(admin, admin.id), true);
     assert.equal(canAccessHr(admin, other), false);

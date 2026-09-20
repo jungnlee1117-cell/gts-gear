@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
+import ClassIncidentMonthSection from "./ClassIncidentMonthSection.jsx";
 import { CONTRACT_TYPES, formatWon, yearMonthKey } from "./constants.js";
 import ThresholdSplitBreakdown from "./ThresholdSplitBreakdown.jsx";
 import { isManagerThresholdSplit, resolveSettlementContractType } from "./thresholdSplitSettlement.js";
@@ -104,6 +105,7 @@ export default function MonthlySettlementView({ me, onBack }) {
   const [yearMonth, setYearMonth] = useState(yearMonthKey());
   const [settlements, setSettlements] = useState([]);
   const [managerMap, setManagerMap] = useState({});
+  const [institutions, setInstitutions] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -113,6 +115,7 @@ export default function MonthlySettlementView({ me, onBack }) {
         fetchInstitutions({ activeOnly: false }),
         fetchTeachersUnfiltered(),
       ]);
+      setInstitutions(institutions || []);
       const mgr = {};
       teachers.forEach(t => { mgr[t.id] = t; });
       setManagerMap(mgr);
@@ -312,6 +315,8 @@ export default function MonthlySettlementView({ me, onBack }) {
               </div>
             </section>
           ) : null}
+
+          <ClassIncidentMonthSection yearMonth={yearMonth} institutions={institutions} />
 
           <div className="sch-totals-bar">
             <span>전체 매출 {formatWon(totals.revenue)}</span>

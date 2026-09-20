@@ -5,6 +5,7 @@ import { deleteOneoffLessonRecord } from "./oneoffLessonService.js";
 import { oneoffLessonMinutes } from "./oneoffLessons.js";
 import { DAY_LABELS, formatWon, yearMonthKey } from "./constants.js";
 import OneoffLessonModal from "./OneoffLessonModal.jsx";
+import { filterAssignableClassTeachers } from "./roles.js";
 
 function formatTime(t) {
   return t ? String(t).slice(0, 5) : "";
@@ -29,7 +30,7 @@ export default function OneoffLessonRegisterPanel({ me }) {
 
   useEffect(() => {
     fetchTeachers()
-      .then(all => setTeachers((all || []).filter(t => t.role === "teacher")))
+      .then(all => setTeachers(filterAssignableClassTeachers(all)))
       .catch(err => {
         console.error(err);
         alert("선생님 목록을 불러오지 못했습니다: " + err.message);

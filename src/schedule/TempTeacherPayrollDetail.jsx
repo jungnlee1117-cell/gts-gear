@@ -38,6 +38,7 @@ export function TempTeacherPayrollTableRow({ row, onSelect, superAdmin = false }
       <td className="sch-td-num"><PayTypeCell row={row} payType="가정방문"/></td>
       <td className="sch-td-num"><PayTypeCell row={row} payType="센터"/></td>
       <td className="sch-td-num"><PayTypeCell row={row} payType="센터보조"/></td>
+      <td className="sch-td-num">—</td>
       <td className="sch-td-num">{formatWon(row.estimatedPay)}</td>
       <td className="sch-td-num sch-pay-net-cell">
         <div className="sch-admin-cell-num">{formatWon(grossToNetPay(row.estimatedPay))}</div>
@@ -45,6 +46,8 @@ export function TempTeacherPayrollTableRow({ row, onSelect, superAdmin = false }
           <p>{row.paySummaryLabel || formatTempTeacherPaySummary(row.tempTeacher).label}</p>
         </div>
       </td>
+      <td className="sch-td-num">—</td>
+      <td className="sch-td-num">—</td>
       <td className="sch-td-num">—</td>
       {superAdmin ? <td className="sch-td-action">—</td> : null}
     </tr>

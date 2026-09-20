@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Repeat2, Search, Trash2, X } from "lucide-react";
 import { PAY_TYPES } from "./constants.js";
 import { deactivateAssignment, saveAssignment } from "./api.js";
 import { filterClassTeacherAssignments } from "./assignmentRoles.js";
 import InstitutionTeacherPayTypesModal from "./InstitutionTeacherPayTypesModal.jsx";
+import InstitutionTeacherTransferModal from "./InstitutionTeacherTransferModal.jsx";
 
 function formatAssignDate(iso) {
   if (!iso) return "—";
@@ -13,7 +14,10 @@ function formatAssignDate(iso) {
 /** 수업 선생님 추가/제거 (role=teacher) */
 export default function InstitutionAssignmentsTab({
   institutionId,
+  institution,
   assignments,
+  weekly = [],
+  teachers = [],
   teacherList,
   onRefresh,
   canEdit = true,
@@ -31,6 +35,7 @@ export default function InstitutionAssignmentsTab({
   });
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [editAssignment, setEditAssignment] = useState(null);
+  const [showTransfer, setShowTransfer] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const assignedIds = useMemo(
@@ -100,12 +105,16 @@ export default function InstitutionAssignmentsTab({
   return (
     <div>
       <p className="sch-muted" style={{ marginTop: 0 }}>
-        실제 수업을 진행하는 선생님입니다. 담당 관리자(양의인·오정석 등)와는 별개입니다.
+        실제 수업을 진행하는 선생님입니다. 담당 관리자와는 별개입니다.
+        명단에서 추가·제거하고, 기존 수업을 다른 선생님에게 넘기려면 교체를 사용하세요.
       </p>
       {canEdit ? (
         <div className="sch-toolbar">
           <button type="button" className="sch-btn sch-btn--primary" onClick={openModal}>
             <Plus size={16}/> 수업 선생님 추가
+          </button>
+          <button type="button" className="sch-btn" onClick={() => setShowTransfer(true)}>
+            <Repeat2 size={16}/> 수업 선생님 교체
           </button>
         </div>
       ) : null}
@@ -227,6 +236,19 @@ export default function InstitutionAssignmentsTab({
             </form>
           </div>
         </div>
+      ) : null}
+
+      {showTransfer ? (
+        <InstitutionTeacherTransferModal
+          mode="teacher"
+          institution={institution}
+          assignments={assignments}
+          weekly={weekly}
+          teachers={teachers}
+          teacherList={teacherList}
+          onClose={() => setShowTransfer(false)}
+          onDone={onRefresh}
+        />
       ) : null}
 
       {editAssignment ? (

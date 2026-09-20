@@ -2,8 +2,17 @@ import { fetchScheduleExceptions } from "./schedule/api.js";
 import { DAY_LABELS, EXCEPTION_LABELS, fmtLocalDate } from "./schedule/constants.js";
 import { exceptionEndDate } from "./schedule/scheduleExceptions.js";
 import { audienceBadgeTone, audienceLabel } from "./noticeAudience.js";
+import {
+  fetchItemQuantityAdjustments,
+  formatAdjustmentSubtitle,
+} from "./itemQuantityAdjust.js";
+import {
+  buildClassIncidentFeedItem,
+  countClassIncidentsNeedingReview,
+  fetchLatestClassIncident,
+} from "./schedule/classIncidentReports.js";
 
-/** @typedef {'institution'|'global'|'vacation'|'event'|'urgent'|'general'} UnifiedNoticeType */
+/** @typedef {'institution'|'global'|'vacation'|'event'|'urgent'|'inventory'|'class_incident'|'general'} UnifiedNoticeType */
 
 /**
  * @typedef {Object} UnifiedFeedItem
@@ -24,6 +33,8 @@ export const UNIFIED_NOTICE_TYPE_LABELS = {
   vacation: "방학",
   event: "행사",
   urgent: "긴급",
+  inventory: "재고",
+  class_incident: "수업보고",
   general: "일반",
 };
 
@@ -33,6 +44,8 @@ export const UNIFIED_NOTICE_TYPE_TONES = {
   vacation: "vacation",
   event: "event",
   urgent: "urgent",
+  inventory: "inventory",
+  class_incident: "class_incident",
   general: "general",
 };
 
@@ -167,7 +180,7 @@ export function exceptionToFeedItem(ex) {
 }
 
 function typeRank(type) {
-  const order = { urgent: 0, institution: 1, global: 2, vacation: 3, event: 4, general: 5 };
+  const order = { urgent: 0, inventory: 1, class_incident: 2, institution: 3, global: 4, vacation: 5, event: 6, general: 7 };
   return order[type] ?? 9;
 }
 
@@ -200,23 +213,45 @@ export function sortUnifiedFeedItems(items, now = new Date()) {
   });
 }
 
-/** @param {object[]} notices @param {object[]} exceptions */
-export function buildUnifiedFeed(notices = [], exceptions = [], now = new Date()) {
-  const linkedExceptionIds = new Set();
-  const visibleNotices = (notices || []).filter(notice => isNoticeCurrentlyVisible(notice, now));
-  for (const notice of visibleNotices) {
-    if (notice.notice_type === "event" && notice.schedule_exception_ids?.length) {
-      notice.schedule_exception_ids.forEach(id => linkedExceptionIds.add(id));
-    }
-  }
-  const standaloneExceptions = (exceptions || []).filter(
-    ex => !ex.notice_id && !linkedExceptionIds.has(ex.id),
-  );
-  const items = [
-    ...visibleNotices.map(noticeToFeedItem),
-    ...standaloneExceptions.map(exceptionToFeedItem),
-  ];
-  return sortUnifiedFeedItems(items, now);
+export const INVENTORY_LOG_FEED_ID = "inventory-log";
+
+export function isLegacyInventoryNotice(notice) {
+  return notice?.audience_type === "item_admins"
+    || notice?.body_style?.source === "item_quantity_adjust";
+}
+
+export function isLegacyClassIncidentNotice(notice) {
+  return notice?.audience_type === "schedule_admins"
+    || notice?.body_style?.source === "class_incident_report";
+}
+
+export function isInventoryLogItem(item) {
+  return item?.source === "inventory" || item?.raw?.kind === "inventory-log";
+}
+
+export function buildInventoryLogFeedItem(latestRow) {
+  return {
+    id: INVENTORY_LOG_FEED_ID,
+    source: "inventory",
+    type: "inventory",
+    title: "교구 재고 변경",
+    subtitle: formatAdjustmentSubtitle(latestRow),
+    createdAt: latestRow?.created_at || null,
+    pinned: true,
+    scopeLabel: "교구관리자",
+    scopeTone: "item_admins",
+    raw: { kind: "inventory-log" },
+  };
+}
+
+/** 공지사항 목록은 행사 일정이 아닌 순수 공지만 표시합니다. */
+export function buildUnifiedFeed(notices = [], _exceptions = [], now = new Date()) {
+  const noticeItems = (notices || [])
+    .filter(notice => notice.notice_type !== "event")
+    .filter(notice => !isLegacyInventoryNotice(notice))
+    .filter(notice => !isLegacyClassIncidentNotice(notice))
+    .map(noticeToFeedItem);
+  return sortUnifiedFeedItems(noticeItems, now);
 }
 
 export async function fetchScheduleExceptionsForFeed(now = new Date()) {
@@ -230,10 +265,36 @@ export async function fetchScheduleExceptionsForFeed(now = new Date()) {
   }
 }
 
-export async function loadUnifiedNoticeFeed(fetchNoticesFn) {
-  const [notices, exceptions] = await Promise.all([
-    fetchNoticesFn(),
-    fetchScheduleExceptionsForFeed(),
-  ]);
-  return buildUnifiedFeed(notices || [], exceptions || []);
+export async function loadUnifiedNoticeFeed(fetchNoticesFn, {
+  includeInventoryLog = false,
+  includeClassIncidents = false,
+} = {}) {
+  const notices = await fetchNoticesFn();
+  const extras = [];
+  if (includeInventoryLog) {
+    let latest = null;
+    try {
+      const { rows } = await fetchItemQuantityAdjustments({ limit: 1 });
+      latest = rows?.[0] || null;
+    } catch {
+      /* 이력 조회 실패해도 고정 카드는 보여 줌 */
+    }
+    extras.push(buildInventoryLogFeedItem(latest));
+  }
+  if (includeClassIncidents) {
+    let latest = null;
+    let pending = 0;
+    try {
+      const [latestRes, count] = await Promise.all([
+        fetchLatestClassIncident(),
+        countClassIncidentsNeedingReview(),
+      ]);
+      latest = latestRes.row;
+      pending = count;
+    } catch {
+      /* 조회 실패해도 고정 카드는 보여 줌 */
+    }
+    extras.push(buildClassIncidentFeedItem(latest, pending));
+  }
+  return sortUnifiedFeedItems([...extras, ...buildUnifiedFeed(notices || [])]);
 }

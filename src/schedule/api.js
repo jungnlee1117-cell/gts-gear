@@ -19,6 +19,7 @@ import { resolveSettlementContractType } from "./thresholdSplitSettlement.js";
 import {
   countSkippedEntries,
   countUnconfirmedDays,
+  countUnconfirmedSlots,
   expandMonthSchedule,
   getSlotsForDate,
   groupPayrollByTypeConfirmed,
@@ -1230,6 +1231,54 @@ export async function insertPayRate(payload) {
   return data;
 }
 
+async function withSkipReasonsFromNotifications(entries, { teacherId, start, end }) {
+  const list = entries || [];
+  const missing = list.filter((e) =>
+    e.entry_status === "skipped" && !String(e.note || "").trim(),
+  );
+  if (!missing.length || !teacherId || !start || !end) return list;
+  const { data, error } = await scheduleSupabase
+    .from("schedule_change_notifications")
+    .select("class_date, schedule_slot_id, home_visit_pattern_id, institution_id, pay_type, change_reason")
+    .eq("teacher_id", teacherId)
+    .eq("change_type", "skipped")
+    .gte("class_date", start)
+    .lte("class_date", end)
+    .order("created_at", { ascending: false });
+  if (error || !data?.length) return list;
+
+  const bySlot = new Map();
+  const byHv = new Map();
+  const byInst = new Map();
+  for (const n of data) {
+    const reason = String(n.change_reason || "").trim();
+    if (!reason) continue;
+    const date = String(n.class_date).slice(0, 10);
+    if (n.schedule_slot_id) {
+      const key = `${date}|${n.schedule_slot_id}`;
+      if (!bySlot.has(key)) bySlot.set(key, reason);
+    }
+    if (n.home_visit_pattern_id) {
+      const key = `${date}|${n.home_visit_pattern_id}`;
+      if (!byHv.has(key)) byHv.set(key, reason);
+    }
+    if (!n.schedule_slot_id && !n.home_visit_pattern_id) {
+      const key = `${date}|${n.institution_id || ""}|${n.pay_type || ""}`;
+      if (!byInst.has(key)) byInst.set(key, reason);
+    }
+  }
+
+  return list.map((e) => {
+    if (e.entry_status !== "skipped" || String(e.note || "").trim()) return e;
+    const date = String(e.class_date).slice(0, 10);
+    const reason = (e.schedule_slot_id && bySlot.get(`${date}|${e.schedule_slot_id}`))
+      || (e.home_visit_pattern_id && byHv.get(`${date}|${e.home_visit_pattern_id}`))
+      || byInst.get(`${date}|${e.institution_id || ""}|${e.pay_type || ""}`)
+      || null;
+    return reason ? { ...e, note: reason } : e;
+  });
+}
+
 export async function fetchPayrollEntries({ teacherId, institutionId, yearMonth } = {}) {
   const start = yearMonth ? yearMonthFirstDay(yearMonth) : null;
   const end = yearMonth ? yearMonthLastDay(yearMonth) : null;
@@ -1265,7 +1314,7 @@ export async function fetchPayrollEntries({ teacherId, institutionId, yearMonth 
           .order("class_date", { ascending: false });
         const { data, error } = await q;
         if (error) throw error;
-        return data || [];
+        return withSkipReasonsFromNotifications(data || [], { teacherId, start, end });
       }
       throw byClassRes.error;
     }
@@ -1275,7 +1324,8 @@ export async function fetchPayrollEntries({ teacherId, institutionId, yearMonth 
     const byId = new Map();
     for (const row of byClassRes.data || []) byId.set(row.id, row);
     for (const row of byMakeupRes.data || []) byId.set(row.id, row);
-    return [...byId.values()].sort((a, b) => String(b.class_date).localeCompare(String(a.class_date)));
+    const merged = [...byId.values()].sort((a, b) => String(b.class_date).localeCompare(String(a.class_date)));
+    return withSkipReasonsFromNotifications(merged, { teacherId, start, end });
   }
 
   let q = scheduleSupabase
@@ -1584,58 +1634,6 @@ export async function fetchAllWeeklySchedules() {
 export async function deletePayrollEntry(id) {
   const { error } = await scheduleSupabase
     .from("payroll_entries")
-    .delete()
-    .eq("id", id);
-  if (error) throw error;
-}
-
-export async function fetchTeacherNotes({ teacherId, fromDate, toDate } = {}) {
-  const buildQuery = (select) => {
-    let q = scheduleSupabase.from("teacher_notes").select(select);
-    if (teacherId) q = q.eq("teacher_id", teacherId);
-    if (fromDate) q = q.gte("note_date", fromDate);
-    if (toDate) q = q.lte("note_date", toDate);
-    return q.order("note_date", { ascending: true });
-  };
-
-  const { data, error } = await buildQuery("*, teachers(id, name)");
-  if (!error) return data || [];
-
-  // teachers embed 실패 시 본인 메모 조회만이라도 되도록 fallback
-  const { data: plain, error: plainError } = await buildQuery("*");
-  if (plainError) throw plainError;
-  return plain || [];
-}
-
-export async function upsertTeacherNote({ id, teacher_id, note_date, content }) {
-  const row = {
-    teacher_id,
-    note_date: String(note_date).slice(0, 10),
-    content: content.trim(),
-    updated_at: new Date().toISOString(),
-  };
-  if (id) {
-    const { data, error } = await scheduleSupabase
-      .from("teacher_notes")
-      .update(row)
-      .eq("id", id)
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
-  }
-  const { data, error } = await scheduleSupabase
-    .from("teacher_notes")
-    .upsert(row, { onConflict: "teacher_id,note_date" })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-export async function deleteTeacherNote(id) {
-  const { error } = await scheduleSupabase
-    .from("teacher_notes")
     .delete()
     .eq("id", id);
   if (error) throw error;
@@ -2191,7 +2189,7 @@ export async function loadPayrollDashboard(yearMonth) {
   const monthEnd = yearMonthLastDay(yearMonth);
   const [y, m] = yearMonth.split("-").map(Number);
 
-  const [teachers, entries, rates, institutions, allWeekly, exceptionsRes, teacherNotes, additionalPayments, substituteLessons, oneoffLessons] = await Promise.all([
+  const [teachers, entries, rates, institutions, allWeekly, exceptionsRes, additionalPayments, substituteLessons, oneoffLessons, homeVisitPatterns] = await Promise.all([
     fetchTeachers({ yearMonth }),
     fetchPayrollEntries({ yearMonth }),
     fetchPayRates(),
@@ -2202,10 +2200,10 @@ export async function loadPayrollDashboard(yearMonth) {
       .select("*")
       .gte("exception_date", ym)
       .lte("exception_date", monthEnd),
-    fetchTeacherNotes({ fromDate: ym, toDate: monthEnd }),
     fetchAdditionalPayments({ yearMonth }),
     fetchSubstituteLessons({ yearMonth }),
     fetchOneoffLessons({ yearMonth }),
+    fetchHomeVisitPatterns(),
   ]);
 
   const exceptions = exceptionsRes.data || [];
@@ -2216,6 +2214,14 @@ export async function loadPayrollDashboard(yearMonth) {
     if (!tid) continue;
     if (!weeklyByTeacher[tid]) weeklyByTeacher[tid] = [];
     weeklyByTeacher[tid].push(slot);
+  }
+
+  const homeVisitsByTeacher = {};
+  for (const pattern of homeVisitPatterns || []) {
+    const tid = pattern.teacher_id;
+    if (!tid) continue;
+    if (!homeVisitsByTeacher[tid]) homeVisitsByTeacher[tid] = [];
+    homeVisitsByTeacher[tid].push(pattern);
   }
 
   const teacherRows = teachers
@@ -2244,8 +2250,10 @@ export async function loadPayrollDashboard(yearMonth) {
         y,
         m - 1,
         teacherExceptions,
+        homeVisitsByTeacher[t.id] || [],
       );
       const unconfirmedDays = countUnconfirmedDays(scheduleByDate, mine);
+      const unconfirmedSlots = countUnconfirmedSlots(scheduleByDate, mine);
       const skippedCount = countSkippedEntries(mine);
       const hasScheduled = Object.values(scheduleByDate).some(arr => arr.length > 0);
       const stale = hasScheduled && unconfirmedDays > 0;
@@ -2261,6 +2269,7 @@ export async function loadPayrollDashboard(yearMonth) {
         estimatedPay,
         lastEntryDate: lastEntry?.class_date ?? null,
         unconfirmedDays,
+        unconfirmedSlots,
         skippedCount,
         hasScheduled,
         stale,
@@ -2366,7 +2375,6 @@ export async function loadPayrollDashboard(yearMonth) {
     rates,
     institutions,
     managerMap,
-    teacherNotes,
     additionalPayments,
     teachers,
   };

@@ -29,6 +29,8 @@ export function audienceLabel(notice, institutionName) {
   const type = notice?.audience_type
     || (notice?.institution_id ? "institution_teachers" : "all");
   if (type === "teachers") return "선생님만";
+  if (type === "item_admins") return "교구관리자";
+  if (type === "schedule_admins") return "스케줄 관리자";
   if (type === "specific") {
     const n = Array.isArray(notice?.audience_teacher_ids)
       ? notice.audience_teacher_ids.length
@@ -46,6 +48,8 @@ export function audienceBadgeTone(notice) {
     || (notice?.institution_id ? "institution_teachers" : "all");
   if (type === "all") return "global";
   if (type === "teachers") return "teachers";
+  if (type === "item_admins") return "item_admins";
+  if (type === "schedule_admins") return "schedule_admins";
   if (type === "specific") return "specific";
   return "institution";
 }

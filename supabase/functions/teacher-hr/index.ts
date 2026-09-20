@@ -121,7 +121,7 @@ async function decryptText(packedB64: string, secret: string) {
 async function loadCaller(adminClient, userId: string) {
   const { data, error } = await adminClient
     .from("teachers")
-    .select("id, name, role")
+    .select("id, name, role, access_scope")
     .eq("id", userId)
     .maybeSingle();
   if (error) throw error;
@@ -615,6 +615,9 @@ Deno.serve(async (req) => {
     const adminClient = createClient(supabaseUrl, serviceKey);
     const caller = await loadCaller(adminClient, user.id);
     if (!caller) return jsonError("TEACHER_NOT_FOUND", "Forbidden", 403);
+    if (caller.access_scope === "gear_only") {
+      return jsonError("FORBIDDEN", "이 계정은 교구 대여/반납만 이용할 수 있습니다.", 403);
+    }
 
     const body = await req.json().catch(() => ({}));
     const action = String(body.action || "");

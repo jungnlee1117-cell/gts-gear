@@ -40,6 +40,7 @@ export function EventScheduleFields({
   useSearchSelect = false,
   allowClassCancellation = false,
   classCancellationField = null,
+  lockedInstitutionName = "",
 }) {
   const isGlobal = allowGlobal && (form.scope !== "institution");
   const exceptionOptions = Object.entries(EXCEPTION_LABELS).filter(([key]) => {
@@ -52,7 +53,9 @@ export function EventScheduleFields({
     <>
       <div className="sch-field">
         <span>원 *</span>
-        {useSearchSelect ? (
+        {lockedInstitutionName ? (
+          <div className="sch-locked-institution">{lockedInstitutionName}</div>
+        ) : useSearchSelect ? (
           <>
             {allowGlobal ? (
               <div className="sch-chip-row" style={{ marginBottom: 8 }}>
@@ -120,14 +123,16 @@ export function EventScheduleFields({
           </select>
         )}
       </div>
-      <div className="sch-time-row">
-        <label className="sch-field">
+      <div className="sch-time-row sch-time-row--dates">
+        <label className="sch-field" htmlFor="event-start-date">
           <span>시작일</span>
           <input
+            id="event-start-date"
+            name="start_date"
             type="date"
             className="sch-input"
             required
-            value={form.start_date}
+            value={form.start_date || ""}
             onChange={e => setForm(f => ({
               ...f,
               start_date: e.target.value,
@@ -136,12 +141,14 @@ export function EventScheduleFields({
             }))}
           />
         </label>
-        <label className="sch-field">
+        <label className="sch-field" htmlFor="event-end-date">
           <span>종료일 (선택)</span>
           <input
+            id="event-end-date"
+            name="end_date"
             type="date"
             className="sch-input"
-            value={form.end_date}
+            value={form.end_date || ""}
             onChange={e => setForm(f => ({
               ...f,
               end_date: e.target.value,
@@ -197,6 +204,7 @@ export default function EventRegisterForm({
   useSearchSelect = false,
   allowClassCancellation = false,
   classCancellationField = null,
+  lockedInstitutionName = "",
 }) {
   return (
     <form className="sch-form sch-events-form" onSubmit={onSubmit}>
@@ -208,6 +216,7 @@ export default function EventRegisterForm({
         useSearchSelect={useSearchSelect}
         allowClassCancellation={allowClassCancellation}
         classCancellationField={classCancellationField}
+        lockedInstitutionName={lockedInstitutionName}
       />
       <div className="sch-form-actions">
         {showCancel ? (

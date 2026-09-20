@@ -4,7 +4,11 @@ import {
   UNIFIED_NOTICE_TYPE_LABELS,
   UNIFIED_NOTICE_TYPE_TONES,
   formatDdayLabel,
+  isInventoryLogItem,
 } from "./unifiedNotices.js";
+import InventoryLogModal from "./InventoryLogModal.jsx";
+import ClassIncidentFeedModal from "./schedule/ClassIncidentFeedModal.jsx";
+import { isClassIncidentLogItem } from "./schedule/classIncidentReports.js";
 import { EXCEPTION_LABELS } from "./schedule/constants.js";
 import {
   deleteScheduleException,
@@ -36,6 +40,8 @@ function fmtDateWeekday(d) {
 }
 
 function noticeAuthor(item) {
+  if (item.source === "inventory") return "재고";
+  if (item.source === "class_incident") return "수업보고";
   if (item.source === "notice" && item.raw?.author_name) return item.raw.author_name;
   if (item.source === "exception" && item.raw?.institutions?.name) return item.raw.institutions.name;
   return "시스템";
@@ -58,7 +64,7 @@ function FeedRow({ item, onClick, unread = false }) {
         <span className="hub-unified-row__top">
           {unread ? <span className="notice-unread-dot" aria-hidden /> : null}
           <span className={`hub-feed-tag hub-feed-tag--${tone}`}>{label}</span>
-          {item.source === "notice" ? (
+          {item.source === "notice" || item.source === "inventory" || item.source === "class_incident" ? (
             <span className={`hub-feed-tag hub-feed-tag--${item.scopeTone || (item.institutionId ? "institution" : "global")}`}>
               {item.scopeLabel || (item.institutionId ? (item.institutionName || "담당기관") : "전체")}
             </span>
@@ -339,6 +345,8 @@ export default function UnifiedNoticesFeed({
   onEditNotice,
   onDeleteNotice,
   onExceptionMutated,
+  onViewInventoryHistory,
+  onViewClassIncidents,
   compact = false,
   variant = "feed",
   /** 선생님: 읽은 공지 id Set */
@@ -353,6 +361,8 @@ export default function UnifiedNoticesFeed({
   const [showAll, setShowAll] = useState(false);
   const [detailException, setDetailException] = useState(null);
   const [editException, setEditException] = useState(null);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [classIncidentOpen, setClassIncidentOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -412,7 +422,9 @@ export default function UnifiedNoticesFeed({
       />
       <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} aria-label="공지 유형 필터">
         <option value="all">전체 유형</option>
-        {Object.entries(UNIFIED_NOTICE_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        {Object.entries(UNIFIED_NOTICE_TYPE_LABELS)
+          .filter(([value]) => value !== "event")
+          .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
       {showUnreadStyles ? (
         <label><input type="checkbox" checked={unreadOnly} onChange={e => setUnreadOnly(e.target.checked)}/> 안 읽은 공지만</label>
@@ -421,6 +433,14 @@ export default function UnifiedNoticesFeed({
   );
 
   const handleRowClick = (item) => {
+    if (isInventoryLogItem(item)) {
+      setInventoryOpen(true);
+      return;
+    }
+    if (isClassIncidentLogItem(item)) {
+      setClassIncidentOpen(true);
+      return;
+    }
     if (item.source === "notice") {
       onSelectNotice?.(item.raw);
       return;
@@ -455,8 +475,23 @@ export default function UnifiedNoticesFeed({
     <div className="notice-unread-banner">안 읽은 공지 {unreadCount}건</div>
   ) : null;
 
-  const exceptionModals = (
+  const extraModals = (
     <>
+      {inventoryOpen ? (
+        <InventoryLogModal
+          onClose={() => setInventoryOpen(false)}
+          onViewAll={onViewInventoryHistory}
+        />
+      ) : null}
+      {classIncidentOpen ? (
+        <ClassIncidentFeedModal
+          onClose={() => setClassIncidentOpen(false)}
+          onViewAll={() => {
+            setClassIncidentOpen(false);
+            onViewClassIncidents?.();
+          }}
+        />
+      ) : null}
       {detailException ? (
         <ExceptionDetailModal
           item={detailException}
@@ -532,7 +567,7 @@ export default function UnifiedNoticesFeed({
                       <span className="admin-notice-table-row__title-meta">
                         {unread ? <span className="notice-unread-dot" aria-hidden /> : null}
                         {item.pinned ? <span className="admin-notice-pin" aria-hidden>📌</span> : null}
-                        {item.source === "notice" ? (
+                        {item.source === "notice" || item.source === "inventory" || item.source === "class_incident" ? (
                           <span
                             className={`admin-notice-badge admin-notice-badge--${item.scopeTone || (item.institutionId ? "institution" : "global")}`}
                           >
@@ -621,7 +656,7 @@ export default function UnifiedNoticesFeed({
           </div>
         )}
 
-        {exceptionModals}
+        {extraModals}
       </>
     );
   }
@@ -700,7 +735,7 @@ export default function UnifiedNoticesFeed({
         </div>
       )}
 
-      {exceptionModals}
+      {extraModals}
     </>
   );
 }

@@ -19,9 +19,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 const PE_ADMIN = (u) => u?.role === "superadmin" || u?.role === "admin";
 const LESSON_PLAN_CATEGORY_ID = "lesson-plans";
 const isLessonPlanFolderCategory = (category) => category?.id === LESSON_PLAN_CATEGORY_ID;
-const FULL_LIBRARY_USER_NAMES = new Set(["오정석", "양의인", "안소연", "어욱진"]);
+const FULL_LIBRARY_USER_NAMES = new Set(["오정석", "양의인", "어욱진"]);
 
 function canAccessFullLibrary(user) {
+  if (user?.access_scope === "gear_only") return false;
   return canUploadTeacherContract(user)
     || FULL_LIBRARY_USER_NAMES.has(String(user?.name || "").trim());
 }
@@ -263,6 +264,19 @@ function canEditResource(me, res) {
   return res.author_id === me.id;
 }
 
+function canManageLessonPlanFolder(me, folder) {
+  return Boolean(me?.id && folder?.teacher_id && folder.teacher_id === me.id);
+}
+
+function lessonPlanUploadPath(userId, fileName) {
+  const ext = getFileExtension(fileName).replace(".", "") || "bin";
+  return `${LESSON_PLAN_CATEGORY_ID}/${userId}/uploads/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+}
+
+function isOwnLessonPlanStoragePath(path, userId) {
+  return Boolean(path && userId && path.startsWith(`${LESSON_PLAN_CATEGORY_ID}/${userId}/`));
+}
+
 function getStoragePath(fileUrl) {
   if (!fileUrl) return null;
   try {
@@ -481,8 +495,9 @@ function ModalShell({ title, onClose, children, wide }) {
   );
 }
 
-function ResourceUploadModal({ category, me, onClose, onSaved }) {
+function ResourceUploadModal({ category, me, onClose, onSaved, folderId = null }) {
   const isEvents = isEventsCategory(category);
+  const lessonPlanFolder = Boolean(folderId) && isLessonPlanFolderCategory(category);
   const [uploadMode, setUploadMode] = useState("file");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -499,7 +514,8 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
 
   const submit = async () => {
     if (!title.trim()) return alert("자료명을 입력하세요");
-    if (uploadMode === "file") {
+    const useFile = lessonPlanFolder || uploadMode === "file";
+    if (useFile) {
       if (!file) return alert("파일을 선택하세요");
       if (!isAllowedFile(file)) return alert("허용되지 않는 파일 형식입니다.\n\n" + ALLOWED_FILE_HINT);
     } else if (!youtubeVideoId) {
@@ -509,22 +525,27 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
     setSaving(true);
     try {
       const tagList = tags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean);
+      if (lessonPlanFolder && me?.name && !tagList.includes(me.name)) tagList.push(me.name);
+      if (lessonPlanFolder && !tagList.includes("월간계획안")) tagList.unshift("월간계획안");
       const eventsExtra = isEvents ? buildEventsExtra(materials, steps) : null;
       let payload;
 
-      if (uploadMode === "file") {
+      if (useFile) {
         const ext = file.name.split(".").pop() || "bin";
-        const path = `${category.id}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const path = lessonPlanFolder
+          ? lessonPlanUploadPath(me.id, file.name)
+          : `${category.id}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
         const { error: upErr } = await supabase.storage.from("pe-resources").upload(path, file, { upsert: false });
         if (upErr) throw new Error(upErr.message);
         const { data: urlData } = supabase.storage.from("pe-resources").getPublicUrl(path);
         payload = {
-          category_id: category.id, subcategory: subcategory || null,
+          category_id: category.id, subcategory: lessonPlanFolder ? null : (subcategory || null),
           title: title.trim(), description: description.trim(), tags: tagList,
           file_url: urlData.publicUrl, file_name: file.name,
           file_type: detectFileType(file), file_size: file.size,
           author_id: me.id, author_name: me.name,
         };
+        if (folderId) payload.folder_id = folderId;
       } else {
         payload = {
           category_id: category.id, subcategory: subcategory || null,
@@ -539,7 +560,7 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
 
       const { error: insErr } = await supabase.from("resources").insert(payload);
       if (insErr) throw new Error(insErr.message);
-      alert(uploadMode === "file" ? "자료가 업로드되었습니다." : "유튜브 자료가 등록되었습니다.");
+      alert(useFile ? "자료가 업로드되었습니다." : "유튜브 자료가 등록되었습니다.");
       onSaved(); onClose();
     } catch (e) {
       alert("업로드 오류: " + (e.message || "알 수 없는 오류"));
@@ -549,6 +570,11 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
 
   return (
     <ModalShell title="자료 업로드" onClose={onClose}>
+      {lessonPlanFolder ? (
+        <p className="pe-res-events-list-empty" style={{ marginBottom: 16 }}>
+          이 폴더에 직접 만든 계획안 파일을 올립니다. 앱에서 만든 PDF와 같은 목록에 표시됩니다.
+        </p>
+      ) : (
       <div className="pe-res-upload-mode-toggle" role="tablist" aria-label="업로드 방식">
         <button
           type="button"
@@ -569,15 +595,20 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
           <YoutubeIcon size={15} aria-hidden/> 유튜브 링크
         </button>
       </div>
+      )}
 
       <label style={peLbl}>자료명 *</label>
       <input value={title} onChange={e => setTitle(e.target.value)} style={peInp} placeholder="자료 제목"/>
       <label style={peLbl}>설명</label>
       <textarea value={description} onChange={e => setDescription(e.target.value)} style={{ ...peInp, minHeight: 80, resize: "vertical" }} placeholder="자료 설명"/>
-      <label style={peLbl}>하위 분류</label>
-      <select value={subcategory} onChange={e => setSubcategory(e.target.value)} style={peInp}>
-        {(category?.subs || []).map(s => <option key={s} value={s}>{s}</option>)}
-      </select>
+      {lessonPlanFolder ? null : (
+        <>
+          <label style={peLbl}>하위 분류</label>
+          <select value={subcategory} onChange={e => setSubcategory(e.target.value)} style={peInp}>
+            {(category?.subs || []).map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </>
+      )}
       <label style={peLbl}>태그 (쉼표로 구분)</label>
       <input value={tags} onChange={e => setTags(e.target.value)} style={peInp} placeholder="예: 4세 균형, 축구"/>
 
@@ -599,7 +630,7 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
         </>
       )}
 
-      {uploadMode === "file" ? (
+      {uploadMode === "file" || lessonPlanFolder ? (
         <>
           <label style={peLbl}>파일 *</label>
           <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.55, marginBottom: 8 }}>허용 형식: {ALLOWED_FILE_HINT}</div>
@@ -637,8 +668,9 @@ function ResourceUploadModal({ category, me, onClose, onSaved }) {
   );
 }
 
-function ResourceEditModal({ resource, onClose, onSaved }) {
+function ResourceEditModal({ resource, me, onClose, onSaved }) {
   const isEvents = isEventsCategory(resource.category_id);
+  const canReplaceFile = resource.category_id === LESSON_PLAN_CATEGORY_ID && !isYoutubeResource(resource);
   const initialExtra = getResourceExtra(resource);
   const [title, setTitle] = useState(resource.title || "");
   const [description, setDescription] = useState(resource.description || "");
@@ -649,10 +681,12 @@ function ResourceEditModal({ resource, onClose, onSaved }) {
   const [steps, setSteps] = useState(
     initialExtra.steps.length ? initialExtra.steps : [""],
   );
+  const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
     if (!title.trim()) return alert("자료명을 입력하세요");
+    if (file && !isAllowedFile(file)) return alert("허용되지 않는 파일 형식입니다.\n\n" + ALLOWED_FILE_HINT);
     setSaving(true);
     try {
       const tagList = tags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean);
@@ -664,6 +698,26 @@ function ResourceEditModal({ resource, onClose, onSaved }) {
       };
       if (isEvents) {
         payload.extra = buildEventsExtra(materials, steps);
+      }
+      if (file) {
+        const existingPath = getStoragePath(resource.file_url);
+        const path = isOwnLessonPlanStoragePath(existingPath, me?.id)
+          ? existingPath
+          : lessonPlanUploadPath(me.id, file.name);
+        const { error: upErr } = await supabase.storage.from("pe-resources").upload(path, file, {
+          upsert: true,
+          contentType: file.type || undefined,
+        });
+        if (upErr) throw new Error(upErr.message);
+        const { data: urlData } = supabase.storage.from("pe-resources").getPublicUrl(path);
+        payload.file_url = urlData.publicUrl;
+        payload.file_name = file.name;
+        payload.file_type = detectFileType(file);
+        payload.file_size = file.size;
+        if (existingPath && existingPath !== path) {
+          const { error: rmErr } = await supabase.storage.from("pe-resources").remove([existingPath]);
+          if (rmErr) console.warn("storage delete:", rmErr.message);
+        }
       }
       const { error } = await supabase.from("resources").update(payload).eq("id", resource.id);
       if (error) throw new Error(error.message);
@@ -683,6 +737,20 @@ function ResourceEditModal({ resource, onClose, onSaved }) {
       <textarea value={description} onChange={e => setDescription(e.target.value)} style={{ ...peInp, minHeight: 80, resize: "vertical" }}/>
       <label style={peLbl}>태그 (쉼표로 구분)</label>
       <input value={tags} onChange={e => setTags(e.target.value)} style={peInp}/>
+      {canReplaceFile ? (
+        <>
+          <label style={peLbl}>파일 교체 (선택)</label>
+          <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.55, marginBottom: 8 }}>
+            새 파일을 고르면 기존 파일을 덮어씁니다. 허용 형식: {ALLOWED_FILE_HINT}
+          </div>
+          <input type="file" accept={ALLOWED_FILE_ACCEPT} onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...peInp, padding: 10 }}/>
+          {file ? (
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>{file.name} ({Math.round(file.size / 1024)} KB)</div>
+          ) : resource.file_name ? (
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>현재 파일: {resource.file_name}</div>
+          ) : null}
+        </>
+      ) : null}
       {isEvents && (
         <>
           <EventsStringListEditor
@@ -1117,6 +1185,7 @@ function ResourceListPage({ category, search, me, resources, resourceFolders, lo
   const [detailTarget, setDetailTarget] = useState(null);
   const [localSub, setLocalSub] = useState("ALL");
   const [selectedFolderId, setSelectedFolderId] = useState(null);
+  const folderEnsureKey = useRef("");
   const admin = PE_ADMIN(me);
   const isEventsList = isEventsCategory(category);
   const folderCategory = isLessonPlanFolderCategory(category);
@@ -1133,6 +1202,29 @@ function ResourceListPage({ category, search, me, resources, resourceFolders, lo
     () => (resourceFolders || []).find(folder => folder.id === selectedFolderId) || null,
     [resourceFolders, selectedFolderId],
   );
+  const canUploadHere = folderCategory
+    ? canManageLessonPlanFolder(me, selectedFolder)
+    : Boolean(admin && category);
+
+  useEffect(() => {
+    if (!folderCategory || !me?.id || loading) return;
+    const mine = (resourceFolders || []).find(folder => folder.teacher_id === me.id);
+    if (mine) {
+      if (!admin) setSelectedFolderId(mine.id);
+      return;
+    }
+    if (folderEnsureKey.current === me.id) return;
+    folderEnsureKey.current = me.id;
+    supabase.rpc("ensure_lesson_plan_teacher_folder", { p_teacher_name: me.name || "선생님" })
+      .then(({ error }) => {
+        if (error) {
+          folderEnsureKey.current = "";
+          console.warn("lesson plan folder ensure:", error.message);
+          return;
+        }
+        onRefresh();
+      });
+  }, [folderCategory, admin, me?.id, me?.name, resourceFolders, loading, onRefresh]);
 
   const filtered = useMemo(() => {
     let r = resources;
@@ -1188,7 +1280,7 @@ function ResourceListPage({ category, search, me, resources, resourceFolders, lo
           <h1 className="pe-res-list-title">{pageTitle}</h1>
           {search && <p className="pe-res-list-search-note">검색: &quot;{search}&quot;</p>}
         </div>
-        {admin && category && !folderCategory && (
+        {canUploadHere && (
           <div className="pe-res-list-header-actions">
             {canManageSubs && (
               <button type="button" onClick={() => setShowSubManage(true)} className="pe-res-manage-subs-btn">
@@ -1202,7 +1294,7 @@ function ResourceListPage({ category, search, me, resources, resourceFolders, lo
         )}
       </div>
 
-      {folderCategory && selectedFolder ? (
+      {folderCategory && selectedFolder && admin ? (
         <button
           type="button"
           className="pe-res-folder-back"
@@ -1249,7 +1341,14 @@ function ResourceListPage({ category, search, me, resources, resourceFolders, lo
           </div>
         )
       ) : filtered.length === 0 ? (
-        <div className="pe-res-empty pe-res-empty-box">등록된 자료가 없습니다</div>
+        <div className="pe-res-empty pe-res-empty-box">
+          등록된 자료가 없습니다
+          {canUploadHere ? (
+            <p style={{ margin: "10px 0 0", fontSize: 13, color: "#64748b" }}>
+              직접 만든 계획안 파일을 업로드할 수 있습니다.
+            </p>
+          ) : null}
+        </div>
       ) : (
         <div className="pe-res-resource-list">
           {filtered.map(res => {
@@ -1345,7 +1444,13 @@ function ResourceListPage({ category, search, me, resources, resourceFolders, lo
       )}
 
       {showUpload && category && (
-        <ResourceUploadModal category={category} me={me} onClose={() => setShowUpload(false)} onSaved={onRefresh}/>
+        <ResourceUploadModal
+          category={category}
+          me={me}
+          folderId={folderCategory ? selectedFolderId : null}
+          onClose={() => setShowUpload(false)}
+          onSaved={onRefresh}
+        />
       )}
       {showSubManage && category && (
         <SubcategoryManageModal
@@ -1356,7 +1461,7 @@ function ResourceListPage({ category, search, me, resources, resourceFolders, lo
         />
       )}
       {editTarget && (
-        <ResourceEditModal resource={editTarget} onClose={() => setEditTarget(null)} onSaved={onRefresh}/>
+        <ResourceEditModal resource={editTarget} me={me} onClose={() => setEditTarget(null)} onSaved={onRefresh}/>
       )}
       {previewTarget && (
         <ResourcePreviewModal resource={previewTarget} accent={accent} onClose={() => setPreviewTarget(null)}/>

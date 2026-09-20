@@ -1,5 +1,5 @@
 import {
-  Calendar, Building2, User, PartyPopper, Wallet, Settings, Bell, UserPlus,
+  Calendar, Building2, User, PartyPopper, Wallet, Settings, Bell, UserPlus, FileText, MessageSquareWarning,
 } from "lucide-react";
 import PlatformMainButton from "./PlatformMainButton.jsx";
 import { filterScheduleMenu } from "./schedule/roles.js";
@@ -13,6 +13,8 @@ const ICONS = {
   "change-alerts": Bell,
   "temporary-teachers": UserPlus,
   institutions: Settings,
+  "document-types": FileText,
+  "class-incidents": MessageSquareWarning,
 };
 
 export default function ScheduleSidebar({ me, view, onGoMain, onSelect, onGoHub }) {

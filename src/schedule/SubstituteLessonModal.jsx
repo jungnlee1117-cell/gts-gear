@@ -8,6 +8,7 @@ import {
 } from "./api.js";
 import { registerSubstituteLesson } from "./substituteLessonService.js";
 import { timeSlotFromPlanned } from "./substituteLessons.js";
+import { filterAssignableClassTeachers } from "./roles.js";
 
 const EMPTY_TEMP_FORM = {
   name: "",
@@ -53,7 +54,7 @@ export default function SubstituteLessonModal({
         fetchInstitutions({ activeOnly: true }),
         fetchTemporaryEngagements(),
       ]);
-      setTeachers(tchs.filter(t => t.role === "teacher"));
+      setTeachers(filterAssignableClassTeachers(tchs));
       setInstitutions(insts);
       setTempTeachers(temps);
     } catch (e) {

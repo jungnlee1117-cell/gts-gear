@@ -88,7 +88,17 @@ import {
   markNoticeAsRead,
   splitReadUnreadTeachers,
 } from "./noticeReads.js";
-import { isGearPlatformAdmin, isGearTeacher, isItemAdmin, isSuperAdmin, canPersonalGearRental } from "./authRoles.js";
+import { isGearPlatformAdmin, isGearTeacher, isGearOnlyAccess, isItemAdmin, isSuperAdmin, canPersonalGearRental } from "./authRoles.js";
+import {
+  filterHubModulesForAccess,
+  GEAR_ONLY_MOBILE_BOTTOM_NAV,
+  GEAR_ONLY_SIDEBAR_NAV,
+  gearOnlyHomePage,
+  isGearOnlyPageAllowed,
+  isGearOnlyPathAllowed,
+} from "./accessScope.js";
+import ItemQuantityAdjustModal, { StockAdjustButton } from "./ItemQuantityAdjustModal.jsx";
+import ItemQuantityAdjustHistoryPage from "./ItemQuantityAdjustHistoryPage.jsx";
 import {
   RETURN_PHOTO_REQUIRED_MESSAGE,
   compressReturnPhoto,
@@ -1469,7 +1479,7 @@ function isNavPageActive(page, navId) {
     items: ["items", "item-detail"],
     "items-browse": ["items-browse"],
     "my-gear-rotation": ["my-gear-rotation", "item-detail"],
-    gear: ["items", "item-detail", "items-register", "items-qr", "gear-rotation-manage"],
+    gear: ["items", "item-detail", "items-register", "items-qr", "gear-rotation-manage", "item-qty-history"],
     rental: ["rental-approval", "rental-status", "returns-approval", "overdue", "reservation-approval"],
     "rental-manage": ["rental-approval", "rental-status", "returns-approval", "overdue", "rental-manage", "rentals"],
     "rental-return": ["rental-return", "rentals", "my-rental-status", "return-request"],
@@ -1481,6 +1491,7 @@ function isNavPageActive(page, navId) {
 }
 
 function buildSidebarNav(me) {
+  if (isGearOnlyAccess(me)) return GEAR_ONLY_SIDEBAR_NAV;
   const superA = isSuperAdmin(me);
   const admin = isItemAdmin(me) && !superA;
 
@@ -1495,6 +1506,7 @@ function buildSidebarNav(me) {
         type: "group", id: "gear", label: "교구관리", glyph: "items",
         children: [
           { id: "items", label: "전체교구" },
+          { id: "item-qty-history", label: "재고 변경 이력" },
           { id: "items-register", label: "교구·프로그램 등록" },
           { id: "gear-categories", label: "카테고리 관리" },
           { id: "gear-rotation-manage", label: "순환 교구 관리" },
@@ -1526,7 +1538,13 @@ function buildSidebarNav(me) {
       { type: "item", id: "my-gear-rotation", label: "이번 달 내 교구", glyph: "my-gear-rotation" },
       { type: "item", id: "items-browse", label: "교구 둘러보기", glyph: "items-browse" },
       { type: "item", id: "rental-return", label: "내 대여·반납", glyph: "rental-return" },
-      { type: "item", id: "items", label: "교구관리", glyph: "items" },
+      {
+        type: "group", id: "gear", label: "교구관리", glyph: "items",
+        children: [
+          { id: "items", label: "전체교구" },
+          { id: "item-qty-history", label: "재고 변경 이력" },
+        ],
+      },
       { type: "item", id: "gear-categories", label: "카테고리 관리", glyph: "items" },
       { type: "item", id: "gear-rotation-manage", label: "순환 교구 관리", glyph: "gear-rotation-manage" },
       {
@@ -1569,6 +1587,7 @@ function flattenSidebarNav(nav) {
 }
 
 function buildMobileBottomNav(me) {
+  if (isGearOnlyAccess(me)) return GEAR_ONLY_MOBILE_BOTTOM_NAV;
   const superA = isSuperAdmin(me);
   const admin = isItemAdmin(me) && !superA;
   if (superA || admin) {
@@ -1932,6 +1951,7 @@ function MobileNavDrawer({
             <div style={{ fontWeight: 700, fontSize: 14, color: "#fff", marginBottom: 4 }}>{me.name}님</div>
             <div style={{ marginBottom: 10 }}><RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/></div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {isGearOnlyAccess(me) ? null : (
               <button
                 type="button"
                 onClick={() => { onGoProfile?.(); onClose(); }}
@@ -1947,6 +1967,7 @@ function MobileNavDrawer({
                 <Settings size={15} strokeWidth={2}/>
                 내 정보
               </button>
+              )}
               <button
                 type="button"
                 onClick={() => { onChangePw(); onClose(); }}
@@ -2167,6 +2188,7 @@ const PAGE_META = {
   "gear-categories":      { title: "카테고리 관리", sub: "교구 카테고리를 추가·수정·삭제하고 순서를 변경합니다." },
   "rental-status":    { title: "대여현황",     sub: "선생님별 대여·반납 현황을 한눈에 확인하세요." },
   items:              { title: "전체교구",     sub: "교구 재고를 조회하고 관리합니다." },
+  "item-qty-history": { title: "재고 변경 이력", sub: "교구 전체 수량 변경 기록을 확인합니다." },
   "items-browse":     { title: "교구 둘러보기", sub: "카테고리별 교구 사진과 대여 가능 수량을 확인합니다." },
   "items-register":   { title: "교구·프로그램 등록", sub: "개별 교구와 여러 교구를 묶은 수업 프로그램을 등록하고 관리합니다." },
   "items-qr":         { title: "QR관리",       sub: "교구 QR 코드를 관리합니다." },
@@ -4851,7 +4873,7 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
 // ═══════════════════════════════════════════════════════════════════════
 // 교구 목록 — 리디자인
 // ═══════════════════════════════════════════════════════════════════════
-function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCart,reservations,onDetail,onSetDetail,onSaveItem,onSaveSet,onDeleteItem,onDeleteSet,onSubmitReservation,onCancelReservation,openAddOnMount=false,setPage}) {
+function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCart,reservations,onDetail,onSetDetail,onSaveItem,onSaveSet,onDeleteItem,onDeleteSet,onSubmitReservation,onCancelReservation,openAddOnMount=false,setPage,onQuantityAdjusted}) {
   const { categoryMap, categoryKeys } = useGearCategories();
   const [q,setQ]=useState("");const[catF,setCatF]=useState("ALL");const[brF,setBrF]=useState("ALL");
   const[avOnly,setAvOnly]=useState(false);const[sortBy,setSortBy]=useState("code");
@@ -4859,6 +4881,7 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
   const[addOpen,setAddOpen]=useState(false);const[addSetOpen,setAddSetOpen]=useState(false);
   const[addTypeOpen,setAddTypeOpen]=useState(false);
   const[reserveItem,setReserveItem]=useState(null);
+  const [adjustItem, setAdjustItem] = useState(null);
   const [activityLightbox, setActivityLightbox] = useState(null);
   const [labelSelectedIds, setLabelSelectedIds] = useState(() => new Set());
   const [labelPrintIds, setLabelPrintIds] = useState([]);
@@ -5172,7 +5195,10 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
               {[["전체",item.total_quantity,"#334155","#f1f5f9"],["대여중",rented,"#7c3aed","#ede9fe"],["신청중",pending,"#d97706","#fef3c7"],["가능",avail,avail>0?"#16a34a":"#dc2626",avail>0?"#dcfce7":"#fee2e2"]].map(([l,v,c,bg])=>(
                 <div key={l} style={{background:bg,borderRadius:10,padding:"8px 4px",textAlign:"center"}}>
                   <div style={{fontSize:18,fontWeight:900,color:c}}>{v}</div>
-                  <div style={{fontSize:10,color:c,fontWeight:700,opacity:0.7,marginTop:1}}>{l}</div>
+                  <div style={{fontSize:10,color:c,fontWeight:700,opacity:0.7,marginTop:1,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                    {l}
+                    {l === "전체" ? <StockAdjustButton onClick={() => setAdjustItem(item)} /> : null}
+                  </div>
                 </div>
               ))}
             </div>
@@ -5289,6 +5315,20 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
           onSubmit={(payload) => {
             onSubmitReservation?.({ ...payload, item_id: reserveItem.id });
             setReserveItem(null);
+          }}
+        />
+      )}
+
+      {adjustItem && (
+        <ItemQuantityAdjustModal
+          item={adjustItem}
+          onClose={() => setAdjustItem(null)}
+          onSaved={(result) => {
+            const nextQty = result?.total_quantity ?? result?.new_quantity;
+            if (adjustItem?.id != null && nextQty != null) {
+              setItems(p => p.map(it => String(it.id) === String(adjustItem.id) ? { ...it, total_quantity: nextQty } : it));
+            }
+            onQuantityAdjusted?.(result);
           }}
         />
       )}
@@ -7962,8 +8002,13 @@ function AdminTodoSection({
   readOnly = false,
   allowCompletion = false,
   quickCreateDate = "",
+  personalOnly = false,
 }) {
-  const canEditTodo = isSuperAdmin(me);
+  const canEditAnyTodo = isSuperAdmin(me);
+  const canModifyTodo = (todo) => (
+    canEditAnyTodo
+    || (personalOnly && todo?.assignee_id === me?.id && todo?.created_by === me?.id)
+  );
   const canToggleTodo = Boolean(onToggle) && (!readOnly || allowCompletion);
   const [content, setContent] = useState("");
   const [audienceMode, setAudienceMode] = useState(quickCreateDate ? "assignee" : "shared"); // assignee | selected_teachers | all_teachers | shared
@@ -7986,6 +8031,14 @@ function AdminTodoSection({
   const [recurrencesLoaded, setRecurrencesLoaded] = useState(false);
   const [expandedGroupKeys, setExpandedGroupKeys] = useState(() => new Set());
   const modalOpen = composing || Boolean(editingTodo);
+  const quickCreateYmd = String(quickCreateDate || "").slice(0, 10);
+
+  useEffect(() => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(quickCreateYmd)) return;
+    setDue(quickCreateYmd);
+    setComposing(true);
+    setEditingTodo(null);
+  }, [quickCreateYmd]);
 
   useEffect(() => {
     let cancelled = false;
@@ -8048,12 +8101,13 @@ function AdminTodoSection({
       // 「내 할 일」에는 로그인한 본인에게 지정된 업무만 표시합니다.
       // 다른 관리자나 선생님에게 지정된 업무와 공용 업무는 섞지 않습니다.
       if (t.assignee_id !== me?.id) return false;
+      if (personalOnly) return true;
       if (t.spawn_group_id) return false;
       if (!t.recurrence_id) return true;
       if (!recurrencesLoaded) return false;
       return !multiAudienceRecurrenceIds.has(t.recurrence_id);
     }),
-    [visibleTodos, multiAudienceRecurrenceIds, recurrencesLoaded, me?.id],
+    [visibleTodos, multiAudienceRecurrenceIds, recurrencesLoaded, me?.id, personalOnly],
   );
 
   /** 그룹 N/총 — 24h 완료 숨김과 무관하게 전체 인스턴스 기준 */
@@ -8147,7 +8201,7 @@ function AdminTodoSection({
   };
 
   const openEdit = (todo) => {
-    if (!canEditTodo || !todo) return;
+    if (!canModifyTodo(todo) || !todo) return;
     setComposing(false);
     setMenuId(null);
     setEditingTodo(todo);
@@ -8220,8 +8274,8 @@ function AdminTodoSection({
     setSaving(true);
     try {
       if (editingTodo) {
-        if (!canEditTodo) {
-          alert("슈퍼관리자만 수정할 수 있습니다.");
+        if (!canModifyTodo(editingTodo)) {
+          alert("본인이 만든 할 일만 수정할 수 있습니다.");
           return;
         }
         await onUpdate?.(editingTodo.id, {
@@ -8320,11 +8374,13 @@ function AdminTodoSection({
             ))}
           </div>
           <div className="admin-todo-table-card__right">
-            <select value={filterAssignee} onChange={e => { setFilterAssignee(e.target.value); setVisibleCount(6); }} className="admin-todo-assignee-filter">
-              <option value="all">전체 담당자</option>
-              <option value="unassigned">담당: 전체</option>
-              {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            {!personalOnly ? (
+              <select value={filterAssignee} onChange={e => { setFilterAssignee(e.target.value); setVisibleCount(6); }} className="admin-todo-assignee-filter">
+                <option value="all">전체 담당자</option>
+                <option value="unassigned">담당: 전체</option>
+                {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            ) : null}
             {!readOnly && (
               <button type="button" className="admin-todo-add-btn" onClick={openCompose}>+ 할 일 추가</button>
             )}
@@ -8400,7 +8456,7 @@ function AdminTodoSection({
                     <span className="admin-todo-created">{fmtDateWeekday(t.created_at)}</span>
                   </div>
                   <div className="admin-todo-more-wrap">
-                    {canEditTodo && (
+                    {canModifyTodo(t) && (
                       <button
                         type="button"
                         className="admin-todo-edit-btn"
@@ -8420,10 +8476,10 @@ function AdminTodoSection({
                           </button>
                         )}
                         <button type="button" onClick={() => { setExpandedId(t.id); setMenuId(null); }}>하위 항목</button>
-                        {canEditTodo && (
+                        {canModifyTodo(t) && (
                           <button type="button" onClick={() => openEdit(t)}>수정</button>
                         )}
-                        {!readOnly && (
+                        {(!readOnly || canModifyTodo(t)) && (
                           <button type="button" className="is-danger" onClick={() => { onDelete(t.id); setMenuId(null); }}>삭제</button>
                         )}
                       </div>
@@ -8440,7 +8496,7 @@ function AdminTodoSection({
                       onDelete={onDelete}
                       onUpdate={onUpdate}
                       onItemComplete={notifyItemComplete}
-                      readOnly={readOnly}
+                      readOnly={readOnly && !canModifyTodo(t)}
                       forceExpanded
                     />
                   </div>
@@ -8457,7 +8513,7 @@ function AdminTodoSection({
         </button>
       )}
 
-      {teacherStatusGroups.length > 0 ? (
+      {!personalOnly && teacherStatusGroups.length > 0 ? (
         <div className="admin-todo-teacher-status">
           <div className="admin-todo-teacher-status__head">
             <h3 className="admin-todo-teacher-status__title">선생님 업무 현황</h3>
@@ -8515,11 +8571,17 @@ function AdminTodoSection({
         </div>
       ) : null}
 
-      {(((!readOnly || Boolean(quickCreateDate)) && composing) || (canEditTodo && editingTodo)) && (
+      {(((!readOnly || Boolean(quickCreateDate)) && composing) || (canModifyTodo(editingTodo) && editingTodo)) && (
         <div className="admin-todo-modal-backdrop" onClick={resetModalForm}>
           <div className="admin-todo-modal-card" onClick={e => e.stopPropagation()}>
             <div className="admin-todo-modal-card__head">
-              <div className="admin-todo-modal-card__title">{editingTodo ? "할 일 수정" : "할 일 추가"}</div>
+              <div className="admin-todo-modal-card__title">
+                {editingTodo
+                  ? "할 일 수정"
+                  : quickCreateYmd
+                    ? `할 일 추가 · ${quickCreateYmd.replaceAll("-", ".")}`
+                    : "할 일 추가"}
+              </div>
               <button type="button" className="admin-todo-modal-card__close" onClick={resetModalForm}>닫기</button>
             </div>
             <label style={fieldLabel}>할 일 제목</label>
@@ -8530,27 +8592,33 @@ function AdminTodoSection({
               style={{ ...inputStyle, width:"100%", marginBottom:12 }}
               autoFocus
             />
-            <div className="admin-todo-add-controls" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+            <div className="admin-todo-add-controls">
               <div>
-                <label style={fieldLabel}>우선순위</label>
-                <select value={priority} onChange={e=>setPriority(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}>
+                <label style={fieldLabel} htmlFor="admin-todo-priority">우선순위</label>
+                <select id="admin-todo-priority" value={priority} onChange={e=>setPriority(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}>
                   <option value="urgent">긴급</option>
                   <option value="important">중요</option>
                   <option value="normal">일반</option>
                 </select>
               </div>
-              <div>
-                <label style={fieldLabel}>시작일</label>
-                <input type="date" value={start} max={due || undefined} onChange={e=>setStart(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}/>
-              </div>
-              <div>
-                <label style={fieldLabel}>종료일</label>
-                <input type="date" value={due} min={start || undefined} onChange={e=>setDue(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}/>
+              <div className="admin-todo-add-controls__dates">
+                <div>
+                  <label style={fieldLabel} htmlFor="admin-todo-due">마감일</label>
+                  <input id="admin-todo-due" name="due_date" type="date" value={due} min={start || undefined} onChange={e=>setDue(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}/>
+                </div>
+                <div>
+                  <label style={fieldLabel} htmlFor="admin-todo-start">시작일</label>
+                  <input id="admin-todo-start" name="start_date" type="date" value={start} max={due || undefined} onChange={e=>setStart(e.target.value)} style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}/>
+                </div>
               </div>
             </div>
             <div style={{ marginBottom: 12 }}>
               <label style={fieldLabel}>담당자</label>
-              {editingTodo ? (
+              {personalOnly ? (
+                <div style={{ ...inputStyle, width: "100%", minHeight: 44, display: "flex", alignItems: "center" }}>
+                  {me?.name || "나"} (본인)
+                </div>
+              ) : editingTodo ? (
                 <select
                   value={audienceMode === "shared" ? "shared" : (assignee || "")}
                   onChange={(e) => {
@@ -8656,6 +8724,7 @@ function AdminTodoSection({
 }
 
 function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris, rets, setPage, onItemClick, teachers, adminTodos, onAddTodo, onToggleTodo, onDeleteTodo, onUpdateTodo, initialNoticeId, onNoticeDeepLinkConsumed }) {
+  const navigate = useNavigate();
   const canManage = isGearPlatformAdmin(me) || isItemAdmin(me);
   const showUnreadStyles = isGearTeacher(me) || (!canManage && me?.role === "teacher");
   const [title, setTitle] = useState("");
@@ -8736,7 +8805,10 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
   useEffect(() => {
     let cancelled = false;
     setFeedLoading(true);
-    loadUnifiedNoticeFeed(fetchNotices)
+    loadUnifiedNoticeFeed(fetchNotices, {
+      includeInventoryLog: isItemAdmin(me),
+      includeClassIncidents: isScheduleAdmin(me),
+    })
       .then((items) => {
         if (!cancelled) setFeedItems(items || []);
       })
@@ -8744,7 +8816,7 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
         if (!cancelled) setFeedLoading(false);
       });
     return () => { cancelled = true; };
-  }, [notices, feedTick]);
+  }, [notices, feedTick, me?.id, me?.is_item_admin, me?.role]);
 
   useEffect(() => {
     let cancelled = false;
@@ -8897,6 +8969,8 @@ function NoticesPage({ me, notices, onAdd, onUpdate, onDelete, items, reqs, ris,
           onEditNotice={setEditNotice}
           onDeleteNotice={onDelete}
           onExceptionMutated={refreshFeed}
+          onViewInventoryHistory={() => setPage("item-qty-history")}
+          onViewClassIncidents={() => navigate("/schedule?view=class-incidents")}
           onCompose={canManage ? () => setComposeOpen(true) : undefined}
           showUnreadStyles={showUnreadStyles}
           readNoticeIds={readNoticeIds}
@@ -9549,10 +9623,11 @@ function QrScanPage({ me, items, onFound }) {
   );
 }
 
-function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDetail, onDismiss }) {
+function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDetail, onDismiss, onQuantityAdjusted }) {
   const avail = availQty(item, ris, rets);
   const added = cart.some(c => c.item_id === item.id);
   const teacher = me?.role === "teacher";
+  const [adjustOpen, setAdjustOpen] = useState(false);
 
   const addToCart = () => {
     if (!teacher) return;
@@ -9619,6 +9694,7 @@ function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDeta
               <span style={{ fontWeight: 500, fontSize: 11, opacity: 0.85 }}>
                 / 전체 {item.total_quantity} · 대여중 {rentedQty(item.id, ris, rets)}
               </span>
+              <StockAdjustButton onClick={() => setAdjustOpen(true)} />
             </div>
             {item.description && (
               <p style={{ fontSize: 13, color: DS.textSecondary, lineHeight: 1.7, marginTop: 12 }}>
@@ -9648,6 +9724,16 @@ function QrRentPage({ item, ris, rets, cart, setCart, me, onOpenCart, onViewDeta
           </div>
         )}
       </PanelSection>
+      {adjustOpen ? (
+        <ItemQuantityAdjustModal
+          item={item}
+          onClose={() => setAdjustOpen(false)}
+          onSaved={(result) => {
+            onQuantityAdjusted?.(result);
+            setAdjustOpen(false);
+          }}
+        />
+      ) : null}
     </PageShell>
   );
 }
@@ -10832,7 +10918,7 @@ function ExtensionPromptModal({ candidates, maxExtensions, onConfirm, onSkip, on
   );
 }
 
-function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose}) {
+function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose,onQuantityAdjusted}) {
   const initialDates = useMemo(() => defaultRentalDates(), []);
   const institutionState = useRentalInstitutionOptions(me);
   const[f,setF]=useState(()=>({
@@ -10847,6 +10933,7 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose}) {
     due_date: c.due_date || initialDates.dispatch_end,
     due_date_custom: false,
   })));
+  const [adjustItem, setAdjustItem] = useState(null);
 
   useEffect(() => {
     setDetails(prev => cart.map(c => {
@@ -10920,6 +11007,7 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose}) {
     onSubmit({...f,items:details.map(({ due_date_custom, ...c }) => c)});onClose();
   };
   return(
+    <>
     <Modal title={`대여 신청 (${details.length}종)`} onClose={onClose}>
       <RentalInstitutionField
         institutionState={institutionState}
@@ -10955,6 +11043,12 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose}) {
                 <div>
                   <span style={{fontWeight:800,fontSize:13,color:DS.textPrimary}}>{label}</span>
                   {c.set_id && <div style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700, marginTop: 1 }}>프로그램 교구</div>}
+                  {item ? (
+                    <div style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: DS.textMuted, fontWeight: 700 }}>
+                      전체 보유 {item.total_quantity ?? 0}개
+                      <StockAdjustButton onClick={() => setAdjustItem(item)} />
+                    </div>
+                  ) : null}
                 </div>
               </div>
               <button onClick={()=>remove(lineKey)} style={{background:"#fee2e2",border:"none",color:"#dc2626",cursor:"pointer",fontSize:12,borderRadius:8,padding:"4px 10px",fontWeight:600,fontFamily:"inherit"}}>삭제</button>
@@ -10979,6 +11073,17 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose}) {
       </div>
       <Btn full onClick={submit}>대여 신청하기</Btn>
     </Modal>
+    {adjustItem ? (
+      <ItemQuantityAdjustModal
+        item={adjustItem}
+        onClose={() => setAdjustItem(null)}
+        onSaved={(result) => {
+          onQuantityAdjusted?.(result);
+          setAdjustItem(null);
+        }}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -11464,7 +11569,7 @@ function RouteTracker() {
   return null;
 }
 
-function RestoreRouteAfterLogin() {
+function RestoreRouteAfterLogin({ me }) {
   const navigate = useNavigate();
   const restored = useRef(false);
 
@@ -11473,11 +11578,19 @@ function RestoreRouteAfterLogin() {
     const saved = getLastRoute();
     if (!saved) return;
     const current = `${window.location.pathname}${window.location.search}`;
+    if (isGearOnlyAccess(me) && !isGearOnlyPathAllowed(
+      saved.split("?")[0],
+      saved.includes("?") ? saved.slice(saved.indexOf("?")) : "",
+    )) {
+      restored.current = true;
+      if (current !== "/gear") navigate("/gear", { replace: true });
+      return;
+    }
     if (saved !== current) {
       restored.current = true;
       navigate(saved, { replace: true });
     }
-  }, [navigate]);
+  }, [navigate, me?.access_scope, me?.id]);
 
   return null;
 }
@@ -11570,8 +11683,15 @@ function KioskPairApprovalPage({ me }) {
   );
 }
 
+function RestrictedIfGearOnly({ me, children }) {
+  if (isGearOnlyAccess(me)) return <Navigate to="/gear" replace />;
+  return children;
+}
+
 function AuthenticatedRoutes({ me, session, logout, onMeUpdated }) {
   const navigate = useNavigate();
+  const [showPwModal, setShowPwModal] = useState(false);
+  const gearOnly = isGearOnlyAccess(me);
 
   useEffect(() => {
     if (!me?.id || !session?.user?.id) return;
@@ -11583,14 +11703,18 @@ function AuthenticatedRoutes({ me, session, logout, onMeUpdated }) {
   return (
     <>
       <PushNotificationPrompt supabase={supabase} teacherId={me?.id}/>
-      <GitiAssistant me={me} session={session} supabase={supabase}/>
+      {gearOnly ? null : <GitiAssistant me={me} session={session} supabase={supabase}/>}
       <RouteTracker/>
-      <RestoreRouteAfterLogin/>
+      <RestoreRouteAfterLogin me={me}/>
+      {showPwModal ? (
+        <ChangePwModal email={session.user.email} onClose={() => setShowPwModal(false)}/>
+      ) : null}
       <Routes>
       <Route path="/kiosk-approve" element={<KioskPairApprovalPage me={me}/>}/>
       <Route
         path="/english-script"
         element={(
+          <RestrictedIfGearOnly me={me}>
           <EnglishScriptApp
             me={me}
             onBack={() => goBackOr(navigate, "/pe-resources")}
@@ -11600,47 +11724,72 @@ function AuthenticatedRoutes({ me, session, logout, onMeUpdated }) {
             onGoFlowTips={() => navigate("/class-flow-tips")}
             onGoPronunciationTips={() => navigate("/pronunciation-tips")}
           />
+          </RestrictedIfGearOnly>
         )}
       />
       <Route
         path="/english-script/register"
         element={(
+          <RestrictedIfGearOnly me={me}>
           <GearScriptRegisterApp
             me={me}
             onBack={() => goBackOr(navigate, "/english-script")}
             onGoMain={() => navigate("/")}
           />
+          </RestrictedIfGearOnly>
         )}
       />
-      <Route path="/video-resources" element={<Navigate to="/pe-resources?category=videos" replace/>}/>
+      <Route path="/video-resources" element={<Navigate to={gearOnly ? "/gear" : "/pe-resources?category=videos"} replace/>}/>
       <Route
         path="/child-types"
-        element={<ChildTypeApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
+        element={(
+          <RestrictedIfGearOnly me={me}>
+            <ChildTypeApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>
+          </RestrictedIfGearOnly>
+        )}
       />
       <Route
         path="/situation-manual"
-        element={<SituationManualApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
+        element={(
+          <RestrictedIfGearOnly me={me}>
+            <SituationManualApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>
+          </RestrictedIfGearOnly>
+        )}
       />
       <Route
         path="/class-flow-tips"
-        element={<ClassFlowTipsApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
+        element={(
+          <RestrictedIfGearOnly me={me}>
+            <ClassFlowTipsApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>
+          </RestrictedIfGearOnly>
+        )}
       />
       <Route
         path="/lesson-script-builder"
-        element={<LessonScriptBuilderApp me={me} onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
+        element={(
+          <RestrictedIfGearOnly me={me}>
+            <LessonScriptBuilderApp me={me} onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>
+          </RestrictedIfGearOnly>
+        )}
       />
       <Route
         path="/admin/lesson-script-data"
         element={(
+          <RestrictedIfGearOnly me={me}>
           <LessonScriptDataAdminPage
             me={me}
             onBack={() => goBackOr(navigate, "/lesson-script-builder")}
           />
+          </RestrictedIfGearOnly>
         )}
       />
       <Route
         path="/pronunciation-tips"
-        element={<PronunciationTipsApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>}
+        element={(
+          <RestrictedIfGearOnly me={me}>
+            <PronunciationTipsApp onBack={() => goBackOr(navigate, "/english-script")} onGoMain={() => navigate("/")}/>
+          </RestrictedIfGearOnly>
+        )}
       />
       <Route
         path="/gear"
@@ -11649,41 +11798,52 @@ function AuthenticatedRoutes({ me, session, logout, onMeUpdated }) {
       <Route
         path="/admin/data-export"
         element={(
+          <RestrictedIfGearOnly me={me}>
           <DataExportPage
             me={me}
             onBack={() => navigate("/gear?page=settings")}
           />
+          </RestrictedIfGearOnly>
         )}
       />
       <Route
         path="/pe-resources"
         element={(
+          <RestrictedIfGearOnly me={me}>
           <PeResourcesApp
             me={me}
             onBack={() => navigate(isGearTeacher(me) ? "/gear" : "/")}
             onGoMain={() => navigate("/")}
             onNavigate={path => navigate(path)}
           />
+          </RestrictedIfGearOnly>
         )}
       />
       <Route
         path="/schedule"
         element={(
+          <RestrictedIfGearOnly me={me}>
           <ScheduleApp
             me={me}
             session={session}
             onBack={() => navigate("/")}
             onLogout={logout}
           />
+          </RestrictedIfGearOnly>
         )}
       />
       <Route
         path="/growth"
-        element={<GrowthApp onBack={() => navigate("/")} supabaseUser={me}/>}
+        element={(
+          <RestrictedIfGearOnly me={me}>
+            <GrowthApp onBack={() => navigate("/")} supabaseUser={me}/>
+          </RestrictedIfGearOnly>
+        )}
       />
       <Route
         path="/my-profile"
         element={(
+          <RestrictedIfGearOnly me={me}>
           <MyProfilePage
             me={me}
             session={session}
@@ -11691,6 +11851,7 @@ function AuthenticatedRoutes({ me, session, logout, onMeUpdated }) {
             onBack={() => goBackOr(navigate, "/")}
             onMeUpdated={onMeUpdated}
           />
+          </RestrictedIfGearOnly>
         )}
       />
       <Route
@@ -11699,7 +11860,12 @@ function AuthenticatedRoutes({ me, session, logout, onMeUpdated }) {
           <HubPage
             me={me}
             onLogout={logout}
+            onChangePw={() => setShowPwModal(true)}
             onSelect={id => {
+              if (gearOnly && id !== "edu") {
+                navigate("/gear");
+                return;
+              }
               if (id === "schedule") {
                 navigate("/schedule?view=institution-schedule");
                 return;
@@ -11778,7 +11944,7 @@ export default function App() {
           }
         }
         setMe(meData ? { ...meData, email: meData.email || session.user.email || "" } : null);
-        if (meData?.id && session.user.email && !String(meData.email || "").trim()) {
+        if (meData?.id && session.user.email && !String(meData.email || "").trim() && meData.access_scope !== "gear_only") {
           supabase.from("teachers").update({ email: session.user.email }).eq("id", meData.id);
         }
       })
@@ -12122,18 +12288,22 @@ function HubModuleCard({ mod, onEnter }) {
   );
 }
 
-function HubPage({ me, onSelect, onLogout }) {
+function HubPage({ me, onSelect, onLogout, onChangePw }) {
   const navigate = useNavigate();
   const [feedItems, setFeedItems] = useState([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [viewNotice, setViewNotice] = useState(null);
   const [readNoticeIds, setReadNoticeIds] = useState(() => new Set());
+  const gearOnly = isGearOnlyAccess(me);
+  const visibleHubModules = filterHubModulesForAccess(HUB_MODULES, me);
 
-  const showTodo = isItemAdmin(me) || isScheduleAdmin(me);
-  const canRegisterHubEvents = isScheduleAdmin(me);
-  const showStandaloneCalendar = !showTodo && (me?.role === "teacher" || canRegisterHubEvents);
-  const showGitiReport = isSuperAdmin(me);
-  const showUnreadStyles = isGearTeacher(me) || me?.role === "teacher";
+  const teacherTodoMode = !gearOnly && me?.role === "teacher" && !isItemAdmin(me);
+  const showTodo = !gearOnly && (teacherTodoMode || isItemAdmin(me) || isScheduleAdmin(me));
+  const canRegisterHubEvents = !gearOnly && isScheduleAdmin(me);
+  const canRegisterHubTodos = showTodo;
+  const showStandaloneCalendar = !gearOnly && !showTodo && (me?.role === "teacher" || canRegisterHubEvents);
+  const showGitiReport = !gearOnly && isSuperAdmin(me);
+  const showUnreadStyles = !gearOnly && (isGearTeacher(me) || me?.role === "teacher");
   const [todos, setTodos] = useState([]);
   const [todoTeachers, setTodoTeachers] = useState([]);
   const [todoReqs, setTodoReqs] = useState([]);
@@ -12142,9 +12312,17 @@ function HubPage({ me, onSelect, onLogout }) {
   const [quickTodoRequest, setQuickTodoRequest] = useState(null);
 
   useEffect(() => {
+    if (gearOnly) {
+      setFeedItems([]);
+      setFeedLoading(false);
+      return undefined;
+    }
     let cancelled = false;
     setFeedLoading(true);
-    loadUnifiedNoticeFeed(fetchNotices)
+    loadUnifiedNoticeFeed(fetchNotices, {
+      includeInventoryLog: isItemAdmin(me),
+      includeClassIncidents: isScheduleAdmin(me),
+    })
       .then((items) => {
         if (!cancelled) setFeedItems(items || []);
       })
@@ -12152,7 +12330,7 @@ function HubPage({ me, onSelect, onLogout }) {
         if (!cancelled) setFeedLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [me?.id, me?.is_item_admin, me?.role, gearOnly]);
 
   useEffect(() => {
     if (!showUnreadStyles || !me?.id) return;
@@ -12191,6 +12369,21 @@ function HubPage({ me, onSelect, onLogout }) {
     let cancelled = false;
     (async () => {
       try {
+        if (teacherTodoMode) {
+          const { data, error } = await supabase
+            .from("admin_todos")
+            .select("*")
+            .eq("assignee_id", me.id)
+            .order("created_at", { ascending: false });
+          if (!cancelled) {
+            if (!error) setTodos(data || []);
+            setTodoTeachers([me]);
+            setTodoReqs([]);
+            setTodoRIs([]);
+            setTodoRets([]);
+          }
+          return;
+        }
         const [todoRes, reqRes, riRes, retRes] = await Promise.all([
           supabase.from("admin_todos").select("*").order("created_at", { ascending: false }),
           supabase.from("rental_requests").select("*").order("created_at", { ascending: false }),
@@ -12211,7 +12404,7 @@ function HubPage({ me, onSelect, onLogout }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [showTodo]);
+  }, [showTodo, teacherTodoMode, me]);
 
   const addTodo = async ({
     content,
@@ -12223,8 +12416,10 @@ function HubPage({ me, onSelect, onLogout }) {
     due_date,
     checklist,
   }) => {
-    const mode = audience_mode
-      || (assignee_id ? "assignee" : (Array.isArray(teacher_ids) && teacher_ids.length ? "selected_teachers" : "shared"));
+    const mode = teacherTodoMode
+      ? "assignee"
+      : audience_mode
+        || (assignee_id ? "assignee" : (Array.isArray(teacher_ids) && teacher_ids.length ? "selected_teachers" : "shared"));
     const base = {
       content: content.trim(),
       priority: priority === "urgent" ? "urgent" : (priority === "important" ? "important" : (priority === "low" ? "low" : "normal")),
@@ -12238,7 +12433,9 @@ function HubPage({ me, onSelect, onLogout }) {
 
     let assigneeIds = [];
     let spawnGroupId = null;
-    if (mode === "assignee") {
+    if (teacherTodoMode) {
+      assigneeIds = [me.id];
+    } else if (mode === "assignee") {
       if (!assignee_id) { alert("담당자를 선택하세요."); return; }
       assigneeIds = [assignee_id];
     } else if (mode === "selected_teachers" || mode === "all_teachers") {
@@ -12269,22 +12466,47 @@ function HubPage({ me, onSelect, onLogout }) {
   };
 
   const toggleTodo = async (id, isCompleted) => {
+    const previous = todos.find(t => t.id === id);
     const completed_at = isCompleted ? new Date().toISOString() : null;
     setTodos(prev => prev.map(t => t.id === id ? { ...t, is_completed: isCompleted, completed_at } : t));
-    const { error } = await supabase.from("admin_todos").update({ is_completed: isCompleted, completed_at }).eq("id", id);
-    if (error) alert(error.message || "처리에 실패했습니다.");
+    const result = teacherTodoMode
+      ? await supabase.rpc("set_my_todo_completion", {
+        p_todo_id: id,
+        p_is_completed: isCompleted,
+      })
+      : await supabase.from("admin_todos").update({ is_completed: isCompleted, completed_at }).eq("id", id);
+    if (result.error) {
+      if (previous) setTodos(prev => prev.map(t => t.id === id ? previous : t));
+      alert(result.error.message || "처리에 실패했습니다.");
+    }
   };
 
   const deleteTodo = async (id) => {
+    const target = todos.find(t => t.id === id);
+    if (teacherTodoMode && target?.created_by !== me.id) {
+      alert("관리자가 배정한 할 일은 삭제할 수 없습니다.");
+      return;
+    }
     setTodos(prev => prev.filter(t => t.id !== id));
     const { error } = await supabase.from("admin_todos").delete().eq("id", id);
-    if (error) alert(error.message || "삭제에 실패했습니다.");
+    if (error) {
+      if (target) setTodos(prev => [target, ...prev]);
+      alert(error.message || "삭제에 실패했습니다.");
+    }
   };
 
   const updateTodo = async (id, patch) => {
+    const target = todos.find(t => t.id === id);
+    if (teacherTodoMode && target?.created_by !== me.id) {
+      alert("관리자가 배정한 할 일은 수정할 수 없습니다.");
+      return;
+    }
     setTodos(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
     const { error } = await supabase.from("admin_todos").update(patch).eq("id", id);
-    if (error) alert(error.message || "수정에 실패했습니다.");
+    if (error) {
+      if (target) setTodos(prev => prev.map(t => t.id === id ? target : t));
+      alert(error.message || "수정에 실패했습니다.");
+    }
   };
 
   const handleEnter = (mod) => {
@@ -12311,6 +12533,8 @@ function HubPage({ me, onSelect, onLogout }) {
             email={me.email}
             onLogout={onLogout}
             triggerClassName="hub-user-menu-trigger"
+            hideProfile={gearOnly}
+            onChangePassword={onChangePw}
           />
         </div>
       </header>
@@ -12327,7 +12551,7 @@ function HubPage({ me, onSelect, onLogout }) {
           </div>
 
           <div className="hub-modules hub-modules--core">
-            {HUB_MODULES.map(mod => (
+            {visibleHubModules.map(mod => (
               <div key={mod.id} className="hub-module-cell" data-module-id={mod.id}>
                 <HubModuleCard mod={mod} onEnter={handleEnter}/>
                 <HubModuleCardLg mod={mod} onEnter={handleEnter}/>
@@ -12336,6 +12560,8 @@ function HubPage({ me, onSelect, onLogout }) {
             ))}
           </div>
 
+          {gearOnly ? null : (
+          <>
           <div className="hub-notices-section hub-notices-section--below">
             <UnifiedNoticesFeed
               items={feedItems}
@@ -12344,6 +12570,8 @@ function HubPage({ me, onSelect, onLogout }) {
               compact
               onSelectNotice={setViewNotice}
               onViewAll={() => navigate("/gear?page=notices")}
+              onViewInventoryHistory={() => navigate("/gear?page=item-qty-history")}
+              onViewClassIncidents={() => navigate("/schedule?view=class-incidents")}
               showUnreadStyles={showUnreadStyles}
               readNoticeIds={readNoticeIds}
               unreadCount={noticeUnreadCount}
@@ -12364,6 +12592,8 @@ function HubPage({ me, onSelect, onLogout }) {
               compact
               onSelectNotice={setViewNotice}
               onViewAll={() => navigate("/gear?page=notices")}
+              onViewInventoryHistory={() => navigate("/gear?page=item-qty-history")}
+              onViewClassIncidents={() => navigate("/schedule?view=class-incidents")}
               showUnreadStyles={showUnreadStyles}
               readNoticeIds={readNoticeIds}
               unreadCount={noticeUnreadCount}
@@ -12378,6 +12608,7 @@ function HubPage({ me, onSelect, onLogout }) {
                 teacherId={me.id}
                 me={me}
                 canRegisterEvents={canRegisterHubEvents}
+                canRegisterTodos={canRegisterHubTodos}
                 onRequestTodoCreate={(date) => setQuickTodoRequest(previous => ({
                   date,
                   token: (previous?.token || 0) + 1,
@@ -12400,6 +12631,8 @@ function HubPage({ me, onSelect, onLogout }) {
                   readOnly
                   allowCompletion
                   quickCreateDate={quickTodoRequest?.date || ""}
+                  personalOnly={teacherTodoMode}
+                  hideAuto={teacherTodoMode}
                 />
               </div>
             </div>
@@ -12416,6 +12649,8 @@ function HubPage({ me, onSelect, onLogout }) {
               />
             </div>
           ) : null}
+          </>
+          )}
         </div>
       </main>
 
@@ -12452,6 +12687,7 @@ function HubPage({ me, onSelect, onLogout }) {
 // 교구 대여 시스템
 // ═══════════════════════════════════════════════════════════════════════
 function gearHomePage(me) {
+  if (isGearOnlyAccess(me)) return gearOnlyHomePage();
   return isGearPlatformAdmin(me) ? "dashboard" : "my-gear-rotation";
 }
 
@@ -12484,7 +12720,8 @@ function parseGearAppUrl(search, me) {
   const params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
   const home = gearHomePage(me);
   let page = params.get("page") || home;
-  if (page === "dashboard" && !isGearPlatformAdmin(me)) page = "my-gear-rotation";
+  if (isGearOnlyAccess(me) && !isGearOnlyPageAllowed(page)) page = home;
+  if (page === "dashboard" && !isGearPlatformAdmin(me)) page = home;
   return {
     page,
     itemId: params.get("item"),
@@ -12519,7 +12756,7 @@ function EquipmentApp({ onBack, me, session }) {
   const location = useLocation();
   const { page, itemId, setId, from, noticeId } = useMemo(
     () => parseGearAppUrl(location.search, me),
-    [location.search, me?.id, me?.role],
+    [location.search, me?.id, me?.role, me?.access_scope],
   );
 
   const [items,      setItems]      = useState([]);
@@ -12552,6 +12789,10 @@ function EquipmentApp({ onBack, me, session }) {
   const [isPC,setIsPC] = useState(typeof window !== "undefined" && window.innerWidth >= 768);
 
   const setPage = useCallback((nextPage, meta = {}, { replace = false } = {}) => {
+    if (isGearOnlyAccess(me) && !isGearOnlyPageAllowed(nextPage)) {
+      navigate(buildGearAppUrl(gearOnlyHomePage(), { me }), { replace: true });
+      return;
+    }
     if (nextPage === "english-script") {
       navigate("/english-script");
       return;
@@ -12578,10 +12819,15 @@ function EquipmentApp({ onBack, me, session }) {
   useEffect(() => {
     if (!me?.id) return;
     const params = new URLSearchParams(location.search.startsWith("?") ? location.search.slice(1) : location.search);
-    if (params.get("page") === "dashboard" && !isGearPlatformAdmin(me)) {
-      setPage("my-gear-rotation", {}, { replace: true });
+    const requested = params.get("page");
+    if (isGearOnlyAccess(me) && requested && !isGearOnlyPageAllowed(requested)) {
+      setPage(gearOnlyHomePage(), {}, { replace: true });
+      return;
     }
-  }, [me?.id, me?.role, location.search, setPage]);
+    if (requested === "dashboard" && !isGearPlatformAdmin(me)) {
+      setPage(gearHomePage(me), {}, { replace: true });
+    }
+  }, [me?.id, me?.role, me?.access_scope, location.search, setPage]);
 
   useEffect(() => {
     if (page === "item-detail" && itemId && items.length) {
@@ -13681,6 +13927,20 @@ function EquipmentApp({ onBack, me, session }) {
     setItems(data || []);
   };
 
+  const handleItemQuantityAdjusted = async (result) => {
+    const itemId = result?.item_id;
+    const nextQty = result?.total_quantity ?? result?.new_quantity;
+    if (itemId != null && nextQty != null) {
+      setItems(p => p.map(it => String(it.id) === String(itemId) ? { ...it, total_quantity: nextQty } : it));
+      setScanRentItem(prev => (prev && String(prev.id) === String(itemId) ? { ...prev, total_quantity: nextQty } : prev));
+    }
+    try {
+      setNotices(await fetchNotices());
+    } catch {
+      /* ignore */
+    }
+  };
+
   const saveItem = async (data, editId) => {
     if (!canManage(me)) {
       alert("권한이 없습니다");
@@ -13927,6 +14187,15 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   const renderPage = () => {
+    if (isGearOnlyAccess(me) && !isGearOnlyPageAllowed(page)) {
+      return (
+        <PageShell>
+          <div style={{textAlign:"center",padding:"70px 20px"}}>
+            <div style={{fontWeight:700,fontSize:16,color:"#dc2626"}}>접근 권한이 없습니다</div>
+          </div>
+        </PageShell>
+      );
+    }
     if (!isGearPlatformAdmin(me) && page === "dashboard") {
       return (
         <NoticesPage
@@ -13952,7 +14221,7 @@ function EquipmentApp({ onBack, me, session }) {
         />
       );
     }
-    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","gear-rotation-manage","gear-categories","stats","report","settings","rental-manage","reservation-approval"].includes(page)) {
+    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","gear-rotation-manage","gear-categories","stats","report","settings","rental-manage","reservation-approval","item-qty-history"].includes(page)) {
       return (
         <PageShell>
           <div style={{textAlign:"center",padding:"70px 20px"}}>
@@ -13976,8 +14245,8 @@ function EquipmentApp({ onBack, me, session }) {
         {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} reservations={reservations} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss} onApproveReservation={approveReservation} onRejectReservation={rejectReservation} setPage={setPage} onForceReturn={forceReturnRentalItem} adminTodos={adminTodos} onAddTodo={addAdminTodo} onToggleTodo={toggleAdminTodo} onDeleteTodo={deleteAdminTodo} onUpdateTodo={updateAdminTodo}/>}
         {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} onForceReturn={forceReturnRentalItem}/>}
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} initialFilter="overdue" onForceReturn={forceReturnRentalItem}/>}
-        {page==="items"&&<ItemsPage items={items} setItems={setItems} itemSets={itemSets} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items")} onSetDetail={set=>openSetDetail(set,"items")} onSaveItem={saveItem} onSaveSet={saveItemSet} onDeleteItem={deleteItem} onDeleteSet={deleteItemSet} onSubmitReservation={submitReservation} onCancelReservation={cancelReservation}/>}
-        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} itemSets={itemSets} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items-register")} onSetDetail={set=>openSetDetail(set,"items-register")} onSaveItem={saveItem} onSaveSet={saveItemSet} onDeleteItem={deleteItem} onDeleteSet={deleteItemSet} openAddOnMount setPage={setPage}/>}
+        {page==="items"&&<ItemsPage items={items} setItems={setItems} itemSets={itemSets} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items")} onSetDetail={set=>openSetDetail(set,"items")} onSaveItem={saveItem} onSaveSet={saveItemSet} onDeleteItem={deleteItem} onDeleteSet={deleteItemSet} onSubmitReservation={submitReservation} onCancelReservation={cancelReservation} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
+        {page==="items-register"&&<ItemsPage items={items} setItems={setItems} itemSets={itemSets} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items-register")} onSetDetail={set=>openSetDetail(set,"items-register")} onSaveItem={saveItem} onSaveSet={saveItemSet} onDeleteItem={deleteItem} onDeleteSet={deleteItemSet} openAddOnMount setPage={setPage} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
         {page==="items-browse"&&(
           <ItemsBrowsePage
             me={me}
@@ -14031,6 +14300,9 @@ function EquipmentApp({ onBack, me, session }) {
           </PageShell>
         )}
         {page==="items-qr"&&isItemAdmin(me)&&<ItemsQrPage me={me} items={items}/>}
+        {page==="item-qty-history"&&isItemAdmin(me)&&(
+          <ItemQuantityAdjustHistoryPage me={me} PageHeader={PageHeader} PageShell={PageShell}/>
+        )}
         {page==="qr-scan"&&(
           <QrScanPage
             me={me}
@@ -14101,6 +14373,7 @@ function EquipmentApp({ onBack, me, session }) {
             me={me}
             onOpenCart={()=>setShowCart(true)}
             onViewDetail={()=>openItemDetail(scanRentItem,"qr-rent")}
+            onQuantityAdjusted={handleItemQuantityAdjusted}
             onDismiss={()=>{
               setScanRentItem(null);
               setPage(canPersonalGearRental(me) ? "rental-return" : "items");
@@ -14259,6 +14532,7 @@ function EquipmentApp({ onBack, me, session }) {
                 </div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {isGearOnlyAccess(me) ? null : (
                 <button
                   type="button"
                   onClick={()=>navigate("/my-profile")}
@@ -14271,6 +14545,7 @@ function EquipmentApp({ onBack, me, session }) {
                 >
                   <Settings size={12} strokeWidth={2}/> 내 정보
                 </button>
+                )}
                 <div style={{display:"flex",gap:6}}>
                 <button onClick={()=>setShowPwModal(true)} style={{
                   flex:1,padding:"8px",borderRadius:8,border:"none",
@@ -14314,7 +14589,7 @@ function EquipmentApp({ onBack, me, session }) {
           {renderPage()}
         </div>
 
-        {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} me={me} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
+        {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} me={me} onSubmit={submitRent} onClose={()=>setShowCart(false)} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
         {extPrompt&&(
           <ExtensionPromptModal
             candidates={extPrompt.candidates}
@@ -14515,6 +14790,7 @@ function EquipmentApp({ onBack, me, session }) {
               <div style={{ marginTop: 6 }}><RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/></div>
               <div style={{ fontSize: 12, color: DS.textMuted, marginTop: 6, overflow: "hidden", textOverflow: "ellipsis" }}>{session.user.email}</div>
             </div>
+            {isGearOnlyAccess(me) ? null : (
             <button
               type="button"
               onClick={()=>{ navigate("/my-profile"); setShowProfile(false); }}
@@ -14527,6 +14803,7 @@ function EquipmentApp({ onBack, me, session }) {
               <Settings size={15} strokeWidth={2}/>
               내 정보
             </button>
+            )}
             <button
               type="button"
               onClick={()=>{ setShowPwModal(true); setShowProfile(false); }}
@@ -14655,7 +14932,7 @@ function EquipmentApp({ onBack, me, session }) {
         </div>
       </nav>
 
-      {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} me={me} onSubmit={submitRent} onClose={()=>setShowCart(false)}/>}
+      {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} me={me} onSubmit={submitRent} onClose={()=>setShowCart(false)} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
       {extPrompt&&(
         <ExtensionPromptModal
           candidates={extPrompt.candidates}

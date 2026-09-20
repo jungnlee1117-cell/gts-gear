@@ -26,9 +26,14 @@ export function isHrSuperAdmin(caller, superAdminId = "") {
   return caller.role === "superadmin" || (!!superAdminId && caller.id === superAdminId);
 }
 
+export function isGearOnlyCaller(caller) {
+  return caller?.access_scope === "gear_only";
+}
+
 /** 정산정보 get/upsert: 본인 또는 superadmin만 */
 export function canAccessHr(caller, targetTeacherId, superAdminId = "") {
   if (!caller?.id || !targetTeacherId) return false;
+  if (isGearOnlyCaller(caller)) return false;
   if (caller.id === targetTeacherId) return true;
   return isHrSuperAdmin(caller, superAdminId);
 }
@@ -39,6 +44,7 @@ export function canAccessHr(caller, targetTeacherId, superAdminId = "") {
  */
 export function canRevealSettlement(caller, targetTeacherId, superAdminId = "") {
   if (!caller?.id || !targetTeacherId) return false;
+  if (isGearOnlyCaller(caller)) return false;
   if (isHrSuperAdmin(caller, superAdminId)) return true;
   if (caller.role === "admin") return false;
   return caller.id === targetTeacherId;
@@ -79,6 +85,7 @@ export function settlementRevealAuditRow(viewerId, teacherId, fields) {
 /** 선생님 목록용 정산/계약 상태 배지: admin·superadmin. 암호문/원문은 포함하지 않음. */
 export function canListHrStatus(caller, superAdminId = "") {
   if (!caller?.id) return false;
+  if (isGearOnlyCaller(caller)) return false;
   if (isHrSuperAdmin(caller, superAdminId)) return true;
   return caller.role === "admin";
 }

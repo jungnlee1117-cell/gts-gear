@@ -7,6 +7,12 @@ import {
   upsertMonthlyPlanResourceFile,
 } from "./monthlyPlanResources.js";
 
+function openNativeMonthPicker(event) {
+  const el = event.currentTarget;
+  if (typeof el.showPicker !== "function") return;
+  try { el.showPicker(); } catch { /* already open or unsupported */ }
+}
+
 const AGE_GROUPS = [
   { id: "3_4", label: "3~4세" },
   { id: "5", label: "5~6세" },
@@ -1089,7 +1095,7 @@ export default function SuperadminMonthlyPlanEditor({
           <p>한국어 또는 영어를 선택해 필요한 연령별 계획안만 작성하고 A4 PDF로 저장할 수 있습니다.</p>
         </div>
         <div className="monthly-plan-editor__controls">
-          <label><span>작성 월</span><input type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} /></label>
+          <label><span>작성 월</span><input type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} onClick={openNativeMonthPicker} /></label>
           <button type="button" className="monthly-plan-editor__gear-button" onClick={fillFromGear} disabled={setupRequired}>
             <RefreshCw size={18} /> 이번 달 교구 선택하기
           </button>

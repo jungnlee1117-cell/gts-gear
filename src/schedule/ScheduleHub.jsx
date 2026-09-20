@@ -1,8 +1,9 @@
 import {
-  Calendar, Building2, User, PartyPopper, Wallet, Settings, Bell, UserPlus,
+  Calendar, Building2, User, PartyPopper, Wallet, Settings, Bell, UserPlus, FileText, MessageSquareWarning,
 } from "lucide-react";
 import { filterScheduleMenu, isScheduleAdmin } from "./roles.js";
 import { useUnreadChangeAlertCount } from "./ScheduleChangeAlertsView.jsx";
+import { useUnreadClassIncidentCount } from "./ClassIncidentInboxView.jsx";
 
 const ICONS = {
   calendar: Calendar,
@@ -13,11 +14,14 @@ const ICONS = {
   settings: Settings,
   bell: Bell,
   userplus: UserPlus,
+  file: FileText,
+  flag: MessageSquareWarning,
 };
 
 export default function ScheduleHub({ me, onSelect }) {
   const items = filterScheduleMenu(me);
   const unreadAlerts = useUnreadChangeAlertCount(isScheduleAdmin(me));
+  const unreadIncidents = useUnreadClassIncidentCount(isScheduleAdmin(me));
 
   return (
     <>
@@ -32,9 +36,13 @@ export default function ScheduleHub({ me, onSelect }) {
             : item.id === "events" ? "party"
             : item.id === "payroll" ? "wallet"
             : item.id === "change-alerts" ? "bell"
+            : item.id === "class-incidents" ? "flag"
             : item.id === "temporary-teachers" ? "userplus"
+            : item.id === "document-types" ? "file"
             : "settings"];
-          const badge = item.id === "change-alerts" && unreadAlerts > 0 ? unreadAlerts : null;
+          const badge = item.id === "change-alerts" && unreadAlerts > 0 ? unreadAlerts
+            : item.id === "class-incidents" && unreadIncidents > 0 ? unreadIncidents
+            : null;
           return (
             <button
               key={item.id}

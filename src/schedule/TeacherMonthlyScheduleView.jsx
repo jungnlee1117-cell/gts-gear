@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, MapPin, Car } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Car, Check, ChevronLeft, MapPin, Pencil } from "lucide-react";
 import {
+  classTypeLabel,
   DAY_LABELS,
   fmtLocalDate,
   getMonthGrid,
@@ -12,7 +13,8 @@ import {
   yearMonthKey,
 } from "./constants.js";
 import {
-  deleteTeacherNote,
+  deletePayrollEntry,
+  fetchFinalizedInstitutionIds,
   fetchHomeVisitPatterns,
   fetchInstitutions,
   fetchPayrollEntries,
@@ -20,26 +22,43 @@ import {
   fetchSubstituteAssignmentsForTeacher,
   fetchSubstituteLessons,
   fetchOneoffLessons,
-  fetchTeacherNotes,
+  fetchTeachers,
   fetchWeeklySchedule,
-  upsertTeacherNote,
 } from "./api.js";
 import MonthExceptionNotice from "./MonthExceptionNotice.jsx";
 import CalendarEventBadges from "./CalendarEventBadges.jsx";
-import { TeacherNoteDayEditor, TeacherNotesMonthList } from "./TeacherNotesPanel.jsx";
 import {
   exceptionsForDate,
   formatExceptionNotice,
   buildExceptionsByDateMap,
   filterExceptionsForInstitutions,
 } from "./scheduleExceptions.js";
-import { mergeTeacherNote, normalizeNoteDate, noteByDate } from "./teacherNotes.js";
 import {
   getKoreanHoliday,
   hasHolidayDataForYear,
   holidayShortLabel,
 } from "./koreanHolidays.js";
-import { buildScheduleCalendarDayLines, expandMonthSchedule, plannedSlotDisplayLabel } from "./payrollCalendar.js";
+import {
+  buildScheduleCalendarDayLines,
+  effectiveSlotStatusLabel,
+  ENTRY_STATUS,
+  expandMonthSchedule,
+  findEntryForPlanned,
+  getEffectiveSlotStatus,
+  isDateConfirmable,
+  PAYROLL_EARLY_CONFIRM_DAY,
+  plannedSlotDisplayLabel,
+} from "./payrollCalendar.js";
+import PayrollSlotCustomModal from "./PayrollSlotCustomModal.jsx";
+import {
+  buildCustomEditState,
+  confirmPayrollSlotAsScheduled,
+  customEditNeedsChangeReason,
+  saveCustomPayrollSlot,
+  skipPayrollSlot,
+} from "./payrollSlotPayload.js";
+import ClassIncidentSlotForm from "./ClassIncidentSlotForm.jsx";
+import { fetchClassIncidentReports, reportsByPayrollEntryId } from "./classIncidentReports.js";
 import { patternsForCalendarMonth } from "./homeVisitPatterns.js";
 import { buildHomeVisitLegend, buildInstitutionLegend } from "./calendarLegend.js";
 import CalendarClassLines from "./CalendarClassLines.jsx";
@@ -68,7 +87,6 @@ export default function TeacherMonthlyScheduleView({
   embedded = false,
 }) {
   const teacherId = targetTeacherId || me?.id;
-  const canEditNotes = Boolean(me?.id) && String(teacherId) === String(me.id);
   const scheduleAuthReady = useScheduleAuthReady();
   const [monthBase, setMonthBase] = useState(() => new Date(TODAY.getFullYear(), TODAY.getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => new Date(TODAY));
@@ -77,9 +95,7 @@ export default function TeacherMonthlyScheduleView({
   const [assignedInstitutions, setAssignedInstitutions] = useState([]);
   const [entries, setEntries] = useState([]);
   const [exceptions, setExceptions] = useState([]);
-  const [teacherNotes, setTeacherNotes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [noteSaving, setNoteSaving] = useState(false);
   const [detailSlot, setDetailSlot] = useState(null);
   const [detailHomeVisit, setDetailHomeVisit] = useState(null);
   const [substituteAssignments, setSubstituteAssignments] = useState([]);
@@ -90,10 +106,16 @@ export default function TeacherMonthlyScheduleView({
   const [oneoffModalOpen, setOneoffModalOpen] = useState(false);
   const [editingOneoffLesson, setEditingOneoffLesson] = useState(null);
   const [detailOneoff, setDetailOneoff] = useState(null);
-  const noteEditorRef = useRef(null);
+  const [incidentReports, setIncidentReports] = useState([]);
+  const [finalizedIds, setFinalizedIds] = useState(() => new Set());
+  const [teacherOptions, setTeacherOptions] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [customEdit, setCustomEdit] = useState(null);
 
   const superAdmin = isScheduleSuperAdmin(me);
   const canManageSchedule = isScheduleAdmin(me);
+  const viewingOwn = Boolean(teacherId && me?.id && teacherId === me.id);
+  const canEditPayroll = viewingOwn;
 
   const year = monthBase.getFullYear();
   const month = monthBase.getMonth();
@@ -104,16 +126,6 @@ export default function TeacherMonthlyScheduleView({
 
   const rangeFrom = fmtLocalDate(gridCells[0].date);
   const rangeTo = fmtLocalDate(gridCells[gridCells.length - 1].date);
-
-  const reloadTeacherNotes = useCallback(async () => {
-    if (!teacherId || !scheduleAuthReady) return;
-    try {
-      const notes = await fetchTeacherNotes({ teacherId, fromDate: rangeFrom, toDate: rangeTo });
-      setTeacherNotes(notes);
-    } catch (err) {
-      console.error("teacher notes reload failed:", err);
-    }
-  }, [teacherId, scheduleAuthReady, rangeFrom, rangeTo]);
 
   const load = useCallback(async () => {
     if (!teacherId || !scheduleAuthReady) return;
@@ -126,22 +138,24 @@ export default function TeacherMonthlyScheduleView({
           ? fetchInstitutions({ teacherScope: true })
           : Promise.resolve([]),
         fetchScheduleExceptions(null, rangeFrom, rangeTo),
-        fetchTeacherNotes({ teacherId, fromDate: rangeFrom, toDate: rangeTo }),
         fetchPayrollEntries({ teacherId, yearMonth }),
         fetchSubstituteAssignmentsForTeacher(teacherId, rangeFrom, rangeTo),
         fetchSubstituteLessons({ fromDate: rangeFrom, toDate: rangeTo, teacherId }),
         fetchOneoffLessons({ fromDate: rangeFrom, toDate: rangeTo, teacherId }),
+        fetchClassIncidentReports({ teacherId, fromDate: rangeFrom, toDate: rangeTo }),
+        fetchFinalizedInstitutionIds(yearMonth),
       ]);
       const labels = [
         "weeklySchedule",
         "homeVisitPatterns",
         "institutions",
         "exceptions",
-        "teacherNotes",
         "payrollEntries",
         "substituteAssignments",
         "substituteLessons",
         "oneoffLessons",
+        "incidentReports",
+        "finalizedIds",
       ];
       const val = (i, fallback = []) => {
         const r = settled[i];
@@ -154,11 +168,12 @@ export default function TeacherMonthlyScheduleView({
       const hv = val(1);
       const insts = val(2);
       const ex = val(3);
-      const notes = val(4);
-      const ents = val(5);
-      const subs = val(6);
-      const subLessons = val(7);
-      const oneoffs = val(8);
+      const ents = val(4);
+      const subs = val(5);
+      const subLessons = val(6);
+      const oneoffs = val(7);
+      const incidents = val(8, { rows: [] });
+      const fin = val(9, new Set());
 
       setSlots(w);
       setHomeVisitPatterns(hv);
@@ -172,11 +187,12 @@ export default function TeacherMonthlyScheduleView({
         setAssignedInstitutions([...byId.values()]);
       }
       setExceptions(ex);
-      setTeacherNotes(notes);
       setEntries(ents);
       setSubstituteAssignments(subs);
       setSubstituteLessons(subLessons);
       setOneoffLessons(oneoffs);
+      setIncidentReports(incidents?.rows || []);
+      setFinalizedIds(fin instanceof Set ? fin : new Set(fin || []));
     } finally {
       setLoading(false);
     }
@@ -189,6 +205,16 @@ export default function TeacherMonthlyScheduleView({
     }
     load();
   }, [load, teacherId, scheduleAuthReady]);
+
+  useEffect(() => {
+    if (!canEditPayroll) {
+      setTeacherOptions([]);
+      return;
+    }
+    fetchTeachers({ yearMonth })
+      .then((rows) => setTeacherOptions((rows || []).filter((t) => t.role === "teacher")))
+      .catch(console.error);
+  }, [canEditPayroll, yearMonth]);
 
   const monthHomeVisitPatterns = useMemo(
     () => patternsForCalendarMonth(homeVisitPatterns, rangeFrom, rangeTo),
@@ -263,9 +289,149 @@ export default function TeacherMonthlyScheduleView({
     () => exceptionsForDate(teacherExceptions, selectedDateStr),
     [teacherExceptions, selectedDateStr],
   );
-  const selectedNote = noteByDate(teacherNotes, selectedDateStr);
   const selectedHoliday = getKoreanHoliday(selectedDateStr);
   const selectedPlanned = displayScheduleByDate[selectedDateStr] || [];
+  const teachersById = useMemo(() => {
+    const map = new Map();
+    for (const t of teacherOptions) map.set(t.id, t);
+    return map;
+  }, [teacherOptions]);
+  const incidentByEntryId = useMemo(
+    () => reportsByPayrollEntryId(incidentReports),
+    [incidentReports],
+  );
+  const selectedDateConfirmable = isDateConfirmable(selectedDateStr, TODAY);
+  const isLocked = (institutionId) => Boolean(institutionId && finalizedIds.has(institutionId));
+  const slotLocked = (planned) => !isHomeVisitPlanned(planned) && isLocked(planned.institutionId);
+  const customEditNeedsReason = useMemo(() => {
+    if (!customEdit) return false;
+    return customEditNeedsChangeReason(
+      customEdit,
+      findEntryForPlanned(entries, customEdit.planned),
+      teacherId,
+    );
+  }, [customEdit, entries, teacherId]);
+  const checkablePlanned = selectedPlanned.filter((p) => !p.isOneoffLesson);
+  const dayUnconfirmedUnlockable = checkablePlanned.filter((planned) => {
+    if (slotLocked(planned)) return false;
+    const status = getEffectiveSlotStatus(findEntryForPlanned(entries, planned), planned.dateStr);
+    return !status;
+  });
+
+  const openPlannedDetail = (planned) => {
+    if (planned.isOneoffLesson) {
+      setDetailOneoff(planned.oneoffLesson);
+      setDetailSlot(null);
+      setDetailHomeVisit(null);
+      return;
+    }
+    if (isHomeVisitPlanned(planned)) {
+      setDetailHomeVisit(planned);
+      setDetailSlot(null);
+      setDetailOneoff(null);
+      return;
+    }
+    setDetailSlot({ ...planned.slot, planned });
+    setDetailHomeVisit(null);
+    setDetailOneoff(null);
+  };
+
+  const handleSlotConfirm = async (planned) => {
+    if (slotLocked(planned)) return alert("정산 확정된 원은 수정할 수 없습니다.");
+    setSaving(true);
+    try {
+      await confirmPayrollSlotAsScheduled(planned, {
+        existingEntry: findEntryForPlanned(entries, planned),
+        teacherId,
+      });
+      await load();
+    } catch (err) {
+      alert("저장 실패: " + (err.message || err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDayConfirmAll = async () => {
+    const n = dayUnconfirmedUnlockable.length;
+    if (!n) return alert("평소대로 확정할 미확인 수업이 없습니다.");
+    if (!confirm(`이 날짜의 미확인 수업 ${n}개를 평소대로 확정할까요?`)) return;
+    setSaving(true);
+    try {
+      for (const planned of dayUnconfirmedUnlockable) {
+        await confirmPayrollSlotAsScheduled(planned, {
+          existingEntry: findEntryForPlanned(entries, planned),
+          teacherId,
+        });
+      }
+      await load();
+    } catch (err) {
+      alert("저장 실패: " + (err.message || err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openCustom = (planned) => {
+    setCustomEdit(buildCustomEditState(planned, findEntryForPlanned(entries, planned)));
+  };
+
+  const handleCustomSave = async (e) => {
+    e.preventDefault();
+    if (!customEdit) return;
+    if (slotLocked(customEdit.planned)) {
+      return alert("정산 확정된 원은 수정할 수 없습니다.");
+    }
+    setSaving(true);
+    try {
+      await saveCustomPayrollSlot(customEdit, {
+        existingEntry: findEntryForPlanned(entries, customEdit.planned),
+        teacherId,
+      });
+      setCustomEdit(null);
+      await load();
+    } catch (err) {
+      alert("저장 실패: " + (err.message || err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSlotSkip = async () => {
+    if (!customEdit) return;
+    if (slotLocked(customEdit.planned)) {
+      return alert("정산 확정된 원은 수정할 수 없습니다.");
+    }
+    setSaving(true);
+    try {
+      await skipPayrollSlot(customEdit, {
+        existingEntry: findEntryForPlanned(entries, customEdit.planned),
+        teacherId,
+      });
+      setCustomEdit(null);
+      await load();
+    } catch (err) {
+      alert("저장 실패: " + (err.message || err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSlotReset = async (planned) => {
+    const existing = findEntryForPlanned(entries, planned);
+    if (!existing?.id) return;
+    if (slotLocked(planned)) return alert("정산 확정된 원은 수정할 수 없습니다.");
+    if (!confirm("이 수업을 미확인 상태로 되돌릴까요?")) return;
+    setSaving(true);
+    try {
+      await deletePayrollEntry(existing.id);
+      await load();
+    } catch (err) {
+      alert("삭제 실패: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const shiftMonth = (delta) => {
     setMonthBase(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
@@ -275,40 +441,6 @@ export default function TeacherMonthlyScheduleView({
     const now = new Date();
     setMonthBase(new Date(now.getFullYear(), now.getMonth(), 1));
     setSelectedDate(now);
-  };
-
-  const handleNoteSave = async ({ note_date, content, id }) => {
-    if (!canEditNotes) return;
-    setNoteSaving(true);
-    try {
-      const saved = await upsertTeacherNote({
-        id,
-        teacher_id: teacherId,
-        note_date,
-        content,
-      });
-      setTeacherNotes(prev => mergeTeacherNote(prev, saved));
-      await reloadTeacherNotes();
-    } catch (err) {
-      alert("메모 저장 실패: " + err.message);
-    } finally {
-      setNoteSaving(false);
-    }
-  };
-
-  const handleNoteDelete = async (id) => {
-    if (!canEditNotes) return;
-    if (!confirm("이 날짜 메모를 삭제할까요?")) return;
-    setNoteSaving(true);
-    try {
-      await deleteTeacherNote(id);
-      setTeacherNotes(prev => prev.filter(n => n.id !== id));
-      await reloadTeacherNotes();
-    } catch (err) {
-      alert("메모 삭제 실패: " + err.message);
-    } finally {
-      setNoteSaving(false);
-    }
   };
 
   const openOneoffModal = (lesson = null) => {
@@ -350,18 +482,6 @@ export default function TeacherMonthlyScheduleView({
     } catch (err) {
       alert("대체수업 취소 실패: " + err.message);
     }
-  };
-
-  const handleNoteDateSelect = (dateStr) => {
-    const [y, m, d] = dateStr.split("-").map(Number);
-    setSelectedDate(new Date(y, m - 1, d));
-  };
-
-  const handleNoteEdit = (note) => {
-    handleNoteDateSelect(normalizeNoteDate(note.note_date));
-    requestAnimationFrame(() => {
-      noteEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    });
   };
 
   return (
@@ -449,7 +569,7 @@ export default function TeacherMonthlyScheduleView({
                 const dayEvents = inMonth ? (exceptionsByDate[dateStr] || []) : [];
                 const planned = inMonth ? (displayScheduleByDate[dateStr] || []) : [];
                 const classLines = inMonth && !holiday
-                  ? buildScheduleCalendarDayLines(planned)
+                  ? buildScheduleCalendarDayLines(planned, entries)
                   : [];
                 const subBadge = inMonth
                   ? calendarSubstituteBadge(substituteLessons, teacherId, dateStr)
@@ -486,14 +606,11 @@ export default function TeacherMonthlyScheduleView({
                       <span className="sch-cal-holiday-label" title={holiday.name}>
                         {holidayShortLabel(holiday.name)}
                       </span>
-                    ) : (
-                      <>
-                        {classLines.length > 0 ? <CalendarClassLines lines={classLines} /> : null}
-                        {dayEvents.length > 0 ? (
-                          <CalendarEventBadges events={dayEvents} maxVisible={2} compact/>
-                        ) : null}
-                      </>
-                    )}
+                    ) : null}
+                    {!holiday && classLines.length > 0 ? <CalendarClassLines lines={classLines} /> : null}
+                    {dayEvents.length > 0 ? (
+                      <CalendarEventBadges events={dayEvents} maxVisible={2} compact/>
+                    ) : null}
                   </button>
                 );
               })}
@@ -505,19 +622,6 @@ export default function TeacherMonthlyScheduleView({
       {loading ? null : (
         <>
           <MonthExceptionNotice exceptions={teacherExceptions} year={year} month={month}/>
-
-          {canEditNotes ? (
-            <TeacherNotesMonthList
-              notes={teacherNotes}
-              year={year}
-              month={month}
-              selectedDateStr={selectedDateStr}
-              onSelectDate={handleNoteDateSelect}
-              onEdit={handleNoteEdit}
-              onDelete={handleNoteDelete}
-              editable
-            />
-          ) : null}
 
           <section className="sch-cal-detail" aria-live="polite">
             <h3 className="sch-cal-detail-title">
@@ -541,6 +645,19 @@ export default function TeacherMonthlyScheduleView({
                 대체수업 등록
               </button>
             ) : null}
+            {canEditPayroll && !selectedHoliday && selectedDateConfirmable && dayUnconfirmedUnlockable.length > 0 ? (
+              <button
+                type="button"
+                className="sch-btn sch-btn--ghost sch-btn--sm sch-cal-sub-register-btn"
+                disabled={saving}
+                onClick={handleDayConfirmAll}
+              >
+                전체 평소대로
+              </button>
+            ) : null}
+            {canEditPayroll && !selectedHoliday && checkablePlanned.length > 0 ? (
+              <p className="sch-muted sch-cal-detail-hint">완료·수정은 급여/정산과 같은 기록입니다.</p>
+            ) : null}
             {selectedDayExceptions.length > 0 ? (
               <ul className="sch-month-notices-list sch-month-notices-list--inline">
                 {selectedDayExceptions.map(ex => (
@@ -558,9 +675,9 @@ export default function TeacherMonthlyScheduleView({
             ) : null}
             {!selectedHoliday && selectedPlanned.length === 0 ? (
               <p className="sch-muted">이 날짜에 등록된 수업이 없습니다.</p>
-            ) : !selectedHoliday ? (
+            ) : !selectedHoliday && !viewingOwn ? (
               <ul className="sch-cal-detail-list">
-                {selectedPlanned.map(planned => {
+                {selectedPlanned.map((planned) => {
                   const isHome = isHomeVisitPlanned(planned);
                   const isOneoff = planned.isOneoffLesson;
                   const color = isOneoff
@@ -582,21 +699,7 @@ export default function TeacherMonthlyScheduleView({
                           planned.isSubstituteCover && "sch-cal-detail-item--substitute-cover",
                           isOneoff && "sch-cal-detail-item--oneoff",
                         ].filter(Boolean).join(" ")}
-                        onClick={() => {
-                          if (isOneoff) {
-                            setDetailOneoff(planned.oneoffLesson);
-                            setDetailSlot(null);
-                            setDetailHomeVisit(null);
-                          } else if (isHome) {
-                            setDetailHomeVisit(planned);
-                            setDetailSlot(null);
-                            setDetailOneoff(null);
-                          } else {
-                            setDetailSlot({ ...planned.slot, planned });
-                            setDetailHomeVisit(null);
-                            setDetailOneoff(null);
-                          }
-                        }}
+                        onClick={() => openPlannedDetail(planned)}
                       >
                         <span className="sch-cal-detail-bar" style={{ background: color }}/>
                         <span className="sch-cal-detail-time">
@@ -613,17 +716,134 @@ export default function TeacherMonthlyScheduleView({
                   );
                 })}
               </ul>
+            ) : !selectedHoliday ? (
+              <ul className="sch-payroll-slot-grid sch-payroll-slot-grid--stacked">
+                {selectedPlanned.map((planned) => {
+                  const isHome = isHomeVisitPlanned(planned);
+                  const isOneoff = planned.isOneoffLesson;
+                  const color = isOneoff
+                    ? ONEOFF_LESSON_COLOR
+                    : isHome
+                      ? homeVisitColor(planned.patternId)
+                      : institutionColor(planned.institutionId);
+                  const itemKey = isOneoff
+                    ? `oneoff-${planned.oneoffLesson.id}`
+                    : `${planned.source}-${planned.slot.id}-${planned.dateStr}`;
+
+                  if (isOneoff) {
+                    return (
+                      <li key={itemKey}>
+                        <button
+                          type="button"
+                          className={[
+                            "sch-cal-detail-item",
+                            "sch-cal-detail-item--oneoff",
+                          ].filter(Boolean).join(" ")}
+                          onClick={() => openPlannedDetail(planned)}
+                        >
+                          <span className="sch-cal-detail-bar" style={{ background: color }}/>
+                          <span className="sch-cal-detail-time">
+                            {planned.startTime}–{planned.endTime}
+                          </span>
+                          <span className="sch-cal-detail-main">
+                            <span className="sch-cal-detail-inst">
+                              {plannedSlotDisplayLabel(planned)}
+                            </span>
+                            <span className="sch-cal-detail-type">{planned.payType}</span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  }
+
+                  const entry = findEntryForPlanned(entries, planned);
+                  const locked = slotLocked(planned);
+                  const status = getEffectiveSlotStatus(entry, planned.dateStr);
+                  return (
+                    <li
+                      key={itemKey}
+                      className={[
+                        "sch-payroll-slot-card",
+                        locked && "sch-payroll-slot-card--locked",
+                        planned.isSubstituteCovered && "sch-payroll-slot-card--substitute",
+                        status && status !== ENTRY_STATUS.skipped && "sch-payroll-slot-card--done",
+                        status === ENTRY_STATUS.skipped && "sch-payroll-slot-card--skipped",
+                      ].filter(Boolean).join(" ")}
+                    >
+                      <span className="sch-payroll-slot-card-accent" style={{ background: color }} aria-hidden/>
+                      <div className="sch-payroll-slot-card-body">
+                        <button
+                          type="button"
+                          className="sch-cal-detail-slot-open"
+                          onClick={() => openPlannedDetail(planned)}
+                        >
+                          <div className="sch-payroll-slot-card-head">
+                            <span className="sch-payroll-slot-time">
+                              {planned.startTime}–{planned.endTime}
+                            </span>
+                            <span className="sch-payroll-slot-type">{classTypeLabel(planned.payType)}</span>
+                          </div>
+                          <div className="sch-payroll-slot-inst">
+                            {plannedSlotDisplayLabel(planned)}
+                          </div>
+                          <div className={`sch-payroll-status sch-payroll-status--${status || "pending"}`}>
+                            {effectiveSlotStatusLabel(planned, entry, { teachersById })}
+                          </div>
+                          {locked ? <span className="sch-lock-badge">정산 확정</span> : null}
+                        </button>
+                        <ClassIncidentSlotForm
+                          entry={entry}
+                          report={entry?.id ? incidentByEntryId.get(entry.id) : null}
+                          me={me}
+                          canEditBody={canEditPayroll}
+                          isAdmin={canManageSchedule && viewingOwn}
+                          onChanged={load}
+                        />
+                      </div>
+                      {canEditPayroll && !locked && (selectedDateConfirmable || status) ? (
+                        <div className="sch-payroll-slot-card-actions">
+                          {!status && selectedDateConfirmable ? (
+                            <button
+                              type="button"
+                              className="sch-payroll-confirm-btn"
+                              disabled={saving}
+                              onClick={() => handleSlotConfirm(planned)}
+                            >
+                              <Check size={13}/> 완료
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="sch-payroll-edit-btn"
+                            disabled={saving}
+                            onClick={() => openCustom(planned)}
+                          >
+                            <Pencil size={13}/> 수정
+                          </button>
+                          {status ? (
+                            <button
+                              type="button"
+                              className="sch-btn sch-btn--ghost sch-payroll-edit-btn sch-payroll-edit-btn--muted"
+                              disabled={saving}
+                              onClick={() => handleSlotReset(planned)}
+                            >
+                              되돌리기
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
             ) : null}
-            <div ref={noteEditorRef}>
-              <TeacherNoteDayEditor
-                noteDate={selectedDateStr}
-                note={selectedNote}
-                onSave={handleNoteSave}
-                onDelete={handleNoteDelete}
-                saving={noteSaving}
-                readOnly={!canEditNotes}
-              />
-            </div>
+            {!selectedHoliday && canEditPayroll && checkablePlanned.length > 0 && !selectedDateConfirmable ? (
+              <p className="sch-muted">
+                {TODAY.getDate() < PAYROLL_EARLY_CONFIRM_DAY
+                  ? `미래 날짜는 당일이 되면 확정할 수 있습니다. 매월 ${PAYROLL_EARLY_CONFIRM_DAY}일 이후에는 이번 달 말일까지 미리 확정할 수 있습니다.`
+                  : "다음 달 날짜는 해당 월이 되면 확정할 수 있습니다."}
+              </p>
+            ) : null}
           </section>
         </>
       )}
@@ -763,6 +983,18 @@ export default function TeacherMonthlyScheduleView({
         originalTeacherName={targetTeacherName || me?.name}
         lessonDate={selectedDateStr}
         onSaved={load}
+      />
+
+      <PayrollSlotCustomModal
+        customEdit={customEdit}
+        setCustomEdit={setCustomEdit}
+        teacherId={teacherId}
+        teacherOptions={teacherOptions}
+        saving={saving}
+        needsReason={customEditNeedsReason}
+        onSave={handleCustomSave}
+        onSkip={handleSlotSkip}
+        onClose={() => setCustomEdit(null)}
       />
     </div>
   );

@@ -9,6 +9,7 @@ import {
 import { sendPushEvent } from "../pushNotifications.js";
 import { scheduleSupabase } from "./api.js";
 import { isTeacherVisibleInYearMonth } from "./teacherEmployment.js";
+import { filterAssignableClassTeachers } from "./roles.js";
 import { yearMonthKey } from "./constants.js";
 import {
   formatInstitutionManagerLabel,
@@ -27,7 +28,8 @@ function currentTeacherLabel(group) {
 }
 
 /**
- * 담당자 변경 / 수업 선생님 변경 탭 모달
+ * 담당자 변경 또는 수업 선생님 교체 모달.
+ * mode: "manager" | "teacher"
  */
 export default function InstitutionTeacherTransferModal({
   institution,
@@ -36,11 +38,11 @@ export default function InstitutionTeacherTransferModal({
   teachers = [],
   teacherList = [],
   adminList = [],
-  initialTab = "manager",
+  mode = "manager",
   onClose,
   onDone,
 }) {
-  const [tab, setTab] = useState(initialTab === "teacher" ? "teacher" : "manager");
+  const isTeacherMode = mode === "teacher";
   const [saving, setSaving] = useState(false);
 
   // ── 담당자 탭 ──
@@ -157,7 +159,7 @@ export default function InstitutionTeacherTransferModal({
   }, [typeGroups, commonDate]);
 
   const teacherCandidates = useMemo(() => {
-    const source = teacherList.length ? teacherList : teachers.filter(t => t.role === "teacher");
+    const source = teacherList.length ? teacherList : filterAssignableClassTeachers(teachers);
     let list = source.filter(t => isTeacherVisibleInYearMonth(t, yearMonthKey()));
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -221,7 +223,7 @@ export default function InstitutionTeacherTransferModal({
         })),
       });
       alert(
-        `수업 선생님 변경이 완료되었습니다.\n변경 유형: ${result.transferredTypes.join(", ") || "-"}\n이관된 시간표 슬롯: ${result.weeklyTransferred}건`,
+        `수업 선생님 교체가 완료되었습니다.\n변경 유형: ${result.transferredTypes.join(", ") || "-"}\n이관된 시간표 슬롯: ${result.weeklyTransferred}건`,
       );
       onDone?.();
       onClose?.();
@@ -234,33 +236,19 @@ export default function InstitutionTeacherTransferModal({
 
   return (
     <div className="sch-modal-overlay" onClick={() => !saving && onClose?.()}>
-      <div className="sch-modal sch-modal--wide" onClick={e => e.stopPropagation()}>
+      <div
+        className={`sch-modal sch-modal--wide${isTeacherMode ? " sch-modal--transfer" : ""}`}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="sch-modal-head">
-          <h3>담당자 / 수업 선생님 변경</h3>
+          <h3>{isTeacherMode ? "수업 선생님 교체" : "담당자 변경"}</h3>
           <button type="button" className="sch-icon-btn" onClick={onClose} disabled={saving}>
             <X size={18}/>
           </button>
         </div>
 
-        <div className="sch-tabs" style={{ marginBottom: 16 }}>
-          <button
-            type="button"
-            className={`sch-tab${tab === "manager" ? " active" : ""}`}
-            onClick={() => setTab("manager")}
-          >
-            담당자 변경
-          </button>
-          <button
-            type="button"
-            className={`sch-tab${tab === "teacher" ? " active" : ""}`}
-            onClick={() => setTab("teacher")}
-          >
-            수업 선생님 변경
-          </button>
-        </div>
-
-        {tab === "manager" ? (
-          <form className="sch-form" onSubmit={handleManagerSave}>
+        {!isTeacherMode ? (
+          <form className="sch-form sch-form--flush" onSubmit={handleManagerSave}>
             <div className="sch-field">
               <span>현재 담당자 (관리자)</span>
               <p style={{ margin: 0, fontWeight: 700 }}>
@@ -312,49 +300,50 @@ export default function InstitutionTeacherTransferModal({
             </div>
           </form>
         ) : (
-          <form className="sch-form" onSubmit={handleTeacherTransfer}>
+          <form className="sch-form sch-form--flush" onSubmit={handleTeacherTransfer}>
             <p className="sch-muted" style={{ marginTop: 0 }}>
-              수업 유형별로 새 선생님을 지정할 수 있습니다. 선택하지 않은 유형은 기존 선생님이 그대로 유지됩니다.
-              교구 순환·급여 단가·담당 관리자는 변경하지 않습니다.
+              수업 유형별로 새 선생님에게 시간표를 넘깁니다. 선택하지 않은 유형은 그대로 둡니다.
+              교구 순환·급여 단가·담당 관리자는 바뀌지 않습니다.
             </p>
 
             {typeGroups.length === 0 ? (
-              <p className="sch-muted">등록된 수업 유형이 없습니다. 시간표 또는 &quot;수업 선생님&quot; 탭에서 먼저 추가해 주세요.</p>
+              <p className="sch-muted">등록된 수업 유형이 없습니다. 시간표 또는 아래 명단에서 수업 선생님을 먼저 추가해 주세요.</p>
             ) : (
               <>
-                <label className="sch-field">
-                  <span>새 선생님 검색</span>
-                  <div className="sch-search-inline">
-                    <Search size={16}/>
+                <div className="sch-transfer-toolbar">
+                  <label className="sch-field">
+                    <span>새 선생님 검색</span>
+                    <div className="sch-search-inline">
+                      <Search size={16}/>
+                      <input
+                        className="sch-input"
+                        placeholder="이름으로 검색"
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                      />
+                    </div>
+                  </label>
+                  <label className="sch-field">
+                    <span>이관 시작일 *</span>
                     <input
+                      type="date"
                       className="sch-input"
-                      placeholder="이름으로 검색"
-                      value={search}
-                      onChange={e => setSearch(e.target.value)}
+                      value={commonDate}
+                      onChange={e => {
+                        const next = e.target.value;
+                        setCommonDate(next);
+                        if (!perTypeDates) {
+                          setTypeDates((prev) => {
+                            const mapped = { ...prev };
+                            for (const group of typeGroups) mapped[group.classType] = next;
+                            return mapped;
+                          });
+                        }
+                      }}
+                      required
                     />
-                  </div>
-                </label>
-
-                <label className="sch-field">
-                  <span>이관 시작일 (공통) *</span>
-                  <input
-                    type="date"
-                    className="sch-input"
-                    value={commonDate}
-                    onChange={e => {
-                      const next = e.target.value;
-                      setCommonDate(next);
-                      if (!perTypeDates) {
-                        setTypeDates((prev) => {
-                          const mapped = { ...prev };
-                          for (const group of typeGroups) mapped[group.classType] = next;
-                          return mapped;
-                        });
-                      }
-                    }}
-                    required
-                  />
-                </label>
+                  </label>
+                </div>
 
                 <label className="sch-transfer-date-toggle">
                   <input
@@ -371,22 +360,22 @@ export default function InstitutionTeacherTransferModal({
                     return (
                       <div key={group.classType} className="sch-transfer-type-card">
                         <div className="sch-transfer-type-card-head">
-                          <div className="sch-transfer-type-name">{group.classType}</div>
+                          <div>
+                            <div className="sch-transfer-type-name">{group.classType}</div>
+                            <div className="sch-transfer-type-current">
+                              현재 {currentTeacherLabel(group)}
+                            </div>
+                          </div>
                           {selectedId ? (
-                            <span className="sch-transfer-type-badge">변경</span>
+                            <span className="sch-transfer-type-badge">교체</span>
                           ) : (
                             <span className="sch-transfer-type-badge sch-transfer-type-badge--keep">유지</span>
                           )}
                         </div>
-                        <div className="sch-transfer-type-current">
-                          현재: {currentTeacherLabel(group)}
+                        <div className="sch-transfer-type-slots">
+                          {group.slotSummary || "등록된 시간표 없음 (배정만 변경)"}
                         </div>
-                        {group.slotSummary ? (
-                          <div className="sch-transfer-type-slots">{group.slotSummary}</div>
-                        ) : (
-                          <div className="sch-transfer-type-slots">등록된 시간표 슬롯 없음 (배정만 변경)</div>
-                        )}
-                        <label className="sch-field" style={{ marginBottom: 0 }}>
+                        <label className="sch-field sch-transfer-type-select">
                           <span>새 선생님</span>
                           <select
                             className="sch-select"
@@ -403,8 +392,8 @@ export default function InstitutionTeacherTransferModal({
                           </select>
                         </label>
                         {perTypeDates ? (
-                          <label className="sch-field" style={{ marginBottom: 0, marginTop: 8 }}>
-                            <span>{group.classType} 이관 시작일</span>
+                          <label className="sch-field sch-transfer-type-select">
+                            <span>이관 시작일</span>
                             <input
                               type="date"
                               className="sch-input"
@@ -433,7 +422,7 @@ export default function InstitutionTeacherTransferModal({
                 className="sch-btn sch-btn--primary"
                 disabled={saving || typeGroups.length === 0}
               >
-                {saving ? "처리 중..." : "수업 선생님 변경"}
+                {saving ? "처리 중..." : "교체"}
               </button>
             </div>
           </form>

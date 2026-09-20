@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { fetchTeachers } from "./api.js";
-import { isScheduleAdmin } from "./roles.js";
+import { filterAssignableClassTeachers, isScheduleAdmin } from "./roles.js";
 
 export function useTeacherPicker(me, { yearMonth } = {}) {
   const admin = isScheduleAdmin(me);
@@ -20,7 +20,7 @@ export function useTeacherPicker(me, { yearMonth } = {}) {
   useEffect(() => {
     if (!admin) return;
     fetchTeachers({ yearMonth })
-      .then(rows => setTeachers(rows.filter(t => t.role === "teacher")))
+      .then(rows => setTeachers(filterAssignableClassTeachers(rows)))
       .catch(console.error);
   }, [admin, yearMonth]);
 

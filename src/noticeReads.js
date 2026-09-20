@@ -29,6 +29,18 @@ export function resolveNoticeRecipientIds(notice, teachers = [], institutionTeac
     return active.filter((t) => set.has(t.id)).map((t) => t.id);
   }
 
+  if (type === "item_admins") {
+    return (teachers || [])
+      .filter((t) => t.active !== false && !t.resigned_at && (t.role === "superadmin" || t.is_item_admin === true))
+      .map((t) => t.id);
+  }
+
+  if (type === "schedule_admins") {
+    return (teachers || [])
+      .filter((t) => t.active !== false && !t.resigned_at && (t.role === "superadmin" || t.role === "admin"))
+      .map((t) => t.id);
+  }
+
   // all | teachers — 집계는 선생님 역할만
   return active.map((t) => t.id);
 }

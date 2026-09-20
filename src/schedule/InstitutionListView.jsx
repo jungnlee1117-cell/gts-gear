@@ -25,6 +25,12 @@ import {
 } from "./institutionRevenueDisplay.js";
 import InstitutionRevenueEditModal from "./InstitutionRevenueEditModal.jsx";
 import { isManagerFixedPayout } from "./fixedPayoutDisplay.js";
+import InstitutionInvoiceEmailsField from "./InstitutionInvoiceEmailsField.jsx";
+import {
+  invoiceEmailsDraft,
+  normalizeInvoiceEmails,
+  validateInvoiceEmails,
+} from "./institutionEmails.js";
 import {
   canViewInstitutionRevenue,
   filterInstitutionsForManagerScope,
@@ -55,6 +61,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
     address: "",
     parking_info: "",
     business_registration_number: "",
+    invoice_emails: [""],
     manager_id: "",
     contract_type: "gts_official",
     billing_type: "manual",
@@ -152,9 +159,12 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) return alert("원 이름을 입력해주세요.");
+    const emailError = validateInvoiceEmails(form.invoice_emails);
+    if (emailError) return alert(emailError);
     try {
       const created = await upsertInstitution({
         ...form,
+        invoice_emails: normalizeInvoiceEmails(form.invoice_emails),
         manager_id: form.manager_id || null,
         contract_start_date: form.contract_start_date || null,
       });
@@ -439,6 +449,10 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                 <input className="sch-input" value={form.business_registration_number}
                   onChange={e => setForm(f => ({ ...f, business_registration_number: e.target.value }))}/>
               </label>
+              <InstitutionInvoiceEmailsField
+                values={invoiceEmailsDraft(form.invoice_emails)}
+                onChange={(emails) => setForm(f => ({ ...f, invoice_emails: emails }))}
+              />
               <label className="sch-field"><span>담당 관리자</span>
                 <select className="sch-select" value={form.manager_id}
                   onChange={e => setForm(f => ({ ...f, manager_id: e.target.value }))}>

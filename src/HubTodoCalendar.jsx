@@ -5,6 +5,7 @@ import { fetchInstitutions } from "./schedule/api.js";
 import EventRegisterForm, { EMPTY_EVENT_FORM } from "./schedule/EventRegisterForm.jsx";
 import ScheduleClassCancellationPicker from "./schedule/ScheduleClassCancellationPicker.jsx";
 import { createScheduleEvent } from "./schedule/createScheduleEvent.js";
+import { getKoreanHoliday, holidayShortLabel } from "./schedule/koreanHolidays.js";
 
 const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -59,8 +60,12 @@ function eventsByDate(events, range) {
   return map;
 }
 
-function eventTitle(event) {
-  const institution = event.institutions?.name?.trim();
+function eventTitle(event, institutionNameById) {
+  const institution = (
+    event.institutions?.name
+    || institutionNameById.get(event.institution_id)
+    || ""
+  ).trim();
   const title = exceptionBadgeLabel(event);
   return institution ? `${institution} - ${title}` : title;
 }
@@ -71,6 +76,7 @@ export default function HubTodoCalendar({
   teacherId,
   showTodos = true,
   canRegisterEvents = false,
+  canRegisterTodos = false,
   me = null,
   onRequestTodoCreate = null,
 }) {
@@ -84,6 +90,7 @@ export default function HubTodoCalendar({
   const [institutions, setInstitutions] = useState([]);
   const [form, setForm] = useState(EMPTY_EVENT_FORM);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [registerNonce, setRegisterNonce] = useState(0);
   const [registerChoiceDate, setRegisterChoiceDate] = useState("");
   const [saving, setSaving] = useState(false);
   const range = useMemo(() => monthRange(monthBase), [monthBase]);
@@ -113,9 +120,11 @@ export default function HubTodoCalendar({
   }, [supabase, range.start, range.end, reloadToken]);
 
   useEffect(() => {
-    if (!canRegisterEvents) return undefined;
     let cancelled = false;
-    fetchInstitutions({ activeOnly: false })
+    fetchInstitutions({
+      activeOnly: !canRegisterEvents,
+      teacherScope: !canRegisterEvents,
+    })
       .then(rows => {
         if (!cancelled) setInstitutions(rows || []);
       })
@@ -125,12 +134,17 @@ export default function HubTodoCalendar({
     return () => { cancelled = true; };
   }, [canRegisterEvents]);
 
+  const institutionNameById = useMemo(
+    () => new Map(institutions.map(institution => [institution.id, institution.name || ""])),
+    [institutions],
+  );
+
   const myDueTodos = useMemo(
     () => {
       if (!showTodos) return [];
       const now = today.getTime();
       return (todos || []).filter(todo => {
-        if (todo.assignee_id !== teacherId || !todo.due_date || todo.spawn_group_id) return false;
+        if (todo.assignee_id !== teacherId || !todo.due_date) return false;
         if (todo.is_completed && todo.completed_at) {
           return now - new Date(todo.completed_at).getTime() < 24 * 60 * 60 * 1000;
         }
@@ -153,6 +167,7 @@ export default function HubTodoCalendar({
 
   const selectedEvents = eventMap.get(selectedDate) || [];
   const selectedTodos = todoMap.get(selectedDate) || [];
+  const selectedHoliday = getKoreanHoliday(selectedDate);
 
   const moveMonth = (offset) => {
     const next = new Date(monthBase.getFullYear(), monthBase.getMonth() + offset, 1);
@@ -173,12 +188,17 @@ export default function HubTodoCalendar({
       cancelled_classes: [],
       class_candidate_count: 0,
     });
+    setRegisterNonce(token => token + 1);
     setShowRegisterModal(true);
   };
 
   const openRegisterChoice = (dateStr) => {
-    if (!canRegisterEvents) return;
+    if (!canRegisterEvents && !canRegisterTodos) return;
     setSelectedDate(dateStr);
+    if (!canRegisterEvents && canRegisterTodos) {
+      onRequestTodoCreate?.(dateStr);
+      return;
+    }
     setRegisterChoiceDate(dateStr);
   };
 
@@ -250,6 +270,8 @@ export default function HubTodoCalendar({
           <p>
             {canRegisterEvents
               ? "날짜를 두 번 클릭하면 행사·휴강 또는 할 일을 등록할 수 있습니다."
+              : canRegisterTodos
+                ? "날짜를 두 번 클릭하면 내 할 일을 등록할 수 있습니다."
               : showTodos
                 ? "행사와 마감일이 있는 내 할 일을 함께 확인하세요."
                 : "내가 수업하는 원의 행사 일정을 확인하세요."}
@@ -266,6 +288,7 @@ export default function HubTodoCalendar({
       <div className="hub-todo-calendar__legend">
         <span><i className="is-event"/>행사</span>
         {showTodos ? <span><i className="is-todo"/>내 할 일</span> : null}
+        <span><i className="is-holiday"/>공휴일</span>
       </div>
 
       <div className="hub-todo-calendar__grid" role="grid" aria-label={`${monthBase.getMonth() + 1}월 일정`}>
@@ -273,8 +296,13 @@ export default function HubTodoCalendar({
         {cells.map(({ date, dateStr, inMonth }) => {
           const dayEvents = eventMap.get(dateStr) || [];
           const dayTodos = todoMap.get(dateStr) || [];
+          const holiday = inMonth ? getKoreanHoliday(dateStr) : null;
           const entries = [
-            ...dayEvents.map(event => ({ key: `event-${event.id}`, type: "event", text: eventTitle(event) })),
+            ...dayEvents.map(event => ({
+              key: `event-${event.id}`,
+              type: "event",
+              text: eventTitle(event, institutionNameById),
+            })),
             ...dayTodos.map(todo => ({ key: `todo-${todo.id}`, type: "todo", text: todo.content, done: todo.is_completed })),
           ];
           return (
@@ -282,11 +310,14 @@ export default function HubTodoCalendar({
               key={dateStr}
               type="button"
               role="gridcell"
+              data-date={dateStr}
+              aria-label={`${dateStr}${holiday ? ` ${holiday.name}` : ""} 일정`}
               className={[
                 "hub-todo-calendar__day",
                 !inMonth && "is-outside",
                 dateStr === todayStr && "is-today",
                 dateStr === selectedDate && "is-selected",
+                holiday && "is-holiday",
               ].filter(Boolean).join(" ")}
               onClick={() => {
                 setSelectedDate(dateStr);
@@ -295,6 +326,11 @@ export default function HubTodoCalendar({
               onDoubleClick={() => openRegisterChoice(dateStr)}
             >
               <span className="hub-todo-calendar__date">{date.getDate()}</span>
+              {holiday ? (
+                <span className="hub-todo-calendar__holiday" title={holiday.name}>
+                  {holidayShortLabel(holiday.name)}
+                </span>
+              ) : null}
               <span className="hub-todo-calendar__entries">
                 {entries.slice(0, 2).map(entry => (
                   <span
@@ -314,6 +350,9 @@ export default function HubTodoCalendar({
 
       <div className="hub-todo-calendar__detail">
         <strong>{selectedDate.replaceAll("-", ".")} 일정</strong>
+        {selectedHoliday ? (
+          <p className="hub-todo-calendar__holiday-banner">공휴일 · {selectedHoliday.name}</p>
+        ) : null}
         {loading ? (
           <p>행사를 불러오는 중...</p>
         ) : selectedEvents.length === 0 && selectedTodos.length === 0 ? (
@@ -321,7 +360,10 @@ export default function HubTodoCalendar({
         ) : (
           <ul>
             {selectedEvents.map(event => (
-              <li key={`event-${event.id}`}><i className="is-event"/><span>{eventTitle(event)}</span></li>
+              <li key={`event-${event.id}`}>
+                <i className="is-event"/>
+                <span>{eventTitle(event, institutionNameById)}</span>
+              </li>
             ))}
             {selectedTodos.map(todo => (
               <li key={`todo-${todo.id}`} className={todo.is_completed ? "is-done" : ""}>
@@ -344,9 +386,11 @@ export default function HubTodoCalendar({
               <button type="button" className="sch-btn sch-btn--ghost" onClick={() => setRegisterChoiceDate("")}>
                 취소
               </button>
-              <button type="button" className="sch-btn sch-btn--primary" onClick={chooseTodoRegister}>
-                할 일 등록
-              </button>
+              {canRegisterTodos ? (
+                <button type="button" className="sch-btn sch-btn--primary" onClick={chooseTodoRegister}>
+                  할 일 등록
+                </button>
+              ) : null}
               <button type="button" className="sch-btn sch-btn--primary" onClick={chooseEventRegister}>
                 행사 등록
               </button>
@@ -362,6 +406,7 @@ export default function HubTodoCalendar({
               <h3>행사 등록 · {form.start_date}</h3>
             </div>
             <EventRegisterForm
+              key={`hub-event-${registerNonce}`}
               form={form}
               setForm={setForm}
               institutions={institutions}

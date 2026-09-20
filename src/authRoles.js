@@ -5,6 +5,13 @@
 
 export const SUPER_ADMIN_ID = import.meta.env.VITE_SUPER_ADMIN_ID || "";
 
+export const ACCESS_SCOPE_FULL = "full";
+export const ACCESS_SCOPE_GEAR_ONLY = "gear_only";
+
+/** 교구 대여/반납/재고만 허용하는 예외 계정 */
+export const isGearOnlyAccess = (u) =>
+  u?.access_scope === ACCESS_SCOPE_GEAR_ONLY;
+
 /** 스케줄: 원 관리 · 급여 · 정산 */
 export const isScheduleAdmin = (u) =>
   u?.role === "superadmin" || u?.role === "admin";

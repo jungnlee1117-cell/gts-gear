@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Printer, RotateCcw, Save } from "lucide-react";
 
+function openNativeMonthPicker(event) {
+  const el = event.currentTarget;
+  if (typeof el.showPicker !== "function") return;
+  try { el.showPicker(); } catch { /* already open or unsupported */ }
+}
+
 const SPORTS = {
   basketball: {
     label: "농구", english: "BASKETBALL", mark: "B", tone: "orange", background: "/assets/after-school/basketball-plan-bg.png",
@@ -175,7 +181,7 @@ export default function AfterSchoolPlanEditor({ me, month, onMonthChange }) {
     <header className="after-school-editor__header">
       <div><span className="after-school-editor__eyebrow">AFTER-SCHOOL SPORTS PROGRAM</span><h2>방과후 12회차 계획안</h2><p>종목별 계획안을 수정하고 A4 한 페이지로 인쇄하거나 PDF로 저장할 수 있습니다.</p></div>
       <div className="after-school-editor__actions">
-        <input type="month" value={month} onChange={(e) => onMonthChange(e.target.value)} />
+        <input type="month" value={month} onChange={(e) => onMonthChange(e.target.value)} onClick={openNativeMonthPicker} />
         <button type="button" onClick={reset}><RotateCcw size={16}/>초기화</button>
         <button type="button" onClick={save}><Save size={16}/>임시 저장</button>
         <button type="button" className="is-primary" onClick={printPlan}><Printer size={16}/>PDF·인쇄</button>

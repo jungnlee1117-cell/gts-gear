@@ -1,5 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import webpush from "npm:web-push@3";
+import { runClassCheckinReminders } from "./classCheckinCron.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -664,6 +663,7 @@ const SERVICE_ROLE_EVENTS = new Set([
   "todo_recurrence_spawn",
   "giti_report_ready",
   "kiosk_rotation_conflict_rent",
+  "cron_class_checkin",
 ]);
 
 /** 키오스크에서 순환 배정 선생님 외 대여 시, 배정 선생님에게 참고 알림 */
@@ -1552,6 +1552,17 @@ async function resolveNotification(event, payload, userId, adminClient) {
     case "consultation_requested": {
       return resolveConsultationRequested(adminClient, payload);
     }
+    case "class_checkin_test": {
+      if (!(await isScheduleSuperAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      return {
+        teacherIds: [userId],
+        title: "오늘 수업 마치셨나요?",
+        body: "[테스트] 오늘 미확인 수업 2건 · 완료/수정 후 특이사항을 남겨 주세요",
+        url: "/schedule?view=class-checkin&demo=1",
+      };
+    }
     default:
       return { error: "Unknown event", status: 400 };
   }
@@ -1631,6 +1642,11 @@ Deno.serve(async (req) => {
       }
       if (event === "kiosk_rotation_conflict_rent") {
         return await runKioskRotationConflictRent(adminClient, vapid, payload || {});
+      }
+      if (event === "cron_class_checkin") {
+        const result = await runClassCheckinReminders(adminClient, vapid, deliverPushNotifications);
+        console.log("[send-push] cron_class_checkin complete", result);
+        return jsonResponse(result);
       }
     }
 

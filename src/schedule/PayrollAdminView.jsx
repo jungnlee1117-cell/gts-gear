@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ChevronLeft, ClipboardList, CloudUpload, FileSpreadsheet, Users, Wallet } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { AlertCircle, Bell, ChevronLeft, ClipboardList, Clock, CloudUpload, FileSpreadsheet, MessageSquareWarning, Users, Wallet } from "lucide-react";
 import { CONTRACT_TYPES, formatMinutes, formatWon, grossToNetPay, yearMonthKey, yearMonthLastDay } from "./constants.js";
 import {
   fetchPayrollEntries,
   fetchScheduleExceptions,
   fetchWeeklySchedule,
   loadPayrollDashboard,
+  scheduleSupabase,
 } from "./api.js";
 import PayrollDebugPanel from "./PayrollDebugPanel.jsx";
 import PayrollTeacherView from "./PayrollTeacherView.jsx";
 import TempTeacherPayrollDetail, { TempTeacherPayrollTableRow } from "./TempTeacherPayrollDetail.jsx";
 import AdditionalPaymentRequestsAdminSection from "./AdditionalPaymentRequestsAdminSection.jsx";
-import { AdminTeacherNotesSection } from "./TeacherNotesPanel.jsx";
-import { groupNotesByTeacher } from "./teacherNotes.js";
+import ClassIncidentAdminSection from "./ClassIncidentAdminSection.jsx";
+import { sendPushEvent } from "../pushNotifications.js";
 import { sortInstitutionDashboardRows } from "./institutionSort.js";
 import {
   expandFixedPayoutDashboardRows,
@@ -300,7 +302,8 @@ function InstitutionRevenueInputCell({ row }) {
   return <span className="sch-admin-status-warn">미입력</span>;
 }
 
-export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpenSettlement, onOpenPayRates, onOpenTemporaryTeachers }) {
+export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpenSettlement, onOpenPayRates, onOpenTemporaryTeachers, onOpenClassIncidents }) {
+  const navigate = useNavigate();
   const superAdmin = isScheduleSuperAdmin(me);
   const showTeacherTab = superAdmin || isScheduleRegionalManager(me);
 
@@ -321,7 +324,14 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     pendingExpense: 0,
     pendingAllowance: 0,
   });
+  const [incidentStats, setIncidentStats] = useState({
+    pendingCount: 0,
+    total: 0,
+    byTeacherId: {},
+  });
+  const [teacherRowFilter, setTeacherRowFilter] = useState("all");
   const [taxReportBusy, setTaxReportBusy] = useState("");
+  const [checkinTestBusy, setCheckinTestBusy] = useState(false);
   const lastTaxSnapshotSignature = useRef("");
 
   const handleRequestStatsChange = useCallback((stats) => {
@@ -333,11 +343,42 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     });
   }, []);
 
+  const handleIncidentStatsChange = useCallback((stats) => {
+    setIncidentStats(stats || {
+      pendingCount: 0,
+      total: 0,
+      byTeacherId: {},
+    });
+  }, []);
+
   const scrollToSection = useCallback((sectionId) => {
     const el = document.getElementById(sectionId);
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
+
+  const openCheckinDemo = useCallback(() => {
+    navigate("/schedule?view=class-checkin&demo=1");
+  }, [navigate]);
+
+  const handleCheckinTestPush = useCallback(async () => {
+    setCheckinTestBusy(true);
+    try {
+      const result = await sendPushEvent(scheduleSupabase, "class_checkin_test", {});
+      if (result.ok) {
+        alert("테스트 푸시를 보냈습니다. 알림을 누르면 테스트 화면이 열립니다.");
+        return;
+      }
+      if (result.reason === "no_subscriptions") {
+        alert("이 계정/기기에 푸시 구독이 없습니다. 테스트 화면을 바로 엽니다.");
+        openCheckinDemo();
+        return;
+      }
+      alert(`푸시 전송 실패 (${result.reason || "알 수 없음"}). 테스트 화면은 바로 열 수 있습니다.`);
+    } finally {
+      setCheckinTestBusy(false);
+    }
+  }, [openCheckinDemo]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -437,11 +478,6 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     load();
   }, [load]);
 
-  const noteGroups = useMemo(
-    () => (data?.teacherNotes ? groupNotesByTeacher(data.teacherNotes) : []),
-    [data?.teacherNotes],
-  );
-
   const managerFilterIds = useMemo(
     () => ({
       ...resolveManagerFilterIds(data?.managerMap),
@@ -503,6 +539,21 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     [scopedTeacherRows, scopedTempTeacherRows],
   );
 
+  const unconfirmedSlotCount = useMemo(
+    () => scopedTeacherRows.reduce((sum, row) => sum + (Number(row.unconfirmedSlots) || 0), 0),
+    [scopedTeacherRows],
+  );
+
+  const filteredTeacherRows = useMemo(() => {
+    return displayTeacherRows.filter((row) => {
+      if (teacherRowFilter === "unconfirmed") return (row.unconfirmedSlots || 0) > 0;
+      if (teacherRowFilter === "incidents") {
+        return (incidentStats.byTeacherId?.[row.teacher.id]?.pending || 0) > 0;
+      }
+      return true;
+    });
+  }, [displayTeacherRows, teacherRowFilter, incidentStats]);
+
   const filteredCanonicalRows = useMemo(() => {
     const rows = data?.institutionRows || [];
     const q = institutionSearch.trim().toLowerCase();
@@ -549,6 +600,22 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
               <button
                 type="button"
                 className="sch-btn sch-btn--ghost"
+                disabled={checkinTestBusy}
+                onClick={handleCheckinTestPush}
+              >
+                <Bell size={16}/>
+                {checkinTestBusy ? "보내는 중..." : "체크인 테스트 푸시"}
+              </button>
+              <button
+                type="button"
+                className="sch-btn sch-btn--ghost"
+                onClick={openCheckinDemo}
+              >
+                체크인 테스트 화면
+              </button>
+              <button
+                type="button"
+                className="sch-btn sch-btn--ghost"
                 disabled={Boolean(taxReportBusy) || !data}
                 onClick={handleTaxReportDownload}
               >
@@ -576,6 +643,9 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
           ) : null}
           <button type="button" className="sch-btn sch-btn--ghost" onClick={onOpenSettlement}>
             월별 정산 →
+          </button>
+          <button type="button" className="sch-btn sch-btn--ghost" onClick={onOpenClassIncidents}>
+            수업 특이사항 →
           </button>
         </div>
       </header>
@@ -633,13 +703,14 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
         <>
           {showTeacherTab && activeTab === "teachers" ? (
             <div className="sch-admin-dash-panel" role="tabpanel">
-              {superAdmin ? (
-                <div className="sch-admin-attention" aria-label="오늘 확인할 것">
+              <div className="sch-admin-attention" aria-label="오늘 확인할 것">
                   <div className="sch-admin-attention-head">
                     <ClipboardList size={16} aria-hidden />
                     <strong>오늘 확인할 것</strong>
                   </div>
                   <div className="sch-admin-attention-cards">
+                    {superAdmin ? (
+                    <>
                     <button
                       type="button"
                       className={`sch-admin-attention-card${requestStats.pendingExpense > 0 ? " sch-admin-attention-card--alert" : ""}`}
@@ -676,6 +747,8 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                         <span className="sch-admin-section-alert-dot" aria-hidden />
                       ) : null}
                     </button>
+                    </>
+                    ) : null}
                     <button
                       type="button"
                       className={`sch-admin-attention-card${missingInputCount > 0 ? " sch-admin-attention-card--warn" : ""}`}
@@ -691,9 +764,47 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                         </span>
                       </span>
                     </button>
+                    <button
+                      type="button"
+                      className={`sch-admin-attention-card${unconfirmedSlotCount > 0 ? " sch-admin-attention-card--warn" : ""}`}
+                      onClick={() => {
+                        setTeacherRowFilter("unconfirmed");
+                        scrollToSection("sch-admin-section-teachers");
+                      }}
+                    >
+                      <span className="sch-admin-attention-card-icon" aria-hidden>
+                        <Clock size={16} />
+                      </span>
+                      <span className="sch-admin-attention-card-body">
+                        <span className="sch-admin-attention-card-label">미확정 시수</span>
+                        <span className="sch-admin-attention-card-value">
+                          <strong>{unconfirmedSlotCount}</strong>건
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`sch-admin-attention-card${incidentStats.pendingCount > 0 ? " sch-admin-attention-card--alert" : ""}`}
+                      onClick={() => {
+                        setTeacherRowFilter("incidents");
+                        scrollToSection("sch-admin-section-incidents");
+                      }}
+                    >
+                      <span className="sch-admin-attention-card-icon" aria-hidden>
+                        <MessageSquareWarning size={16} />
+                      </span>
+                      <span className="sch-admin-attention-card-body">
+                        <span className="sch-admin-attention-card-label">특이사항 확인 필요</span>
+                        <span className="sch-admin-attention-card-value">
+                          <strong>{incidentStats.pendingCount}</strong>건
+                        </span>
+                      </span>
+                      {incidentStats.pendingCount > 0 ? (
+                        <span className="sch-admin-section-alert-dot" aria-hidden />
+                      ) : null}
+                    </button>
                   </div>
                 </div>
-              ) : null}
 
               {(() => {
                 const teacherSection = (
@@ -719,7 +830,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                             ) : null}
                           </h3>
                           <p className="sch-muted sch-admin-dash-section-desc">
-                            미확인 일수가 있거나 이번 달 입력 이력이 없는 강사는 강조 표시됩니다.
+                            미확정 시수(완료 버튼 전)와 특이사항이 있는 강사를 급여액과 같이 대조할 수 있습니다.
                             {scopedTempTeacherRows.length > 0
                               ? ` 이번 달 근무 임시 선생님 ${scopedTempTeacherRows.length}명이 함께 표시됩니다.`
                               : ""}
@@ -736,6 +847,24 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                         )}
                       </div>
                     </div>
+                    <div className="sch-admin-teacher-filters" role="tablist" aria-label="강사 필터">
+                      {[
+                        { id: "all", label: "전체" },
+                        { id: "unconfirmed", label: `미확정만 (${unconfirmedSlotCount})` },
+                        { id: "incidents", label: `특이사항만 (${incidentStats.pendingCount})` },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={teacherRowFilter === opt.id}
+                          className={`sch-admin-filter-chip${teacherRowFilter === opt.id ? " sch-admin-filter-chip--active" : ""}`}
+                          onClick={() => setTeacherRowFilter(opt.id)}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                     <div className="sch-table-wrap sch-admin-table-wrap">
                       <table className="sch-table sch-admin-table sch-admin-table--teachers">
                         <thead>
@@ -751,12 +880,15 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                             <th className="sch-th-num">예상 급여</th>
                             <th className="sch-th-num">실수령액 (3.3% 제외)</th>
                             <th className="sch-th-num">미확인 일수</th>
+                            <th className="sch-th-num">미확정 시수</th>
+                            <th className="sch-th-num">특이사항</th>
                             {superAdmin ? <th className="sch-th-action">디버그</th> : null}
                           </tr>
                         </thead>
                         <tbody>
-                          {displayTeacherRows.map(row => {
-                            const alertRow = row.unconfirmedDays > 0 || row.inputMissing;
+                          {filteredTeacherRows.map(row => {
+                            const incident = incidentStats.byTeacherId?.[row.teacher.id] || { total: 0, pending: 0 };
+                            const alertRow = row.unconfirmedDays > 0 || row.inputMissing || incident.pending > 0;
                             return (
                             <tr
                               key={row.teacher.id}
@@ -801,6 +933,22 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                                   <span className="sch-admin-status-badge sch-admin-status-badge--ok">완료</span>
                                 )}
                               </td>
+                              <td className="sch-td-num">
+                                {(row.unconfirmedSlots || 0) > 0 ? (
+                                  <span className="sch-admin-status-badge sch-admin-status-badge--warn">{row.unconfirmedSlots}건</span>
+                                ) : (
+                                  <span className="sch-admin-status-badge sch-admin-status-badge--ok">0</span>
+                                )}
+                              </td>
+                              <td className="sch-td-num">
+                                {incident.pending > 0 ? (
+                                  <span className="sch-admin-status-badge sch-admin-status-badge--warn">확인 {incident.pending}</span>
+                                ) : incident.total > 0 ? (
+                                  <span className="sch-admin-status-badge sch-admin-status-badge--ok">{incident.total}건</span>
+                                ) : (
+                                  <span className="sch-muted">—</span>
+                                )}
+                              </td>
                               {superAdmin ? (
                                 <td className="sch-td-action">
                                   <button
@@ -841,11 +989,13 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                 ) : null;
 
                 const notesSection = (
-                  <AdminTeacherNotesSection
-                    key="notes"
-                    noteGroups={noteGroups}
+                  <ClassIncidentAdminSection
+                    key="incidents"
+                    yearMonth={yearMonth}
+                    onOpenAll={onOpenClassIncidents}
                     defaultCollapsed
-                    sectionId="sch-admin-section-notes"
+                    sectionId="sch-admin-section-incidents"
+                    onStatsChange={handleIncidentStatsChange}
                   />
                 );
 

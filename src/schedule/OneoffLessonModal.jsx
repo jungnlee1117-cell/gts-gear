@@ -6,6 +6,7 @@ import { oneoffLessonMinutes } from "./oneoffLessons.js";
 import { listInstitutionsForOneoffLesson } from "./oneoffInstitutions.js";
 import { pickRateForDate, payAmountFromMinutesAndRate } from "./settlement.js";
 import InstitutionSearchSelect from "./InstitutionSearchSelect.jsx";
+import { filterAssignableClassTeachers } from "./roles.js";
 
 const EMPTY_FORM = {
   start_time: "09:00",
@@ -62,7 +63,7 @@ export default function OneoffLessonModal({
       setInstitutions(listInstitutionsForOneoffLesson(insts));
       setPayRates(rates || []);
       if (allTeachers) {
-        setTeachers((allTeachers || []).filter(t => t.role === "teacher"));
+        setTeachers(filterAssignableClassTeachers(allTeachers));
       }
     } catch (e) {
       console.error(e);

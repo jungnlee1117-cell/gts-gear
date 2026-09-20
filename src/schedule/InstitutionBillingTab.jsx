@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
-  formatWon, yearMonthFirstDay, yearMonthKey,
+  BILLING_TYPES, CONTRACT_TYPES, formatWon, yearMonthFirstDay, yearMonthKey,
 } from "./constants.js";
 import {
   computePerCapitaRevenue,
@@ -20,6 +20,7 @@ import {
   insertSessionRate,
   saveMonthlyContract,
   saveMonthlySessionCount,
+  upsertInstitution,
 } from "./api.js";
 import {
   buildMonthlyContractPayload,
@@ -34,8 +35,26 @@ import {
   isManagerThresholdSplit,
 } from "./thresholdSplitSettlement.js";
 import ThresholdSplitBreakdown from "./ThresholdSplitBreakdown.jsx";
+import InstitutionBizRegSection from "./InstitutionBizRegSection.jsx";
+import InstitutionInvoiceEmailsField from "./InstitutionInvoiceEmailsField.jsx";
+import {
+  invoiceEmailsDraft,
+  normalizeInvoiceEmails,
+  validateInvoiceEmails,
+} from "./institutionEmails.js";
+import { filterAssignableClassTeachers } from "./roles.js";
+import { isScheduleSuperAdmin } from "./managerScope.js";
 
-export default function InstitutionBillingTab({ institution, institutionId, canViewRevenue = true }) {
+export default function InstitutionBillingTab({
+  institution,
+  institutionId,
+  canViewRevenue = true,
+  me = null,
+  teachers = [],
+  emailDrafts,
+  onEmailDraftsChange,
+  onInstitutionChange,
+}) {
   const [yearMonth, setYearMonth] = useState(yearMonthKey());
   const [contracts, setContracts] = useState([]);
   const [sessionRates, setSessionRates] = useState([]);
@@ -185,13 +204,34 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
     await saveCount(sessionType.trim(), count, null, null);
   };
 
-  if (loading) return <p className="sch-muted">불러오는 중...</p>;
+  const bizInfo = (
+    <InstitutionBizInfoForm
+      me={me}
+      institution={institution}
+      institutionId={institutionId}
+      teachers={teachers}
+      emailDrafts={emailDrafts}
+      onEmailDraftsChange={onEmailDraftsChange}
+      onInstitutionChange={onInstitutionChange}
+    />
+  );
+
+  if (loading) {
+    return (
+      <div className="sch-billing-tab">
+        {bizInfo}
+        <p className="sch-muted">불러오는 중...</p>
+      </div>
+    );
+  }
 
   const hideRevenue = !canViewRevenue && isManagerFixedPayout(institution);
 
   if (hideRevenue) {
     return (
-      <section className="sch-billing-panel">
+      <div className="sch-billing-tab">
+        {bizInfo}
+        <section className="sch-billing-panel">
         <h4 className="sch-subtitle">고정지급 (담당자)</h4>
         <p className="sch-muted sch-billing-note">
           이 원은 고정지급 계약입니다. 담당자 지급액만 표시됩니다.
@@ -202,11 +242,13 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
           <strong>{formatWon(institution.fixed_payout_amount)}</strong>
         </div>
       </section>
+      </div>
     );
   }
 
   return (
-    <div>
+    <div className="sch-billing-tab">
+      {bizInfo}
       <div className="sch-toolbar">
         <label className="sch-field sch-field--inline">
           <span>대상 월</span>
@@ -365,18 +407,54 @@ export default function InstitutionBillingTab({ institution, institutionId, canV
       )}
 
       {!isPartner && contracts.length > 0 && !isPerSession && !isPerCapita ? (
-        <details className="sch-billing-history">
-          <summary>과거 계약 이력</summary>
-          <ul className="sch-entry-list">
-            {contracts.map(c => (
-              <li key={c.id} className="sch-entry-item">
-                <span>{c.year_month?.slice(0, 7)} · {Number(c.contract_amount).toLocaleString()}원</span>
-              </li>
-            ))}
-          </ul>
-        </details>
+        <MonthlyContractHistory contracts={contracts} selectedYearMonth={yearMonth}/>
       ) : null}
     </div>
+  );
+}
+
+function MonthlyContractHistory({ contracts, selectedYearMonth }) {
+  const sortedContracts = useMemo(
+    () => [...contracts].sort(
+      (a, b) => String(b.year_month || "").localeCompare(String(a.year_month || "")),
+    ),
+    [contracts],
+  );
+
+  return (
+    <section className="sch-billing-history" aria-label="월별 매출 이력">
+      <div className="sch-billing-history__head">
+        <div>
+          <h4 className="sch-subtitle">월별 매출 이력</h4>
+          <p className="sch-muted">지금까지 저장한 모든 달의 매출입니다. 최신 달부터 표시됩니다.</p>
+        </div>
+        <span className="sch-billing-history__count">{sortedContracts.length}개월</span>
+      </div>
+      <div className="sch-billing-history__list">
+        {sortedContracts.map(contract => {
+          const month = contract.year_month?.slice(0, 7) || "월 미지정";
+          const selected = month === selectedYearMonth;
+          return (
+            <article
+              key={contract.id}
+              className={`sch-billing-history__card${selected ? " is-selected" : ""}`}
+            >
+              <div className="sch-billing-history__meta">
+                <strong>{month} 매출</strong>
+                {contract.student_count != null ? (
+                  <span>학생 {Number(contract.student_count).toLocaleString()}명</span>
+                ) : (
+                  <span>학생 수 미입력</span>
+                )}
+              </div>
+              <strong className="sch-billing-history__amount">
+                {formatWon(Number(contract.contract_amount) || 0)}
+              </strong>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -610,5 +688,130 @@ function SessionCountRow({ sessionType, row, rate, subtotal, onSave, onDelete, u
         </button>
       ) : null}
     </li>
+  );
+}
+
+function InstitutionBizInfoForm({
+  me,
+  institution,
+  institutionId,
+  teachers,
+  emailDrafts,
+  onEmailDraftsChange,
+  onInstitutionChange,
+}) {
+  const canEditContract = isScheduleSuperAdmin(me);
+  const admins = (teachers || []).filter(t => t.role === "admin" || t.role === "superadmin");
+  const teacherList = filterAssignableClassTeachers(teachers || []);
+  const [saving, setSaving] = useState(false);
+  const emails = emailDrafts ?? invoiceEmailsDraft(institution?.invoice_emails);
+
+  const patch = (partial) => {
+    onInstitutionChange?.({ ...institution, ...partial });
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    const emailError = validateInvoiceEmails(emails);
+    if (emailError) return alert(emailError);
+    setSaving(true);
+    try {
+      const saved = await upsertInstitution({
+        ...institution,
+        invoice_emails: normalizeInvoiceEmails(emails),
+      });
+      onInstitutionChange?.(saved);
+      onEmailDraftsChange?.(invoiceEmailsDraft(saved.invoice_emails));
+      alert("저장되었습니다.");
+    } catch (err) {
+      alert("저장 실패: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="sch-billing-panel sch-billing-bizinfo">
+      <h4 className="sch-subtitle">사업자 정보</h4>
+      <p className="sch-muted sch-billing-note">
+        세금계산서 발행과 계약 조건입니다. 사업자등록번호는 기본정보 탭에서 수정합니다.
+      </p>
+      <form className="sch-billing-bizinfo-form" onSubmit={handleSave}>
+        <div className="sch-billing-bizinfo-grid">
+          <label className="sch-field">
+            <span>계약유형</span>
+            <select
+              className="sch-select"
+              value={institution.contract_type}
+              disabled={!canEditContract}
+              onChange={e => patch({ contract_type: e.target.value })}
+            >
+              {Object.entries(CONTRACT_TYPES).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
+            </select>
+          </label>
+          <label className="sch-field">
+            <span>과금방식</span>
+            <select
+              className="sch-select"
+              value={institution.billing_type}
+              disabled={!canEditContract}
+              onChange={e => patch({ billing_type: e.target.value })}
+            >
+              {Object.entries(BILLING_TYPES).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
+            </select>
+          </label>
+          {institution.contract_type === "manager_fixed_payout" ? (
+            <>
+              <label className="sch-field">
+                <span>고정지급 대상자</span>
+                <select
+                  className="sch-select"
+                  value={institution.fixed_payout_recipient_id || ""}
+                  disabled={!canEditContract}
+                  onChange={e => patch({ fixed_payout_recipient_id: e.target.value || null })}
+                >
+                  <option value="">선택</option>
+                  {[...admins, ...teacherList].map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="sch-field">
+                <span>고정지급액 (부가세 제외)</span>
+                <input
+                  type="number"
+                  className="sch-input"
+                  min={0}
+                  disabled={!canEditContract}
+                  value={institution.fixed_payout_amount ?? ""}
+                  onChange={e => patch({
+                    fixed_payout_amount: e.target.value === "" ? null : Number(e.target.value),
+                  })}
+                />
+              </label>
+            </>
+          ) : null}
+        </div>
+        <InstitutionInvoiceEmailsField
+          values={emails}
+          onChange={(next) => onEmailDraftsChange?.(next)}
+        />
+        <InstitutionBizRegSection
+          me={me}
+          institutionId={institutionId}
+          mode="manage"
+          embedded
+        />
+        <div className="sch-form-actions">
+          <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
+            {saving ? "저장 중..." : "사업자 정보 저장"}
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }

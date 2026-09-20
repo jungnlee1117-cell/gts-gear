@@ -24,20 +24,19 @@ export function resolveTransferClassType(slot) {
   return resolveInstitutionSlotPayType(slot) || slot?.class_type || "정규";
 }
 
-function formatSlotTime(value) {
-  return String(value || "").slice(0, 5);
-}
-
 function formatSlotSummary(slots) {
-  return (slots || [])
-    .map((s) => {
-      const day = DAY_LABELS[Number(s.day_of_week)] ?? "";
-      const start = formatSlotTime(s.start_time);
-      const end = formatSlotTime(s.end_time);
-      return start && end ? `${day} ${start}~${end}` : day;
-    })
-    .filter(Boolean)
-    .join(" · ");
+  const days = [];
+  const seen = new Set();
+  for (const s of slots || []) {
+    const day = DAY_LABELS[Number(s.day_of_week)] ?? "";
+    if (!day || seen.has(day)) continue;
+    seen.add(day);
+    days.push(day);
+  }
+  const count = (slots || []).length;
+  if (!count) return "";
+  days.sort((a, b) => DAY_LABELS.indexOf(a) - DAY_LABELS.indexOf(b));
+  return `${days.join("·")} · ${count}개 수업`;
 }
 
 function teacherName(teacherId, teachers) {

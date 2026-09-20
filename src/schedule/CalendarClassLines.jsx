@@ -10,7 +10,9 @@ export default function CalendarClassLines({ lines }) {
           ? homeVisitColor(line.colorId)
           : line.colorKind === "oneoff"
             ? ONEOFF_LESSON_COLOR
-            : institutionColor(line.colorId);
+            : line.colorKind === "skipped"
+              ? "#c2410c"
+              : institutionColor(line.colorId);
         return (
           <span
             key={line.key}
@@ -18,6 +20,7 @@ export default function CalendarClassLines({ lines }) {
               "sch-cal-class-line",
               line.colorKind === "makeup" && "sch-cal-class-line--makeup",
               line.colorKind === "reschedule" && "sch-cal-class-line--reschedule",
+              line.colorKind === "skipped" && "sch-cal-class-line--skipped",
             ].filter(Boolean).join(" ")}
             title={[line.label, line.sublabel].filter(Boolean).join(" · ")}
             style={{

@@ -13,6 +13,7 @@ import { expandPatternsForRange } from "./homeVisitPatterns.js";
 import { isKoreanHoliday } from "./koreanHolidays.js";
 import { withoutLegacyPayrollDuplicates } from "./payrollEntryDedupe.js";
 import { isInstitutionSlotCancelledOnDate } from "./scheduleExceptions.js";
+import { skippedReasonFromNote } from "./changeReasonOptions.js";
 
 export { getMonthGrid, fmtLocalDate, isSameDay };
 
@@ -216,6 +217,8 @@ export function effectiveSlotStatusLabel(planned, entry, { teachersById } = {}) 
     if (!entry?.entry_status && isKoreanHoliday(planned.dateStr)) {
       return "공휴일 · 수업 없음";
     }
+    const reason = skippedReasonFromNote(entry?.note);
+    if (reason) return `수업 안 함 (${reason})`;
     return entry?.note ? `수업 안 함 · ${entry.note}` : "수업 안 함";
   }
   return ENTRY_STATUS_LABEL[status] ?? "";
@@ -381,8 +384,61 @@ export function uniqueCalendarMarkersForDate(planned) {
   return markers;
 }
 
+/** 달력 칸용: "수업안함 (기관 휴원)" */
+export function formatSkippedCalendarLabel(entryOrReason) {
+  const reason = typeof entryOrReason === "string"
+    ? entryOrReason
+    : skippedReasonFromNote(entryOrReason?.note);
+  const r = String(reason || "").trim();
+  return r ? `수업안함 (${r})` : "수업안함";
+}
+
+function skippedCalendarLine(label, sortPrefix = "skip") {
+  return {
+    groupKey: `skip:${label}`,
+    name: label,
+    payType: "",
+    minutes: 0,
+    colorId: "skipped",
+    colorKind: "skipped",
+    sort: `${sortPrefix}\0${label}`,
+    label,
+    sublabel: null,
+  };
+}
+
+export function buildSkippedCalendarDayLines(planned = [], entries = []) {
+  const lines = [];
+  const seen = new Set();
+  const add = (entry, sortPrefix = "skip") => {
+    if (entry?.entry_status !== ENTRY_STATUS.skipped) return;
+    const label = formatSkippedCalendarLabel(entry);
+    if (seen.has(label)) return;
+    seen.add(label);
+    const row = skippedCalendarLine(label, sortPrefix);
+    lines.push({
+      key: row.groupKey,
+      name: row.name,
+      payType: row.payType,
+      minutes: row.minutes,
+      colorId: row.colorId,
+      colorKind: row.colorKind,
+      label: row.label,
+      sublabel: row.sublabel,
+    });
+  };
+  if (planned?.length) {
+    for (const p of planned) {
+      add(findEntryForPlanned(entries, p), p.startTime || "skip");
+    }
+  } else {
+    for (const e of entries || []) add(e);
+  }
+  return lines;
+}
+
 /** 선생님 월간 시간표 — 예정 수업을 급여 달력과 같은 "원 유형 N분" 줄로 */
-export function buildScheduleCalendarDayLines(planned = []) {
+export function buildScheduleCalendarDayLines(planned = [], entries = []) {
   /** @type {Map<string, { key: string, name: string, payType: string, minutes: number, sort: string, label?: string, sublabel?: string, colorId: string, colorKind: string }>} */
   const groups = new Map();
 
@@ -419,6 +475,11 @@ export function buildScheduleCalendarDayLines(planned = []) {
 
   for (const p of planned || []) {
     if (p.isSubstituteCancelled) continue;
+    const entry = findEntryForPlanned(entries, p);
+    if (entry?.entry_status === ENTRY_STATUS.skipped) {
+      addLine(skippedCalendarLine(formatSkippedCalendarLabel(entry), p.startTime || "skip"));
+      continue;
+    }
     const minutes = Number(p.scheduledMinutes) || 0;
     const isHome = p.source === "home_visit" || Boolean(p.patternId);
     const isOneoff = Boolean(p.isOneoffLesson);
@@ -524,7 +585,7 @@ export function confirmedMinutesForDate(entries, dateStr, teacherId = null) {
 /**
  * 급여 달력 날짜 표시
  * - confirmed: 수업별 "기관명 유형 N분" 줄
- * - skipped: ❌ (전부 수업 안 함)
+ * - skipped: 수업안함 (사유)
  * - null: 미확정/부분확정 — 표시 없음
  */
 export function payrollCalendarDayMark(planned, entries, dateStr, {
@@ -545,12 +606,16 @@ export function payrollCalendarDayMark(planned, entries, dateStr, {
   });
   const makeupArrivals = findMakeupEntriesForDate(entries, dateStr, teacherId);
   const minutes = confirmedMinutesForDate(entries, dateStr, teacherId);
+  const skippedLines = buildSkippedCalendarDayLines(list, entries);
 
   if (state === "done" || state === "mixed") {
     return {
       kind: "confirmed",
       minutes,
-      lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId, teachersById),
+      lines: [
+        ...buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId, teachersById),
+        ...skippedLines,
+      ],
     };
   }
 
@@ -562,10 +627,13 @@ export function payrollCalendarDayMark(planned, entries, dateStr, {
       return {
         kind: "confirmed",
         minutes,
-        lines: buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId, teachersById),
+        lines: [
+          ...buildConfirmedPayrollDayLines(list, entries, dateStr, teacherId, teachersById),
+          ...skippedLines,
+        ],
       };
     }
-    return { kind: "skipped", minutes: 0, lines: [] };
+    return { kind: "skipped", minutes: 0, lines: skippedLines };
   }
 
   // 스케줄 없는 날 — 직접 추가·보강 도착만 있는 경우
@@ -573,7 +641,7 @@ export function payrollCalendarDayMark(planned, entries, dateStr, {
     if (!dayEntries.length && !makeupArrivals.length) return null;
     const workEntries = dayEntries.filter((e) => e.entry_status !== ENTRY_STATUS.skipped);
     if (!workEntries.length && !makeupArrivals.length) {
-      return { kind: "skipped", minutes: 0, lines: [] };
+      return { kind: "skipped", minutes: 0, lines: buildSkippedCalendarDayLines([], dayEntries) };
     }
     return {
       kind: "confirmed",
@@ -785,6 +853,18 @@ export function buildConfirmedPayrollDayLines(
 
 export function isSlotUnconfirmed(entries, planned) {
   return !isSlotResolved(entries, planned);
+}
+
+/** 오늘까지 예정된 슬롯 중 entry_status 미확정 건수 */
+export function countUnconfirmedSlots(scheduleByDate, entries, today = new Date()) {
+  let n = 0;
+  for (const [dateStr, planned] of Object.entries(scheduleByDate)) {
+    if (!isDateConfirmable(dateStr, today) || !planned.length) continue;
+    for (const p of planned) {
+      if (isSlotUnconfirmed(entries, p)) n++;
+    }
+  }
+  return n;
 }
 
 /** 일괄 확정 시 건드리지 않을 슬롯 (개별 수정·수업 안 함·공휴일 기본값) */

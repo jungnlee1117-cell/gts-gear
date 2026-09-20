@@ -18,8 +18,10 @@ import {
   canBrowseTeacherProfiles,
   canEditTeacherActivityStatus,
   canEditTeacherProfile,
+  canManageTeacherDocuments,
   canUploadTeacherContract,
   canViewTeacherContract,
+  canViewTeacherDocuments,
   canRevealTeacherSettlement,
   canViewTeacherProfile,
   formatProfileDate,
@@ -30,6 +32,8 @@ import {
 } from "./teacherProfile.js";
 import MyProfileSettlementCard from "./MyProfileSettlementCard.jsx";
 import MyProfileContractsTab from "./MyProfileContractsTab.jsx";
+import MyProfileDocumentsTab from "./MyProfileDocumentsTab.jsx";
+import { countTeacherDocuments } from "./teacherDocuments.js";
 import { MyProfileCareersSection, MyProfileCertificationsSection } from "./MyProfileEntries.jsx";
 import {
   IdentityBadge,
@@ -205,7 +209,7 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
   const [affiliation, setAffiliation] = useState("");
   const [settlementEditing, setSettlementEditing] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
-  const docsCount = 0;
+  const [docsCount, setDocsCount] = useState(0);
   const refreshHrBadges = useCallback(() => setHrTick((n) => n + 1), []);
 
   const canBrowse = canBrowseTeacherProfiles(me);
@@ -216,6 +220,8 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
   const canRevealSettlement = canRevealTeacherSettlement(me, requestedId);
   const canUploadContract = canUploadTeacherContract(me);
   const canSignContract = Boolean(me?.id && me.id === requestedId);
+  const canViewDocs = canViewTeacherDocuments(me, requestedId);
+  const canManageDocs = canManageTeacherDocuments(me, requestedId);
   const displayEmail = requestedId === me?.id
     ? (session?.user?.email || profile?.email || "")
     : (profile?.email || "");
@@ -291,6 +297,18 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
       });
     return () => { cancelled = true; };
   }, [requestedId, canView, hrTick, supabase]);
+
+  useEffect(() => {
+    if (!requestedId || !canViewDocs) {
+      setDocsCount(0);
+      return undefined;
+    }
+    let cancelled = false;
+    countTeacherDocuments(supabase, requestedId)
+      .then((n) => { if (!cancelled) setDocsCount(n); })
+      .catch(() => { if (!cancelled) setDocsCount(0); });
+    return () => { cancelled = true; };
+  }, [requestedId, canViewDocs, hrTick, supabase]);
 
   useEffect(() => {
     if (!requestedId || !canView) {
@@ -649,6 +667,21 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
               />
             ) : (
               <p className="my-profile-empty">계약서는 해당 선생님과 대표님만 볼 수 있습니다.</p>
+            )}
+          </div>
+        ) : tab === "docs" ? (
+          <div role="tabpanel" id="my-profile-panel-docs" aria-labelledby="my-profile-tab-docs">
+            {canViewDocs ? (
+              <MyProfileDocumentsTab
+                supabase={supabase}
+                me={me}
+                teacherId={requestedId}
+                canManage={canManageDocs}
+                showTypeAdmin={canBrowse}
+                onChanged={refreshHrBadges}
+              />
+            ) : (
+              <p className="my-profile-empty">서류는 해당 선생님과 관리자만 볼 수 있습니다.</p>
             )}
           </div>
         ) : (

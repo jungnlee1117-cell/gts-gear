@@ -27,7 +27,7 @@ import {
   isScheduleRegionalManager,
   isScheduleSuperAdmin,
 } from "./managerScope.js";
-import { isScheduleAdmin } from "./roles.js";
+import { filterAssignableClassTeachers, isScheduleAdmin } from "./roles.js";
 import {
   findOverlappingInstitutionSlots,
   formatInstitutionOverlapWarning,
@@ -244,7 +244,7 @@ export default function RegularClassesManagePanel({
       }
       setTeacherNameById(names);
 
-      const roleTeachers = allTeachers.filter(t => t.role === "teacher");
+      const roleTeachers = filterAssignableClassTeachers(allTeachers);
       let allowedTeachers = roleTeachers;
       let allowedIds = new Set(roleTeachers.map(t => t.id));
 
@@ -258,6 +258,10 @@ export default function RegularClassesManagePanel({
         // 담당 원에 이미 등록된 슬롯 강사도 포함
         for (const s of allSlots || []) {
           if (s.teacher_id && instIds.has(s.institution_id)) allowedIds.add(s.teacher_id);
+        }
+        if (me?.id) allowedIds.add(me.id);
+        for (const t of roleTeachers) {
+          if (t.role === "admin") allowedIds.add(t.id);
         }
         allowedTeachers = roleTeachers.filter(t => allowedIds.has(t.id));
       } else if (!admin) {
@@ -730,6 +734,7 @@ export default function RegularClassesManagePanel({
                 </div>
                 <span>{group.rows.length}개 수업 · 총 {group.totalMinutes}분</span>
               </header>
+              <div className="sch-regular-classes-table-wrap">
               <div className="sch-regular-classes-table-head" aria-hidden="true">
                 <span>시간</span>
                 <span>유형</span>
@@ -751,14 +756,9 @@ export default function RegularClassesManagePanel({
             return (
               <li
                 key={slot.id}
-                className={`sch-regular-classes-item sch-regular-classes-item--${status}`}
+                className={`sch-regular-classes-item sch-regular-classes-item--row sch-regular-classes-item--${status}${editable ? " sch-regular-classes-item--editable" : ""}`}
+                onClick={() => editable && setEditForm(emptyEdit(slot))}
               >
-                <button
-                  type="button"
-                  className="sch-regular-classes-main"
-                  disabled={!editable}
-                  onClick={() => editable && setEditForm(emptyEdit(slot))}
-                >
                   <span className="sch-regular-classes-time-block">
                     <strong>{formatTime(slot.start_time)}–{formatTime(slot.end_time)}</strong>
                     <small>{mins}분</small>
@@ -787,8 +787,11 @@ export default function RegularClassesManagePanel({
                   <span className={`sch-regular-classes-status sch-regular-classes-status--${status}`}>
                     {statusLabel(status)}
                   </span>
-                </button>
-                <div className="sch-regular-classes-actions">
+                <div
+                  className="sch-regular-classes-actions"
+                  onClick={e => e.stopPropagation()}
+                  onKeyDown={e => e.stopPropagation()}
+                >
                   {editable ? (
                     <>
                     <button
@@ -818,15 +821,17 @@ export default function RegularClassesManagePanel({
                   <button
                     type="button"
                     className="sch-btn sch-btn--ghost sch-btn--sm"
+                    title="변경 이력"
                     onClick={() => setHistorySlot(slot)}
                   >
-                    <History size={13}/> 변경 이력
+                    <History size={13}/> 이력
                   </button>
                 </div>
               </li>
             );
               })}
               </ul>
+              </div>
             </section>
           ))}
         </div>
