@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ChevronLeft, Pencil } from "lucide-react";
+import { Ban, Check, ChevronLeft, Pencil } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import {
   classTypeLabel,
@@ -19,12 +19,10 @@ import {
 } from "./api.js";
 import {
   ENTRY_STATUS,
-  effectiveSlotStatusLabel,
   findEntryForPlanned,
   getSlotsForDate,
   getHomeVisitsForDate,
   isSlotUnconfirmed,
-  plannedSlotDisplayLabel,
 } from "./payrollCalendar.js";
 import { filterExceptionsForInstitutions } from "./scheduleExceptions.js";
 import { useScheduleAuthReady } from "./ScheduleAuthContext.jsx";
@@ -100,6 +98,22 @@ function demoEntryFromPlanned(planned, status = ENTRY_STATUS.as_scheduled, minut
 const DEMO_TEACHER_OPTIONS = [
   { id: "demo-other-teacher", name: "테스트 대체 선생님" },
 ];
+
+function checkInSlotHeading(item) {
+  const place = String(item?.institutionName || item?.studentName || "").trim();
+  const start = String(item?.startTime || "").trim();
+  const end = String(item?.endTime || "").trim();
+  const time = start && end ? `${start}~${end}` : start || end;
+  return [place, time].filter(Boolean).join(" ");
+}
+
+function checkInSlotSubLabel(item) {
+  const label = String(item?.displayLabel || "").trim();
+  const place = String(item?.institutionName || item?.studentName || "").trim();
+  if (!label || label === place) return "";
+  if (item?.source === "home_visit") return "";
+  return label;
+}
 
 function parseDateParam(value) {
   const text = String(value || "").slice(0, 10);
@@ -412,13 +426,17 @@ export default function ClassCheckInView({ me, onBack }) {
       {loading ? (
         <p className="sch-muted">불러오는 중...</p>
       ) : done ? (
-        <div className="sch-checkin-done">
-          <h3>
+        <div className="sch-checkin-done-card" role="status">
+          <div className="sch-checkin-done-card-icon" aria-hidden>
+            <Check size={22} />
+          </div>
+          <h3>{planned.length ? "남은 수업 모두 완료" : "오늘 예정된 수업이 없습니다"}</h3>
+          <p>
             {planned.length
-              ? (isDemo ? "테스트 확인을 모두 마쳤습니다" : "오늘 수업은 모두 확인했습니다")
-              : "오늘 예정된 수업이 없습니다"}
-          </h3>
-          <p className="sch-muted">{dateLabel}</p>
+              ? (isDemo ? "테스트 확인을 모두 마쳤습니다." : "오늘 수업은 모두 확인했습니다.")
+              : dateLabel}
+          </p>
+          {planned.length ? <p className="sch-checkin-done-card-date">{dateLabel}</p> : null}
           <button type="button" className="sch-btn sch-btn--primary" onClick={onBack}>
             급여 화면으로
           </button>
@@ -469,17 +487,21 @@ export default function ClassCheckInView({ me, onBack }) {
           <p className="sch-checkin-kicker">1단계 · {dateLabel}</p>
           <h3>오늘 수업 마치셨나요?</h3>
           <p className="sch-muted">
-            미확인 수업 {unconfirmed.length}건 · 급여 화면의 완료/수정과 같은 동작입니다.
+            확인할 수업 {unconfirmed.length}건 · 급여 화면의 완료/수정과 같은 동작입니다.
             {isDemo ? " (저장되지 않음)" : ""}
           </p>
           {unconfirmed.length > 1 ? (
             <button
               type="button"
-              className="sch-btn sch-btn--ghost sch-checkin-bulk"
+              className="sch-checkin-bulk-card"
               disabled={saving}
               onClick={handleConfirmRemaining}
             >
-              남은 수업 모두 완료
+              <Check size={18} />
+              <span>
+                <strong>남은 수업 모두 완료</strong>
+                <em>평소대로 {unconfirmed.length}건을 한 번에 확정합니다</em>
+              </span>
             </button>
           ) : null}
           <ul className="sch-payroll-slot-grid">
@@ -489,6 +511,7 @@ export default function ClassCheckInView({ me, onBack }) {
                 ? homeVisitColor(item.patternId)
                 : institutionColor(item.institutionId);
               const isCurrent = plannedKey(item) === plannedKey(currentPlanned);
+              const subLabel = checkInSlotSubLabel(item);
               return (
                 <li
                   key={plannedKey(item)}
@@ -497,23 +520,20 @@ export default function ClassCheckInView({ me, onBack }) {
                   <span className="sch-payroll-slot-card-accent" style={{ background: color }} aria-hidden />
                   <div className="sch-payroll-slot-card-body">
                     <div className="sch-payroll-slot-card-head">
-                      <span className="sch-payroll-slot-time">{item.startTime}–{item.endTime}</span>
+                      <span className="sch-payroll-slot-time">{checkInSlotHeading(item)}</span>
                       <span className="sch-payroll-slot-type">{classTypeLabel(item.payType)}</span>
                     </div>
-                    <div className="sch-payroll-slot-inst">{plannedSlotDisplayLabel(item)}</div>
-                    <div className="sch-payroll-status sch-payroll-status--pending">
-                      {effectiveSlotStatusLabel(item, entry)}
-                    </div>
+                    {subLabel ? <div className="sch-payroll-slot-inst">{subLabel}</div> : null}
                   </div>
                   {isCurrent ? (
-                    <div className="sch-payroll-slot-card-actions">
+                    <div className="sch-checkin-choice-row">
                       <button
                         type="button"
                         className="sch-payroll-confirm-btn"
                         disabled={saving}
                         onClick={() => handleConfirm(item)}
                       >
-                        <Check size={13} /> 완료
+                        <Check size={14} /> 완료
                       </button>
                       <button
                         type="button"
@@ -521,7 +541,19 @@ export default function ClassCheckInView({ me, onBack }) {
                         disabled={saving}
                         onClick={() => setCustomEdit(buildCustomEditState(item, entry))}
                       >
-                        <Pencil size={13} /> 수정
+                        <Pencil size={14} /> 수정
+                      </button>
+                      <button
+                        type="button"
+                        className="sch-btn sch-btn--skip sch-checkin-skip-btn"
+                        disabled={saving}
+                        onClick={() => setCustomEdit({
+                          ...buildCustomEditState(item, entry),
+                          intent: "skip",
+                        })}
+                      >
+                        <Ban size={13} aria-hidden />
+                        <span>수업<br />안 함</span>
                       </button>
                     </div>
                   ) : (

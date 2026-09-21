@@ -1,3 +1,5 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import webpush from "npm:web-push@3";
 import { runClassCheckinReminders } from "./classCheckinCron.ts";
 
 const corsHeaders = {
@@ -664,6 +666,7 @@ const SERVICE_ROLE_EVENTS = new Set([
   "giti_report_ready",
   "kiosk_rotation_conflict_rent",
   "cron_class_checkin",
+  "class_checkin_test",
 ]);
 
 /** 키오스크에서 순환 배정 선생님 외 대여 시, 배정 선생님에게 참고 알림 */
@@ -768,9 +771,22 @@ function extractBearerToken(authHeader: string | null) {
   return authHeader.replace(/^Bearer\s+/i, "").trim();
 }
 
-function isServiceRoleAuth(bearerToken: string, serviceKey: string) {
-  if (!bearerToken || !serviceKey) return false;
-  return bearerToken === serviceKey;
+function jwtRole(token: string) {
+  try {
+    const payloadB64 = token.split(".")[1]?.replace(/-/g, "+").replace(/_/g, "/") ?? "";
+    const padded = payloadB64.padEnd(payloadB64.length + ((4 - (payloadB64.length % 4)) % 4), "=");
+    const payload = JSON.parse(atob(padded));
+    return String(payload?.role || "");
+  } catch {
+    return "";
+  }
+}
+
+function isServiceRoleAuth(token: string, ...keys: string[]) {
+  const value = String(token || "").trim();
+  if (!value) return false;
+  if (keys.some((key) => Boolean(key) && value === key)) return true;
+  return jwtRole(value) === "service_role";
 }
 
 /** consultation_requested — GAS 등 외부 호출 (인증 불필요, verify_jwt=false 필수) */
@@ -935,11 +951,13 @@ async function deliverPushNotifications(
 
   webpush.setVapidDetails(vapid.subject, vapid.public, vapid.private);
 
+  const pushTag = String(resolved.tag || `${event}-${Date.now()}`);
   const pushPayload = JSON.stringify({
     title: resolved.title,
     body: resolved.body,
     url: resolved.url,
-    event,
+    event: pushTag,
+    tag: pushTag,
   });
 
   let sent = 0;
@@ -956,6 +974,7 @@ async function deliverPushNotifications(
             keys: { p256dh: sub.p256dh, auth: sub.auth },
           },
           pushPayload,
+          { TTL: 60 * 60 * 12, urgency: "high" },
         );
         sent += 1;
         console.log("[send-push] webpush.send OK", label);
@@ -1558,7 +1577,7 @@ async function resolveNotification(event, payload, userId, adminClient) {
       }
       return {
         teacherIds: [userId],
-        title: "오늘 수업 마치셨나요?",
+        title: "[테스트] 오늘 수업 마치셨나요?",
         body: "[테스트] 오늘 미확인 수업 2건 · 완료/수정 후 특이사항을 남겨 주세요",
         url: "/schedule?view=class-checkin&demo=1",
       };
@@ -1577,7 +1596,9 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const serviceKey = Deno.env.get("SERVICE_ROLE_KEY") ?? "";
+    const customServiceKey = (Deno.env.get("SERVICE_ROLE_KEY") ?? "").trim();
+    const autoServiceKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+    const serviceKey = autoServiceKey || customServiceKey;
     const vapidPublic = Deno.env.get("VAPID_PUBLIC_KEY") ?? "";
     const vapidPrivate = Deno.env.get("VAPID_PRIVATE_KEY") ?? "";
     const vapidSubject = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@gts.kr";
@@ -1610,8 +1631,8 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     const bearerToken = extractBearerToken(authHeader);
     const apiKeyHeader = req.headers.get("apikey")?.trim() ?? "";
-    const isServiceRole = isServiceRoleAuth(bearerToken, serviceKey)
-      || (Boolean(serviceKey) && apiKeyHeader === serviceKey);
+    const isServiceRole = isServiceRoleAuth(bearerToken, customServiceKey, autoServiceKey)
+      || isServiceRoleAuth(apiKeyHeader, customServiceKey, autoServiceKey);
 
     console.log("[send-push] auth", {
       event,
@@ -1646,6 +1667,17 @@ Deno.serve(async (req) => {
       if (event === "cron_class_checkin") {
         const result = await runClassCheckinReminders(adminClient, vapid, deliverPushNotifications);
         console.log("[send-push] cron_class_checkin complete", result);
+        return jsonResponse(result);
+      }
+      if (event === "class_checkin_test") {
+        const teacherIds = await getSuperAdminIds(adminClient);
+        const result = await deliverPushNotifications(adminClient, vapid, "class_checkin_test", {
+          teacherIds,
+          title: "[테스트] 오늘 수업 마치셨나요?",
+          body: "[테스트] 오늘 미확인 수업 2건 · 완료/수정 후 특이사항을 남겨 주세요",
+          url: "/schedule?view=class-checkin&demo=1",
+        });
+        console.log("[send-push] class_checkin_test (service) complete", result);
         return jsonResponse(result);
       }
     }

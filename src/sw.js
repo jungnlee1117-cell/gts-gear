@@ -49,7 +49,7 @@ async function handlePushEvent(event) {
     body,
     icon: '/pwa-192x192.png',
     badge: '/pwa-192x192.png',
-    tag: data.event ? `gts-${String(data.event)}` : 'gts-notification',
+    tag: data.tag || (data.event ? `gts-${String(data.event)}` : 'gts-notification'),
     data: { url },
   }
 

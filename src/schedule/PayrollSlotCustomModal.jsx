@@ -25,7 +25,7 @@ export default function PayrollSlotCustomModal({
   return (
     <div className="sch-modal-overlay" onClick={onClose}>
       <form className="sch-modal sch-form" onClick={(e) => e.stopPropagation()} onSubmit={onSave}>
-        <h3>수업 수정</h3>
+        <h3>{customEdit.intent === "skip" ? "수업 안 함" : "수업 수정"}</h3>
         <p className="sch-muted">
           {plannedSlotDisplayLabel(customEdit.planned)}
           {" · "}{classTypeLabel(customEdit.planned.payType)} · {customEdit.planned.dateStr}

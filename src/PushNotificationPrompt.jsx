@@ -2,10 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Bell, X } from "lucide-react";
 import {
   canShowPushPrompt,
-  clearPushPromptState,
   getPushEnvDiagnostics,
   getPushPromptState,
-  hasPushSubscription,
   isIosStandalonePwa,
   registerPushSubscription,
   requestNotificationPermission,
@@ -38,30 +36,25 @@ export default function PushNotificationPrompt({ supabase, teacherId }) {
     let timer = null;
 
     void (async () => {
-      const state = getPushPromptState();
-      if (state === "dismissed") return;
-
       if (Notification.permission === "denied") {
         setPushPromptState("dismissed");
         return;
       }
 
+      // 다른 기기 구독이 있거나 배너를 닫았어도, 허용된 기기는 endpoint 를 다시 저장한다.
       if (Notification.permission === "granted") {
-        const saved = await hasPushSubscription(supabase, teacherId);
+        console.info("[push] permission=granted — refresh this device subscription");
+        const result = await registerPushSubscription(supabase, teacherId);
         if (cancelled) return;
-        if (saved) {
+        if (result.ok) {
           setPushPromptState("subscribed");
           return;
         }
-        clearPushPromptState();
-        console.info("[push] permission=granted but DB empty — auto register");
-        const result = await registerPushSubscription(supabase, teacherId);
-        if (cancelled) return;
-        if (result.ok) return;
         console.warn("[push] auto register failed:", result.reason, result.error);
       }
 
-      if (getPushPromptState() === "subscribed") return;
+      const state = getPushPromptState();
+      if (state === "dismissed" || state === "subscribed") return;
 
       timer = setTimeout(() => {
         if (!cancelled) setVisible(true);

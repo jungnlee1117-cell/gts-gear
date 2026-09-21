@@ -22691,12 +22691,47 @@ button.pe-res-resource-youtube-thumb:hover {
   color: #78716c;
 }
 .sch-checkin-step h3,
-.sch-checkin-done h3 {
+.sch-checkin-done h3,
+.sch-checkin-done-card h3 {
   margin: 0 0 8px;
   font-size: 22px;
 }
 .sch-checkin-bulk {
   margin: 8px 0 14px;
+}
+.sch-checkin-bulk-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 10px 0 16px;
+  padding: 14px 16px;
+  text-align: left;
+  border: 1px solid #86efac;
+  border-radius: 14px;
+  background: #ecfdf5;
+  color: #14532d;
+  cursor: pointer;
+}
+.sch-checkin-bulk-card:hover:not(:disabled) {
+  background: #d1fae5;
+}
+.sch-checkin-bulk-card:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.sch-checkin-bulk-card strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+}
+.sch-checkin-bulk-card em {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 600;
+  color: #166534;
 }
 .sch-checkin-card--current {
   box-shadow: 0 0 0 2px #22c55e33;
@@ -22707,6 +22742,93 @@ button.pe-res-resource-youtube-thumb:hover {
 }
 .sch-checkin-done {
   padding: 24px 4px;
+}
+.sch-checkin-done-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 0 16px;
+  padding: 22px 18px;
+  border-radius: 16px;
+  background: #ecfdf5;
+  border: 1px solid #86efac;
+  color: #14532d;
+}
+.sch-checkin-done-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+}
+.sch-checkin-done-card h3 {
+  color: #14532d;
+}
+.sch-checkin-done-card p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #166534;
+}
+.sch-checkin-done-card-date {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #15803d !important;
+}
+.sch-checkin-done-card .sch-btn {
+  margin-top: 10px;
+}
+.sch-checkin .sch-payroll-slot-time {
+  white-space: normal;
+}
+.sch-checkin .sch-payroll-slot-grid {
+  grid-template-columns: 1fr;
+}
+.sch-checkin-choice-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0 2px 8px;
+  margin-top: 4px;
+}
+.sch-checkin-choice-row > button {
+  display: flex;
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  min-height: 52px;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  justify-content: center;
+  padding: 8px 2px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: normal;
+  text-align: center;
+  border-radius: 10px;
+  overflow: visible;
+  word-break: keep-all;
+}
+.sch-checkin-choice-row .sch-payroll-edit-btn {
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.sch-checkin-skip-btn {
+  margin: 0;
+}
+.sch-checkin-skip-btn span {
+  display: block;
+  line-height: 1.15;
 }
 .sch-admin-teacher-filters {
   display: flex;
