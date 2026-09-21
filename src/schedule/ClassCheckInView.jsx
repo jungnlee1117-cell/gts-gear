@@ -553,7 +553,7 @@ export default function ClassCheckInView({ me, onBack }) {
                         })}
                       >
                         <Ban size={13} aria-hidden />
-                        <span>수업<br />안 함</span>
+                        수업 안 함
                       </button>
                     </div>
                   ) : (

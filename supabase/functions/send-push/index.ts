@@ -771,22 +771,19 @@ function extractBearerToken(authHeader: string | null) {
   return authHeader.replace(/^Bearer\s+/i, "").trim();
 }
 
-function jwtRole(token: string) {
-  try {
-    const payloadB64 = token.split(".")[1]?.replace(/-/g, "+").replace(/_/g, "/") ?? "";
-    const padded = payloadB64.padEnd(payloadB64.length + ((4 - (payloadB64.length % 4)) % 4), "=");
-    const payload = JSON.parse(atob(padded));
-    return String(payload?.role || "");
-  } catch {
-    return "";
-  }
-}
-
 function isServiceRoleAuth(token: string, ...keys: string[]) {
   const value = String(token || "").trim();
   if (!value) return false;
-  if (keys.some((key) => Boolean(key) && value === key)) return true;
-  return jwtRole(value) === "service_role";
+  return keys.some((key) => Boolean(key) && value === key);
+}
+
+function getPushDisabledTeacherIds() {
+  return new Set(
+    String(Deno.env.get("PUSH_DISABLED_TEACHER_IDS") || "")
+      .split(/[\s,]+/)
+      .map((id) => id.trim())
+      .filter(Boolean),
+  );
 }
 
 /** consultation_requested — GAS 등 외부 호출 (인증 불필요, verify_jwt=false 필수) */
@@ -921,11 +918,22 @@ async function deliverPushNotifications(
   adminClient,
   vapid: { public: string; private: string; subject: string },
   event: string,
-  resolved: { teacherIds: string[]; title: string; body: string; url: string },
+  resolved: { teacherIds: string[]; title: string; body: string; url: string; tag?: string },
 ) {
-  const teacherIds = [...new Set((resolved.teacherIds || []).filter(Boolean))];
+  const requestedTeacherIds = [...new Set((resolved.teacherIds || []).filter(Boolean))];
+  const disabledTeacherIds = getPushDisabledTeacherIds();
+  const suppressedTeacherIds = requestedTeacherIds.filter((id) => disabledTeacherIds.has(id));
+  const teacherIds = requestedTeacherIds.filter((id) => !disabledTeacherIds.has(id));
   if (!teacherIds.length) {
-    return { sent: 0, total: 0, failed: 0, staleRemoved: 0, failures: [], message: "No recipients" };
+    return {
+      sent: 0,
+      total: 0,
+      failed: 0,
+      staleRemoved: 0,
+      failures: [],
+      message: "No recipients",
+      suppressedTeacherIds,
+    };
   }
 
   const { data: subscriptions, error: subError } = await adminClient
@@ -946,6 +954,7 @@ async function deliverPushNotifications(
       failures: [],
       message: "No subscriptions",
       teacherIds,
+      suppressedTeacherIds,
     };
   }
 
@@ -1006,6 +1015,7 @@ async function deliverPushNotifications(
     staleRemoved: staleIds.length,
     failures,
     teacherIds,
+    suppressedTeacherIds,
   };
 }
 
