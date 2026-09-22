@@ -5,7 +5,7 @@ import TeacherMultiSelect from "./TeacherMultiSelect.jsx";
 import {
   TODO_AUDIENCE_OPTIONS,
   audienceTypeLabel,
-  selectableTodoTeachers,
+  selectableTodoAssignees,
 } from "./todoAudience.js";
 
 /**
@@ -35,8 +35,8 @@ export default function RecurringTodosSection({
     () => teacherOptions.filter((t) => isItemAdmin(t) || t.role === "admin"),
     [teacherOptions],
   );
-  const multiTeacherOptions = useMemo(
-    () => selectableTodoTeachers(teachers),
+  const multiAssigneeOptions = useMemo(
+    () => selectableTodoAssignees(teachers),
     [teachers],
   );
   const superAdmins = useMemo(
@@ -111,7 +111,7 @@ export default function RecurringTodosSection({
       return alert("담당자를 선택하세요.");
     }
     if (form.audience_type === "selected_teachers" && !(form.teacher_ids || []).length) {
-      return alert("선생님을 한 명 이상 선택하세요.");
+      return alert("담당자를 한 명 이상 선택하세요.");
     }
 
     const payload = {
@@ -343,10 +343,10 @@ export default function RecurringTodosSection({
             {form.audience_type === "selected_teachers" ? (
               <div style={{ marginTop: 4 }}>
                 <TeacherMultiSelect
-                  teachers={multiTeacherOptions}
+                  teachers={multiAssigneeOptions}
                   selectedIds={form.teacher_ids || []}
                   onChange={(ids) => setForm((f) => ({ ...f, teacher_ids: ids }))}
-                  emptyText="선택 가능한 선생님이 없습니다."
+                  emptyText="선택 가능한 선생님·관리자가 없습니다."
                 />
               </div>
             ) : null}

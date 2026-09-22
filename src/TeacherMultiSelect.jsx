@@ -5,14 +5,14 @@ function normalizeName(s) {
 }
 
 /**
- * 선생님 다중 선택 — 검색/엔터 + 칩 + 체크박스 목록
+ * 담당자 다중 선택 — 검색/엔터 + 칩 + 체크박스 목록
  * @param {{ teachers: Array<{id:string,name?:string}>, selectedIds: string[], onChange: (ids: string[]) => void, emptyText?: string }} props
  */
 export default function TeacherMultiSelect({
   teachers = [],
   selectedIds = [],
   onChange,
-  emptyText = "선택 가능한 선생님이 없습니다.",
+  emptyText = "선택 가능한 담당자가 없습니다.",
 }) {
   const [query, setQuery] = useState("");
   const [hint, setHint] = useState("");
@@ -66,7 +66,7 @@ export default function TeacherMultiSelect({
     } else if (partial.length === 1) {
       pick = partial[0];
     } else if (partial.length === 0) {
-      setHint(`「${query.trim()}」와 일치하는 선생님이 없습니다.`);
+      setHint(`「${query.trim()}」와 일치하는 담당자가 없습니다.`);
       return;
     } else {
       setHint(`「${query.trim()}」검색 결과가 ${partial.length}명입니다. 목록에서 골라 주세요.`);
@@ -88,7 +88,7 @@ export default function TeacherMultiSelect({
       </div>
 
       {selectedTeachers.length > 0 ? (
-        <div className="teacher-multi-select__chips" aria-label="선택된 선생님">
+        <div className="teacher-multi-select__chips" aria-label="선택된 담당자">
           {selectedTeachers.map((t) => (
             <button
               key={t.id}

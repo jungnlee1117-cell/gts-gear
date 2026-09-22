@@ -21,15 +21,6 @@ function parseYmd(value) {
   return new Date(year, month - 1, day);
 }
 
-function monthRange(monthBase) {
-  const year = monthBase.getFullYear();
-  const month = monthBase.getMonth();
-  return {
-    start: ymd(new Date(year, month, 1)),
-    end: ymd(new Date(year, month + 1, 0)),
-  };
-}
-
 function monthGrid(monthBase) {
   const first = new Date(monthBase.getFullYear(), monthBase.getMonth(), 1);
   const gridStart = new Date(first.getFullYear(), first.getMonth(), 1 - first.getDay());
@@ -58,6 +49,100 @@ function eventsByDate(events, range) {
     }
   }
   return map;
+}
+
+function todoDateBounds(todo) {
+  const due = String(todo?.due_date || "").slice(0, 10);
+  const start = String(todo?.start_date || due).slice(0, 10);
+  if (!start && !due) return null;
+  const end = due || start;
+  return start <= end ? { start, end } : { start: end, end: start };
+}
+
+function todosByDate(todos, range) {
+  const map = new Map();
+  for (const todo of todos || []) {
+    const bounds = todoDateBounds(todo);
+    if (!bounds) continue;
+    let cursor = parseYmd(bounds.start);
+    const end = parseYmd(bounds.end);
+    while (cursor <= end) {
+      const dateStr = ymd(cursor);
+      if (dateStr >= range.start && dateStr <= range.end) {
+        if (!map.has(dateStr)) map.set(dateStr, []);
+        map.get(dateStr).push(todo);
+      }
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+    }
+  }
+  return map;
+}
+
+function isMultiDayEvent(event) {
+  const start = String(event?.exception_date || "").slice(0, 10);
+  const end = String(event?.end_date || start).slice(0, 10);
+  return Boolean(start && end && end > start);
+}
+
+function isMultiDayTodo(todo) {
+  const bounds = todoDateBounds(todo);
+  return Boolean(bounds && bounds.end > bounds.start);
+}
+
+function buildWeekRangeLayout(weekCells, events, todos, institutionNameById) {
+  const weekStart = weekCells[0]?.dateStr;
+  const weekEnd = weekCells[6]?.dateStr;
+  if (!weekStart || !weekEnd) return { laneCount: 0, segments: [] };
+
+  const items = [
+    ...(events || [])
+      .filter(isMultiDayEvent)
+      .map((event) => ({
+        key: `event-${event.id}`,
+        type: "event",
+        start: String(event.exception_date).slice(0, 10),
+        end: String(event.end_date || event.exception_date).slice(0, 10),
+        text: eventTitle(event, institutionNameById),
+        done: false,
+      })),
+    ...(todos || [])
+      .filter(isMultiDayTodo)
+      .map((todo) => {
+        const bounds = todoDateBounds(todo);
+        return {
+          key: `todo-${todo.id}`,
+          type: "todo",
+          start: bounds.start,
+          end: bounds.end,
+          text: todo.content,
+          done: Boolean(todo.is_completed),
+        };
+      }),
+  ]
+    .filter((item) => item.start <= weekEnd && item.end >= weekStart)
+    .map((item) => ({
+      ...item,
+      clippedStart: item.start < weekStart ? weekStart : item.start,
+      clippedEnd: item.end > weekEnd ? weekEnd : item.end,
+    }))
+    .sort((a, b) => (
+      a.clippedStart.localeCompare(b.clippedStart)
+      || b.clippedEnd.localeCompare(a.clippedEnd)
+      || a.type.localeCompare(b.type)
+      || a.text.localeCompare(b.text, "ko")
+    ));
+
+  const laneEnds = [];
+  const segments = items.map((item) => {
+    const startCol = weekCells.findIndex((cell) => cell.dateStr === item.clippedStart);
+    const endCol = weekCells.findIndex((cell) => cell.dateStr === item.clippedEnd);
+    let lane = laneEnds.findIndex((lastEnd) => startCol > lastEnd);
+    if (lane < 0) lane = laneEnds.length;
+    laneEnds[lane] = endCol;
+    return { ...item, startCol, endCol, lane };
+  });
+
+  return { laneCount: laneEnds.length, segments };
 }
 
 function eventTitle(event, institutionNameById) {
@@ -93,8 +178,15 @@ export default function HubTodoCalendar({
   const [registerNonce, setRegisterNonce] = useState(0);
   const [registerChoiceDate, setRegisterChoiceDate] = useState("");
   const [saving, setSaving] = useState(false);
-  const range = useMemo(() => monthRange(monthBase), [monthBase]);
   const cells = useMemo(() => monthGrid(monthBase), [monthBase]);
+  const range = useMemo(() => ({
+    start: cells[0].dateStr,
+    end: cells[cells.length - 1].dateStr,
+  }), [cells]);
+  const weeks = useMemo(
+    () => Array.from({ length: 6 }, (_, index) => cells.slice(index * 7, index * 7 + 7)),
+    [cells],
+  );
   const rangeKey = `${range.start}:${range.end}`;
   const loading = loadedRange !== rangeKey;
 
@@ -155,15 +247,16 @@ export default function HubTodoCalendar({
   );
 
   const eventMap = useMemo(() => eventsByDate(events, range), [events, range]);
-  const todoMap = useMemo(() => {
-    const map = new Map();
-    for (const todo of myDueTodos) {
-      const date = String(todo.due_date).slice(0, 10);
-      if (!map.has(date)) map.set(date, []);
-      map.get(date).push(todo);
-    }
-    return map;
-  }, [myDueTodos]);
+  const todoMap = useMemo(() => todosByDate(myDueTodos, range), [myDueTodos, range]);
+  const weekRangeLayouts = useMemo(
+    () => weeks.map((week) => buildWeekRangeLayout(
+      week,
+      events,
+      myDueTodos,
+      institutionNameById,
+    )),
+    [weeks, events, myDueTodos, institutionNameById],
+  );
 
   const selectedEvents = eventMap.get(selectedDate) || [];
   const selectedTodos = todoMap.get(selectedDate) || [];
@@ -293,57 +386,102 @@ export default function HubTodoCalendar({
 
       <div className="hub-todo-calendar__grid" role="grid" aria-label={`${monthBase.getMonth() + 1}월 일정`}>
         {DAY_LABELS.map(label => <div key={label} className="hub-todo-calendar__weekday">{label}</div>)}
-        {cells.map(({ date, dateStr, inMonth }) => {
-          const dayEvents = eventMap.get(dateStr) || [];
-          const dayTodos = todoMap.get(dateStr) || [];
-          const holiday = inMonth ? getKoreanHoliday(dateStr) : null;
-          const entries = [
-            ...dayEvents.map(event => ({
-              key: `event-${event.id}`,
-              type: "event",
-              text: eventTitle(event, institutionNameById),
-            })),
-            ...dayTodos.map(todo => ({ key: `todo-${todo.id}`, type: "todo", text: todo.content, done: todo.is_completed })),
-          ];
+        {weeks.map((week, weekIndex) => {
+          const layout = weekRangeLayouts[weekIndex] || { laneCount: 0, segments: [] };
           return (
-            <button
-              key={dateStr}
-              type="button"
-              role="gridcell"
-              data-date={dateStr}
-              aria-label={`${dateStr}${holiday ? ` ${holiday.name}` : ""} 일정`}
-              className={[
-                "hub-todo-calendar__day",
-                !inMonth && "is-outside",
-                dateStr === todayStr && "is-today",
-                dateStr === selectedDate && "is-selected",
-                holiday && "is-holiday",
-              ].filter(Boolean).join(" ")}
-              onClick={() => {
-                setSelectedDate(dateStr);
-                if (!inMonth) setMonthBase(new Date(date.getFullYear(), date.getMonth(), 1));
-              }}
-              onDoubleClick={() => openRegisterChoice(dateStr)}
+            <div
+              key={`week-${week[0].dateStr}`}
+              className="hub-todo-calendar__week"
+              role="row"
+              style={{ "--range-space": `${layout.laneCount * 16}px` }}
             >
-              <span className="hub-todo-calendar__date">{date.getDate()}</span>
-              {holiday ? (
-                <span className="hub-todo-calendar__holiday" title={holiday.name}>
-                  {holidayShortLabel(holiday.name)}
-                </span>
-              ) : null}
-              <span className="hub-todo-calendar__entries">
-                {entries.slice(0, 2).map(entry => (
-                  <span
-                    key={entry.key}
-                    className={`hub-todo-calendar__entry is-${entry.type}${entry.done ? " is-done" : ""}`}
-                    title={entry.text}
+              {week.map(({ date, dateStr, inMonth }) => {
+                const dayEvents = eventMap.get(dateStr) || [];
+                const dayTodos = todoMap.get(dateStr) || [];
+                const holiday = inMonth ? getKoreanHoliday(dateStr) : null;
+                const entries = [
+                  ...dayEvents
+                    .filter((event) => !isMultiDayEvent(event))
+                    .map(event => ({
+                      key: `event-${event.id}`,
+                      type: "event",
+                      text: eventTitle(event, institutionNameById),
+                    })),
+                  ...dayTodos
+                    .filter((todo) => !isMultiDayTodo(todo))
+                    .map(todo => ({
+                      key: `todo-${todo.id}`,
+                      type: "todo",
+                      text: todo.content,
+                      done: todo.is_completed,
+                    })),
+                ];
+                return (
+                  <button
+                    key={dateStr}
+                    type="button"
+                    role="gridcell"
+                    data-date={dateStr}
+                    aria-label={`${dateStr}${holiday ? ` ${holiday.name}` : ""} 일정`}
+                    className={[
+                      "hub-todo-calendar__day",
+                      !inMonth && "is-outside",
+                      dateStr === todayStr && "is-today",
+                      dateStr === selectedDate && "is-selected",
+                      holiday && "is-holiday",
+                    ].filter(Boolean).join(" ")}
+                    onClick={() => {
+                      setSelectedDate(dateStr);
+                      if (!inMonth) setMonthBase(new Date(date.getFullYear(), date.getMonth(), 1));
+                    }}
+                    onDoubleClick={() => openRegisterChoice(dateStr)}
                   >
-                    {entry.text}
-                  </span>
-                ))}
-                {entries.length > 2 ? <span className="hub-todo-calendar__more">+{entries.length - 2}</span> : null}
-              </span>
-            </button>
+                    <span className="hub-todo-calendar__day-head">
+                      <span className="hub-todo-calendar__date">{date.getDate()}</span>
+                      {holiday ? (
+                        <span className="hub-todo-calendar__holiday" title={holiday.name}>
+                          {holidayShortLabel(holiday.name)}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="hub-todo-calendar__range-space" aria-hidden />
+                    <span className="hub-todo-calendar__entries">
+                      {entries.slice(0, 2).map(entry => (
+                        <span
+                          key={entry.key}
+                          className={`hub-todo-calendar__entry is-${entry.type}${entry.done ? " is-done" : ""}`}
+                          title={entry.text}
+                        >
+                          {entry.text}
+                        </span>
+                      ))}
+                      {entries.length > 2 ? <span className="hub-todo-calendar__more">+{entries.length - 2}</span> : null}
+                    </span>
+                  </button>
+                );
+              })}
+              {layout.laneCount > 0 ? (
+                <div className="hub-todo-calendar__range-layer" aria-hidden="true">
+                  {layout.segments.map((segment) => (
+                    <span
+                      key={`${segment.key}-${weekIndex}`}
+                      className={[
+                        "hub-todo-calendar__range-bar",
+                        `is-${segment.type}`,
+                        segment.done && "is-done",
+                      ].filter(Boolean).join(" ")}
+                      style={{
+                        gridColumn: `${segment.startCol + 1} / ${segment.endCol + 2}`,
+                        gridRow: segment.lane + 1,
+                      }}
+                      title={segment.text}
+                    >
+                      {segment.text}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           );
         })}
       </div>

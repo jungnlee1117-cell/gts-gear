@@ -56,6 +56,7 @@ import {
   TODO_AUDIENCE_OPTIONS,
   isMultiAudienceType,
   newSpawnGroupId,
+  selectableTodoAssignees,
   selectableTodoTeachers,
 } from "./todoAudience.js";
 import UnifiedNoticesFeed from "./UnifiedNoticesFeed.jsx";
@@ -8089,7 +8090,11 @@ function AdminTodoSection({
     () => (teachers || []).filter(t => isItemAdmin(t) || t.role==="admin"),
     [teachers]
   );
-  const multiTeacherOptions = useMemo(
+  const multiAssigneeOptions = useMemo(
+    () => selectableTodoAssignees(teachers),
+    [teachers],
+  );
+  const allTeacherOptions = useMemo(
     () => selectableTodoTeachers(teachers),
     [teachers],
   );
@@ -8260,10 +8265,10 @@ function AdminTodoSection({
         return;
       }
       if (audienceMode === "selected_teachers" && selectedTeacherIds.length === 0) {
-        alert("선생님을 한 명 이상 선택하세요.");
+        alert("담당자를 한 명 이상 선택하세요.");
         return;
       }
-      if (audienceMode === "all_teachers" && multiTeacherOptions.length === 0) {
+      if (audienceMode === "all_teachers" && allTeacherOptions.length === 0) {
         alert("등록할 활성 선생님이 없습니다.");
         return;
       }
@@ -8294,7 +8299,7 @@ function AdminTodoSection({
           teacher_ids: audienceMode === "selected_teachers"
             ? selectedTeacherIds
             : audienceMode === "all_teachers"
-              ? multiTeacherOptions.map((t) => t.id)
+              ? allTeacherOptions.map((t) => t.id)
               : [],
           priority: priority === "urgent" ? "urgent" : priority === "important" ? "important" : "normal",
           start_date: toKstDateOnly(start),
@@ -8377,7 +8382,7 @@ function AdminTodoSection({
             {!personalOnly ? (
               <select value={filterAssignee} onChange={e => { setFilterAssignee(e.target.value); setVisibleCount(6); }} className="admin-todo-assignee-filter">
                 <option value="all">전체 담당자</option>
-                <option value="unassigned">담당: 전체</option>
+                <option value="unassigned">공용(담당자 없음)</option>
                 {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             ) : null}
@@ -8416,7 +8421,7 @@ function AdminTodoSection({
             <span aria-hidden/>
           </div>
           {shownTodos.map(t => {
-            const who = t.assignee_id ? assigneeName(t.assignee_id) : "전체";
+            const who = t.assignee_id ? assigneeName(t.assignee_id) : "공용";
             const checklist = Array.isArray(t.checklist) ? t.checklist : [];
             const doneN = checklist.filter(c => c.done).length;
             const pri = priMeta(t.priority);
@@ -8516,8 +8521,8 @@ function AdminTodoSection({
       {!personalOnly && teacherStatusGroups.length > 0 ? (
         <div className="admin-todo-teacher-status">
           <div className="admin-todo-teacher-status__head">
-            <h3 className="admin-todo-teacher-status__title">선생님 업무 현황</h3>
-            <span className="admin-todo-teacher-status__hint">클릭하면 선생님별 완료 현황을 볼 수 있습니다</span>
+            <h3 className="admin-todo-teacher-status__title">담당자 업무 현황</h3>
+            <span className="admin-todo-teacher-status__hint">클릭하면 담당자별 완료 현황을 볼 수 있습니다</span>
           </div>
           <div className="admin-todo-teacher-status__list">
             {teacherStatusGroups.map((g) => {
@@ -8546,7 +8551,7 @@ function AdminTodoSection({
                   {open ? (
                     <div className="admin-todo-teacher-group__detail">
                       {g.items.map((t) => {
-                        const who = assigneeName(t.assignee_id) || "선생님";
+                        const who = assigneeName(t.assignee_id) || "담당자";
                         return (
                           <label key={t.id} className={`admin-todo-teacher-person${t.is_completed ? " is-done" : ""}`}>
                             <input
@@ -8632,7 +8637,7 @@ function AdminTodoSection({
                   }}
                   style={{ ...inputStyle, cursor:"pointer", width:"100%", minHeight:44 }}
                 >
-                  <option value="shared">담당: 전체(공용 1건)</option>
+                  <option value="shared">공용 1건(담당자 없음)</option>
                   {assigneeOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               ) : (
@@ -8670,10 +8675,10 @@ function AdminTodoSection({
                   {audienceMode === "selected_teachers" ? (
                     <div style={{ marginTop: 8 }}>
                       <TeacherMultiSelect
-                        teachers={multiTeacherOptions}
+                        teachers={multiAssigneeOptions}
                         selectedIds={selectedTeacherIds}
                         onChange={setSelectedTeacherIds}
-                        emptyText="선택 가능한 선생님이 없습니다."
+                        emptyText="선택 가능한 선생님·관리자가 없습니다."
                       />
                     </div>
                   ) : null}
@@ -12440,7 +12445,7 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
       assigneeIds = [assignee_id];
     } else if (mode === "selected_teachers" || mode === "all_teachers") {
       assigneeIds = [...new Set((teacher_ids || []).filter(Boolean))];
-      if (!assigneeIds.length) { alert("대상 선생님이 없습니다."); return; }
+      if (!assigneeIds.length) { alert("배정할 담당자가 없습니다."); return; }
       spawnGroupId = newSpawnGroupId();
     } else {
       // shared — 공용 1건
@@ -13133,7 +13138,7 @@ function EquipmentApp({ onBack, me, session }) {
       assigneeIds = [assignee_id];
     } else if (mode === "selected_teachers" || mode === "all_teachers") {
       assigneeIds = [...new Set((teacher_ids || []).filter(Boolean))];
-      if (!assigneeIds.length) { alert("대상 선생님이 없습니다."); return; }
+      if (!assigneeIds.length) { alert("배정할 담당자가 없습니다."); return; }
       spawnGroupId = newSpawnGroupId();
     } else {
       assigneeIds = [null];
