@@ -21,6 +21,8 @@ import {
   fetchScheduleExceptions,
   fetchSubstituteAssignmentsForTeacher,
   fetchSubstituteLessons,
+  fetchTeacherCalendarProfile,
+  fetchTeacherVacations,
   fetchOneoffLessons,
   fetchTeachers,
   fetchWeeklySchedule,
@@ -79,6 +81,35 @@ import { useScheduleAuthReady } from "./ScheduleAuthContext.jsx";
 
 const TODAY = new Date();
 
+function buildVacationWeekLayout(week, vacations, teacherName) {
+  const weekStart = fmtLocalDate(week[0].date);
+  const weekEnd = fmtLocalDate(week[6].date);
+  const laneEnds = [];
+  const segments = (vacations || [])
+    .filter(vacation => vacation.start_date <= weekEnd && vacation.end_date >= weekStart)
+    .map(vacation => ({
+      ...vacation,
+      clippedStart: vacation.start_date < weekStart ? weekStart : vacation.start_date,
+      clippedEnd: vacation.end_date > weekEnd ? weekEnd : vacation.end_date,
+    }))
+    .sort((a, b) => a.clippedStart.localeCompare(b.clippedStart) || b.clippedEnd.localeCompare(a.clippedEnd))
+    .map(vacation => {
+      const startCol = week.findIndex(cell => fmtLocalDate(cell.date) === vacation.clippedStart);
+      const endCol = week.findIndex(cell => fmtLocalDate(cell.date) === vacation.clippedEnd);
+      let lane = laneEnds.findIndex(lastEnd => startCol > lastEnd);
+      if (lane < 0) lane = laneEnds.length;
+      laneEnds[lane] = endCol;
+      return {
+        ...vacation,
+        startCol,
+        endCol,
+        lane,
+        text: `${teacherName || vacation.teacher?.name || "선생님"} 휴무`,
+      };
+    });
+  return { laneCount: laneEnds.length, segments };
+}
+
 export default function TeacherMonthlyScheduleView({
   me,
   onBack,
@@ -95,6 +126,8 @@ export default function TeacherMonthlyScheduleView({
   const [assignedInstitutions, setAssignedInstitutions] = useState([]);
   const [entries, setEntries] = useState([]);
   const [exceptions, setExceptions] = useState([]);
+  const [vacations, setVacations] = useState([]);
+  const [teacherProfile, setTeacherProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [detailSlot, setDetailSlot] = useState(null);
   const [detailHomeVisit, setDetailHomeVisit] = useState(null);
@@ -123,6 +156,10 @@ export default function TeacherMonthlyScheduleView({
   const yearMonth = yearMonthKey(monthBase);
 
   const gridCells = useMemo(() => getMonthGrid(year, month), [year, month]);
+  const calendarWeeks = useMemo(
+    () => Array.from({ length: 6 }, (_, index) => gridCells.slice(index * 7, index * 7 + 7)),
+    [gridCells],
+  );
 
   const rangeFrom = fmtLocalDate(gridCells[0].date);
   const rangeTo = fmtLocalDate(gridCells[gridCells.length - 1].date);
@@ -144,6 +181,8 @@ export default function TeacherMonthlyScheduleView({
         fetchOneoffLessons({ fromDate: rangeFrom, toDate: rangeTo, teacherId }),
         fetchClassIncidentReports({ teacherId, fromDate: rangeFrom, toDate: rangeTo }),
         fetchFinalizedInstitutionIds(yearMonth),
+        fetchTeacherVacations({ teacherId, fromDate: rangeFrom, toDate: rangeTo }),
+        fetchTeacherCalendarProfile(teacherId),
       ]);
       const labels = [
         "weeklySchedule",
@@ -156,6 +195,8 @@ export default function TeacherMonthlyScheduleView({
         "oneoffLessons",
         "incidentReports",
         "finalizedIds",
+        "teacherVacations",
+        "teacherProfile",
       ];
       const val = (i, fallback = []) => {
         const r = settled[i];
@@ -174,6 +215,8 @@ export default function TeacherMonthlyScheduleView({
       const oneoffs = val(7);
       const incidents = val(8, { rows: [] });
       const fin = val(9, new Set());
+      const vacationRows = val(10);
+      const profile = val(11, null);
 
       setSlots(w);
       setHomeVisitPatterns(hv);
@@ -193,6 +236,8 @@ export default function TeacherMonthlyScheduleView({
       setOneoffLessons(oneoffs);
       setIncidentReports(incidents?.rows || []);
       setFinalizedIds(fin instanceof Set ? fin : new Set(fin || []));
+      setVacations(vacationRows);
+      setTeacherProfile(profile);
     } finally {
       setLoading(false);
     }
@@ -220,6 +265,17 @@ export default function TeacherMonthlyScheduleView({
     () => patternsForCalendarMonth(homeVisitPatterns, rangeFrom, rangeTo),
     [homeVisitPatterns, rangeFrom, rangeTo],
   );
+
+  const vacationWeekLayouts = useMemo(
+    () => calendarWeeks.map(week => buildVacationWeekLayout(
+      week,
+      vacations,
+      teacherProfile?.name || targetTeacherName,
+    )),
+    [calendarWeeks, vacations, teacherProfile, targetTeacherName],
+  );
+
+  const birthdayMonthDay = String(teacherProfile?.birth_date || "").slice(5, 10);
 
   const teacherInstitutionIds = useMemo(
     () => new Set(slots.map(s => s.institution_id).filter(Boolean)),
@@ -561,11 +617,20 @@ export default function TeacherMonthlyScheduleView({
             ))}
           </div>
           <div className="sch-cal-body">
-            {gridCells.map(({ date, inMonth }) => {
+            {calendarWeeks.map((week, weekIndex) => {
+              const vacationLayout = vacationWeekLayouts[weekIndex] || { laneCount: 0, segments: [] };
+              return (
+                <div
+                  key={`week-${weekIndex}`}
+                  className="sch-cal-week"
+                  style={{ "--sch-vacation-space": `${vacationLayout.laneCount * 15}px` }}
+                >
+                {week.map(({ date, inMonth }) => {
                 const dateStr = fmtLocalDate(date);
                 const isToday = isSameDay(date, TODAY);
                 const isSelected = isSameDay(date, selectedDate);
                 const holiday = getKoreanHoliday(dateStr);
+                const isBirthday = Boolean(inMonth && birthdayMonthDay && dateStr.slice(5) === birthdayMonthDay);
                 const dayEvents = inMonth ? (exceptionsByDate[dateStr] || []) : [];
                 const planned = inMonth ? (displayScheduleByDate[dateStr] || []) : [];
                 const classLines = inMonth && !holiday
@@ -597,6 +662,7 @@ export default function TeacherMonthlyScheduleView({
                   >
                     {inMonth ? <CalendarDayStatusIcon kind={statusKind} /> : null}
                     <span className="sch-cal-day-num">{date.getDate()}</span>
+                    {vacationLayout.laneCount > 0 ? <span className="sch-cal-vacation-space" aria-hidden/> : null}
                     {subBadge ? (
                       <span className={`sch-cal-sub-badge sch-cal-sub-badge--${subBadge.kind}`}>
                         {subBadge.label}
@@ -607,13 +673,36 @@ export default function TeacherMonthlyScheduleView({
                         {holidayShortLabel(holiday.name)}
                       </span>
                     ) : null}
+                    {isBirthday ? (
+                      <span className="sch-cal-birthday-label">🎂 {teacherProfile?.name || targetTeacherName || "선생님"} 생일</span>
+                    ) : null}
                     {!holiday && classLines.length > 0 ? <CalendarClassLines lines={classLines} /> : null}
                     {dayEvents.length > 0 ? (
                       <CalendarEventBadges events={dayEvents} maxVisible={2} compact/>
                     ) : null}
                   </button>
                 );
-              })}
+                })}
+                {vacationLayout.laneCount > 0 ? (
+                  <div className="sch-cal-vacation-layer" aria-hidden="true">
+                    {vacationLayout.segments.map(segment => (
+                      <span
+                        key={`${segment.id}-${weekIndex}`}
+                        className="sch-cal-vacation-bar"
+                        style={{
+                          gridColumn: `${segment.startCol + 1} / ${segment.endCol + 2}`,
+                          gridRow: segment.lane + 1,
+                        }}
+                        title={segment.note ? `${segment.text} · ${segment.note}` : segment.text}
+                      >
+                        {segment.text}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

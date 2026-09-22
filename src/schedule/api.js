@@ -126,13 +126,13 @@ export async function fetchTeachers({ yearMonth, allowBeforeHire = false } = {})
 export async function fetchTeachersUnfiltered() {
   const { data, error } = await scheduleSupabase
     .from("teachers")
-    .select("id, name, role, active, hire_date, resigned_at")
+    .select("id, name, role, active, hire_date, resigned_at, birth_date")
     .order("name");
   if (error) {
     if (/hire_date/i.test(error.message || "")) {
       const fallback = await scheduleSupabase
         .from("teachers")
-        .select("id, name, role, active, resigned_at")
+        .select("id, name, role, active, resigned_at, birth_date")
         .order("name");
       if (fallback.error) throw fallback.error;
       return (fallback.data || []).filter((t) => t.active !== false || t.resigned_at);
@@ -924,6 +924,30 @@ export async function deleteScheduleException(id) {
     .delete()
     .eq("id", id);
   if (error) throw error;
+}
+
+export async function fetchTeacherVacations({ teacherId = null, fromDate = null, toDate = null } = {}) {
+  let query = scheduleSupabase
+    .from("teacher_vacations")
+    .select("id, teacher_id, start_date, end_date, note, created_by, created_at, teacher:teachers!teacher_vacations_teacher_id_fkey(id, name)")
+    .order("start_date");
+  if (teacherId) query = query.eq("teacher_id", teacherId);
+  if (toDate) query = query.lte("start_date", toDate);
+  if (fromDate) query = query.gte("end_date", fromDate);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function fetchTeacherCalendarProfile(teacherId) {
+  if (!teacherId) return null;
+  const { data, error } = await scheduleSupabase
+    .from("teachers")
+    .select("id, name, birth_date")
+    .eq("id", teacherId)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
 }
 
 export async function fetchHomeVisitPatterns({ teacherId, status } = {}) {

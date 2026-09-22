@@ -8103,10 +8103,9 @@ function AdminTodoSection({
   /** 일회성 단일/공용 + 개인지정 반복 (그룹 인스턴스 제외) */
   const myVisibleTodos = useMemo(
     () => visibleTodos.filter((t) => {
-      // 「내 할 일」에는 로그인한 본인에게 지정된 업무만 표시합니다.
-      // 다른 관리자나 선생님에게 지정된 업무와 공용 업무는 섞지 않습니다.
-      if (t.assignee_id !== me?.id) return false;
-      if (personalOnly) return true;
+      // 선생님 개인 화면은 본인 담당만, 관리자 화면은 담당자 필터로
+      // 공용·다른 담당자 업무까지 모두 확인할 수 있게 한다.
+      if (personalOnly) return t.assignee_id === me?.id;
       if (t.spawn_group_id) return false;
       if (!t.recurrence_id) return true;
       if (!recurrencesLoaded) return false;
@@ -8283,7 +8282,7 @@ function AdminTodoSection({
           alert("본인이 만든 할 일만 수정할 수 있습니다.");
           return;
         }
-        await onUpdate?.(editingTodo.id, {
+        const saved = await onUpdate?.(editingTodo.id, {
           content: c,
           assignee_id: audienceMode === "shared" ? null : (assignee || editingTodo.assignee_id || null),
           priority: priority === "urgent" ? "urgent" : priority === "important" ? "important" : "normal",
@@ -8291,8 +8290,9 @@ function AdminTodoSection({
           due_date: toKstDateOnly(due),
           checklist,
         });
+        if (saved === false) return;
       } else {
-        await onAdd({
+        const saved = await onAdd({
           content: c,
           audience_mode: audienceMode,
           assignee_id: audienceMode === "assignee" ? assignee : null,
@@ -8306,6 +8306,7 @@ function AdminTodoSection({
           due_date: toKstDateOnly(due),
           checklist: checklist.map(it => ({ ...it, done: false })),
         });
+        if (saved === false) return;
       }
       resetModalForm();
     } finally { setSaving(false); }
@@ -12458,7 +12459,7 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
       spawn_group_id: spawnGroupId,
     }));
     const { data, error } = await supabase.from("admin_todos").insert(rows).select();
-    if (error) { alert(error.message || "할 일 추가에 실패했습니다."); return; }
+    if (error) { alert(error.message || "할 일 추가에 실패했습니다."); return false; }
     const inserted = data || [];
     setTodos(prev => [...inserted, ...prev]);
     for (const row of inserted) {
@@ -12468,6 +12469,7 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
         priority: row.priority,
       });
     }
+    return true;
   };
 
   const toggleTodo = async (id, isCompleted) => {
@@ -12504,14 +12506,16 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
     const target = todos.find(t => t.id === id);
     if (teacherTodoMode && target?.created_by !== me.id) {
       alert("관리자가 배정한 할 일은 수정할 수 없습니다.");
-      return;
+      return false;
     }
     setTodos(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
     const { error } = await supabase.from("admin_todos").update(patch).eq("id", id);
     if (error) {
       if (target) setTodos(prev => prev.map(t => t.id === id ? target : t));
       alert(error.message || "수정에 실패했습니다.");
+      return false;
     }
+    return true;
   };
 
   const handleEnter = (mod) => {
@@ -12611,9 +12615,11 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
                 supabase={supabase}
                 todos={todos}
                 teacherId={me.id}
+                showAllTodos={!teacherTodoMode}
                 me={me}
                 canRegisterEvents={canRegisterHubEvents}
                 canRegisterTodos={canRegisterHubTodos}
+                onToggleTodo={toggleTodo}
                 onRequestTodoCreate={(date) => setQuickTodoRequest(previous => ({
                   date,
                   token: (previous?.token || 0) + 1,

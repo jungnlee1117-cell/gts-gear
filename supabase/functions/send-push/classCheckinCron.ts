@@ -145,7 +145,7 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
   const { ymd, dow, now } = kstParts();
   const url = `/schedule?view=class-checkin&date=${ymd}`;
 
-  const [slotsRes, hvRes, exRes, payRes, logRes, gearOnlyRes] = await Promise.all([
+  const [slotsRes, hvRes, exRes, payRes, logRes, gearOnlyRes, vacationsRes] = await Promise.all([
     adminClient
       .from("institution_weekly_schedule")
       .select("id, teacher_id, institution_id, day_of_week, start_time, end_time, label, effective_from, effective_to, schedule_series_id")
@@ -169,6 +169,11 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
       .from("teachers")
       .select("id")
       .eq("access_scope", "gear_only"),
+    adminClient
+      .from("teacher_vacations")
+      .select("teacher_id")
+      .lte("start_date", ymd)
+      .gte("end_date", ymd),
   ]);
 
   if (slotsRes.error) throw new Error(slotsRes.error.message);
@@ -181,6 +186,10 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
     throw new Error(gearOnlyRes.error.message);
   }
   const gearOnlyIds = new Set((gearOnlyRes.data || []).map((row) => row.id).filter(Boolean));
+  if (vacationsRes.error) throw new Error(vacationsRes.error.message);
+  const vacationTeacherIds = new Set(
+    (vacationsRes.data || []).map((row) => row.teacher_id).filter(Boolean),
+  );
 
   let exceptions = exRes.data || [];
   if (exRes.error) {
@@ -206,6 +215,7 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
   const addPlanned = (teacherId: string, item: { source: string; id: string; endTime: string }) => {
     if (!teacherId || !item.endTime) return;
     if (gearOnlyIds.has(teacherId)) return;
+    if (vacationTeacherIds.has(teacherId)) return;
     if (!plannedByTeacher.has(teacherId)) plannedByTeacher.set(teacherId, []);
     plannedByTeacher.get(teacherId)!.push(item);
   };
@@ -238,6 +248,7 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
   const results: Array<Record<string, unknown>> = [];
 
   for (const [teacherId, planned] of plannedByTeacher.entries()) {
+    if (vacationTeacherIds.has(teacherId)) continue;
     const entries = entriesByTeacher.get(teacherId) || [];
     const unconfirmed = planned.filter((item) => !isResolved(findEntry(entries, item), ymd));
     if (!unconfirmed.length) continue;
