@@ -48,16 +48,16 @@ function noticeAuthor(item) {
 }
 
 function FeedRow({ item, onClick, unread = false }) {
-  const tone = UNIFIED_NOTICE_TYPE_TONES[item.type] || "general";
-  const label = UNIFIED_NOTICE_TYPE_LABELS[item.type] || "일반";
+  const tone = item.urgentSafety ? "urgent" : (UNIFIED_NOTICE_TYPE_TONES[item.type] || "general");
+  const label = item.urgentSafety ? "안전사고" : (UNIFIED_NOTICE_TYPE_LABELS[item.type] || "일반");
   const dday = item.eventDate
     ? formatDdayLabel(item.eventDate)
-    : (item.type === "urgent" && isCreatedToday(item.createdAt) ? "오늘" : "");
+    : ((item.type === "urgent" || item.urgentSafety) && isCreatedToday(item.createdAt) ? "오늘" : "");
 
   return (
     <button
       type="button"
-      className={`hub-unified-row${unread ? " is-unread" : ""}`}
+      className={`hub-unified-row${unread ? " is-unread" : ""}${item.urgentSafety ? " hub-unified-row--safety" : ""}`}
       onClick={() => onClick(item)}
     >
       <span className="hub-unified-row__main">

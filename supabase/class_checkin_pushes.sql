@@ -1,4 +1,7 @@
--- 수업 종료 후 완료 확인 푸시 (1차: 마지막 수업+10분, 2차: +1시간, 3차: 20:00)
+-- 수업 종료 후 완료 확인 푸시
+-- 1차: 당일 마지막 수업+10분, 2차: +70분
+-- 3차: 매일 20:00 KST. 당일+과거 미확인이 남아 있으면 확인될 때까지
+--      (teacher_id, class_date=오늘, round=3) 로 하루 1회만 발송.
 --
 -- pg_cron 은 DB 안에서 send-push Edge Function 을 HTTP 로 호출합니다.
 -- send-push 는 Authorization Bearer 가 Edge Function 의 SERVICE_ROLE_KEY 와
@@ -21,7 +24,7 @@ CREATE TABLE IF NOT EXISTS public.class_checkin_pushes (
 );
 
 COMMENT ON TABLE public.class_checkin_pushes IS
-  '수업 체크인 푸시 발송 로그. 완료 상태가 아니라 1/2/3차 중복 방지용.';
+  '수업 체크인 푸시 발송 로그. 1/2차는 당일 종료 후, 3차는 미확인 백로그 매일 20:00 하루 1회.';
 
 CREATE INDEX IF NOT EXISTS class_checkin_pushes_date_idx
   ON public.class_checkin_pushes (class_date DESC, round);
@@ -103,7 +106,7 @@ BEGIN
   END IF;
 END $$;
 
--- 5분마다. 각 선생님 마지막 수업 종료+10분 / +1시간 / 당일 20:00 창을 검사
+-- 5분마다. 당일 +10분/+70분, 그리고 미확인이 있으면 매일 20:00 1회
 SELECT cron.schedule(
   'push-class-checkin',
   '*/5 * * * *',

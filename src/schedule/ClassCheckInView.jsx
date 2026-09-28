@@ -39,11 +39,19 @@ import {
   classIncidentErrorMessage,
   upsertClassIncidentReport,
 } from "./classIncidentReports.js";
+import {
+  buildIncidentPayload,
+  emptyIncidentForm,
+  validateIncidentForm,
+} from "./classIncidentCategories.js";
+import ClassIncidentCategoryFields from "./ClassIncidentCategoryFields.jsx";
+import { filterAssignableClassTeachers } from "./roles.js";
 import { bulkUpsertPayrollSlotsWithNotifications } from "./payrollSaveWithNotification.js";
 import { isScheduleSuperAdmin } from "./managerScope.js";
+import { classCheckinPlannedKey } from "./classCheckinTodoItems.js";
 
 function plannedKey(planned) {
-  return `${planned.source}-${planned.slot?.id || planned.patternId}-${planned.dateStr}`;
+  return classCheckinPlannedKey(planned);
 }
 
 function buildDemoPlanned(dateStr) {
@@ -126,6 +134,7 @@ export default function ClassCheckInView({ me, onBack }) {
   const scheduleAuthReady = useScheduleAuthReady();
   const [searchParams] = useSearchParams();
   const dateParam = searchParams.get("date");
+  const focusParam = searchParams.get("focus") || "";
   const isDemo = searchParams.get("demo") === "1" && isScheduleSuperAdmin(me);
   const date = useMemo(() => parseDateParam(dateParam) || new Date(), [dateParam]);
   const dateStr = fmtLocalDate(date);
@@ -144,7 +153,7 @@ export default function ClassCheckInView({ me, onBack }) {
   const [step, setStep] = useState("status");
   const [incidentEntry, setIncidentEntry] = useState(null);
   const [incidentQueue, setIncidentQueue] = useState([]);
-  const [incidentDraft, setIncidentDraft] = useState("");
+  const [incidentForm, setIncidentForm] = useState(() => emptyIncidentForm());
   const [demoResolvedKeys, setDemoResolvedKeys] = useState(() => new Set());
 
   const load = useCallback(async () => {
@@ -174,7 +183,7 @@ export default function ClassCheckInView({ me, onBack }) {
       setEntries(ents || []);
       setExceptions(ex || []);
       setFinalizedIds(fin || new Set());
-      setTeacherOptions((teachers || []).filter((t) => t.role === "teacher"));
+      setTeacherOptions(filterAssignableClassTeachers(teachers));
     } catch (err) {
       console.error(err);
     } finally {
@@ -210,14 +219,17 @@ export default function ClassCheckInView({ me, onBack }) {
 
   const isLocked = (institutionId) => !isDemo && institutionId && finalizedIds.has(institutionId);
 
-  const unconfirmed = useMemo(
-    () => planned.filter((p) => {
+  const unconfirmed = useMemo(() => {
+    const rows = planned.filter((p) => {
       if (isLocked(p.institutionId)) return false;
       if (isDemo) return !demoResolvedKeys.has(plannedKey(p));
       return isSlotUnconfirmed(entries, p);
-    }),
-    [planned, entries, finalizedIds, isDemo, demoResolvedKeys],
-  );
+    });
+    if (!focusParam) return rows;
+    const focused = rows.filter((p) => plannedKey(p) === focusParam);
+    const rest = rows.filter((p) => plannedKey(p) !== focusParam);
+    return focused.length ? [...focused, ...rest] : rows;
+  }, [planned, entries, finalizedIds, isDemo, demoResolvedKeys, focusParam]);
 
   const currentPlanned = unconfirmed[0] || null;
 
@@ -242,7 +254,7 @@ export default function ClassCheckInView({ me, onBack }) {
     const queue = extraQueue.filter((row) => row?.id && row.id !== entry?.id);
     setIncidentQueue(queue);
     setIncidentEntry(entry);
-    setIncidentDraft("");
+    setIncidentForm(emptyIncidentForm());
     setStep("incident");
   };
 
@@ -251,7 +263,7 @@ export default function ClassCheckInView({ me, onBack }) {
       const [next, ...rest] = incidentQueue;
       setIncidentQueue(rest);
       setIncidentEntry(next);
-      setIncidentDraft("");
+      setIncidentForm(emptyIncidentForm());
       setStep("incident");
       return;
     }
@@ -384,18 +396,27 @@ export default function ClassCheckInView({ me, onBack }) {
 
   const handleIncidentSave = async (e) => {
     e?.preventDefault?.();
-    const text = incidentDraft.trim();
-    if (!text) return handleIncidentNone();
+    const error = validateIncidentForm(incidentForm);
+    if (error) {
+      alert(error);
+      return;
+    }
     if (!incidentEntry?.id) return;
     setSaving(true);
     try {
       if (!isDemo) {
+        const substituteName = teacherOptions.find((t) => t.id === incidentForm.substitute_teacher_id)?.name || "";
+        const payload = buildIncidentPayload(incidentForm, { substituteName });
         await upsertClassIncidentReport({
           payroll_entry_id: incidentEntry.id,
           teacher_id: teacherId,
           institution_id: incidentEntry.institution_id || null,
           class_date: incidentEntry.class_date,
-          body: text,
+          notify: {
+            teacher_name: me?.name,
+            institution_name: incidentEntry.institutions?.name,
+          },
+          ...payload,
         });
       }
       await finishIncidentAndContinue();
@@ -415,7 +436,9 @@ export default function ClassCheckInView({ me, onBack }) {
         <button type="button" className="sch-back-btn" onClick={onBack}>
           <ChevronLeft size={18} /> 급여/정산
         </button>
-        <h2 className="sch-view-title">오늘 수업 확인</h2>
+        <h2 className="sch-view-title">
+          {dateStr === fmtLocalDate(new Date()) ? "오늘 수업 확인" : `${dateLabel} 수업 확인`}
+        </h2>
       </header>
       {isDemo ? (
         <p className="sch-checkin-demo-banner" role="status">
@@ -450,16 +473,13 @@ export default function ClassCheckInView({ me, onBack }) {
             {incidentEntry.entry_status === ENTRY_STATUS.skipped ? " · 수업 안 함" : ""}
           </p>
           <form className="sch-form" onSubmit={handleIncidentSave}>
-            <label className="sch-field">
-              <span>있으면 남겨 주세요</span>
-              <textarea
-                className="sch-input sch-incident-textarea"
-                rows={4}
-                value={incidentDraft}
-                onChange={(e) => setIncidentDraft(e.target.value)}
-                placeholder="스케줄 변경, 행사로 휴강, 아이가 다침 등"
-              />
-            </label>
+            <ClassIncidentCategoryFields
+              value={incidentForm}
+              onChange={setIncidentForm}
+              teachers={teacherOptions}
+              excludeTeacherId={teacherId}
+              bodyRows={4}
+            />
             <div className="sch-form-actions sch-form-actions--stack">
               <button
                 type="button"
@@ -472,7 +492,7 @@ export default function ClassCheckInView({ me, onBack }) {
               <button
                 type="submit"
                 className="sch-btn sch-btn--ghost"
-                disabled={saving || !incidentDraft.trim()}
+                disabled={saving || Boolean(validateIncidentForm(incidentForm))}
               >
                 {saving ? "저장 중..." : "저장"}
               </button>

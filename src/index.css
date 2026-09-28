@@ -3949,6 +3949,50 @@ code {
   font-weight: 750;
 }
 .monthly-plan-editor__controls .monthly-plan-editor__pdf-age { min-width: 92px; }
+.monthly-plan-editor__week-count {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 5px;
+  min-width: 118px;
+}
+.monthly-plan-editor__week-count > span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 750;
+}
+.monthly-plan-editor__week-count > div {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  height: 38px;
+  padding: 3px;
+  border: 1px solid #dce4df;
+  border-radius: 10px;
+  background: #fff;
+  box-sizing: border-box;
+}
+.monthly-plan-editor__week-count button {
+  flex: 1;
+  min-width: 48px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #334155;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.monthly-plan-editor__week-count button.is-active {
+  background: #176d40;
+  color: #fff;
+}
+.monthly-plan-editor__week-count button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
 .monthly-plan-editor__pdf-age {
   display: grid;
   gap: 5px;
@@ -3969,7 +4013,7 @@ code {
   white-space: nowrap;
 }
 .monthly-plan-editor__pdf-ages {
-  min-width: 230px;
+  min-width: 292px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -13749,6 +13793,8 @@ button.pe-res-resource-youtube-thumb:hover {
   padding: 8px 12px; font-size: 13px; cursor: pointer;
 }
 .sch-chip.active { background: #f1f5f9; border-color: #94a3b8; color: #0f172a; font-weight: 700; }
+.sch-chip--danger { border-color: #fecaca; color: #b91c1c; }
+.sch-chip--danger.active { background: #fef2f2; border-color: #ef4444; color: #991b1b; }
 .sch-time-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .sch-time-row > * { min-width: 0; }
 .sch-input[type="date"] { width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
@@ -19524,6 +19570,14 @@ button.pe-res-resource-youtube-thumb:hover {
   background: #f8fafc;
   border-radius: 10px;
 }
+.hub-unified-row--safety {
+  background: #fef2f2;
+  border-radius: 10px;
+  box-shadow: inset 3px 0 0 #dc2626;
+}
+.hub-unified-row--safety:hover {
+  background: #fee2e2;
+}
 
 .hub-unified-row__main {
   flex: 1;
@@ -19914,6 +19968,12 @@ button.pe-res-resource-youtube-thumb:hover {
 }
 .inventory-log-row__change .is-up { color: #059669; }
 .inventory-log-row__change .is-down { color: #dc2626; }
+.inventory-log-row--safety {
+  background: #fef2f2;
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: inset 3px 0 0 #dc2626;
+}
 .inventory-log-row__meta {
   margin-top: 4px;
   font-size: 12px;
@@ -19987,6 +20047,58 @@ button.pe-res-resource-youtube-thumb:hover {
   background: #ecfdf5;
   color: #047857;
 }
+.sch-incident-category-fields {
+  display: grid;
+  gap: 10px;
+}
+.sch-incident-cat-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  background: #f1f5f9;
+  color: #334155;
+}
+.sch-incident-cat-badge--safety {
+  background: #fee2e2;
+  color: #b91c1c;
+  box-shadow: 0 0 0 1px #fecaca;
+}
+.sch-incident-structured {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+.sch-incident-card-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.sch-incident-card--safety {
+  border-color: #fecaca;
+  background: #fef2f2;
+  box-shadow: inset 3px 0 0 #dc2626;
+}
+.sch-incident-safety-count {
+  color: #b91c1c;
+  font-weight: 800;
+}
+.sch-incident-dot--safety { background: #dc2626; }
+.sch-incident-cal-cell--safety { background: #fef2f2; }
+.sch-incident-admin-row--safety {
+  background: #fef2f2;
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: inset 3px 0 0 #dc2626;
+}
+.sch-incident-table-row--safety td {
+  background: #fef2f2;
+}
 .sch-incident-replies {
   list-style: none;
   margin: 8px 0 0;
@@ -20027,6 +20139,75 @@ button.pe-res-resource-youtube-thumb:hover {
   margin-top: 8px;
 }
 .sch-incident-inbox-desc { margin: 0 0 12px; }
+.sch-incident-calendar {
+  margin: 0 0 20px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #fff;
+  color-scheme: light;
+}
+.sch-incident-calendar .sch-month-nav { margin-bottom: 10px; }
+.sch-incident-calendar-legend { margin: 0 0 10px; }
+.sch-incident-cal-grid { margin-bottom: 14px; }
+.sch-incident-cal-dots {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  min-height: 8px;
+}
+.sch-incident-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.sch-incident-dot--unchecked { background: #ea580c; }
+.sch-incident-dot--report { background: #7c3aed; }
+.sch-incident-cal-cell--unchecked { background: #fff7ed; }
+.sch-incident-day-panel {
+  padding-top: 4px;
+}
+.sch-incident-day-title {
+  margin: 0 0 10px;
+  font-size: 16px;
+  color: #0f172a;
+}
+.sch-incident-day-subtitle {
+  margin: 14px 0 8px;
+  font-size: 13px;
+  color: #334155;
+}
+.sch-incident-check-groups {
+  display: grid;
+  gap: 8px;
+}
+.sch-incident-check-line {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.sch-incident-check-line strong { font-size: 12px; }
+.sch-incident-check-line.is-done {
+  background: #f0fdf4;
+  color: #166534;
+}
+.sch-incident-check-line.is-pending {
+  background: #fff7ed;
+  color: #9a3412;
+}
+.sch-incident-day-list { margin-top: 4px; }
+.sch-incident-day-list .sch-incident-card-head { cursor: default; }
+.sch-incident-month-list-title {
+  margin: 18px 0 8px;
+  font-size: 15px;
+  color: #0f172a;
+}
 .sch-incident-filters {
   flex-wrap: wrap;
   gap: 10px;
@@ -21939,6 +22120,11 @@ button.pe-res-resource-youtube-thumb:hover {
 .admin-todo-pri.is-normal { color: #64748b; }
 .admin-todo-pri.is-low { color: #94a3b8; font-size: 11px; }
 .admin-todo-pri.is-low i { width: 6px; height: 6px; background: #cbd5e1; }
+.admin-todo-pri.is-class { color: #0f766e; }
+.admin-todo-pri.is-class i { background: #0f766e; }
+.admin-todo-table-row--class-checkin .admin-todo-table-row__title > span:first-child {
+  color: #0f766e;
+}
 .admin-todo-assignee {
   display: inline-flex;
   align-items: center;

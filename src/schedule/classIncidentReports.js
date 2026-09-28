@@ -1,5 +1,7 @@
+import { sendPushEvent } from "../pushNotifications.js";
 import { scheduleSupabase } from "./api.js";
 import { yearMonthFirstDay, yearMonthLastDay } from "./constants.js";
+import { INCIDENT_CATEGORY, isSafetyIncident } from "./classIncidentCategories.js";
 
 export const CLASS_INCIDENT_STATUS = {
   needs_review: "needs_review",
@@ -18,6 +20,35 @@ export const CLASS_INCIDENT_SQL_HINT =
 
 const REPORT_SELECT = `
   id, payroll_entry_id, teacher_id, institution_id, class_date, body, status,
+  incident_category, incident_subtype, substitute_teacher_id,
+  changed_start_time, changed_end_time,
+  reviewed_by, reviewed_at, created_at, updated_at,
+  teachers!class_incident_reports_teacher_id_fkey(id, name),
+  substitute_teacher:teachers!class_incident_reports_substitute_teacher_id_fkey(id, name),
+  institutions(id, name),
+  payroll_entries(id, minutes, pay_type, entry_status, class_date, teacher_id),
+  class_incident_replies(
+    id, report_id, author_id, body, created_at,
+    teachers!class_incident_replies_author_id_fkey(id, name, role)
+  )
+`.replace(/\s+/g, " ").trim();
+
+const REPORT_SELECT_NO_SUBSTITUTE_JOIN = `
+  id, payroll_entry_id, teacher_id, institution_id, class_date, body, status,
+  incident_category, incident_subtype, substitute_teacher_id,
+  changed_start_time, changed_end_time,
+  reviewed_by, reviewed_at, created_at, updated_at,
+  teachers!class_incident_reports_teacher_id_fkey(id, name),
+  institutions(id, name),
+  payroll_entries(id, minutes, pay_type, entry_status, class_date, teacher_id),
+  class_incident_replies(
+    id, report_id, author_id, body, created_at,
+    teachers!class_incident_replies_author_id_fkey(id, name, role)
+  )
+`.replace(/\s+/g, " ").trim();
+
+const REPORT_SELECT_LEGACY = `
+  id, payroll_entry_id, teacher_id, institution_id, class_date, body, status,
   reviewed_by, reviewed_at, created_at, updated_at,
   teachers!class_incident_reports_teacher_id_fkey(id, name),
   institutions(id, name),
@@ -30,6 +61,13 @@ const REPORT_SELECT = `
 
 const REPORT_SELECT_PLAIN = `
   id, payroll_entry_id, teacher_id, institution_id, class_date, body, status,
+  incident_category, incident_subtype, substitute_teacher_id,
+  changed_start_time, changed_end_time,
+  reviewed_by, reviewed_at, created_at, updated_at
+`.replace(/\s+/g, " ").trim();
+
+const REPORT_SELECT_PLAIN_LEGACY = `
+  id, payroll_entry_id, teacher_id, institution_id, class_date, body, status,
   reviewed_by, reviewed_at, created_at, updated_at
 `.replace(/\s+/g, " ").trim();
 
@@ -37,6 +75,13 @@ function isMissingTableError(error) {
   if (!error) return false;
   if (error.code === "42P01" || error.code === "PGRST205") return true;
   return /schema cache|does not exist|could not find the table/i.test(error.message || "");
+}
+
+function isMissingCategoryColumnError(error) {
+  if (!error) return false;
+  if (error.code === "42703" || error.code === "PGRST204") return true;
+  return /incident_category|incident_subtype|substitute_teacher_id|changed_start_time|changed_end_time/i
+    .test(error.message || "");
 }
 
 export function classIncidentErrorMessage(error) {
@@ -76,6 +121,7 @@ export async function fetchClassIncidentReports({
   payrollEntryIds,
   fromDate,
   toDate,
+  incidentCategory,
   limit = 400,
 } = {}) {
   const build = (select) => {
@@ -88,6 +134,7 @@ export async function fetchClassIncidentReports({
     if (teacherId) q = q.eq("teacher_id", teacherId);
     if (institutionId) q = q.eq("institution_id", institutionId);
     if (status && status !== "all") q = q.eq("status", status);
+    if (incidentCategory) q = q.eq("incident_category", incidentCategory);
     if (payrollEntryIds?.length) q = q.in("payroll_entry_id", payrollEntryIds);
     if (fromDate) q = q.gte("class_date", fromDate);
     if (toDate) q = q.lte("class_date", toDate);
@@ -95,26 +142,26 @@ export async function fetchClassIncidentReports({
     return q;
   };
 
-  const { data, error } = await build(REPORT_SELECT);
-  if (!error) {
-    return {
-      rows: (data || []).map(normalizeReport),
-      missingTable: false,
-    };
+  const selects = [REPORT_SELECT, REPORT_SELECT_NO_SUBSTITUTE_JOIN, REPORT_SELECT_LEGACY, REPORT_SELECT_PLAIN, REPORT_SELECT_PLAIN_LEGACY];
+  let lastError = null;
+  for (const select of selects) {
+    const { data, error } = await build(select);
+    if (!error) {
+      return {
+        rows: (data || []).map(normalizeReport),
+        missingTable: false,
+      };
+    }
+    lastError = error;
+    if (isMissingTableError(error)) {
+      return { rows: [], missingTable: true };
+    }
+    if (!isMissingCategoryColumnError(error) && !/relationship|substitute_teacher/i.test(error.message || "")) {
+      break;
+    }
   }
-  if (isMissingTableError(error)) {
-    return { rows: [], missingTable: true };
-  }
-
-  const fallback = await build(REPORT_SELECT_PLAIN);
-  if (fallback.error) {
-    if (isMissingTableError(fallback.error)) return { rows: [], missingTable: true };
-    throw fallback.error;
-  }
-  return {
-    rows: (fallback.data || []).map(normalizeReport),
-    missingTable: false,
-  };
+  if (isMissingTableError(lastError)) return { rows: [], missingTable: true };
+  throw lastError;
 }
 
 export async function countClassIncidentsNeedingReview() {
@@ -130,8 +177,86 @@ export async function countClassIncidentsNeedingReview() {
 }
 
 export async function fetchLatestClassIncident() {
+  const safety = await fetchClassIncidentReports({
+    status: CLASS_INCIDENT_STATUS.needs_review,
+    incidentCategory: INCIDENT_CATEGORY.safety,
+    limit: 1,
+  }).catch(() => ({ rows: [], missingTable: false }));
+  if (safety.rows[0]) {
+    return { row: safety.rows[0], missingTable: false };
+  }
+  const pending = await fetchClassIncidentReports({
+    status: CLASS_INCIDENT_STATUS.needs_review,
+    limit: 1,
+  });
+  if (pending.rows[0] || pending.missingTable) {
+    return { row: pending.rows[0] || null, missingTable: pending.missingTable };
+  }
   const { rows, missingTable } = await fetchClassIncidentReports({ limit: 1 });
   return { row: rows[0] || null, missingTable };
+}
+
+export async function countPendingSafetyIncidents() {
+  const { count, error } = await scheduleSupabase
+    .from("class_incident_reports")
+    .select("id", { count: "exact", head: true })
+    .eq("status", CLASS_INCIDENT_STATUS.needs_review)
+    .eq("incident_category", INCIDENT_CATEGORY.safety);
+  if (error) {
+    if (isMissingTableError(error) || isMissingCategoryColumnError(error)) return 0;
+    throw error;
+  }
+  return count || 0;
+}
+
+function categoryWriteFields({
+  incident_category,
+  incident_subtype,
+  substitute_teacher_id,
+  changed_start_time,
+  changed_end_time,
+}) {
+  return {
+    incident_category: incident_category || null,
+    incident_subtype: incident_subtype || null,
+    substitute_teacher_id: substitute_teacher_id || null,
+    changed_start_time: changed_start_time || null,
+    changed_end_time: changed_end_time || null,
+  };
+}
+
+async function writeReport(kind, payload, id) {
+  const { incident_category, incident_subtype, substitute_teacher_id, changed_start_time, changed_end_time, ...legacy } = payload;
+  const full = { ...legacy, ...categoryWriteFields(payload) };
+  const attempts = [
+    { payload: full, select: REPORT_SELECT_PLAIN },
+    { payload: legacy, select: REPORT_SELECT_PLAIN_LEGACY },
+  ];
+  let lastError = null;
+  for (const attempt of attempts) {
+    const query = kind === "update"
+      ? scheduleSupabase.from("class_incident_reports").update(attempt.payload).eq("id", id)
+      : scheduleSupabase.from("class_incident_reports").insert(attempt.payload);
+    const { data, error } = await query.select(attempt.select).single();
+    if (!error) return normalizeReport(data);
+    lastError = error;
+    if (!isMissingCategoryColumnError(error)) break;
+  }
+  throw lastError;
+}
+
+function notifyIncidentReported(row, notify = {}) {
+  const teacherName = notify.teacher_name || row.teachers?.name || "선생님";
+  const institutionName = notify.institution_name || row.institutions?.name || "";
+  void sendPushEvent(scheduleSupabase, "class_incident_reported", {
+    teacher_id: row.teacher_id,
+    teacher_name: teacherName,
+    institution_name: institutionName,
+    class_date: row.class_date,
+    incident_category: row.incident_category || notify.incident_category || null,
+    incident_subtype: row.incident_subtype || notify.incident_subtype || null,
+    body: row.body,
+  });
 }
 
 export async function upsertClassIncidentReport({
@@ -141,35 +266,48 @@ export async function upsertClassIncidentReport({
   institution_id,
   class_date,
   body,
+  incident_category,
+  incident_subtype,
+  substitute_teacher_id,
+  changed_start_time,
+  changed_end_time,
+  notify,
 }) {
   const text = String(body || "").trim();
   if (!text) throw new Error("특이사항 내용을 입력해주세요.");
 
+  const fields = {
+    body: text,
+    incident_category: incident_category || null,
+    incident_subtype: incident_subtype || null,
+    substitute_teacher_id: substitute_teacher_id || null,
+    changed_start_time: changed_start_time || null,
+    changed_end_time: changed_end_time || null,
+    updated_at: new Date().toISOString(),
+  };
+
   if (id) {
-    const { data, error } = await scheduleSupabase
-      .from("class_incident_reports")
-      .update({ body: text, updated_at: new Date().toISOString() })
-      .eq("id", id)
-      .select(REPORT_SELECT_PLAIN)
-      .single();
-    if (error) throw error;
-    return normalizeReport(data);
+    const row = await writeReport("update", fields, id);
+    if (isSafetyIncident(row) || incident_category === INCIDENT_CATEGORY.safety) {
+      notifyIncidentReported(row, notify);
+    }
+    return row;
   }
 
-  const { data, error } = await scheduleSupabase
-    .from("class_incident_reports")
-    .insert({
-      payroll_entry_id,
-      teacher_id,
-      institution_id: institution_id || null,
-      class_date: class_date ? String(class_date).slice(0, 10) : null,
-      body: text,
-      status: CLASS_INCIDENT_STATUS.needs_review,
-    })
-    .select(REPORT_SELECT_PLAIN)
-    .single();
-  if (error) throw error;
-  return normalizeReport(data);
+  const row = await writeReport("insert", {
+    payroll_entry_id,
+    teacher_id,
+    institution_id: institution_id || null,
+    class_date: class_date ? String(class_date).slice(0, 10) : null,
+    status: CLASS_INCIDENT_STATUS.needs_review,
+    ...fields,
+  });
+  notifyIncidentReported(row, {
+    ...notify,
+    incident_category,
+    incident_subtype,
+  });
+  return row;
 }
 
 export async function deleteClassIncidentReport(id) {
@@ -256,20 +394,25 @@ export function isClassIncidentLogItem(item) {
   return item?.source === "class_incident" || item?.raw?.kind === "class-incident-log";
 }
 
-export function buildClassIncidentFeedItem(latestRow, pendingCount = 0) {
+export function buildClassIncidentFeedItem(latestRow, pendingCount = 0, safetyCount = 0) {
   const pending = Number(pendingCount) || 0;
+  const safety = Number(safetyCount) || 0;
+  const urgentSafety = safety > 0 || isSafetyIncident(latestRow);
   return {
     id: CLASS_INCIDENT_FEED_ID,
     source: "class_incident",
     type: "class_incident",
-    title: pending > 0 ? `수업 특이사항 · 확인 필요 ${pending}건` : "수업 특이사항",
+    title: urgentSafety
+      ? (safety > 0 ? `안전사고 · 확인 필요 ${safety}건` : "안전사고 보고")
+      : (pending > 0 ? `수업 특이사항 · 확인 필요 ${pending}건` : "수업 특이사항"),
     subtitle: pending > 0
       ? formatIncidentSubtitle(latestRow)
       : (latestRow ? formatIncidentSubtitle(latestRow) : "확인이 필요한 보고가 없습니다"),
     createdAt: latestRow?.created_at || latestRow?.updated_at || null,
-    pinned: pending > 0,
-    scopeLabel: "스케줄 관리자",
-    scopeTone: "schedule_admins",
-    raw: { kind: "class-incident-log", pendingCount: pending },
+    pinned: pending > 0 || urgentSafety,
+    urgentSafety,
+    scopeLabel: urgentSafety ? "즉시 확인" : "스케줄 관리자",
+    scopeTone: urgentSafety ? "urgent" : "schedule_admins",
+    raw: { kind: "class-incident-log", pendingCount: pending, safetyCount: safety },
   };
 }

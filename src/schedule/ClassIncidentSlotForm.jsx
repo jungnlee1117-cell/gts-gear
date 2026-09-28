@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fetchTeachers } from "./api.js";
 import {
   CLASS_INCIDENT_STATUS,
   CLASS_INCIDENT_STATUS_LABEL,
@@ -9,6 +10,35 @@ import {
   markClassIncidentReviewed,
   upsertClassIncidentReport,
 } from "./classIncidentReports.js";
+import {
+  buildIncidentPayload,
+  formFromIncidentReport,
+  incidentFormEqualsReport,
+  isIncidentFormEmpty,
+  isSafetyIncident,
+  validateIncidentForm,
+} from "./classIncidentCategories.js";
+import ClassIncidentCategoryFields, {
+  ClassIncidentCategoryBadge,
+  ClassIncidentStructuredLine,
+} from "./ClassIncidentCategoryFields.jsx";
+import { filterAssignableClassTeachers } from "./roles.js";
+
+let assignableTeacherCache = null;
+let assignableTeacherPromise = null;
+
+function loadAssignableTeachers() {
+  if (assignableTeacherCache) return Promise.resolve(assignableTeacherCache);
+  if (!assignableTeacherPromise) {
+    assignableTeacherPromise = fetchTeachers()
+      .then((rows) => {
+        assignableTeacherCache = filterAssignableClassTeachers(rows);
+        return assignableTeacherCache;
+      })
+      .finally(() => { assignableTeacherPromise = null; });
+  }
+  return assignableTeacherPromise;
+}
 
 export function ClassIncidentStatusBadge({ status }) {
   const key = status === CLASS_INCIDENT_STATUS.reviewed ? "reviewed" : "needs_review";
@@ -104,21 +134,34 @@ export default function ClassIncidentSlotForm({
   isAdmin = false,
   onChanged,
 }) {
-  const [draft, setDraft] = useState(report?.body || "");
+  const [form, setForm] = useState(() => formFromIncidentReport(report));
+  const [teachers, setTeachers] = useState([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setDraft(report?.body || "");
-  }, [report?.id, report?.body, entry?.id]);
+    setForm(formFromIncidentReport(report));
+  }, [report?.id, report?.body, report?.incident_category, report?.incident_subtype, report?.substitute_teacher_id, report?.changed_start_time, report?.changed_end_time, entry?.id]);
+
+  useEffect(() => {
+    if (!canEditBody) return;
+    let cancelled = false;
+    loadAssignableTeachers()
+      .then((rows) => {
+        if (!cancelled) setTeachers(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setTeachers([]);
+      });
+    return () => { cancelled = true; };
+  }, [canEditBody]);
 
   if (!entry?.id) return null;
 
   const handleSave = async (e) => {
     e?.preventDefault?.();
-    const text = draft.trim();
     setSaving(true);
     try {
-      if (!text) {
+      if (isIncidentFormEmpty(form)) {
         if (report?.id) {
           if (!confirm("이 특이사항을 삭제할까요?")) return;
           await deleteClassIncidentReport(report.id);
@@ -126,13 +169,24 @@ export default function ClassIncidentSlotForm({
         }
         return;
       }
+      const error = validateIncidentForm(form);
+      if (error) {
+        alert(error);
+        return;
+      }
+      const substituteName = teachers.find((t) => t.id === form.substitute_teacher_id)?.name || "";
+      const payload = buildIncidentPayload(form, { substituteName });
       await upsertClassIncidentReport({
         id: report?.id,
         payroll_entry_id: entry.id,
         teacher_id: entry.teacher_id || me.id,
         institution_id: entry.institution_id || null,
         class_date: entry.class_date,
-        body: text,
+        notify: {
+          teacher_name: me?.name,
+          institution_name: entry.institutions?.name,
+        },
+        ...payload,
       });
       await onChanged?.();
     } catch (err) {
@@ -159,34 +213,51 @@ export default function ClassIncidentSlotForm({
     <div className="sch-incident-slot">
       <div className="sch-incident-slot-head">
         <span className="sch-incident-slot-label">특이사항</span>
-        {report ? <ClassIncidentStatusBadge status={report.status} /> : (
+        {report ? (
+          <>
+            {isSafetyIncident(report) ? (
+              <ClassIncidentCategoryBadge
+                category={report.incident_category}
+                subtype={report.incident_subtype}
+              />
+            ) : null}
+            <ClassIncidentStatusBadge status={report.status} />
+          </>
+        ) : (
           <span className="sch-muted sch-incident-optional">선택</span>
         )}
       </div>
       {canEditBody ? (
         <form onSubmit={handleSave}>
-          <textarea
-            className="sch-input sch-incident-textarea"
-            rows={2}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="있을 때만 남겨 주세요 (아이 상태, 원 요청, 사고 등)"
+          <ClassIncidentCategoryFields
+            value={form}
+            onChange={setForm}
+            teachers={teachers}
+            excludeTeacherId={entry.teacher_id || me?.id}
+            bodyRows={2}
           />
           <div className="sch-incident-slot-actions">
             <button
               type="submit"
               className="sch-btn sch-btn--ghost sch-btn--sm"
-              disabled={saving || draft.trim() === (report?.body || "").trim()}
+              disabled={saving || incidentFormEqualsReport(form, report)}
             >
               {saving ? "저장 중..." : report ? "수정" : "남기기"}
             </button>
-            {report?.id && !draft.trim() ? (
+            {report?.id && isIncidentFormEmpty(form) ? (
               <span className="sch-muted">비우고 저장하면 삭제됩니다</span>
             ) : null}
           </div>
         </form>
       ) : report?.body ? (
-        <p className="sch-incident-body">{report.body}</p>
+        <>
+          <ClassIncidentCategoryBadge
+            category={report.incident_category}
+            subtype={report.incident_subtype}
+          />
+          <ClassIncidentStructuredLine row={report} />
+          <p className="sch-incident-body">{report.body}</p>
+        </>
       ) : (
         <p className="sch-muted sch-incident-hint">특이사항 없음</p>
       )}

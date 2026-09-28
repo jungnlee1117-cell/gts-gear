@@ -7,6 +7,8 @@ import {
   formatIncidentDate,
   formatIncidentWhen,
 } from "./classIncidentReports.js";
+import { ClassIncidentCategoryBadge } from "./ClassIncidentCategoryFields.jsx";
+import { formatIncidentPreview, isSafetyIncident, sortIncidentRowsForAdmin } from "./classIncidentCategories.js";
 
 export default function ClassIncidentFeedModal({ onClose, onViewAll }) {
   const [rows, setRows] = useState([]);
@@ -26,7 +28,7 @@ export default function ClassIncidentFeedModal({ onClose, onViewAll }) {
         });
         if (cancelled) return;
         setMissingTable(!!result.missingTable);
-        setRows(result.rows || []);
+        setRows(sortIncidentRowsForAdmin(result.rows || []));
       } catch (err) {
         if (!cancelled) setError(err?.message || "특이사항을 불러오지 못했습니다.");
       } finally {
@@ -55,7 +57,10 @@ export default function ClassIncidentFeedModal({ onClose, onViewAll }) {
           ) : (
             <div className="inventory-log-list">
               {rows.map((row) => (
-                <div key={row.id} className="inventory-log-row">
+                <div
+                  key={row.id}
+                  className={`inventory-log-row${isSafetyIncident(row) ? " inventory-log-row--safety" : ""}`}
+                >
                   <div className="inventory-log-row__main">
                     <div className="inventory-log-row__title">
                       <span className="inventory-log-row__name">
@@ -65,11 +70,17 @@ export default function ClassIncidentFeedModal({ onClose, onViewAll }) {
                         <span className="inventory-log-row__code">{row.institutions.name}</span>
                       ) : null}
                     </div>
-                    <span className="sch-incident-badge sch-incident-badge--needs_review">
-                      {CLASS_INCIDENT_STATUS_LABEL.needs_review}
+                    <span className="sch-incident-card-badges">
+                      <ClassIncidentCategoryBadge
+                        category={row.incident_category}
+                        subtype={row.incident_subtype}
+                      />
+                      <span className="sch-incident-badge sch-incident-badge--needs_review">
+                        {CLASS_INCIDENT_STATUS_LABEL.needs_review}
+                      </span>
                     </span>
                   </div>
-                  <p className="sch-incident-preview">{row.body}</p>
+                  <p className="sch-incident-preview">{formatIncidentPreview(row)}</p>
                   <div className="inventory-log-row__meta">
                     {[formatIncidentDate(row.class_date), formatIncidentWhen(row.created_at)]
                       .filter(Boolean)

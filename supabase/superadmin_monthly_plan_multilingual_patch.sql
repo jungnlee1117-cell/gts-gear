@@ -13,7 +13,7 @@ ALTER TABLE public.monthly_plan_draft_entries
 
 ALTER TABLE public.monthly_plan_draft_entries
   ADD CONSTRAINT monthly_plan_draft_entries_age_group_check
-  CHECK (age_group IN ('3_4', '5', '7', 'en', 'en_5', 'en_6', 'en_7'));
+  CHECK (age_group IN ('3_4', '5', '7', 'en', 'en_4', 'en_5', 'en_6', 'en_7'));
 
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (

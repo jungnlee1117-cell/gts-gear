@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { isItemAdmin } from "./authRoles.js";
+import { useNavigate } from "react-router-dom";
+import {
+  isClassCheckinTodo,
+  useUnconfirmedClassCheckinTodos,
+} from "./schedule/classCheckinTodoItems.js";
+import { isGearOnlyAccess, isItemAdmin } from "./authRoles.js";
 import { sendPushEvent } from "./pushNotifications.js";
 import TeacherMultiSelect from "./TeacherMultiSelect.jsx";
 import {
@@ -394,9 +399,14 @@ export function MyAssignedTodosSection({
   DS,
   card,
 }) {
+  const navigate = useNavigate();
+  const { items: classCheckinItems } = useUnconfirmedClassCheckinTodos(
+    me?.id,
+    Boolean(me?.id) && !isGearOnlyAccess(me),
+  );
   const mine = useMemo(() => {
     const now = Date.now();
-    return (todos || [])
+    const assigned = (todos || [])
       .filter((t) => t.assignee_id === me?.id)
       .filter((t) => {
         if (t.is_completed && t.completed_at) {
@@ -405,7 +415,8 @@ export function MyAssignedTodosSection({
         return true;
       })
       .sort((a, b) => String(a.due_date || "").localeCompare(String(b.due_date || "")));
-  }, [todos, me?.id]);
+    return [...classCheckinItems, ...assigned];
+  }, [todos, me?.id, classCheckinItems]);
 
   if (!mine.length) return null;
 
@@ -419,7 +430,16 @@ export function MyAssignedTodosSection({
         </span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {mine.map((t) => (
+        {mine.map((t) => {
+          const classCheckin = isClassCheckinTodo(t);
+          const openCheckin = () => {
+            const dateStr = String(t.class_date || t.due_date || "").slice(0, 10);
+            const params = new URLSearchParams({ view: "class-checkin" });
+            if (dateStr) params.set("date", dateStr);
+            if (t.plannedKey) params.set("focus", t.plannedKey);
+            navigate(`/schedule?${params.toString()}`);
+          };
+          return (
           <div
             key={t.id}
             style={{
@@ -429,13 +449,22 @@ export function MyAssignedTodosSection({
               alignItems: "center",
               gap: 12,
               opacity: t.is_completed ? 0.55 : 1,
+              cursor: classCheckin ? "pointer" : "default",
             }}
+            onClick={classCheckin ? openCheckin : undefined}
           >
             <input
               type="checkbox"
               checked={!!t.is_completed}
-              onChange={(e) => onToggle?.(t.id, e.target.checked)}
-              aria-label="완료"
+              onChange={(e) => {
+                if (classCheckin) {
+                  e.preventDefault();
+                  openCheckin();
+                  return;
+                }
+                onToggle?.(t.id, e.target.checked);
+              }}
+              aria-label={classCheckin ? "수업 체크" : "완료"}
             />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{
@@ -447,14 +476,17 @@ export function MyAssignedTodosSection({
                 {t.content}
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
-                {t.start_date && t.due_date
-                  ? `${String(t.start_date).slice(5)} ~ ${String(t.due_date).slice(5)}`
-                  : (t.due_date ? `마감 ${t.due_date}` : "")}
+                {classCheckin
+                  ? "수업 체크 필요 · 누르면 완료/수정/특이사항"
+                  : (t.start_date && t.due_date
+                    ? `${String(t.start_date).slice(5)} ~ ${String(t.due_date).slice(5)}`
+                    : (t.due_date ? `마감 ${t.due_date}` : ""))}
                 {t.recurrence_id ? " · 매달 반복" : ""}
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

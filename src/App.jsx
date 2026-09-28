@@ -61,6 +61,10 @@ import {
 } from "./todoAudience.js";
 import UnifiedNoticesFeed from "./UnifiedNoticesFeed.jsx";
 import HubTodoCalendar from "./HubTodoCalendar.jsx";
+import {
+  isClassCheckinTodo,
+  useUnconfirmedClassCheckinTodos,
+} from "./schedule/classCheckinTodoItems.js";
 import TeacherAccountsPage from "./TeacherAccountsPage.jsx";
 import { getTeacherAccessBlock } from "./teacherResign.js";
 import { loadUnifiedNoticeFeed } from "./unifiedNotices.js";
@@ -8011,6 +8015,11 @@ function AdminTodoSection({
     || (personalOnly && todo?.assignee_id === me?.id && todo?.created_by === me?.id)
   );
   const canToggleTodo = Boolean(onToggle) && (!readOnly || allowCompletion);
+  const navigate = useNavigate();
+  const { items: classCheckinItems } = useUnconfirmedClassCheckinTodos(
+    me?.id,
+    Boolean(me?.id) && !isGearOnlyAccess(me),
+  );
   const [content, setContent] = useState("");
   const [audienceMode, setAudienceMode] = useState(quickCreateDate ? "assignee" : "shared"); // assignee | selected_teachers | all_teachers | shared
   const [assignee, setAssignee] = useState(quickCreateDate ? me?.id || "" : "");
@@ -8317,10 +8326,21 @@ function AdminTodoSection({
   };
 
   const priRank = { urgent: 0, important: 1, normal: 2, low: 3 };
-  const sortedTodos = useMemo(() => [...myVisibleTodos].sort((a, b) => {
-    if (!!a.is_completed !== !!b.is_completed) return a.is_completed ? 1 : -1;
-    return (priRank[a.priority] ?? 1) - (priRank[b.priority] ?? 1);
-  }), [myVisibleTodos]);
+  const openClassCheckin = (item) => {
+    const dateStr = String(item?.class_date || item?.due_date || "").slice(0, 10);
+    const params = new URLSearchParams({ view: "class-checkin" });
+    if (dateStr) params.set("date", dateStr);
+    if (item?.plannedKey) params.set("focus", item.plannedKey);
+    navigate(`/schedule?${params.toString()}`);
+  };
+
+  const sortedTodos = useMemo(() => {
+    const regular = [...myVisibleTodos].sort((a, b) => {
+      if (!!a.is_completed !== !!b.is_completed) return a.is_completed ? 1 : -1;
+      return (priRank[a.priority] ?? 1) - (priRank[b.priority] ?? 1);
+    });
+    return [...classCheckinItems, ...regular];
+  }, [myVisibleTodos, classCheckinItems]);
 
   const openTodos = sortedTodos.filter(t => !t.is_completed);
   const doneTodos = sortedTodos.filter(t => t.is_completed);
@@ -8422,27 +8442,39 @@ function AdminTodoSection({
             <span aria-hidden/>
           </div>
           {shownTodos.map(t => {
-            const who = t.assignee_id ? assigneeName(t.assignee_id) : "공용";
+            const classCheckin = isClassCheckinTodo(t);
+            const who = classCheckin ? "수업 체크" : (t.assignee_id ? assigneeName(t.assignee_id) : "공용");
             const checklist = Array.isArray(t.checklist) ? t.checklist : [];
             const doneN = checklist.filter(c => c.done).length;
-            const pri = priMeta(t.priority);
+            const pri = priMeta(classCheckin ? (t.priority || "important") : t.priority);
             const overdue = !t.is_completed && t.due_date && dday(t.due_date) < 0;
             const expanded = expandedId === t.id;
             return (
               <div key={t.id} className="admin-todo-table-block">
-                <div className={`admin-todo-table-row${t.is_completed ? " is-done" : ""}`}>
+                <div className={`admin-todo-table-row${t.is_completed ? " is-done" : ""}${classCheckin ? " admin-todo-table-row--class-checkin" : ""}`}>
                   <input
                     type="checkbox"
                     className="admin-todo-quick-check"
                     checked={!!t.is_completed}
-                    disabled={!canToggleTodo}
-                    aria-label={`${t.content} ${t.is_completed ? "완료 취소" : "완료 처리"}`}
-                    title={t.is_completed ? "진행 중으로 변경" : "완료 처리"}
+                    disabled={!canToggleTodo && !classCheckin}
+                    aria-label={classCheckin ? `${t.content} 수업 체크` : `${t.content} ${t.is_completed ? "완료 취소" : "완료 처리"}`}
+                    title={classCheckin ? "눌러서 수업 체크" : (t.is_completed ? "진행 중으로 변경" : "완료 처리")}
                     onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => canToggleTodo && onToggle(t.id, e.target.checked)}
+                    onChange={(e) => {
+                      if (classCheckin) {
+                        e.preventDefault();
+                        openClassCheckin(t);
+                        return;
+                      }
+                      canToggleTodo && onToggle(t.id, e.target.checked);
+                    }}
                   />
-                  <span className={`admin-todo-pri ${pri.cls}`}><i/><span>{pri.label}</span></span>
-                  <button type="button" className="admin-todo-table-row__title" onClick={() => setExpandedId(expanded ? null : t.id)}>
+                  <span className={`admin-todo-pri ${classCheckin ? "is-class" : pri.cls}`}><i/><span>{classCheckin ? "수업" : pri.label}</span></span>
+                  <button
+                    type="button"
+                    className="admin-todo-table-row__title"
+                    onClick={() => classCheckin ? openClassCheckin(t) : setExpandedId(expanded ? null : t.id)}
+                  >
                     <span>{t.content}</span>
                     {checklist.length > 0 && (
                       <span className="admin-todo-check-count">📄 {doneN}/{checklist.length}</span>
@@ -8457,12 +8489,20 @@ function AdminTodoSection({
                       {t.due_date ? fmtDateWeekday(t.due_date) : "-"}
                     </span>
                     <span className={`admin-todo-status ${t.is_completed ? "is-done" : "is-active"}`}>
-                      {t.is_completed ? "완료" : "진행 중"}
+                      {t.is_completed ? "완료" : (classCheckin ? "체크 필요" : "진행 중")}
                     </span>
                     <span className="admin-todo-created">{fmtDateWeekday(t.created_at)}</span>
                   </div>
                   <div className="admin-todo-more-wrap">
-                    {canModifyTodo(t) && (
+                    {classCheckin ? (
+                      <button
+                        type="button"
+                        className="admin-todo-edit-btn"
+                        onClick={(e) => { e.stopPropagation(); openClassCheckin(t); }}
+                      >
+                        체크
+                      </button>
+                    ) : canModifyTodo(t) && (
                       <button
                         type="button"
                         className="admin-todo-edit-btn"
@@ -8473,8 +8513,10 @@ function AdminTodoSection({
                         ✏️
                       </button>
                     )}
+                    {classCheckin ? null : (
                     <button type="button" className="admin-todo-more-btn" aria-label="더보기" onClick={(e) => { e.stopPropagation(); setMenuId(menuId === t.id ? null : t.id); }}>⋮</button>
-                    {menuId === t.id && (
+                    )}
+                    {menuId === t.id && !classCheckin && (
                       <div className="admin-todo-menu">
                         {!readOnly && (
                           <button type="button" onClick={() => { onToggle(t.id, !t.is_completed); setMenuId(null); }}>

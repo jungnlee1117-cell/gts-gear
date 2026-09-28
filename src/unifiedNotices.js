@@ -9,6 +9,7 @@ import {
 import {
   buildClassIncidentFeedItem,
   countClassIncidentsNeedingReview,
+  countPendingSafetyIncidents,
   fetchLatestClassIncident,
 } from "./schedule/classIncidentReports.js";
 
@@ -189,8 +190,8 @@ export function sortUnifiedFeedItems(items, now = new Date()) {
   return [...items].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
 
-    const aUrgent = a.type === "urgent";
-    const bUrgent = b.type === "urgent";
+    const aUrgent = a.type === "urgent" || a.urgentSafety;
+    const bUrgent = b.type === "urgent" || b.urgentSafety;
     if (aUrgent !== bUrgent) return aUrgent ? -1 : 1;
 
     const aType = typeRank(a.type);
@@ -285,16 +286,18 @@ export async function loadUnifiedNoticeFeed(fetchNoticesFn, {
     let latest = null;
     let pending = 0;
     try {
-      const [latestRes, count] = await Promise.all([
+      const [latestRes, count, safetyCount] = await Promise.all([
         fetchLatestClassIncident(),
         countClassIncidentsNeedingReview(),
+        countPendingSafetyIncidents(),
       ]);
       latest = latestRes.row;
       pending = count;
+      extras.push(buildClassIncidentFeedItem(latest, pending, safetyCount));
     } catch {
       /* 조회 실패해도 고정 카드는 보여 줌 */
+      extras.push(buildClassIncidentFeedItem(latest, pending));
     }
-    extras.push(buildClassIncidentFeedItem(latest, pending));
   }
   return sortUnifiedFeedItems([...extras, ...buildUnifiedFeed(notices || [])]);
 }

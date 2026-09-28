@@ -40,6 +40,7 @@ CREATE POLICY "payroll_admin_all" ON public.payroll_entries
   );
 
 -- 관리자가 대신 남긴 특이사항은 수업 담당 선생님 기록으로 귀속
+-- (카테고리 정규화/검증은 class_incident_reports_categories.sql 과 동일)
 CREATE OR REPLACE FUNCTION public.class_incident_reports_before_write()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -48,10 +49,43 @@ SET search_path = public
 AS $$
 DECLARE
   v_entry public.payroll_entries%ROWTYPE;
+  v_content_changed boolean := false;
 BEGIN
   NEW.body := btrim(COALESCE(NEW.body, ''));
+  NEW.incident_category := nullif(btrim(COALESCE(NEW.incident_category, '')), '');
+  NEW.incident_subtype := nullif(btrim(COALESCE(NEW.incident_subtype, '')), '');
+
+  IF NEW.incident_subtype IS DISTINCT FROM 'substitute' THEN
+    NEW.substitute_teacher_id := NULL;
+  END IF;
+  IF NEW.incident_subtype IS DISTINCT FROM 'time_change' THEN
+    NEW.changed_start_time := NULL;
+    NEW.changed_end_time := NULL;
+  END IF;
+
+  IF NEW.incident_subtype = 'substitute' AND NEW.substitute_teacher_id IS NULL THEN
+    RAISE EXCEPTION '대신한 선생님을 선택해주세요.';
+  END IF;
+  IF NEW.incident_subtype = 'time_change'
+     AND (NEW.changed_start_time IS NULL OR NEW.changed_end_time IS NULL) THEN
+    RAISE EXCEPTION '변경된 시작·종료 시간을 입력해주세요.';
+  END IF;
+
   IF NEW.body = '' THEN
-    RAISE EXCEPTION '특이사항 내용을 입력해주세요.';
+    IF NEW.incident_category = 'schedule' AND NEW.incident_subtype = 'substitute' THEN
+      NEW.body := '대강';
+    ELSIF NEW.incident_category = 'schedule' AND NEW.incident_subtype = 'time_change' THEN
+      NEW.body := '시간변경';
+    ELSIF NEW.incident_category = 'equipment_facility' THEN
+      NEW.body := CASE NEW.incident_subtype
+        WHEN 'equipment_damaged' THEN '교구 파손'
+        WHEN 'equipment_broken' THEN '교구 고장'
+        WHEN 'facility_damaged' THEN '시설 파손'
+        ELSE '교구/시설 문제'
+      END;
+    ELSE
+      RAISE EXCEPTION '특이사항 내용을 입력해주세요.';
+    END IF;
   END IF;
 
   IF TG_OP = 'INSERT' THEN
@@ -95,8 +129,16 @@ BEGIN
       NEW.institution_id := OLD.institution_id;
     END IF;
 
+    v_content_changed :=
+      NEW.body IS DISTINCT FROM OLD.body
+      OR NEW.incident_category IS DISTINCT FROM OLD.incident_category
+      OR NEW.incident_subtype IS DISTINCT FROM OLD.incident_subtype
+      OR NEW.substitute_teacher_id IS DISTINCT FROM OLD.substitute_teacher_id
+      OR NEW.changed_start_time IS DISTINCT FROM OLD.changed_start_time
+      OR NEW.changed_end_time IS DISTINCT FROM OLD.changed_end_time;
+
     IF NOT public.is_schedule_admin() THEN
-      IF NEW.body IS DISTINCT FROM OLD.body THEN
+      IF v_content_changed THEN
         NEW.status := 'needs_review';
         NEW.reviewed_by := NULL;
         NEW.reviewed_at := NULL;

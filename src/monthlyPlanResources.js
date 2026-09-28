@@ -17,7 +17,7 @@ export function monthlyPlanPdfVariant({ language, pdfAge, selectedEnglishAges = 
   }
 
   const ages = [...new Set(selectedEnglishAges.map(String))]
-    .filter((age) => ["5", "6", "7"].includes(age))
+    .filter((age) => ["4", "5", "6", "7"].includes(age))
     .sort();
   if (!ages.length) throw new Error("영어 PDF 연령을 하나 이상 선택해 주세요.");
   return {

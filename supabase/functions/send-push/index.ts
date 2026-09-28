@@ -667,6 +667,8 @@ const SERVICE_ROLE_EVENTS = new Set([
   "kiosk_rotation_conflict_rent",
   "cron_class_checkin",
   "class_checkin_test",
+  "class_incident_test",
+  "class_incident_reported",
 ]);
 
 /** 키오스크에서 순환 배정 선생님 외 대여 시, 배정 선생님에게 참고 알림 */
@@ -771,10 +773,23 @@ function extractBearerToken(authHeader: string | null) {
   return authHeader.replace(/^Bearer\s+/i, "").trim();
 }
 
+function jwtRole(token: string) {
+  try {
+    const payload = String(token || "").split(".")[1];
+    if (!payload) return "";
+    const padded = payload.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((payload.length + 3) % 4);
+    const parsed = JSON.parse(atob(padded));
+    return String(parsed.role || "");
+  } catch {
+    return "";
+  }
+}
+
 function isServiceRoleAuth(token: string, ...keys: string[]) {
   const value = String(token || "").trim();
   if (!value) return false;
-  return keys.some((key) => Boolean(key) && value === key);
+  if (keys.some((key) => Boolean(key) && value === key)) return true;
+  return jwtRole(value) === "service_role";
 }
 
 function getPushDisabledTeacherIds() {
@@ -1503,6 +1518,28 @@ async function resolveNotification(event, payload, userId, adminClient) {
         url: "/schedule",
       };
     }
+    case "class_incident_reported": {
+      if (payload.teacher_id && userId !== payload.teacher_id) {
+        const adminCaller = await isScheduleAdmin(adminClient, userId);
+        if (!adminCaller) {
+          return { error: "Forbidden", status: 403 };
+        }
+      }
+      const isSafety = String(payload.incident_category || "") === "safety";
+      const name = String(payload.teacher_name || "").trim() || "선생님";
+      const inst = String(payload.institution_name || "").trim() || "원 미지정";
+      const dateLabel = formatClassDate(payload.class_date);
+      const detail = String(payload.body || "").trim();
+      const body = isSafety
+        ? `${name}님이 안전사고를 보고했습니다. ${inst}${dateLabel ? ` ${dateLabel}` : ""} — 바로 확인해 주세요${detail ? `: ${detail}` : ""}`
+        : `${name}님이 수업 특이사항을 남겼습니다. ${inst}${dateLabel ? ` ${dateLabel}` : ""}${detail ? `: ${detail}` : ""}`;
+      return {
+        teacherIds: await getScheduleAdminIds(adminClient),
+        title: isSafety ? "안전사고 보고" : "수업 특이사항",
+        body,
+        url: "/schedule?view=class-incidents",
+      };
+    }
     case "class_unassigned_admin": {
       if (!(await isScheduleAdmin(adminClient, userId))) {
         return { error: "Forbidden", status: 403 };
@@ -1590,6 +1627,17 @@ async function resolveNotification(event, payload, userId, adminClient) {
         title: "[테스트] 오늘 수업 마치셨나요?",
         body: "[테스트] 오늘 미확인 수업 2건 · 완료/수정 후 특이사항을 남겨 주세요",
         url: "/schedule?view=class-checkin&demo=1",
+      };
+    }
+    case "class_incident_test": {
+      if (!(await isScheduleSuperAdmin(adminClient, userId))) {
+        return { error: "Forbidden", status: 403 };
+      }
+      return {
+        teacherIds: await getSuperAdminIds(adminClient),
+        title: "[테스트] 안전사고 보고",
+        body: "[테스트] 아이 다침 · 바로 확인해 주세요. 운영 배포 전 특이사항 카테고리·강조 표시 확인용입니다",
+        url: "/schedule?view=class-incidents",
       };
     }
     default:
@@ -1688,6 +1736,32 @@ Deno.serve(async (req) => {
           url: "/schedule?view=class-checkin&demo=1",
         });
         console.log("[send-push] class_checkin_test (service) complete", result);
+        return jsonResponse(result);
+      }
+      if (event === "class_incident_test") {
+        const teacherIds = await getSuperAdminIds(adminClient);
+        const result = await deliverPushNotifications(adminClient, vapid, "class_incident_test", {
+          teacherIds,
+          title: "[테스트] 안전사고 보고",
+          body: "[테스트] 아이 다침 · 바로 확인해 주세요. 운영 배포 전 특이사항 카테고리·강조 표시 확인용입니다",
+          url: "/schedule?view=class-incidents",
+        });
+        console.log("[send-push] class_incident_test (service) complete", result);
+        return jsonResponse(result);
+      }
+      if (event === "class_incident_reported") {
+        const resolved = await resolveNotification("class_incident_reported", payload || {}, "", adminClient);
+        if (resolved.error) {
+          return jsonResponse({ error: resolved.error }, resolved.status || 400);
+        }
+        const teacherIds = payload?.notify_all_admins
+          ? resolved.teacherIds
+          : await getSuperAdminIds(adminClient);
+        const result = await deliverPushNotifications(adminClient, vapid, "class_incident_reported", {
+          ...resolved,
+          teacherIds,
+        });
+        console.log("[send-push] class_incident_reported (service) complete", result);
         return jsonResponse(result);
       }
     }

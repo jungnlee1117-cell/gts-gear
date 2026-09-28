@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, MessageSquareWarning } from "lucide-react";
-import { yearMonthKey } from "./constants.js";
-import { fetchInstitutions, fetchTeachers } from "./api.js";
+import { yearMonthFirstDay, yearMonthKey, yearMonthLastDay } from "./constants.js";
+import {
+  fetchHomeVisitPatterns,
+  fetchInstitutions,
+  fetchOneoffLessons,
+  fetchPayrollEntries,
+  fetchScheduleExceptions,
+  fetchTeacherVacations,
+  fetchTeachers,
+  fetchWeeklySchedule,
+} from "./api.js";
 import {
   CLASS_INCIDENT_SQL_HINT,
   CLASS_INCIDENT_STATUS,
@@ -13,6 +22,21 @@ import {
   markClassIncidentReviewed,
 } from "./classIncidentReports.js";
 import { ClassIncidentReplies, ClassIncidentStatusBadge } from "./ClassIncidentSlotForm.jsx";
+import { ClassIncidentCategoryBadge, ClassIncidentStructuredLine } from "./ClassIncidentCategoryFields.jsx";
+import {
+  formatIncidentPreview,
+  isSafetyIncident,
+  sortIncidentRowsForAdmin,
+} from "./classIncidentCategories.js";
+import ClassIncidentCheckCalendar from "./ClassIncidentCheckCalendar.jsx";
+import {
+  buildTeacherCheckByDate,
+  defaultSelectedDate,
+  incidentsByDate,
+  mergeOneoffLessonsForAllTeachers,
+} from "./classIncidentCheckCalendar.js";
+import { expandMonthSchedule } from "./payrollCalendar.js";
+import { patternsForCalendarMonth } from "./homeVisitPatterns.js";
 
 function entryLabel(row) {
   const pay = row.payroll_entries?.pay_type;
@@ -29,7 +53,6 @@ export default function ClassIncidentInboxView({ me, onBack, initialYearMonth = 
   const [institutionId, setInstitutionId] = useState("");
   const [teacherId, setTeacherId] = useState("");
   const [query, setQuery] = useState("");
-  const [rows, setRows] = useState([]);
   const [institutions, setInstitutions] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,51 +60,137 @@ export default function ClassIncidentInboxView({ me, onBack, initialYearMonth = 
   const [error, setError] = useState("");
   const [openId, setOpenId] = useState(null);
   const [savingId, setSavingId] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => defaultSelectedDate(initialYearMonth || yearMonthKey()));
+  const [slots, setSlots] = useState([]);
+  const [homeVisitPatterns, setHomeVisitPatterns] = useState([]);
+  const [oneoffLessons, setOneoffLessons] = useState([]);
+  const [exceptions, setExceptions] = useState([]);
+  const [payrollEntries, setPayrollEntries] = useState([]);
+  const [vacations, setVacations] = useState([]);
+  const [monthIncidents, setMonthIncidents] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    const fromDate = yearMonthFirstDay(yearMonth);
+    const toDate = yearMonthLastDay(yearMonth);
     try {
-      const [result, insts, people] = await Promise.all([
+      const [result, insts, people, weekly, visits, oneoffs, exs, pays, offs] = await Promise.all([
         fetchClassIncidentReports({
           yearMonth,
-          status,
+          status: "all",
           institutionId: institutionId || undefined,
           teacherId: teacherId || undefined,
         }),
         fetchInstitutions({ activeOnly: false }).catch(() => []),
         fetchTeachers({ yearMonth }).catch(() => []),
+        fetchWeeklySchedule(null, null).catch(() => []),
+        fetchHomeVisitPatterns().catch(() => []),
+        fetchOneoffLessons({ yearMonth }).catch(() => []),
+        fetchScheduleExceptions(null, fromDate, toDate).catch(() => []),
+        fetchPayrollEntries({ yearMonth }).catch(() => []),
+        fetchTeacherVacations({ fromDate, toDate }).catch(() => []),
       ]);
       setMissingTable(!!result.missingTable);
-      setRows(result.rows || []);
+      setMonthIncidents(result.rows || []);
       setInstitutions(insts || []);
       setTeachers((people || []).filter((t) => t.role === "teacher" || t.role === "admin"));
+      setSlots(weekly || []);
+      setHomeVisitPatterns(visits || []);
+      setOneoffLessons(oneoffs || []);
+      setExceptions(exs || []);
+      setPayrollEntries(pays || []);
+      setVacations(offs || []);
     } catch (err) {
       setError(err?.message || "특이사항을 불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }
-  }, [yearMonth, status, institutionId, teacherId]);
+  }, [yearMonth, institutionId, teacherId]);
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    setSelectedDate((current) => (
+      String(current || "").startsWith(yearMonth) ? current : defaultSelectedDate(yearMonth)
+    ));
+  }, [yearMonth]);
+
+  const { year, month } = useMemo(() => {
+    const [y, m] = String(yearMonth || "").split("-").map(Number);
+    return { year: y || new Date().getFullYear(), month: (m || 1) - 1 };
+  }, [yearMonth]);
+
+  const monthHomeVisits = useMemo(
+    () => patternsForCalendarMonth(homeVisitPatterns, yearMonthFirstDay(yearMonth), yearMonthLastDay(yearMonth)),
+    [homeVisitPatterns, yearMonth],
+  );
+
+  const scheduleByDate = useMemo(
+    () => mergeOneoffLessonsForAllTeachers(
+      expandMonthSchedule(slots, year, month, exceptions, monthHomeVisits),
+      oneoffLessons,
+    ),
+    [slots, year, month, exceptions, monthHomeVisits, oneoffLessons],
+  );
+
+  const checkByDate = useMemo(
+    () => buildTeacherCheckByDate({
+      scheduleByDate,
+      entries: payrollEntries,
+      teachers,
+      vacations,
+      teacherId,
+      institutionId,
+    }),
+    [scheduleByDate, payrollEntries, teachers, vacations, teacherId, institutionId],
+  );
+
+  const incidentMap = useMemo(() => incidentsByDate(monthIncidents), [monthIncidents]);
+
+  const shiftMonth = (delta, absoluteYm, dateStr) => {
+    if (absoluteYm) {
+      setYearMonth(absoluteYm);
+      if (dateStr) setSelectedDate(dateStr);
+      return;
+    }
+    const [y, m] = String(yearMonth).split("-").map(Number);
+    setYearMonth(yearMonthKey(new Date(y, (m || 1) - 1 + delta, 1)));
+  };
+
+  const statusRows = useMemo(
+    () => (status === "all"
+      ? monthIncidents
+      : monthIncidents.filter((row) => row.status === status)),
+    [monthIncidents, status],
+  );
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((row) => {
-      const hay = [
-        row.teachers?.name,
-        row.institutions?.name,
-        row.body,
-        entryLabel(row),
-      ].join(" ").toLowerCase();
-      return hay.includes(needle);
-    });
-  }, [rows, query]);
+    const rows = needle
+      ? statusRows.filter((row) => {
+        const hay = [
+          row.teachers?.name,
+          row.institutions?.name,
+          row.body,
+          formatIncidentPreview(row),
+          entryLabel(row),
+        ].join(" ").toLowerCase();
+        return hay.includes(needle);
+      })
+      : statusRows;
+    return sortIncidentRowsForAdmin(rows);
+  }, [statusRows, query]);
 
   const pendingCount = useMemo(
-    () => rows.filter((r) => r.status === CLASS_INCIDENT_STATUS.needs_review).length,
-    [rows],
+    () => monthIncidents.filter((r) => r.status === CLASS_INCIDENT_STATUS.needs_review).length,
+    [monthIncidents],
+  );
+  const pendingSafetyCount = useMemo(
+    () => monthIncidents.filter((r) => (
+      r.status === CLASS_INCIDENT_STATUS.needs_review && isSafetyIncident(r)
+    )).length,
+    [monthIncidents],
   );
 
   const handleReview = async (id) => {
@@ -106,8 +215,21 @@ export default function ClassIncidentInboxView({ me, onBack, initialYearMonth = 
       </header>
 
       <p className="sch-page-desc sch-incident-inbox-desc">
-        선생님이 남긴 수업 특이사항을 확인하고 답장합니다. 특이사항이 있는 수업만 표시됩니다.
+        날짜를 누르면 그날 수업 체크 현황과 특이사항을 함께 볼 수 있습니다.
       </p>
+
+      <ClassIncidentCheckCalendar
+        yearMonth={yearMonth}
+        selectedDate={selectedDate}
+        onChangeMonth={shiftMonth}
+        onSelectDate={setSelectedDate}
+        checkByDate={checkByDate}
+        incidentMap={incidentMap}
+        me={me}
+        onReview={handleReview}
+        onIncidentChanged={load}
+        savingId={savingId}
+      />
 
       <div className="sch-toolbar sch-incident-filters">
         <label className="sch-field sch-field--inline">
@@ -161,12 +283,21 @@ export default function ClassIncidentInboxView({ me, onBack, initialYearMonth = 
         />
       </div>
 
+      <h3 className="sch-incident-month-list-title">월별 특이사항 목록</h3>
       {status !== "all" ? (
         <p className="sch-muted sch-incident-count">
           {status === CLASS_INCIDENT_STATUS.needs_review ? `확인 필요 ${pendingCount}건` : `${filtered.length}건`}
+          {pendingSafetyCount > 0 ? (
+            <span className="sch-incident-safety-count"> · 안전사고 {pendingSafetyCount}건</span>
+          ) : null}
         </p>
       ) : (
-        <p className="sch-muted sch-incident-count">이번 달 {filtered.length}건</p>
+        <p className="sch-muted sch-incident-count">
+          이번 달 {filtered.length}건
+          {pendingSafetyCount > 0 ? (
+            <span className="sch-incident-safety-count"> · 안전사고 {pendingSafetyCount}건</span>
+          ) : null}
+        </p>
       )}
 
       {loading ? (
@@ -183,8 +314,9 @@ export default function ClassIncidentInboxView({ me, onBack, initialYearMonth = 
         <ul className="sch-incident-list">
           {filtered.map((row) => {
             const open = openId === row.id;
+            const safety = isSafetyIncident(row);
             return (
-              <li key={row.id} className="sch-incident-card">
+              <li key={row.id} className={`sch-incident-card${safety ? " sch-incident-card--safety" : ""}`}>
                 <button
                   type="button"
                   className="sch-incident-card-head"
@@ -203,12 +335,19 @@ export default function ClassIncidentInboxView({ me, onBack, initialYearMonth = 
                         .filter(Boolean)
                         .join(" · ")}
                     </span>
-                    <span className="sch-incident-card-preview">{row.body}</span>
+                    <span className="sch-incident-card-preview">{formatIncidentPreview(row)}</span>
                   </span>
-                  <ClassIncidentStatusBadge status={row.status} />
+                  <span className="sch-incident-card-badges">
+                    <ClassIncidentCategoryBadge
+                      category={row.incident_category}
+                      subtype={row.incident_subtype}
+                    />
+                    <ClassIncidentStatusBadge status={row.status} />
+                  </span>
                 </button>
                 {open ? (
                   <div className="sch-incident-card-body">
+                    <ClassIncidentStructuredLine row={row} />
                     <p className="sch-incident-body">{row.body}</p>
                     <p className="sch-muted">
                       작성 {formatIncidentWhen(row.created_at)}

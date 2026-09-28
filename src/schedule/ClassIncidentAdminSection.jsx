@@ -7,6 +7,12 @@ import {
   formatIncidentDate,
 } from "./classIncidentReports.js";
 import { ClassIncidentStatusBadge } from "./ClassIncidentSlotForm.jsx";
+import { ClassIncidentCategoryBadge } from "./ClassIncidentCategoryFields.jsx";
+import {
+  formatIncidentPreview,
+  isSafetyIncident,
+  sortIncidentRowsForAdmin,
+} from "./classIncidentCategories.js";
 
 export default function ClassIncidentAdminSection({
   yearMonth,
@@ -37,6 +43,14 @@ export default function ClassIncidentAdminSection({
 
   const pendingCount = useMemo(
     () => rows.filter((r) => r.status === CLASS_INCIDENT_STATUS.needs_review).length,
+    [rows],
+  );
+  const pendingSafetyCount = useMemo(
+    () => rows.filter((r) => r.status === CLASS_INCIDENT_STATUS.needs_review && isSafetyIncident(r)).length,
+    [rows],
+  );
+  const previewRows = useMemo(
+    () => sortIncidentRowsForAdmin(rows).slice(0, 12),
     [rows],
   );
 
@@ -80,12 +94,15 @@ export default function ClassIncidentAdminSection({
             <h3 className="sch-admin-dash-section-title">수업 특이사항</h3>
             <p className="sch-muted sch-admin-dash-section-desc">
               이번 달 선생님이 남긴 보고 · 확인 필요 {pendingCount}건
+              {pendingSafetyCount > 0 ? ` · 안전사고 ${pendingSafetyCount}건` : ""}
             </p>
           </div>
         </div>
         <div className="sch-admin-section-badges">
           <span className="sch-admin-count-badge">{rows.length}건</span>
-          {pendingCount > 0 ? (
+          {pendingSafetyCount > 0 ? (
+            <span className="sch-incident-cat-badge sch-incident-cat-badge--safety">안전사고 {pendingSafetyCount}</span>
+          ) : pendingCount > 0 ? (
             <span className="sch-admin-section-alert-dot" aria-hidden />
           ) : null}
           <span className={`sch-admin-section-chevron${collapsed ? "" : " sch-admin-section-chevron--open"}`}>
@@ -104,13 +121,20 @@ export default function ClassIncidentAdminSection({
             <p className="sch-muted">이번 달 특이사항이 없습니다.</p>
           ) : (
             <ul className="sch-incident-admin-list">
-              {rows.slice(0, 12).map((row) => (
-                <li key={row.id} className="sch-incident-admin-row">
+              {previewRows.map((row) => (
+                <li
+                  key={row.id}
+                  className={`sch-incident-admin-row${isSafetyIncident(row) ? " sch-incident-admin-row--safety" : ""}`}
+                >
                   <ClassIncidentStatusBadge status={row.status} />
+                  <ClassIncidentCategoryBadge
+                    category={row.incident_category}
+                    subtype={row.incident_subtype}
+                  />
                   <span className="sch-incident-admin-date">{formatIncidentDate(row.class_date)}</span>
                   <span className="sch-incident-admin-teacher">{row.teachers?.name || "선생님"}</span>
                   <span className="sch-incident-admin-inst">{row.institutions?.name || "원 미지정"}</span>
-                  <span className="sch-incident-admin-body">{row.body}</span>
+                  <span className="sch-incident-admin-body">{formatIncidentPreview(row)}</span>
                 </li>
               ))}
             </ul>

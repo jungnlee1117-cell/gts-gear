@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileImage, FileText, Languages, PartyPopper, RefreshCw, Save, Sparkles, Upload } from "lucide-react";
 import { naturalEnglishEquipmentName } from "./lessonPlan.js";
 import { buildMonthlyPlanPdfBlob, downloadPdfBlob } from "./monthlyPlanPdf.js";
@@ -19,11 +19,14 @@ const AGE_GROUPS = [
   { id: "7", label: "7세" },
 ];
 const ENGLISH_AGE_GROUPS = [
+  { id: "en_4", age: "4", label: "English · AGE 4" },
   { id: "en_5", age: "5", label: "English · AGE 5" },
   { id: "en_6", age: "6", label: "English · AGE 6" },
   { id: "en_7", age: "7", label: "English · AGE 7" },
 ];
 const ALL_GROUPS = [...AGE_GROUPS, ...ENGLISH_AGE_GROUPS];
+const WEEK_COUNT_OPTIONS = [4, 5];
+const DEFAULT_WEEK_COUNT = 5;
 const EMPTY_ENGLISH_GOALS = Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age }) => [age, ""]));
 const EVENT_PRESETS = [
   { id: "holiday", name: "명절", englishName: "Korean Holiday Games", ko: "우리나라 명절에 담긴 의미와 정겨운 문화를 아이들의 눈높이에서 함께 알아봅니다. 전통놀이와 명절 이야기를 활용한 즐거운 활동을 통해 자연스럽게 우리 문화와 가까워집니다.", en: "Children discover the meaning and warm traditions of Korean holidays through age-appropriate stories. They enjoy traditional games and playful activities that help them feel closer to Korean culture." },
@@ -65,18 +68,52 @@ function eventFamilyKey(value) {
   return name;
 }
 
-function makeRows() {
+function normalizeWeekCount(value) {
+  return Number(value) === 4 ? 4 : DEFAULT_WEEK_COUNT;
+}
+
+function emptyPlanRow(position) {
+  return {
+    position,
+    activity_name: "",
+    activity_description: "",
+    key_expression: "",
+    image_path: "",
+    image_url: "",
+  };
+}
+
+function makeRows(weekCount = DEFAULT_WEEK_COUNT) {
+  const count = normalizeWeekCount(weekCount);
   return Object.fromEntries(ALL_GROUPS.map(({ id }) => [
     id,
-    Array.from({ length: 5 }, (_, index) => ({
-      position: index + 1,
-      activity_name: "",
-      activity_description: "",
-      key_expression: "",
-      image_path: "",
-      image_url: "",
-    })),
+    Array.from({ length: count }, (_, index) => emptyPlanRow(index + 1)),
   ]));
+}
+
+function resizeRowsByGroup(previous, weekCount) {
+  const count = normalizeWeekCount(weekCount);
+  return Object.fromEntries(ALL_GROUPS.map(({ id }) => {
+    const current = previous?.[id] || [];
+    return [
+      id,
+      Array.from({ length: count }, (_, index) => (
+        current[index] ? { ...current[index], position: index + 1 } : emptyPlanRow(index + 1)
+      )),
+    ];
+  }));
+}
+
+function inferWeekCount(entries) {
+  const maxPosition = Math.max(0, ...(entries || []).map((entry) => Number(entry.position) || 0));
+  return maxPosition >= 5 ? 5 : (maxPosition === 4 ? 4 : DEFAULT_WEEK_COUNT);
+}
+
+function hasFifthWeekContent(rowsByGroup) {
+  return ALL_GROUPS.some(({ id }) => {
+    const row = rowsByGroup?.[id]?.[4];
+    return Boolean(row && (row.activity_name || row.activity_description || row.key_expression || row.image_path));
+  });
 }
 
 function parseEnglishGoals(value) {
@@ -106,12 +143,20 @@ function buildEnglishPurpose(suggestion, age = "5", index = 0) {
   else if (/jump|hurdle|rope|stepping|stone/.test(source)) focus = "dynamic balance, lower-body strength, and controlled landing";
   else if (/board|flip|balance/.test(source)) focus = "postural control, balance reactions, and movement confidence";
 
-  const verbs = age === "7" ? ["Refines", "Advances", "Integrates"] : age === "6" ? ["Strengthens", "Expands", "Connects"] : ["Builds", "Develops", "Supports"];
+  const verbs = age === "7"
+    ? ["Refines", "Advances", "Integrates"]
+    : age === "6"
+      ? ["Strengthens", "Expands", "Connects"]
+      : age === "4"
+        ? ["Introduces", "Encourages", "Supports"]
+        : ["Builds", "Develops", "Supports"];
   const progression = age === "7"
     ? "through complex sequences, precise control, and independent decisions"
     : age === "6"
       ? "through linked actions, direction changes, and responsive challenges"
-      : "through guided exploration, repetition, and successful first attempts";
+      : age === "4"
+        ? "through playful first tries, simple steps, and lots of encouragement"
+        : "through guided exploration, repetition, and successful first attempts";
   return `${verbs[index % verbs.length]} ${focus} ${progression}.`;
 }
 
@@ -122,13 +167,17 @@ function buildEnglishActivity(suggestion, age = "5", index = 0) {
     ? ["Children work with greater independence as they", "Children use longer movement sequences to", "Children take part in advanced challenges as they"]
     : age === "6"
       ? ["Children work through linked challenges as they", "Children work with partners and small groups to", "Children respond to direction and speed changes as they"]
-      : ["Children explore through playful activities as they", "Children follow clear demonstrations as they", "Children build confidence through safe, repeated practice as they"];
+      : age === "4"
+        ? ["Children try simple, playful movements as they", "Children follow short, clear steps as they", "Children enjoy safe, guided practice as they"]
+        : ["Children explore through playful activities as they", "Children follow clear demonstrations as they", "Children build confidence through safe, repeated practice as they"];
   base = base.replace(/^Children\s+/i, `${leads[index % leads.length]} `);
   const extension = age === "7"
     ? "Movements are combined into a longer sequence with precise control and independent choices."
     : age === "6"
       ? "Two or more actions are connected while direction, speed, or partner cues change."
-      : "Simple steps and encouraging repetition help every learner experience success.";
+      : age === "4"
+        ? "Short, cheerful steps help every child feel successful."
+        : "Simple steps and encouraging repetition help every learner experience success.";
   return `${base} ${extension}`;
 }
 
@@ -245,8 +294,10 @@ function printableKoreanTemplateHtml({
 }) {
   const selectedAgeMeta = AGE_GROUPS.find(({ id }) => id === selectedAge) || AGE_GROUPS[0];
   const rows = rowsByGroup[selectedAgeMeta.id] || [];
+  const weekCount = normalizeWeekCount(rows.length);
+  const rowHeight = weekCount === 4 ? "44.75mm" : "35.75mm";
   const title = documentTitle || monthTitle(month);
-  const rowMarkup = rows.slice(0, 5).map((row, index) => `
+  const rowMarkup = rows.slice(0, weekCount).map((row, index) => `
     <div class="ko-row">
       <div class="ko-week">${index + 1}주</div>
       <div class="ko-equipment"><strong>${escapeHtml(row.activity_name || "")}</strong>${row.image_url ? `<img src="${escapeHtml(row.image_url)}" alt="${escapeHtml(row.activity_name || `${index + 1}주차`)}" />` : ""}</div>
@@ -268,7 +319,7 @@ function printableKoreanTemplateHtml({
       .ko-head { height: 9.5mm; background: #dcefe2; color: #135a35; font-size: 2.8mm; font-weight: 900; text-align: center; }
       .ko-head > div, .ko-row > div { display: flex; align-items: center; justify-content: center; border-right: .25mm solid #b9d4c0; }
       .ko-head > div:last-child, .ko-row > div:last-child { border-right: 0; }
-      .ko-row { height: 35.75mm; border-top: .25mm solid #b9d4c0; }
+      .ko-row { height: ${rowHeight}; border-top: .25mm solid #b9d4c0; }
       .ko-week { background: #fbfdfb; color: #176d40; font-size: 3.15mm; font-weight: 900; }
       .ko-equipment { flex-direction: column; padding: 2mm; text-align: center; overflow: hidden; }
       .ko-equipment strong { min-height: 4.5mm; font-size: 2.75mm; font-weight: 900; }
@@ -340,7 +391,9 @@ function buildMonthlyEnglishGoal(suggestions, month, age = "5") {
     ? `Learners combine ${activityText} into complex sequences, refining ${focusText}, decision-making, and teamwork.`
     : age === "6"
       ? `Linked ${activityText} strengthen ${focusText} as learners respond to changing directions, speeds, and partners.`
-      : `Guided ${activityText} build foundations in ${focusText} through playful repetition and encouraging success.`;
+      : age === "4"
+        ? `Simple ${activityText} introduce ${focusText} through short, playful steps and lots of encouragement.`
+        : `Guided ${activityText} build foundations in ${focusText} through playful repetition and encouraging success.`;
   return `${monthlyTheme} ${ageDirection}`;
 }
 
@@ -512,7 +565,10 @@ export default function SuperadminMonthlyPlanEditor({
   companyEquipment = [],
 }) {
   const [planId, setPlanId] = useState(null);
-  const [rowsByGroup, setRowsByGroup] = useState(makeRows);
+  const [weekCount, setWeekCount] = useState(DEFAULT_WEEK_COUNT);
+  const [rowsByGroup, setRowsByGroup] = useState(() => makeRows(DEFAULT_WEEK_COUNT));
+  const weekCountRef = useRef(weekCount);
+  weekCountRef.current = weekCount;
   const [language, setLanguage] = useState("ko");
   const [englishGoals, setEnglishGoals] = useState(EMPTY_ENGLISH_GOALS);
   const [pdfAge, setPdfAge] = useState("3_4");
@@ -558,7 +614,7 @@ export default function SuperadminMonthlyPlanEditor({
         keyExpression: String(value?.keyExpression || "").trim(),
         options: Array.isArray(value?.options) ? value.options : [],
       };
-    }).filter((value) => value.name).slice(0, 5),
+    }).filter((value) => value.name),
     [suggestedActivities],
   );
 
@@ -583,9 +639,13 @@ export default function SuperadminMonthlyPlanEditor({
     englishActivity: String(item.english_activity || item.activity_description_en || item.english_description || "").trim(),
     activityDescriptions: {},
   })).filter((item) => item.id !== "company:undefined" && item.name), [companyEquipment]);
-  const gearPickerSuggestions = useMemo(() => normalizedSuggestions.length
-    ? normalizedSuggestions
-    : Array.from({ length: 5 }, (_, index) => ({ weekNumber: index + 1, name: "", options: [] })), [normalizedSuggestions]);
+  const gearPickerSuggestions = useMemo(() => {
+    const byWeek = new Map(normalizedSuggestions.map((item) => [Number(item.weekNumber), item]));
+    return Array.from({ length: weekCount }, (_, index) => {
+      const weekNumber = index + 1;
+      return byWeek.get(weekNumber) || { weekNumber, name: "", options: [] };
+    });
+  }, [normalizedSuggestions, weekCount]);
 
   const visibleEventPresets = useMemo(() => {
     const registeredFamilies = new Set(normalizedPrograms.map((program) => eventFamilyKey(program.name)));
@@ -638,7 +698,7 @@ export default function SuperadminMonthlyPlanEditor({
         if (isMissingSchema(planError)) {
           if (!cancelled) {
             setSetupRequired(true);
-            setRowsByGroup(makeRows());
+            setRowsByGroup(makeRows(weekCountRef.current));
           }
           return;
         }
@@ -648,7 +708,7 @@ export default function SuperadminMonthlyPlanEditor({
       if (!plan) {
         if (!cancelled) {
           setPlanId(null);
-          setRowsByGroup(makeRows());
+          setRowsByGroup(makeRows(weekCountRef.current));
           setEnglishGoals({ ...EMPTY_ENGLISH_GOALS });
           setLastSavedAt(null);
         }
@@ -662,7 +722,8 @@ export default function SuperadminMonthlyPlanEditor({
         .order("position");
       if (entriesError) throw entriesError;
 
-      const next = makeRows();
+      const loadedWeekCount = inferWeekCount(entries);
+      const next = makeRows(loadedWeekCount);
       for (const entry of entries || []) {
         const group = next[entry.age_group];
         const index = Number(entry.position) - 1;
@@ -730,6 +791,7 @@ export default function SuperadminMonthlyPlanEditor({
           ]))
           : parsedGoals;
         setPlanId(plan.id);
+        setWeekCount(loadedWeekCount);
         setRowsByGroup(next);
         setEnglishGoals(nextEnglishGoals);
         setLastSavedAt(plan.updated_at || null);
@@ -745,6 +807,22 @@ export default function SuperadminMonthlyPlanEditor({
     return () => { cancelled = true; };
   }, [me?.id, month, supabase, suggestedActivities]);
 
+  const changeWeekCount = (nextCount) => {
+    const count = normalizeWeekCount(nextCount);
+    if (count === weekCount) return;
+    if (count === 4 && hasFifthWeekContent(rowsByGroup)
+      && !window.confirm("5주차 내용이 삭제됩니다. 4주로 바꿀까요?")) {
+      return;
+    }
+    setWeekCount(count);
+    setRowsByGroup((previous) => resizeRowsByGroup(previous, count));
+    setEventWeek((previous) => String(Math.min(Number(previous) || 1, count)));
+    setGearPickerOpen(false);
+    setMessage(count === 4
+      ? "4주 계획안으로 바꿨습니다. 교구를 고른 뒤 계획안을 만들어 주세요."
+      : "5주 계획안으로 바꿨습니다. 교구를 고른 뒤 계획안을 만들어 주세요.");
+  };
+
   const setRow = (groupId, index, key, value) => {
     setRowsByGroup((previous) => ({
       ...previous,
@@ -758,7 +836,7 @@ export default function SuperadminMonthlyPlanEditor({
   const applyGearSuggestions = (suggestionsByGroup) => {
     const englishSuggestions = Array.isArray(suggestionsByGroup)
       ? suggestionsByGroup
-      : suggestionsByGroup.en_5 || suggestionsByGroup.en || [];
+      : suggestionsByGroup.en_4 || suggestionsByGroup.en_5 || suggestionsByGroup.en || [];
     setRowsByGroup((previous) => ({
       ...previous,
       ...Object.fromEntries(activeGroups.map(({ id }) => [
@@ -862,7 +940,7 @@ export default function SuperadminMonthlyPlanEditor({
   };
 
   const applyEventDay = () => {
-    const weekIndex = Math.max(0, Math.min(4, Number(eventWeek) - 1));
+    const weekIndex = Math.max(0, Math.min(weekCount - 1, Number(eventWeek) - 1));
     const program = eventChoice.startsWith("program:")
       ? normalizedPrograms.find((item) => item.id === eventChoice.slice(8))
       : null;
@@ -1092,10 +1170,27 @@ export default function SuperadminMonthlyPlanEditor({
         <div>
           <span className="monthly-plan-editor__eyebrow">내 월간 계획안 · 임시저장</span>
           <h2><FileText size={21} /> 월간 계획안 작성</h2>
-          <p>한국어 또는 영어를 선택해 필요한 연령별 계획안만 작성하고 A4 PDF로 저장할 수 있습니다.</p>
+          <p>4주 또는 5주를 고른 뒤 교구를 선택하면 그 주차 수만큼 계획안이 만들어집니다.</p>
         </div>
         <div className="monthly-plan-editor__controls">
           <label><span>작성 월</span><input type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} onClick={openNativeMonthPicker} /></label>
+          <fieldset className="monthly-plan-editor__week-count" aria-label="계획안 주차 수">
+            <span>주차 수</span>
+            <div>
+              {WEEK_COUNT_OPTIONS.map((count) => (
+                <button
+                  key={count}
+                  type="button"
+                  className={weekCount === count ? "is-active" : ""}
+                  aria-pressed={weekCount === count}
+                  disabled={setupRequired}
+                  onClick={() => changeWeekCount(count)}
+                >
+                  {count}주
+                </button>
+              ))}
+            </div>
+          </fieldset>
           <button type="button" className="monthly-plan-editor__gear-button" onClick={fillFromGear} disabled={setupRequired}>
             <RefreshCw size={18} /> 이번 달 교구 선택하기
           </button>
@@ -1140,7 +1235,7 @@ export default function SuperadminMonthlyPlanEditor({
             <button type="button" onClick={() => setEventPickerOpen(false)}>닫기</button>
           </div>
           <div className="monthly-plan-event-picker__grid">
-            <label><span>적용 주차</span><select value={eventWeek} onChange={(event) => setEventWeek(event.target.value)}>{[1, 2, 3, 4, 5].map((week) => <option key={week} value={week}>{week}주차</option>)}</select></label>
+            <label><span>적용 주차</span><select value={eventWeek} onChange={(event) => setEventWeek(event.target.value)}>{Array.from({ length: weekCount }, (_, index) => index + 1).map((week) => <option key={week} value={week}>{week}주차</option>)}</select></label>
             <label><span>이벤트/프로그램</span><select value={eventChoice} onChange={(event) => setEventChoice(event.target.value)}>
               {visibleEventPresets.length ? <optgroup label="기본 이벤트">{visibleEventPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</optgroup> : null}
               {normalizedPrograms.length ? <optgroup label="등록된 프로그램">{normalizedPrograms.map((program) => <option key={program.id} value={`program:${program.id}`}>{program.name}</option>)}</optgroup> : null}
@@ -1169,13 +1264,13 @@ export default function SuperadminMonthlyPlanEditor({
           <FileText size={16} /> 한국어 계획안 만들기 <small>3~4세 · 5~6세 · 7세</small>
         </button>
         <button type="button" className={language === "en" ? "is-active" : ""} onClick={() => setLanguage("en")}>
-          <Languages size={16} /> 영어 계획안 만들기 <small>AGE 5 · 6 · 7</small>
+          <Languages size={16} /> 영어 계획안 만들기 <small>AGE 4 · 5 · 6 · 7</small>
         </button>
       </div>
       <p className="monthly-plan-editor__edit-hint">
         현재 <strong>{language === "ko" ? "한국어 계획안" : "영어 계획안"}</strong>을 작성하고 있습니다.
-        {language === "ko" ? " 3~4세, 5~6세, 7세 계획안이 아래에 이어집니다." : " AGE 5, AGE 6, AGE 7 계획안이 아래에 이어집니다."}
-        {" "}교구명, 활동 내용과 운동발달 목적은 표 안에서 자유롭게 수정할 수 있습니다.
+        {language === "ko" ? " 3~4세, 5~6세, 7세 계획안이 아래에 이어집니다." : " AGE 4, AGE 5, AGE 6, AGE 7 계획안이 아래에 이어집니다."}
+        {" "}지금은 {weekCount}주 계획안입니다. 교구명, 활동 내용과 운동발달 목적은 표 안에서 자유롭게 수정할 수 있습니다.
       </p>
 
       {setupRequired ? (
@@ -1190,7 +1285,7 @@ export default function SuperadminMonthlyPlanEditor({
           <div className="monthly-plan-gear-picker__heading">
             <div>
               <strong>{language === "ko" ? "한국어" : "영어"} 연령별 계획안 교구 선택</strong>
-              <span>주차마다 교구를 고른 뒤, 아래(또는 화면 하단) 큰 초록 버튼으로 교육계획안을 자동완성하세요. 같은 주차라도 연령별로 다른 교구를 고를 수 있습니다.</span>
+              <span>{weekCount}주 계획안입니다. 주차마다 교구를 고른 뒤, 아래(또는 화면 하단) 큰 초록 버튼으로 교육계획안을 자동완성하세요. 같은 주차라도 연령별로 다른 교구를 고를 수 있습니다.</span>
             </div>
             <div className="monthly-plan-gear-picker__heading-actions"><button type="button" onClick={() => setGearPickerOpen(false)}>취소</button></div>
           </div>

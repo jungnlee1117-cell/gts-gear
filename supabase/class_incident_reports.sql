@@ -15,6 +15,19 @@ CREATE TABLE IF NOT EXISTS public.class_incident_reports (
     REFERENCES public.institutions(id) ON DELETE SET NULL,
   class_date date NOT NULL,
   body text NOT NULL CHECK (char_length(btrim(body)) > 0),
+  incident_category text
+    CHECK (incident_category IS NULL OR incident_category IN (
+      'schedule', 'safety', 'institution_request', 'equipment_facility', 'other'
+    )),
+  incident_subtype text
+    CHECK (incident_subtype IS NULL OR incident_subtype IN (
+      'substitute', 'cancelled', 'time_change',
+      'teacher_injured', 'child_injured',
+      'equipment_damaged', 'equipment_broken', 'facility_damaged', 'other'
+    )),
+  substitute_teacher_id uuid REFERENCES public.teachers(id) ON DELETE SET NULL,
+  changed_start_time time,
+  changed_end_time time,
   status text NOT NULL DEFAULT 'needs_review'
     CHECK (status IN ('needs_review', 'reviewed')),
   reviewed_by uuid REFERENCES public.teachers(id) ON DELETE SET NULL,
@@ -26,7 +39,11 @@ CREATE TABLE IF NOT EXISTS public.class_incident_reports (
 COMMENT ON TABLE public.class_incident_reports IS
   '수업(payroll_entries) 단위 특이사항 보고. 내용이 있을 때만 행이 생김.';
 COMMENT ON COLUMN public.class_incident_reports.status IS
-  'needs_review=확인 필요, reviewed=확인 완료. 선생님이 본문을 수정하면 다시 needs_review.';
+  'needs_review=확인 필요, reviewed=확인 완료. 선생님이 본문·카테고리를 수정하면 다시 needs_review.';
+COMMENT ON COLUMN public.class_incident_reports.incident_category IS
+  '대분류: schedule/safety/institution_request/equipment_facility/other. 레거시는 NULL.';
+COMMENT ON COLUMN public.class_incident_reports.body IS
+  '상세 설명. 구조화 필드만으로 충분한 경우 자동 요약이 들어갈 수 있음.';
 
 CREATE INDEX IF NOT EXISTS idx_class_incident_reports_status
   ON public.class_incident_reports (status, class_date DESC);
@@ -36,6 +53,38 @@ CREATE INDEX IF NOT EXISTS idx_class_incident_reports_institution_date
   ON public.class_incident_reports (institution_id, class_date DESC);
 CREATE INDEX IF NOT EXISTS idx_class_incident_reports_class_date
   ON public.class_incident_reports (class_date DESC);
+CREATE INDEX IF NOT EXISTS idx_class_incident_reports_category
+  ON public.class_incident_reports (incident_category, status, class_date DESC);
+
+ALTER TABLE public.class_incident_reports
+  DROP CONSTRAINT IF EXISTS class_incident_reports_category_pair_check;
+ALTER TABLE public.class_incident_reports
+  ADD CONSTRAINT class_incident_reports_category_pair_check
+  CHECK (
+    incident_category IS NULL
+    OR (
+      incident_category = 'schedule'
+      AND incident_subtype IN ('substitute', 'cancelled', 'time_change')
+    )
+    OR (
+      incident_category = 'safety'
+      AND incident_subtype IN ('teacher_injured', 'child_injured')
+    )
+    OR (
+      incident_category = 'institution_request'
+      AND incident_subtype IS NULL
+    )
+    OR (
+      incident_category = 'equipment_facility'
+      AND incident_subtype IN (
+        'equipment_damaged', 'equipment_broken', 'facility_damaged', 'other'
+      )
+    )
+    OR (
+      incident_category = 'other'
+      AND incident_subtype IS NULL
+    )
+  );
 
 -- ─────────────────────────────────────────────
 -- 2) 답장 스레드 (관리자·선생님 모두)
@@ -67,10 +116,43 @@ SET search_path = public
 AS $$
 DECLARE
   v_entry public.payroll_entries%ROWTYPE;
+  v_content_changed boolean := false;
 BEGIN
   NEW.body := btrim(COALESCE(NEW.body, ''));
+  NEW.incident_category := nullif(btrim(COALESCE(NEW.incident_category, '')), '');
+  NEW.incident_subtype := nullif(btrim(COALESCE(NEW.incident_subtype, '')), '');
+
+  IF NEW.incident_subtype IS DISTINCT FROM 'substitute' THEN
+    NEW.substitute_teacher_id := NULL;
+  END IF;
+  IF NEW.incident_subtype IS DISTINCT FROM 'time_change' THEN
+    NEW.changed_start_time := NULL;
+    NEW.changed_end_time := NULL;
+  END IF;
+
+  IF NEW.incident_subtype = 'substitute' AND NEW.substitute_teacher_id IS NULL THEN
+    RAISE EXCEPTION '대신한 선생님을 선택해주세요.';
+  END IF;
+  IF NEW.incident_subtype = 'time_change'
+     AND (NEW.changed_start_time IS NULL OR NEW.changed_end_time IS NULL) THEN
+    RAISE EXCEPTION '변경된 시작·종료 시간을 입력해주세요.';
+  END IF;
+
   IF NEW.body = '' THEN
-    RAISE EXCEPTION '특이사항 내용을 입력해주세요.';
+    IF NEW.incident_category = 'schedule' AND NEW.incident_subtype = 'substitute' THEN
+      NEW.body := '대강';
+    ELSIF NEW.incident_category = 'schedule' AND NEW.incident_subtype = 'time_change' THEN
+      NEW.body := '시간변경';
+    ELSIF NEW.incident_category = 'equipment_facility' THEN
+      NEW.body := CASE NEW.incident_subtype
+        WHEN 'equipment_damaged' THEN '교구 파손'
+        WHEN 'equipment_broken' THEN '교구 고장'
+        WHEN 'facility_damaged' THEN '시설 파손'
+        ELSE '교구/시설 문제'
+      END;
+    ELSE
+      RAISE EXCEPTION '특이사항 내용을 입력해주세요.';
+    END IF;
   END IF;
 
   IF TG_OP = 'INSERT' THEN
@@ -88,11 +170,13 @@ BEGIN
     IF NEW.institution_id IS NULL THEN
       NEW.institution_id := v_entry.institution_id;
     END IF;
-    IF NEW.teacher_id IS NULL THEN
-      NEW.teacher_id := auth.uid();
-    END IF;
 
-    IF NOT public.is_schedule_admin() THEN
+    IF public.is_schedule_admin() THEN
+      NEW.teacher_id := COALESCE(v_entry.teacher_id, NEW.teacher_id, auth.uid());
+    ELSE
+      IF NEW.teacher_id IS NULL THEN
+        NEW.teacher_id := auth.uid();
+      END IF;
       IF NEW.teacher_id IS DISTINCT FROM auth.uid() THEN
         RAISE EXCEPTION '본인 보고만 작성할 수 있습니다.';
       END IF;
@@ -112,8 +196,16 @@ BEGIN
       NEW.institution_id := OLD.institution_id;
     END IF;
 
+    v_content_changed :=
+      NEW.body IS DISTINCT FROM OLD.body
+      OR NEW.incident_category IS DISTINCT FROM OLD.incident_category
+      OR NEW.incident_subtype IS DISTINCT FROM OLD.incident_subtype
+      OR NEW.substitute_teacher_id IS DISTINCT FROM OLD.substitute_teacher_id
+      OR NEW.changed_start_time IS DISTINCT FROM OLD.changed_start_time
+      OR NEW.changed_end_time IS DISTINCT FROM OLD.changed_end_time;
+
     IF NOT public.is_schedule_admin() THEN
-      IF NEW.body IS DISTINCT FROM OLD.body THEN
+      IF v_content_changed THEN
         NEW.status := 'needs_review';
         NEW.reviewed_by := NULL;
         NEW.reviewed_at := NULL;

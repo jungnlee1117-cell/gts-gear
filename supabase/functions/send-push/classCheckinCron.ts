@@ -2,6 +2,7 @@ const ONEOFF_PREFIX = "__oneoff:";
 const ROUND1_DELAY_MIN = 10;
 const ROUND2_DELAY_MIN = 70;
 const ROUND3_HM = "20:00";
+const LOOKBACK_DAYS = 62;
 
 const KOREAN_HOLIDAYS = new Set([
   "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18",
@@ -108,17 +109,52 @@ function homeVisitOnDate(pattern: any, dateStr: string, dow: number) {
   return Boolean(sliceHm(pattern.end_time) || sliceHm(pattern.start_time));
 }
 
-function findEntry(entries: any[], planned: { source: string; id: string }) {
+function findEntry(entries: any[], planned: { source: string; id: string; dateStr?: string }) {
+  const dateStr = planned.dateStr ? String(planned.dateStr).slice(0, 10) : "";
   if (planned.source === "home_visit") {
-    return entries.find((e) => e.home_visit_pattern_id === planned.id) || null;
+    return entries.find((e) => (
+      e.home_visit_pattern_id === planned.id
+      && (!dateStr || String(e.class_date || "").slice(0, 10) === dateStr)
+    )) || null;
   }
-  return entries.find((e) => e.schedule_slot_id === planned.id) || null;
+  return entries.find((e) => (
+    e.schedule_slot_id === planned.id
+    && (!dateStr || String(e.class_date || "").slice(0, 10) === dateStr)
+  )) || null;
 }
 
 function isResolved(entry: any, dateStr: string) {
   if (entry?.entry_status) return true;
   if (KOREAN_HOLIDAYS.has(dateStr)) return true;
   return false;
+}
+
+function addDaysYmd(ymd: string, days: number) {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(year, month - 1, day + days));
+  return dt.toISOString().slice(0, 10);
+}
+
+function kstDow(ymd: string) {
+  return new Date(`${ymd}T12:00:00+09:00`).getUTCDay();
+}
+
+function eachYmd(fromYmd: string, toYmd: string) {
+  const dates: string[] = [];
+  let cursor = fromYmd;
+  while (cursor <= toYmd) {
+    dates.push(cursor);
+    cursor = addDaysYmd(cursor, 1);
+  }
+  return dates;
+}
+
+function isVacationOn(vacations: any[], teacherId: string, dateStr: string) {
+  return (vacations || []).some((row) => (
+    row.teacher_id === teacherId
+    && String(row.start_date || "").slice(0, 10) <= dateStr
+    && String(row.end_date || "").slice(0, 10) >= dateStr
+  ));
 }
 
 function roundCopy(round: number, count: number) {
@@ -131,8 +167,8 @@ function roundCopy(round: number, count: number) {
   }
   if (round === 3) {
     return {
-      title: "오늘 수업 확인",
-      body: `오늘 수업 확인을 아직 마치지 않았어요 (${n}건)`,
+      title: "오늘 수업 마치셨나요?",
+      body: `아직 체크하지 않은 수업이 ${n}건 있어요`,
     };
   }
   return {
@@ -141,15 +177,124 @@ function roundCopy(round: number, count: number) {
   };
 }
 
-export async function runClassCheckinReminders(adminClient: any, vapid: any, deliverPushNotifications: Function) {
-  const { ymd, dow, now } = kstParts();
-  const url = `/schedule?view=class-checkin&date=${ymd}`;
+type PlannedItem = {
+  source: string;
+  id: string;
+  endTime: string;
+  dateStr: string;
+  institutionId?: string | null;
+};
 
-  const [slotsRes, hvRes, exRes, payRes, logRes, gearOnlyRes, vacationsRes] = await Promise.all([
+function collectPlannedForDate(
+  slots: any[],
+  patterns: any[],
+  exceptions: any[],
+  dateStr: string,
+  gearOnlyIds: Set<string>,
+) {
+  const dow = kstDow(dateStr);
+  const items: Array<PlannedItem & { teacherId: string }> = [];
+  for (const slot of slots || []) {
+    if (Number(slot.day_of_week) !== dow) continue;
+    if (!isOneoffActive(slot, dateStr) || !isWeeklySlotEffective(slot, dateStr)) continue;
+    if (isSlotCancelled(exceptions, slot.institution_id, dateStr, slot)) continue;
+    const teacherId = slot.teacher_id;
+    const endTime = sliceHm(slot.end_time);
+    if (!teacherId || !endTime || gearOnlyIds.has(teacherId)) continue;
+    items.push({
+      teacherId,
+      source: "institution",
+      id: slot.id,
+      endTime,
+      dateStr,
+      institutionId: slot.institution_id || null,
+    });
+  }
+  for (const pattern of patterns || []) {
+    if (!homeVisitOnDate(pattern, dateStr, dow)) continue;
+    const teacherId = pattern.teacher_id;
+    const endTime = sliceHm(pattern.end_time) || sliceHm(pattern.start_time);
+    if (!teacherId || !endTime || gearOnlyIds.has(teacherId)) continue;
+    items.push({
+      teacherId,
+      source: "home_visit",
+      id: pattern.id,
+      endTime,
+      dateStr,
+      institutionId: null,
+    });
+  }
+  return items;
+}
+
+async function deliverClassCheckinRound(
+  adminClient: any,
+  vapid: any,
+  deliverPushNotifications: Function,
+  {
+    teacherId,
+    ymd,
+    round,
+    unconfirmed,
+    lastEnd,
+    url,
+  }: {
+    teacherId: string;
+    ymd: string;
+    round: 1 | 2 | 3;
+    unconfirmed: PlannedItem[];
+    lastEnd: string;
+    url: string;
+  },
+) {
+  const { error: insertError } = await adminClient.from("class_checkin_pushes").insert({
+    teacher_id: teacherId,
+    class_date: ymd,
+    round,
+    last_end_time: lastEnd.length === 5 ? `${lastEnd}:00` : lastEnd,
+    unconfirmed_count: unconfirmed.length,
+    sent_count: 0,
+  });
+  if (insertError) {
+    if (insertError.code === "23505") return null;
+    console.error("[send-push] class_checkin log insert failed", insertError.message);
+    return null;
+  }
+
+  const copy = roundCopy(round, unconfirmed.length);
+  const result = await deliverPushNotifications(adminClient, vapid, "cron_class_checkin", {
+    teacherIds: [teacherId],
+    title: copy.title,
+    body: copy.body,
+    url,
+  });
+  await adminClient.from("class_checkin_pushes")
+    .update({ sent_count: result?.sent || 0 })
+    .eq("teacher_id", teacherId)
+    .eq("class_date", ymd)
+    .eq("round", round);
+
+  return {
+    teacher_id: teacherId,
+    round,
+    unconfirmed: unconfirmed.length,
+    last_end_time: lastEnd,
+    oldest_date: unconfirmed[0]?.dateStr || ymd,
+    sent: result?.sent || 0,
+  };
+}
+
+export async function runClassCheckinReminders(adminClient: any, vapid: any, deliverPushNotifications: Function) {
+  const { ymd, now } = kstParts();
+  const fromYmd = addDaysYmd(ymd, -(LOOKBACK_DAYS - 1));
+  const fromMonth = `${fromYmd.slice(0, 7)}-01`;
+  const dailyAt = kstDate(ymd, ROUND3_HM);
+  const dailyOpen = now >= dailyAt;
+
+  const [slotsRes, hvRes, exRes, payRes, logRes, gearOnlyRes, vacationsRes, settledRes] = await Promise.all([
     adminClient
       .from("institution_weekly_schedule")
-      .select("id, teacher_id, institution_id, day_of_week, start_time, end_time, label, effective_from, effective_to, schedule_series_id")
-      .eq("day_of_week", dow),
+      .select("id, teacher_id, institution_id, day_of_week, start_time, end_time, label, effective_from, effective_to, schedule_series_id"),
     adminClient
       .from("home_visit_patterns")
       .select("id, teacher_id, day_of_week, start_time, end_time, pattern_start_date, pattern_end_date, status"),
@@ -160,7 +305,8 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
     adminClient
       .from("payroll_entries")
       .select("id, teacher_id, class_date, entry_status, schedule_slot_id, home_visit_pattern_id")
-      .eq("class_date", ymd),
+      .gte("class_date", fromYmd)
+      .lte("class_date", ymd),
     adminClient
       .from("class_checkin_pushes")
       .select("teacher_id, round")
@@ -171,9 +317,14 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
       .eq("access_scope", "gear_only"),
     adminClient
       .from("teacher_vacations")
-      .select("teacher_id")
+      .select("teacher_id, start_date, end_date")
       .lte("start_date", ymd)
-      .gte("end_date", ymd),
+      .gte("end_date", fromYmd),
+    adminClient
+      .from("monthly_settlements")
+      .select("institution_id, year_month, is_finalized")
+      .gte("year_month", fromMonth)
+      .eq("is_finalized", true),
   ]);
 
   if (slotsRes.error) throw new Error(slotsRes.error.message);
@@ -187,9 +338,7 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
   }
   const gearOnlyIds = new Set((gearOnlyRes.data || []).map((row) => row.id).filter(Boolean));
   if (vacationsRes.error) throw new Error(vacationsRes.error.message);
-  const vacationTeacherIds = new Set(
-    (vacationsRes.data || []).map((row) => row.teacher_id).filter(Boolean),
-  );
+  const vacations = vacationsRes.data || [];
 
   let exceptions = exRes.data || [];
   if (exRes.error) {
@@ -211,32 +360,15 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
     sentMap.get(key)!.add(Number(row.round));
   }
 
-  const plannedByTeacher = new Map<string, { source: string; id: string; endTime: string }[]>();
-  const addPlanned = (teacherId: string, item: { source: string; id: string; endTime: string }) => {
-    if (!teacherId || !item.endTime) return;
-    if (gearOnlyIds.has(teacherId)) return;
-    if (vacationTeacherIds.has(teacherId)) return;
-    if (!plannedByTeacher.has(teacherId)) plannedByTeacher.set(teacherId, []);
-    plannedByTeacher.get(teacherId)!.push(item);
-  };
-
-  for (const slot of slotsRes.data || []) {
-    if (!isOneoffActive(slot, ymd) || !isWeeklySlotEffective(slot, ymd)) continue;
-    if (isSlotCancelled(exceptions, slot.institution_id, ymd, slot)) continue;
-    addPlanned(slot.teacher_id, {
-      source: "institution",
-      id: slot.id,
-      endTime: sliceHm(slot.end_time),
-    });
-  }
-  for (const pattern of hvRes.data || []) {
-    if (!homeVisitOnDate(pattern, ymd, dow)) continue;
-    addPlanned(pattern.teacher_id, {
-      source: "home_visit",
-      id: pattern.id,
-      endTime: sliceHm(pattern.end_time) || sliceHm(pattern.start_time),
-    });
-  }
+  const finalizedKeys = new Set(
+    (settledRes.error ? [] : settledRes.data || [])
+      .map((row: any) => {
+        const institutionId = row.institution_id;
+        const yearMonth = String(row.year_month || "").slice(0, 7);
+        return institutionId && yearMonth ? `${institutionId}:${yearMonth}` : "";
+      })
+      .filter(Boolean),
+  );
 
   const entriesByTeacher = new Map<string, any[]>();
   for (const entry of payRes.data || []) {
@@ -245,67 +377,92 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
     entriesByTeacher.get(tid)!.push(entry);
   }
 
+  const todayAllByTeacher = new Map<string, PlannedItem[]>();
+  const todayByTeacher = new Map<string, PlannedItem[]>();
+  const backlogByTeacher = new Map<string, PlannedItem[]>();
+  const addTo = (map: Map<string, PlannedItem[]>, teacherId: string, item: PlannedItem) => {
+    if (!map.has(teacherId)) map.set(teacherId, []);
+    map.get(teacherId)!.push(item);
+  };
+
+  for (const dateStr of eachYmd(fromYmd, ymd)) {
+    for (const item of collectPlannedForDate(slotsRes.data || [], hvRes.data || [], exceptions, dateStr, gearOnlyIds)) {
+      if (isVacationOn(vacations, item.teacherId, dateStr)) continue;
+      if (item.institutionId && finalizedKeys.has(`${item.institutionId}:${dateStr.slice(0, 7)}`)) continue;
+      const planned = {
+        source: item.source,
+        id: item.id,
+        endTime: item.endTime,
+        dateStr,
+        institutionId: item.institutionId,
+      };
+      if (dateStr === ymd) addTo(todayAllByTeacher, item.teacherId, planned);
+      const entries = entriesByTeacher.get(item.teacherId) || [];
+      if (isResolved(findEntry(entries, item), dateStr)) continue;
+      addTo(backlogByTeacher, item.teacherId, planned);
+      if (dateStr === ymd) addTo(todayByTeacher, item.teacherId, planned);
+    }
+  }
+
   const results: Array<Record<string, unknown>> = [];
+  const sentRound2ThisRun = new Set<string>();
 
-  for (const [teacherId, planned] of plannedByTeacher.entries()) {
-    if (vacationTeacherIds.has(teacherId)) continue;
-    const entries = entriesByTeacher.get(teacherId) || [];
-    const unconfirmed = planned.filter((item) => !isResolved(findEntry(entries, item), ymd));
-    if (!unconfirmed.length) continue;
-
-    const lastEnd = planned.reduce((max, item) => (item.endTime > max ? item.endTime : max), "00:00");
+  for (const [teacherId, planned] of todayByTeacher.entries()) {
+    const sent = sentMap.get(teacherId) || new Set<number>();
+    const todayAll = todayAllByTeacher.get(teacherId) || planned;
+    const lastEnd = todayAll.reduce((max, item) => (item.endTime > max ? item.endTime : max), "00:00");
     const lastEndAt = kstDate(ymd, lastEnd);
     const round1At = new Date(lastEndAt.getTime() + ROUND1_DELAY_MIN * 60 * 1000);
     const round2At = new Date(lastEndAt.getTime() + ROUND2_DELAY_MIN * 60 * 1000);
-    const round3At = kstDate(ymd, ROUND3_HM);
-    const sent = sentMap.get(teacherId) || new Set<number>();
 
-    let round: 1 | 2 | 3 | null = null;
+    let round: 1 | 2 | null = null;
     if (!sent.has(1) && now >= round1At) round = 1;
     else if (sent.has(1) && !sent.has(2) && now >= round2At) round = 2;
-    else if (sent.has(1) && !sent.has(3) && now >= round3At && round3At > round2At) round = 3;
     if (!round) continue;
 
-    const { error: insertError } = await adminClient.from("class_checkin_pushes").insert({
-      teacher_id: teacherId,
-      class_date: ymd,
+    const sentRow = await deliverClassCheckinRound(adminClient, vapid, deliverPushNotifications, {
+      teacherId,
+      ymd,
       round,
-      last_end_time: lastEnd.length === 5 ? `${lastEnd}:00` : lastEnd,
-      unconfirmed_count: unconfirmed.length,
-      sent_count: 0,
+      unconfirmed: planned,
+      lastEnd,
+      url: `/schedule?view=class-checkin&date=${ymd}`,
     });
-    if (insertError) {
-      if (insertError.code === "23505") continue;
-      console.error("[send-push] class_checkin log insert failed", insertError.message);
-      continue;
+    if (!sentRow) continue;
+    if (round === 2) sentRound2ThisRun.add(teacherId);
+    sent.add(round);
+    sentMap.set(teacherId, sent);
+    results.push(sentRow);
+  }
+
+  if (dailyOpen) {
+    for (const [teacherId, planned] of backlogByTeacher.entries()) {
+      const sent = sentMap.get(teacherId) || new Set<number>();
+      if (sent.has(3) || sentRound2ThisRun.has(teacherId)) continue;
+      const oldest = [...planned].sort((a, b) => a.dateStr.localeCompare(b.dateStr))[0];
+      const lastEnd = oldest?.endTime || ROUND3_HM;
+      const sentRow = await deliverClassCheckinRound(adminClient, vapid, deliverPushNotifications, {
+        teacherId,
+        ymd,
+        round: 3,
+        unconfirmed: planned,
+        lastEnd,
+        url: `/schedule?view=class-checkin&date=${oldest?.dateStr || ymd}`,
+      });
+      if (!sentRow) continue;
+      sent.add(3);
+      sentMap.set(teacherId, sent);
+      results.push(sentRow);
     }
-
-    const copy = roundCopy(round, unconfirmed.length);
-    const result = await deliverPushNotifications(adminClient, vapid, "cron_class_checkin", {
-      teacherIds: [teacherId],
-      title: copy.title,
-      body: copy.body,
-      url,
-    });
-    await adminClient.from("class_checkin_pushes")
-      .update({ sent_count: result?.sent || 0 })
-      .eq("teacher_id", teacherId)
-      .eq("class_date", ymd)
-      .eq("round", round);
-
-    results.push({
-      teacher_id: teacherId,
-      round,
-      unconfirmed: unconfirmed.length,
-      last_end_time: lastEnd,
-      sent: result?.sent || 0,
-    });
   }
 
   return {
     date: ymd,
-    candidate_teachers: plannedByTeacher.size,
+    lookback_from: fromYmd,
+    candidate_teachers: backlogByTeacher.size,
+    today_unconfirmed: todayByTeacher.size,
     skipped_gear_only: gearOnlyIds.size,
+    daily_open: dailyOpen,
     sent: results.length,
     results,
   };

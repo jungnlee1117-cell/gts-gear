@@ -5,6 +5,12 @@ import {
   formatIncidentDate,
 } from "./classIncidentReports.js";
 import { ClassIncidentStatusBadge } from "./ClassIncidentSlotForm.jsx";
+import { ClassIncidentCategoryBadge } from "./ClassIncidentCategoryFields.jsx";
+import {
+  formatIncidentPreview,
+  isSafetyIncident,
+  sortIncidentRowsForAdmin,
+} from "./classIncidentCategories.js";
 
 export default function ClassIncidentMonthSection({ yearMonth, institutions = [] }) {
   const [rows, setRows] = useState([]);
@@ -39,11 +45,11 @@ export default function ClassIncidentMonthSection({ yearMonth, institutions = []
   }, [rows]);
 
   const filtered = useMemo(() => {
-    return rows.filter((row) => {
+    return sortIncidentRowsForAdmin(rows.filter((row) => {
       if (institutionId && row.institution_id !== institutionId) return false;
       if (teacherFilter && row.teacher_id !== teacherFilter) return false;
       return true;
-    });
+    }));
   }, [rows, institutionId, teacherFilter]);
 
   return (
@@ -87,6 +93,7 @@ export default function ClassIncidentMonthSection({ yearMonth, institutions = []
               <tr>
                 <th>날짜</th>
                 <th>상태</th>
+                <th>유형</th>
                 <th>선생님</th>
                 <th>원</th>
                 <th>내용</th>
@@ -94,12 +101,18 @@ export default function ClassIncidentMonthSection({ yearMonth, institutions = []
             </thead>
             <tbody>
               {filtered.map((row) => (
-                <tr key={row.id}>
+                <tr key={row.id} className={isSafetyIncident(row) ? "sch-incident-table-row--safety" : undefined}>
                   <td>{formatIncidentDate(row.class_date)}</td>
                   <td><ClassIncidentStatusBadge status={row.status} /></td>
+                  <td>
+                    <ClassIncidentCategoryBadge
+                      category={row.incident_category}
+                      subtype={row.incident_subtype}
+                    />
+                  </td>
                   <td>{row.teachers?.name || "—"}</td>
                   <td>{row.institutions?.name || "—"}</td>
-                  <td className="sch-incident-table-body">{row.body}</td>
+                  <td className="sch-incident-table-body">{formatIncidentPreview(row)}</td>
                 </tr>
               ))}
             </tbody>
