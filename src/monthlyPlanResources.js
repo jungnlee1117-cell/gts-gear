@@ -6,14 +6,28 @@ function monthPrefix(yearMonth) {
   return `${match[1].slice(-2)}.${Number(match[2])}`;
 }
 
-export function monthlyPlanPdfVariant({ language, pdfAge, selectedEnglishAges = [] }) {
+const KOREAN_PDF_AGE_ORDER = ["3_4", "5", "7"];
+const KOREAN_PDF_AGE_VARIANTS = {
+  "3_4": { key: "ko-3_4", label: "3~4세" },
+  "5": { key: "ko-5_6", label: "5~6세" },
+  "7": { key: "ko-7", label: "7세" },
+};
+
+export function monthlyPlanPdfVariant({
+  language,
+  pdfAge,
+  selectedEnglishAges = [],
+  selectedKoreanAges = [],
+}) {
   if (language === "ko") {
-    const variants = {
-      "3_4": { key: "ko-3_4", label: "3~4세" },
-      "5": { key: "ko-5_6", label: "5~6세" },
-      "7": { key: "ko-7", label: "7세" },
+    const selectedIds = [...new Set((selectedKoreanAges.length ? selectedKoreanAges : [pdfAge]).map(String))]
+      .filter((id) => KOREAN_PDF_AGE_VARIANTS[id]);
+    const ages = KOREAN_PDF_AGE_ORDER.filter((id) => selectedIds.includes(id));
+    if (!ages.length) throw new Error("한국어 PDF 연령을 하나 이상 선택해 주세요.");
+    return {
+      key: `ko-${ages.join("-")}`,
+      label: ages.map((id) => KOREAN_PDF_AGE_VARIANTS[id].label).join("·"),
     };
-    return variants[pdfAge] || variants["3_4"];
   }
 
   const ages = [...new Set(selectedEnglishAges.map(String))]
@@ -26,8 +40,8 @@ export function monthlyPlanPdfVariant({ language, pdfAge, selectedEnglishAges = 
   };
 }
 
-export function monthlyPlanPdfFileName({ month, language, pdfAge, selectedEnglishAges }) {
-  const variant = monthlyPlanPdfVariant({ language, pdfAge, selectedEnglishAges });
+export function monthlyPlanPdfFileName({ month, language, pdfAge, selectedEnglishAges, selectedKoreanAges }) {
+  const variant = monthlyPlanPdfVariant({ language, pdfAge, selectedEnglishAges, selectedKoreanAges });
   return `${monthPrefix(month)}_${variant.label}_월간계획안.pdf`;
 }
 
@@ -49,18 +63,20 @@ export async function upsertMonthlyPlanResourceFile(supabase, {
   language,
   pdfAge,
   selectedEnglishAges,
+  selectedKoreanAges,
   pdfBlob,
 }) {
   if (!me?.id) throw new Error("로그인 정보가 없습니다.");
   if (!pdfBlob) throw new Error("PDF 파일이 없습니다.");
 
   const folderId = await ensureTeacherFolder(supabase, me.name || "선생님");
-  const variant = monthlyPlanPdfVariant({ language, pdfAge, selectedEnglishAges });
+  const variant = monthlyPlanPdfVariant({ language, pdfAge, selectedEnglishAges, selectedKoreanAges });
   const fileName = monthlyPlanPdfFileName({
     month,
     language,
     pdfAge,
     selectedEnglishAges,
+    selectedKoreanAges,
   });
   const displayTitle = fileName.replace(/\.pdf$/i, "");
   const path = `${CATEGORY_ID}/${me.id}/monthly/${month}/${variant.key}.pdf`;

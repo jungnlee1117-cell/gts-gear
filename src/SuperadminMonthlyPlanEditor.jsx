@@ -289,27 +289,40 @@ function printableKoreanTemplateHtml({
   month,
   rowsByGroup,
   selectedAge,
+  selectedKoreanAges,
   templateUrl,
   documentTitle,
 }) {
-  const selectedAgeMeta = AGE_GROUPS.find(({ id }) => id === selectedAge) || AGE_GROUPS[0];
-  const rows = rowsByGroup[selectedAgeMeta.id] || [];
-  const weekCount = normalizeWeekCount(rows.length);
-  const rowHeight = weekCount === 4 ? "44.75mm" : "35.75mm";
+  const selectedIds = [...new Set((selectedKoreanAges?.length ? selectedKoreanAges : [selectedAge]).map(String))];
+  const pages = AGE_GROUPS.filter(({ id }) => selectedIds.includes(id));
   const title = documentTitle || monthTitle(month);
-  const rowMarkup = rows.slice(0, weekCount).map((row, index) => `
-    <div class="ko-row">
+  const pageMarkup = pages.map((selectedAgeMeta) => {
+    const rows = rowsByGroup[selectedAgeMeta.id] || [];
+    const weekCount = normalizeWeekCount(rows.length);
+    const rowHeight = weekCount === 4 ? "44.75mm" : "35.75mm";
+    const rowMarkup = rows.slice(0, weekCount).map((row, index) => `
+    <div class="ko-row" style="height:${rowHeight}">
       <div class="ko-week">${index + 1}주</div>
       <div class="ko-equipment"><strong>${escapeHtml(row.activity_name || "")}</strong>${row.image_url ? `<img src="${escapeHtml(row.image_url)}" alt="${escapeHtml(row.activity_name || `${index + 1}주차`)}" />` : ""}</div>
       <div class="ko-description">${escapeHtml(row.activity_description || "")}</div>
     </div>`).join("");
+    return `<main class="template-page">
+      <div class="plan-title">${escapeHtml(title)}</div>
+      <div class="age-label">${escapeHtml(selectedAgeMeta.label)}</div>
+      <div class="goal-label">월간 목표</div>
+      <div class="goal-text">${escapeHtml(buildMonthlyKoreanGoal(rows, selectedAgeMeta.label, month))}</div>
+      <div class="ko-table"><div class="ko-head"><div>주차</div><div>교구 및 활동</div><div>활동 내용 및 발달 도움</div></div>${rowMarkup}</div>
+      <div class="footer-clean"><span>This monthly plan is subject to change depending on circumstances.</span></div>
+    </main>`;
+  }).join("");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title>
     <style>
       @page { size: A4; margin: 0; }
       * { box-sizing: border-box; }
-      html, body { width: 210mm; height: 297mm; margin: 0; }
+      html, body { width: 210mm; margin: 0; }
       body { background: #fff; color: #102341; font-family: "Noto Sans KR", "Apple SD Gothic Neo", Arial, sans-serif; }
-      .template-page { position: relative; width: 210mm; height: 297mm; overflow: hidden; background: #fff url("${escapeHtml(templateUrl)}") center / 210mm 297mm no-repeat; }
+      .template-page { position: relative; width: 210mm; height: 297mm; overflow: hidden; page-break-after: always; break-after: page; background: #fff url("${escapeHtml(templateUrl)}") center / 210mm 297mm no-repeat; }
+      .template-page:last-of-type { page-break-after: auto; break-after: auto; }
       .plan-title { position: absolute; top: 31.2mm; left: 20mm; width: 170mm; text-align: center; color: #072d18; font-size: 7.4mm; line-height: 1; font-weight: 900; letter-spacing: -.25mm; }
       .age-label { position: absolute; top: 46.25mm; left: 92mm; width: 26mm; height: 8.5mm; display: grid; place-items: center; color: #fff; font-size: 3.3mm; line-height: 1; font-weight: 900; }
       .goal-label { position: absolute; z-index: 4; top: 62.5mm; left: 13mm; width: 27mm; height: 18mm; display: grid; place-items: center; background: #f5faf6; color: #176d40; font-size: 3.1mm; line-height: 1; font-weight: 900; }
@@ -319,7 +332,7 @@ function printableKoreanTemplateHtml({
       .ko-head { height: 9.5mm; background: #dcefe2; color: #135a35; font-size: 2.8mm; font-weight: 900; text-align: center; }
       .ko-head > div, .ko-row > div { display: flex; align-items: center; justify-content: center; border-right: .25mm solid #b9d4c0; }
       .ko-head > div:last-child, .ko-row > div:last-child { border-right: 0; }
-      .ko-row { height: ${rowHeight}; border-top: .25mm solid #b9d4c0; }
+      .ko-row { border-top: .25mm solid #b9d4c0; }
       .ko-week { background: #fbfdfb; color: #176d40; font-size: 3.15mm; font-weight: 900; }
       .ko-equipment { flex-direction: column; padding: 2mm; text-align: center; overflow: hidden; }
       .ko-equipment strong { min-height: 4.5mm; font-size: 2.75mm; font-weight: 900; }
@@ -328,14 +341,7 @@ function printableKoreanTemplateHtml({
       .footer-clean { position: absolute; z-index: 5; left: 10mm; right: 10mm; bottom: 4.2mm; height: 8mm; display: grid; place-items: center; background: #fff; border-top: .35mm solid #9bc9aa; }
       .footer-clean span { color: #6f8971; font-size: 2.25mm; line-height: 1; white-space: nowrap; }
       @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-    </style></head><body><main class="template-page">
-      <div class="plan-title">${escapeHtml(title)}</div>
-      <div class="age-label">${escapeHtml(selectedAgeMeta.label)}</div>
-      <div class="goal-label">월간 목표</div>
-      <div class="goal-text">${escapeHtml(buildMonthlyKoreanGoal(rows, selectedAgeMeta.label, month))}</div>
-      <div class="ko-table"><div class="ko-head"><div>주차</div><div>교구 및 활동</div><div>활동 내용 및 발달 도움</div></div>${rowMarkup}</div>
-      <div class="footer-clean"><span>This monthly plan is subject to change depending on circumstances.</span></div>
-    </main></body></html>`;
+    </style></head><body>${pageMarkup}</body></html>`;
 }
 
 const KOREAN_MONTHLY_THEMES = {
@@ -429,6 +435,7 @@ export function printableReportHtml({
   englishGoals,
   selectedAge,
   selectedEnglishAges,
+  selectedKoreanAges,
   logoUrl,
   templateUrl,
   documentTitle,
@@ -450,6 +457,7 @@ export function printableReportHtml({
     month,
     rowsByGroup,
     selectedAge,
+    selectedKoreanAges,
     templateUrl,
     documentTitle,
   });
@@ -571,8 +579,9 @@ export default function SuperadminMonthlyPlanEditor({
   weekCountRef.current = weekCount;
   const [language, setLanguage] = useState("ko");
   const [englishGoals, setEnglishGoals] = useState(EMPTY_ENGLISH_GOALS);
-  const [pdfAge, setPdfAge] = useState("3_4");
+  const [selectedKoreanAges, setSelectedKoreanAges] = useState(() => AGE_GROUPS.map(({ id }) => id));
   const [selectedEnglishAges, setSelectedEnglishAges] = useState(() => ENGLISH_AGE_GROUPS.map(({ age }) => age));
+  const pdfAge = selectedKoreanAges[0] || "3_4";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pdfSaving, setPdfSaving] = useState(false);
@@ -589,14 +598,35 @@ export default function SuperadminMonthlyPlanEditor({
   const [eventTargets, setEventTargets] = useState(() => ALL_GROUPS.map(({ id }) => id));
   const [customEventName, setCustomEventName] = useState("");
   const [customEventDescription, setCustomEventDescription] = useState("");
-  const activeGroups = language === "ko" ? AGE_GROUPS : ENGLISH_AGE_GROUPS;
+  const visibleEnglishGroups = useMemo(
+    () => ENGLISH_AGE_GROUPS.filter(({ age }) => selectedEnglishAges.includes(age)),
+    [selectedEnglishAges],
+  );
+  const visibleKoreanGroups = useMemo(
+    () => AGE_GROUPS.filter(({ id }) => selectedKoreanAges.includes(id)),
+    [selectedKoreanAges],
+  );
+  const editorGroups = language === "ko" ? visibleKoreanGroups : visibleEnglishGroups;
 
   useEffect(() => {
-    setEventTargets(activeGroups.map(({ id }) => id));
     setGearPickerOpen(false);
     setEventPickerOpen(false);
     setMessage("");
   }, [language]);
+
+  useEffect(() => {
+    const visibleIds = editorGroups.map(({ id }) => id);
+    if (!visibleIds.length) {
+      setGearPickerOpen(false);
+      setEventPickerOpen(false);
+      setEventTargets([]);
+      return;
+    }
+    setEventTargets((previous) => {
+      const kept = previous.filter((id) => visibleIds.includes(id));
+      return kept.length ? kept : visibleIds;
+    });
+  }, [editorGroups]);
 
   const normalizedSuggestions = useMemo(
     () => suggestedActivities.map((value, index) => {
@@ -839,7 +869,7 @@ export default function SuperadminMonthlyPlanEditor({
       : suggestionsByGroup.en_4 || suggestionsByGroup.en_5 || suggestionsByGroup.en || [];
     setRowsByGroup((previous) => ({
       ...previous,
-      ...Object.fromEntries(activeGroups.map(({ id }) => [
+      ...Object.fromEntries(editorGroups.map(({ id }) => [
         id,
         previous[id].map((row, index) => {
         const groupSuggestions = Array.isArray(suggestionsByGroup)
@@ -870,16 +900,23 @@ export default function SuperadminMonthlyPlanEditor({
       ])),
     }));
     if (language === "en") {
-      setEnglishGoals(Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age, id }) => [
-        age,
-        buildMonthlyEnglishGoal(Array.isArray(suggestionsByGroup) ? englishSuggestions : (suggestionsByGroup[id] || englishSuggestions), month, age),
-      ])));
+      setEnglishGoals((previous) => ({
+        ...previous,
+        ...Object.fromEntries(editorGroups.map(({ age, id }) => [
+          age,
+          buildMonthlyEnglishGoal(Array.isArray(suggestionsByGroup) ? englishSuggestions : (suggestionsByGroup[id] || englishSuggestions), month, age),
+        ])),
+      }));
     }
     setGearPickerOpen(false);
     setMessage("선택한 교구를 불러와 교육계획안을 자동완성했습니다. 아래 표에서 내용을 확인하고 수정할 수 있습니다.");
   };
 
   const fillFromGear = () => {
+    if (!editorGroups.length) {
+      setMessage("작성할 연령을 먼저 선택해 주세요.");
+      return;
+    }
     if (!normalizedSuggestions.length && !normalizedCompanyEquipment.length && !visibleEventPresets.length && !normalizedPrograms.length) {
       setMessage("선택한 달에 등록된 내 교구가 없습니다.");
       return;
@@ -890,18 +927,18 @@ export default function SuperadminMonthlyPlanEditor({
       applyGearSuggestions(gearPickerSuggestions.map((suggestion) => suggestion.options[0] || suggestion));
       return;
     }
-    setSelectedGearByWeek(Object.fromEntries(activeGroups.flatMap(({ id }) => (
+    setSelectedGearByWeek(Object.fromEntries(editorGroups.flatMap(({ id }) => (
       gearPickerSuggestions.map((suggestion) => [
         `${id}-${suggestion.weekNumber}`,
         suggestion.options[0]?.id || "",
       ])
     ))));
     setGearPickerOpen(true);
-    setMessage(`${language === "ko" ? "한국어" : "영어"} 연령별 계획안에 사용할 교구를 하나씩 선택해 주세요.`);
+    setMessage(`${language === "ko" ? "한국어" : "영어"} ${editorGroups.map(({ label }) => label.replace("English · ", "")).join(", ")} 계획안에 사용할 교구를 하나씩 선택해 주세요.`);
   };
 
   const confirmGearSelection = () => {
-    const selected = Object.fromEntries(activeGroups.map(({ id }) => [
+    const selected = Object.fromEntries(editorGroups.map(({ id }) => [
       id,
       gearPickerSuggestions.map((suggestion) => {
         const options = suggestion.options.length ? suggestion.options : [suggestion];
@@ -968,7 +1005,7 @@ export default function SuperadminMonthlyPlanEditor({
 
     setRowsByGroup((previous) => ({
       ...previous,
-      ...Object.fromEntries(activeGroups.map(({ id }) => [
+      ...Object.fromEntries(editorGroups.map(({ id }) => [
         id,
         previous[id].map((row, index) => {
         if (index !== weekIndex || !eventTargets.includes(id)) return row;
@@ -1072,6 +1109,10 @@ export default function SuperadminMonthlyPlanEditor({
       setLastSavedAt(plan.updated_at || now);
       draftSaved = true;
 
+      if (!editorGroups.length) {
+        throw new Error("작성할 연령을 하나 이상 선택해 주세요.");
+      }
+
       const pdfBlob = await buildMonthlyPlanPdfBlob(printableReportHtml({
         language,
         month,
@@ -1079,6 +1120,7 @@ export default function SuperadminMonthlyPlanEditor({
         englishGoals,
         selectedAge: pdfAge,
         selectedEnglishAges,
+        selectedKoreanAges,
         logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
         templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
       }));
@@ -1088,6 +1130,7 @@ export default function SuperadminMonthlyPlanEditor({
         language,
         pdfAge,
         selectedEnglishAges,
+        selectedKoreanAges,
         pdfBlob,
       });
       setMessage(`${language === "ko" ? "한국어" : "영어"} 계획안을 임시 저장하고 자료실에도 최신 PDF를 올렸습니다.`);
@@ -1103,6 +1146,10 @@ export default function SuperadminMonthlyPlanEditor({
 
   const saveAsPdf = async () => {
     if (pdfSaving) return;
+    if (!editorGroups.length) {
+      setMessage("작성할 연령을 하나 이상 선택해 주세요.");
+      return;
+    }
     setPdfSaving(true);
     setMessage("");
     let downloaded = false;
@@ -1114,6 +1161,7 @@ export default function SuperadminMonthlyPlanEditor({
         englishGoals,
         selectedAge: pdfAge,
         selectedEnglishAges,
+        selectedKoreanAges,
         logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
         templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
       }));
@@ -1122,6 +1170,7 @@ export default function SuperadminMonthlyPlanEditor({
         language,
         pdfAge,
         selectedEnglishAges,
+        selectedKoreanAges,
       });
       downloadPdfBlob(pdfBlob, fileName);
       downloaded = true;
@@ -1131,6 +1180,7 @@ export default function SuperadminMonthlyPlanEditor({
         language,
         pdfAge,
         selectedEnglishAges,
+        selectedKoreanAges,
         pdfBlob,
       });
       setMessage("동일한 계획안 PDF를 내 컴퓨터와 자료실에 저장했습니다.");
@@ -1191,22 +1241,34 @@ export default function SuperadminMonthlyPlanEditor({
               ))}
             </div>
           </fieldset>
-          <button type="button" className="monthly-plan-editor__gear-button" onClick={fillFromGear} disabled={setupRequired}>
+          <button type="button" className="monthly-plan-editor__gear-button" onClick={fillFromGear} disabled={setupRequired || !editorGroups.length}>
             <RefreshCw size={18} /> 이번 달 교구 선택하기
           </button>
           <button type="button" className="monthly-plan-editor__save-button" onClick={save} disabled={saving || setupRequired}>
             <Save size={15} /> {saving ? "저장 중..." : "임시 저장"}
           </button>
           {language === "ko" ? (
-            <label className="monthly-plan-editor__pdf-age">
-              <span>PDF 연령</span>
-              <select value={pdfAge} onChange={(event) => setPdfAge(event.target.value)}>
-                {AGE_GROUPS.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
-              </select>
-            </label>
+            <fieldset className="monthly-plan-editor__pdf-age monthly-plan-editor__pdf-ages" aria-label="한국어 작성 연령 선택">
+              <span>작성 연령</span>
+              <div>
+                {AGE_GROUPS.map(({ id, label }) => (
+                  <label key={id}>
+                    <input
+                      type="checkbox"
+                      checked={selectedKoreanAges.includes(id)}
+                      onChange={() => setSelectedKoreanAges((previous) => (
+                        previous.includes(id)
+                          ? previous.filter((value) => value !== id)
+                          : AGE_GROUPS.map(({ id: ageId }) => ageId).filter((value) => value === id || previous.includes(value))
+                      ))}
+                    /> {label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           ) : (
-            <fieldset className="monthly-plan-editor__pdf-age monthly-plan-editor__pdf-ages" aria-label="영어 PDF 연령 선택">
-              <span>PDF 연령</span>
+            <fieldset className="monthly-plan-editor__pdf-age monthly-plan-editor__pdf-ages" aria-label="영어 작성 연령 선택">
+              <span>작성 연령</span>
               <div>
                 {ENGLISH_AGE_GROUPS.map(({ age }) => (
                   <label key={age}>
@@ -1222,7 +1284,7 @@ export default function SuperadminMonthlyPlanEditor({
               </div>
             </fieldset>
           )}
-          <button type="button" className="monthly-plan-editor__pdf-button" onClick={saveAsPdf} disabled={pdfSaving || setupRequired || (language === "en" && !selectedEnglishAges.length)}>
+          <button type="button" className="monthly-plan-editor__pdf-button" onClick={saveAsPdf} disabled={pdfSaving || setupRequired || !editorGroups.length}>
             <Download size={15} /> {pdfSaving ? "PDF 저장 중..." : "PDF 저장"}
           </button>
         </div>
@@ -1250,7 +1312,7 @@ export default function SuperadminMonthlyPlanEditor({
           ) : null}
           <fieldset className="monthly-plan-event-picker__targets">
             <legend>적용할 계획안</legend>
-            {activeGroups.map(({ id, label }) => <label key={id}><input type="checkbox" checked={eventTargets.includes(id)} onChange={() => toggleEventTarget(id)} /> {label}</label>)}
+            {editorGroups.map(({ id, label }) => <label key={id}><input type="checkbox" checked={eventTargets.includes(id)} onChange={() => toggleEventTarget(id)} /> {label}</label>)}
           </fieldset>
           {eventChoice.startsWith("program:") ? (
             <p className="monthly-plan-event-picker__gear-list">필요 교구: {normalizedPrograms.find((program) => `program:${program.id}` === eventChoice)?.requiredGear.join(", ") || "등록된 교구 없음"}</p>
@@ -1269,7 +1331,13 @@ export default function SuperadminMonthlyPlanEditor({
       </div>
       <p className="monthly-plan-editor__edit-hint">
         현재 <strong>{language === "ko" ? "한국어 계획안" : "영어 계획안"}</strong>을 작성하고 있습니다.
-        {language === "ko" ? " 3~4세, 5~6세, 7세 계획안이 아래에 이어집니다." : " AGE 4, AGE 5, AGE 6, AGE 7 계획안이 아래에 이어집니다."}
+        {language === "ko"
+          ? (editorGroups.length
+            ? ` ${editorGroups.map(({ label }) => label).join(", ")} 계획안이 아래에 이어집니다.`
+            : " 위에서 작성할 연령을 선택하면 그 연령 표만 나옵니다.")
+          : (editorGroups.length
+            ? ` ${editorGroups.map(({ age }) => `AGE ${age}`).join(", ")} 계획안이 아래에 이어집니다.`
+            : " 위에서 작성할 연령을 선택하면 그 연령 표만 나옵니다.")}
         {" "}지금은 {weekCount}주 계획안입니다. 교구명, 활동 내용과 운동발달 목적은 표 안에서 자유롭게 수정할 수 있습니다.
       </p>
 
@@ -1284,16 +1352,16 @@ export default function SuperadminMonthlyPlanEditor({
         <section className="monthly-plan-gear-picker" aria-label="계획안 교구 선택">
           <div className="monthly-plan-gear-picker__heading">
             <div>
-              <strong>{language === "ko" ? "한국어" : "영어"} 연령별 계획안 교구 선택</strong>
-              <span>{weekCount}주 계획안입니다. 주차마다 교구를 고른 뒤, 아래(또는 화면 하단) 큰 초록 버튼으로 교육계획안을 자동완성하세요. 같은 주차라도 연령별로 다른 교구를 고를 수 있습니다.</span>
+              <strong>{language === "ko" ? "한국어" : "영어"} {editorGroups.map(({ label }) => label.replace("English · ", "")).join(" · ")} 계획안 교구 선택</strong>
+              <span>선택한 연령만 나옵니다. 주차마다 교구를 고른 뒤, 아래(또는 화면 하단) 큰 초록 버튼으로 교육계획안을 자동완성하세요.</span>
             </div>
             <div className="monthly-plan-gear-picker__heading-actions"><button type="button" onClick={() => setGearPickerOpen(false)}>취소</button></div>
           </div>
           <div className="monthly-plan-gear-picker__groups">
-            {activeGroups.map(({ id, label }) => (
+            {editorGroups.map(({ id, label }) => (
               <section key={id} className={`monthly-plan-gear-picker__group${id.startsWith("en_") ? " is-english" : ""}`}>
                 <h4>{label}</h4>
-                <div className="monthly-plan-gear-picker__weeks">
+                <div className={`monthly-plan-gear-picker__weeks monthly-plan-gear-picker__weeks--${weekCount}`}>
                   {gearPickerSuggestions.map((suggestion) => {
                     const options = suggestion.options.length ? suggestion.options : [suggestion];
                     const selectionKey = `${id}-${suggestion.weekNumber}`;
@@ -1310,70 +1378,82 @@ export default function SuperadminMonthlyPlanEditor({
                                 onChange={() => setSelectedGearByWeek((previous) => ({ ...previous, [selectionKey]: option.id }))}
                               />
                               <small className="monthly-plan-gear-picker__option-label">교구 {optionIndex + 1}</small>
-                              {option.photoUrl ? <img src={option.photoUrl} alt="" /> : <FileImage size={24} />}
+                              {option.photoUrl ? <img src={option.photoUrl} alt="" /> : <FileImage size={18} />}
                               <span>{id.startsWith("en_") ? `${option.name} · ${option.englishName || naturalEnglishEquipmentName(option.name)}` : option.name}</span>
                             </label>
                           ))}
-                          {normalizedCompanyEquipment.length ? (
-                            <label className={`monthly-plan-gear-picker__other${String(selectedGearByWeek[selectionKey] || "").startsWith("company:") ? " is-selected" : ""}`}>
-                              <input
-                                type="radio"
-                                name={`monthly-plan-${selectionKey}`}
-                                checked={String(selectedGearByWeek[selectionKey] || "").startsWith("company:")}
-                                onChange={() => setSelectedGearByWeek((previous) => ({
-                                  ...previous,
-                                  [selectionKey]: normalizedCompanyEquipment[0]?.id || "",
-                                }))}
-                              />
-                              <small className="monthly-plan-gear-picker__option-label">선택 교구</small>
-                              <input
-                                type="search"
-                                className="monthly-plan-gear-picker__company-search"
-                                value={companyGearSearchByWeek[selectionKey] || ""}
-                                onChange={(event) => setCompanyGearSearchByWeek((previous) => ({ ...previous, [selectionKey]: event.target.value }))}
-                                onClick={(event) => event.stopPropagation()}
-                                placeholder="회사 교구 검색"
-                                aria-label={`${label} ${suggestion.weekNumber}주차 회사 교구 검색`}
-                              />
-                              <select
-                                value={String(selectedGearByWeek[selectionKey] || "").startsWith("company:") ? selectedGearByWeek[selectionKey] : ""}
-                                onChange={(event) => setSelectedGearByWeek((previous) => ({ ...previous, [selectionKey]: event.target.value }))}
-                                onClick={(event) => event.stopPropagation()}
-                                aria-label={`${label} ${suggestion.weekNumber}주차 기타 교구 선택`}
-                              >
-                                <option value="" disabled>회사 교구 목록에서 선택</option>
-                                {normalizedCompanyEquipment.filter((item) => {
-                                  const query = String(companyGearSearchByWeek[selectionKey] || "").trim().toLowerCase();
-                                  return !query || `${item.name} ${item.englishName}`.toLowerCase().includes(query);
-                                }).map((item) => (
-                                  <option key={item.id} value={item.id}>{id.startsWith("en_") ? `${item.name} · ${item.englishName || naturalEnglishEquipmentName(item.name)}` : item.name}</option>
-                                ))}
-                              </select>
-                            </label>
-                          ) : null}
-                          {gearPickerEventOptions.length ? (
-                            <label className={`monthly-plan-gear-picker__event-option${String(selectedGearByWeek[selectionKey] || "").startsWith("event:") ? " is-selected" : ""}`}>
-                              <input
-                                type="radio"
-                                name={`monthly-plan-${selectionKey}`}
-                                checked={String(selectedGearByWeek[selectionKey] || "").startsWith("event:")}
-                                onChange={() => setSelectedGearByWeek((previous) => ({
-                                  ...previous,
-                                  [selectionKey]: gearPickerEventOptions[0]?.value || "",
-                                }))}
-                              />
-                              <small className="monthly-plan-gear-picker__option-label">이벤트</small>
-                              <PartyPopper size={24} />
-                              <select
-                                value={String(selectedGearByWeek[selectionKey] || "").startsWith("event:") ? selectedGearByWeek[selectionKey] : ""}
-                                onChange={(event) => setSelectedGearByWeek((previous) => ({ ...previous, [selectionKey]: event.target.value }))}
-                                onClick={(event) => event.stopPropagation()}
-                                aria-label={`${label} ${suggestion.weekNumber}주차 이벤트 선택`}
-                              >
-                                <option value="" disabled>이벤트 선택</option>
-                                {gearPickerEventOptions.map((eventOption) => <option key={eventOption.value} value={eventOption.value}>{eventOption.label}</option>)}
-                              </select>
-                            </label>
+                          {normalizedCompanyEquipment.length || gearPickerEventOptions.length ? (
+                            <details
+                              className="monthly-plan-gear-picker__extras"
+                              open={
+                                String(selectedGearByWeek[selectionKey] || "").startsWith("company:")
+                                || String(selectedGearByWeek[selectionKey] || "").startsWith("event:")
+                                || undefined
+                              }
+                            >
+                              <summary>선택 교구 · 이벤트</summary>
+                              {normalizedCompanyEquipment.length ? (
+                                <label className={`monthly-plan-gear-picker__other${String(selectedGearByWeek[selectionKey] || "").startsWith("company:") ? " is-selected" : ""}`}>
+                                  <input
+                                    type="radio"
+                                    name={`monthly-plan-${selectionKey}`}
+                                    checked={String(selectedGearByWeek[selectionKey] || "").startsWith("company:")}
+                                    onChange={() => setSelectedGearByWeek((previous) => ({
+                                      ...previous,
+                                      [selectionKey]: normalizedCompanyEquipment[0]?.id || "",
+                                    }))}
+                                  />
+                                  <small className="monthly-plan-gear-picker__option-label">선택 교구</small>
+                                  <input
+                                    type="search"
+                                    className="monthly-plan-gear-picker__company-search"
+                                    value={companyGearSearchByWeek[selectionKey] || ""}
+                                    onChange={(event) => setCompanyGearSearchByWeek((previous) => ({ ...previous, [selectionKey]: event.target.value }))}
+                                    onClick={(event) => event.stopPropagation()}
+                                    placeholder="회사 교구 검색"
+                                    aria-label={`${label} ${suggestion.weekNumber}주차 회사 교구 검색`}
+                                  />
+                                  <select
+                                    value={String(selectedGearByWeek[selectionKey] || "").startsWith("company:") ? selectedGearByWeek[selectionKey] : ""}
+                                    onChange={(event) => setSelectedGearByWeek((previous) => ({ ...previous, [selectionKey]: event.target.value }))}
+                                    onClick={(event) => event.stopPropagation()}
+                                    aria-label={`${label} ${suggestion.weekNumber}주차 기타 교구 선택`}
+                                  >
+                                    <option value="" disabled>회사 교구 목록에서 선택</option>
+                                    {normalizedCompanyEquipment.filter((item) => {
+                                      const query = String(companyGearSearchByWeek[selectionKey] || "").trim().toLowerCase();
+                                      return !query || `${item.name} ${item.englishName}`.toLowerCase().includes(query);
+                                    }).map((item) => (
+                                      <option key={item.id} value={item.id}>{id.startsWith("en_") ? `${item.name} · ${item.englishName || naturalEnglishEquipmentName(item.name)}` : item.name}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                              ) : null}
+                              {gearPickerEventOptions.length ? (
+                                <label className={`monthly-plan-gear-picker__event-option${String(selectedGearByWeek[selectionKey] || "").startsWith("event:") ? " is-selected" : ""}`}>
+                                  <input
+                                    type="radio"
+                                    name={`monthly-plan-${selectionKey}`}
+                                    checked={String(selectedGearByWeek[selectionKey] || "").startsWith("event:")}
+                                    onChange={() => setSelectedGearByWeek((previous) => ({
+                                      ...previous,
+                                      [selectionKey]: gearPickerEventOptions[0]?.value || "",
+                                    }))}
+                                  />
+                                  <small className="monthly-plan-gear-picker__option-label">이벤트</small>
+                                  <PartyPopper size={18} />
+                                  <select
+                                    value={String(selectedGearByWeek[selectionKey] || "").startsWith("event:") ? selectedGearByWeek[selectionKey] : ""}
+                                    onChange={(event) => setSelectedGearByWeek((previous) => ({ ...previous, [selectionKey]: event.target.value }))}
+                                    onClick={(event) => event.stopPropagation()}
+                                    aria-label={`${label} ${suggestion.weekNumber}주차 이벤트 선택`}
+                                  >
+                                    <option value="" disabled>이벤트 선택</option>
+                                    {gearPickerEventOptions.map((eventOption) => <option key={eventOption.value} value={eventOption.value}>{eventOption.label}</option>)}
+                                  </select>
+                                </label>
+                              ) : null}
+                            </details>
                           ) : null}
                         </div>
                       </fieldset>
@@ -1416,7 +1496,11 @@ export default function SuperadminMonthlyPlanEditor({
           </header>
         )}
 
-        {language === "ko" ? AGE_GROUPS.map(({ id, label }) => (
+        {!editorGroups.length ? (
+          <div className="monthly-plan-editor__empty-ages" role="status">
+            위에서 작성할 연령을 선택하면 그 연령의 월간 목표와 주차별 표가 나옵니다.
+          </div>
+        ) : language === "ko" ? editorGroups.map(({ id, label }) => (
           <section key={id} className="monthly-plan-age-section">
             <h3>{label}</h3>
             <div className="monthly-plan-korean-goal" aria-label={`${label} 월간 목표`}>
@@ -1440,7 +1524,7 @@ export default function SuperadminMonthlyPlanEditor({
             </div>
             <p className="monthly-plan-english-note">This monthly plan is subject to change depending on circumstances.</p>
           </section>
-        )) : ENGLISH_AGE_GROUPS.map(({ id, age, label }) => (
+        )) : editorGroups.map(({ id, age, label }) => (
           <section key={id} className="monthly-plan-age-section monthly-plan-age-section--en">
             <h3><span>AGE {age}</span></h3>
             <label className="monthly-plan-goal">
