@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { exceptionBadgeLabel } from "./schedule/scheduleExceptions.js";
 import { fetchInstitutions, fetchTeachersUnfiltered } from "./schedule/api.js";
+import { fetchAllPages } from "./supabaseFetchAll.js";
 import { filterAssignableClassTeachers } from "./schedule/roles.js";
 import EventRegisterForm, { EMPTY_EVENT_FORM } from "./schedule/EventRegisterForm.jsx";
 import ScheduleClassCancellationPicker from "./schedule/ScheduleClassCancellationPicker.jsx";
@@ -342,19 +343,20 @@ export default function HubTodoCalendar({
 
   useEffect(() => {
     let cancelled = false;
-    supabase
+    fetchAllPages(() => supabase
       .from("institution_schedule_exceptions")
       .select("id, institution_id, exception_date, end_date, exception_type, note, institutions(id, name)")
       .lte("exception_date", range.end)
-      .or(`end_date.gte.${range.start},and(end_date.is.null,exception_date.gte.${range.start})`)
-      .order("exception_date")
+      .or(`end_date.gte.${range.start},and(end_date.is.null,exception_date.gte.${range.start})`))
       .then(({ data, error }) => {
         if (cancelled) return;
         if (error) {
           console.warn("대시보드 행사 달력 로드 실패:", error.message);
           setEvents([]);
         } else {
-          setEvents(data || []);
+          setEvents([...(data || [])].sort((a, b) =>
+            String(a.exception_date).localeCompare(String(b.exception_date)),
+          ));
         }
         setLoadedRange(`${range.start}:${range.end}`);
       });

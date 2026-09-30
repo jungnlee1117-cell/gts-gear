@@ -6,6 +6,7 @@ import {
 import {
   filterTeachersVisibleInYearMonth,
 } from "../schedule/teacherEmployment.js";
+import { fetchAllPages } from "../supabaseFetchAll.js";
 
 function yearMonthFirstDay(key) {
   const ym = String(key || "").slice(0, 7);
@@ -172,14 +173,9 @@ export async function fetchTeacherSettlementRows(supabase, { month, all }) {
 
   if (all) {
     const [entriesRes, additionalRes] = await Promise.all([
-      supabase
-        .from("payroll_entries")
-        .select("*, institutions(id, name)")
-        .order("class_date", { ascending: true }),
-      supabase
-        .from("additional_payments")
-        .select("*")
-        .order("year_month", { ascending: true }),
+      fetchAllPages(() =>
+        supabase.from("payroll_entries").select("*, institutions(id, name)")),
+      fetchAllPages(() => supabase.from("additional_payments").select("*")),
     ]);
     if (entriesRes.error) throw entriesRes.error;
     if (additionalRes.error) throw additionalRes.error;
@@ -217,15 +213,15 @@ export async function fetchTeacherSettlementRows(supabase, { month, all }) {
   const yearMonth = month;
   const teachers = filterTeachersVisibleInYearMonth(allTeachers, yearMonth);
   const [entriesRes, additionalRes] = await Promise.all([
-    supabase
+    fetchAllPages(() => supabase
       .from("payroll_entries")
       .select("*, institutions(id, name)")
       .gte("class_date", yearMonthFirstDay(yearMonth))
-      .lte("class_date", yearMonthLastDay(yearMonth)),
-    supabase
+      .lte("class_date", yearMonthLastDay(yearMonth))),
+    fetchAllPages(() => supabase
       .from("additional_payments")
       .select("*")
-      .eq("year_month", yearMonthFirstDay(yearMonth)),
+      .eq("year_month", yearMonthFirstDay(yearMonth))),
   ]);
 
   if (entriesRes.error) throw entriesRes.error;

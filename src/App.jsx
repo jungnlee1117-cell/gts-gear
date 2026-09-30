@@ -12,6 +12,7 @@ import {
 } from "./routePersistence.js";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
+import { fetchAllPages, sortByCreatedAtDesc } from "./supabaseFetchAll.js";
 import { QRCodeCanvas } from "qrcode.react";
 import { PersonStanding, MapPin, ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import GrowthApp from "./GrowthApp.jsx";
@@ -12434,15 +12435,15 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
         }
         const [todoRes, reqRes, riRes, retRes] = await Promise.all([
           supabase.from("admin_todos").select("*").order("created_at", { ascending: false }),
-          supabase.from("rental_requests").select("*").order("created_at", { ascending: false }),
-          supabase.from("rental_items").select("*"),
-          supabase.from("return_requests").select("*").order("created_at", { ascending: false }),
+          fetchAllPages(() => supabase.from("rental_requests").select("*")),
+          fetchAllPages(() => supabase.from("rental_items").select("*")),
+          fetchAllPages(() => supabase.from("return_requests").select("*")),
         ]);
         if (cancelled) return;
         if (!todoRes.error) setTodos(todoRes.data || []);
-        if (!reqRes.error) setTodoReqs(reqRes.data || []);
+        if (!reqRes.error) setTodoReqs(sortByCreatedAtDesc(reqRes.data));
         if (!riRes.error) setTodoRIs(riRes.data || []);
-        if (!retRes.error) setTodoRets(retRes.data || []);
+        if (!retRes.error) setTodoRets(sortByCreatedAtDesc(retRes.data));
         try {
           const ts = await fetchTeachers();
           if (!cancelled) setTodoTeachers(ts || []);
@@ -12926,9 +12927,9 @@ function EquipmentApp({ onBack, me, session }) {
         supabase.from("items").select("*").order("code"),
         supabase.from("item_sets").select("*").order("code"),
         supabase.from("item_set_components").select("*").order("sort_order"),
-        supabase.from("rental_requests").select("*").order("created_at", { ascending: false }),
-        supabase.from("rental_items").select("*"),
-        supabase.from("return_requests").select("*").order("created_at", { ascending: false }),
+        fetchAllPages(() => supabase.from("rental_requests").select("*")),
+        fetchAllPages(() => supabase.from("rental_items").select("*")),
+        fetchAllPages(() => supabase.from("return_requests").select("*")),
         supabase.from("reservations").select("*").order("created_at", { ascending: false }),
       ]);
 
@@ -12958,9 +12959,9 @@ function EquipmentApp({ onBack, me, session }) {
       } else if (!setsRes.error) {
         setItemSets((setsRes.data || []).map(s => ({ ...s, components: [] })));
       }
-      if (!reqsRes.error) setReqs(reqsRes.data || []);
+      if (!reqsRes.error) setReqs(sortByCreatedAtDesc(reqsRes.data));
       if (!riRes.error) setRIs(riRes.data || []);
-      if (!retRes.error) setRets(retRes.data || []);
+      if (!retRes.error) setRets(sortByCreatedAtDesc(retRes.data));
       if (!resRes.error) setReservations(resRes.data || []);
 
       const startYear = schoolYearStartYear();
@@ -12974,8 +12975,8 @@ function EquipmentApp({ onBack, me, session }) {
           .select("*")
           .in("year_month", ymKeys)
           .order("week_number"),
-        supabase.from("institution_weekly_schedule")
-          .select("teacher_id, day_of_week, institution_id, class_type, label, start_time, effective_from, effective_to, institutions(name)"),
+        fetchAllPages(() => supabase.from("institution_weekly_schedule")
+          .select("teacher_id, day_of_week, institution_id, class_type, label, start_time, effective_from, effective_to, institutions(name)")),
       ]);
 
       if (!rotSchedRes.error) setRotationSchedules(rotSchedRes.data || []);

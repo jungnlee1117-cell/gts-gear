@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, FileImage, FileText, Languages, PartyPopper, RefreshCw, Save, Sparkles, Upload } from "lucide-react";
+import { Children, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, Download, FileImage, FileText, Languages, PartyPopper, RefreshCw, Save, Sparkles, Upload } from "lucide-react";
 import { naturalEnglishEquipmentName } from "./lessonPlan.js";
 import { buildMonthlyPlanPdfBlob, downloadPdfBlob } from "./monthlyPlanPdf.js";
 import {
@@ -27,6 +27,41 @@ const ENGLISH_AGE_GROUPS = [
 const ALL_GROUPS = [...AGE_GROUPS, ...ENGLISH_AGE_GROUPS];
 const WEEK_COUNT_OPTIONS = [4, 5];
 const DEFAULT_WEEK_COUNT = 5;
+const PLAN_STEPS = [
+  { id: 1, label: "작성월" },
+  { id: 2, label: "연령" },
+  { id: 3, label: "언어" },
+  { id: 4, label: "교구" },
+  { id: 5, label: "작성" },
+];
+
+function MonthlyPlanStep({ step, title, hint, current, status, actions, children }) {
+  const body = Children.toArray(children);
+  return (
+    <section
+      id={`monthly-plan-step-${step}`}
+      className={`monthly-plan-step is-${status}${current ? " is-current" : ""}`}
+      aria-current={current ? "step" : undefined}
+    >
+      <div className="monthly-plan-step__row">
+        <header className="monthly-plan-step__header">
+          <span className="monthly-plan-step__badge" aria-hidden="true">{step}</span>
+          <div>
+            <h3>{title}</h3>
+            <p>{hint}</p>
+          </div>
+        </header>
+        {actions ? <div className="monthly-plan-step__actions">{actions}</div> : null}
+      </div>
+      {body.length ? <div className="monthly-plan-step__body">{body}</div> : null}
+    </section>
+  );
+}
+
+function scrollToMonthlyPlanStep(step) {
+  document.getElementById(`monthly-plan-step-${step}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 const EMPTY_ENGLISH_GOALS = Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age }) => [age, ""]));
 const EVENT_PRESETS = [
   { id: "holiday", name: "명절", englishName: "Korean Holiday Games", ko: "우리나라 명절에 담긴 의미와 정겨운 문화를 아이들의 눈높이에서 함께 알아봅니다. 전통놀이와 명절 이야기를 활용한 즐거운 활동을 통해 자연스럽게 우리 문화와 가까워집니다.", en: "Children discover the meaning and warm traditions of Korean holidays through age-appropriate stories. They enjoy traditional games and playful activities that help them feel closer to Korean culture." },
@@ -607,6 +642,20 @@ export default function SuperadminMonthlyPlanEditor({
     [selectedKoreanAges],
   );
   const editorGroups = language === "ko" ? visibleKoreanGroups : visibleEnglishGroups;
+  const hasDraftContent = useMemo(
+    () => editorGroups.some(({ id }) => (rowsByGroup[id] || []).some((row) => (
+      String(row.activity_name || "").trim() || String(row.activity_description || "").trim()
+    ))),
+    [editorGroups, rowsByGroup],
+  );
+  const currentStep = gearPickerOpen
+    ? 4
+    : (!month || !weekCount ? 1 : (!editorGroups.length ? 2 : (hasDraftContent ? 5 : 4)));
+  const stepStatus = (step) => {
+    if (step === currentStep) return "current";
+    if (step < currentStep) return "done";
+    return "upcoming";
+  };
 
   useEffect(() => {
     setGearPickerOpen(false);
@@ -1220,34 +1269,73 @@ export default function SuperadminMonthlyPlanEditor({
         <div>
           <span className="monthly-plan-editor__eyebrow">내 월간 계획안 · 임시저장</span>
           <h2><FileText size={21} /> 월간 계획안 작성</h2>
-          <p>4주 또는 5주를 고른 뒤 교구를 선택하면 그 주차 수만큼 계획안이 만들어집니다.</p>
+          <p>아래 1~5단계를 위에서 아래로 따라가면 계획안이 만들어집니다.</p>
         </div>
-        <div className="monthly-plan-editor__controls">
-          <label><span>작성 월</span><input type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} onClick={openNativeMonthPicker} /></label>
-          <fieldset className="monthly-plan-editor__week-count" aria-label="계획안 주차 수">
-            <span>주차 수</span>
-            <div>
-              {WEEK_COUNT_OPTIONS.map((count) => (
-                <button
-                  key={count}
-                  type="button"
-                  className={weekCount === count ? "is-active" : ""}
-                  aria-pressed={weekCount === count}
-                  disabled={setupRequired}
-                  onClick={() => changeWeekCount(count)}
-                >
-                  {count}주
-                </button>
-              ))}
-            </div>
-          </fieldset>
-          <button type="button" className="monthly-plan-editor__gear-button" onClick={fillFromGear} disabled={setupRequired || !editorGroups.length}>
-            <RefreshCw size={18} /> 이번 달 교구 선택하기
-          </button>
+        <div className="monthly-plan-editor__controls monthly-plan-editor__controls--actions">
           <button type="button" className="monthly-plan-editor__save-button" onClick={save} disabled={saving || setupRequired}>
             <Save size={15} /> {saving ? "저장 중..." : "임시 저장"}
           </button>
-          {language === "ko" ? (
+          <button type="button" className="monthly-plan-editor__pdf-button" onClick={saveAsPdf} disabled={pdfSaving || setupRequired || !editorGroups.length}>
+            <Download size={15} /> {pdfSaving ? "PDF 저장 중..." : "PDF 저장"}
+          </button>
+        </div>
+      </div>
+
+      <nav className="monthly-plan-stepper" aria-label="계획안 작성 단계">
+        {PLAN_STEPS.map((item, index) => (
+          <div key={item.id} className="monthly-plan-stepper__item">
+            {index ? <ChevronRight size={16} aria-hidden="true" /> : null}
+            <button
+              type="button"
+              className={`monthly-plan-stepper__button is-${stepStatus(item.id)}`}
+              aria-current={item.id === currentStep ? "step" : undefined}
+              onClick={() => scrollToMonthlyPlanStep(item.id)}
+            >
+              <span>{item.id}</span>
+              {item.label}
+            </button>
+          </div>
+        ))}
+      </nav>
+
+      <div className="monthly-plan-steps">
+        <MonthlyPlanStep
+          step={1}
+          status={stepStatus(1)}
+          current={currentStep === 1}
+          title="작성월 · 주차 수 선택"
+          hint="이렇게 하세요: 이번 달과 몇 주짜리 계획안인지 먼저 고르세요."
+          actions={(
+            <div className="monthly-plan-editor__controls monthly-plan-step__controls">
+              <label><span>작성 월</span><input type="month" value={month} onChange={(event) => onMonthChange(event.target.value)} onClick={openNativeMonthPicker} /></label>
+              <fieldset className="monthly-plan-editor__week-count" aria-label="계획안 주차 수">
+                <span>주차 수</span>
+                <div>
+                  {WEEK_COUNT_OPTIONS.map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      className={weekCount === count ? "is-active" : ""}
+                      aria-pressed={weekCount === count}
+                      disabled={setupRequired}
+                      onClick={() => changeWeekCount(count)}
+                    >
+                      {count}주
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
+          )}
+        />
+
+        <MonthlyPlanStep
+          step={2}
+          status={stepStatus(2)}
+          current={currentStep === 2}
+          title="작성 연령 선택"
+          hint="이렇게 하세요: 만들 연령을 모두 체크하세요. 여러 연령을 함께 고를 수 있습니다."
+          actions={language === "ko" ? (
             <fieldset className="monthly-plan-editor__pdf-age monthly-plan-editor__pdf-ages" aria-label="한국어 작성 연령 선택">
               <span>작성 연령</span>
               <div>
@@ -1284,12 +1372,45 @@ export default function SuperadminMonthlyPlanEditor({
               </div>
             </fieldset>
           )}
-          <button type="button" className="monthly-plan-editor__pdf-button" onClick={saveAsPdf} disabled={pdfSaving || setupRequired || !editorGroups.length}>
-            <Download size={15} /> {pdfSaving ? "PDF 저장 중..." : "PDF 저장"}
-          </button>
-        </div>
-      </div>
+        />
 
+        <MonthlyPlanStep
+          step={3}
+          status={stepStatus(3)}
+          current={currentStep === 3}
+          title="한국어 / 영어 계획안 선택"
+          hint="이렇게 하세요: 지금 만들 계획안 언어를 고르세요. 언어를 바꾸면 그 언어의 연령과 표가 나옵니다."
+          actions={(
+            <div className="monthly-plan-language-tabs" role="tablist" aria-label="계획안 언어 선택">
+              <button type="button" className={language === "ko" ? "is-active" : ""} onClick={() => setLanguage("ko")}>
+                <FileText size={16} /> 한국어 계획안 만들기 <small>3~4세 · 5~6세 · 7세</small>
+              </button>
+              <button type="button" className={language === "en" ? "is-active" : ""} onClick={() => setLanguage("en")}>
+                <Languages size={16} /> 영어 계획안 만들기 <small>AGE 4 · 5 · 6 · 7</small>
+              </button>
+            </div>
+          )}
+        />
+
+      {setupRequired ? (
+        <div className="monthly-plan-editor__setup">
+          Supabase SQL Editor에서 <strong>supabase/superadmin_monthly_plan_multilingual_patch.sql</strong>을 실행해 주세요.
+        </div>
+      ) : null}
+      {message ? <div className="monthly-plan-editor__message" role="status">{message}</div> : null}
+
+      <MonthlyPlanStep
+        step={4}
+        status={stepStatus(4)}
+        current={currentStep === 4}
+        title="주차별 교구 선택"
+        hint="이렇게 하세요: 버튼을 눌러 주차마다 교구를 고른 뒤, 아래 큰 초록 버튼으로 계획안을 채우세요."
+        actions={(
+          <button type="button" className="monthly-plan-editor__gear-button" onClick={fillFromGear} disabled={setupRequired || !editorGroups.length}>
+            <RefreshCw size={18} /> 이번 달 교구 선택하기
+          </button>
+        )}
+      >
       {eventPickerOpen ? (
         <section className="monthly-plan-event-picker" aria-label="이벤트데이 추가">
           <div className="monthly-plan-gear-picker__heading">
@@ -1320,33 +1441,6 @@ export default function SuperadminMonthlyPlanEditor({
           <button type="button" className="monthly-plan-editor__save-button monthly-plan-event-picker__apply" onClick={applyEventDay}>선택한 주차에 적용</button>
         </section>
       ) : null}
-
-      <div className="monthly-plan-language-tabs" role="tablist" aria-label="계획안 언어 선택">
-        <button type="button" className={language === "ko" ? "is-active" : ""} onClick={() => setLanguage("ko")}>
-          <FileText size={16} /> 한국어 계획안 만들기 <small>3~4세 · 5~6세 · 7세</small>
-        </button>
-        <button type="button" className={language === "en" ? "is-active" : ""} onClick={() => setLanguage("en")}>
-          <Languages size={16} /> 영어 계획안 만들기 <small>AGE 4 · 5 · 6 · 7</small>
-        </button>
-      </div>
-      <p className="monthly-plan-editor__edit-hint">
-        현재 <strong>{language === "ko" ? "한국어 계획안" : "영어 계획안"}</strong>을 작성하고 있습니다.
-        {language === "ko"
-          ? (editorGroups.length
-            ? ` ${editorGroups.map(({ label }) => label).join(", ")} 계획안이 아래에 이어집니다.`
-            : " 위에서 작성할 연령을 선택하면 그 연령 표만 나옵니다.")
-          : (editorGroups.length
-            ? ` ${editorGroups.map(({ age }) => `AGE ${age}`).join(", ")} 계획안이 아래에 이어집니다.`
-            : " 위에서 작성할 연령을 선택하면 그 연령 표만 나옵니다.")}
-        {" "}지금은 {weekCount}주 계획안입니다. 교구명, 활동 내용과 운동발달 목적은 표 안에서 자유롭게 수정할 수 있습니다.
-      </p>
-
-      {setupRequired ? (
-        <div className="monthly-plan-editor__setup">
-          Supabase SQL Editor에서 <strong>supabase/superadmin_monthly_plan_multilingual_patch.sql</strong>을 실행해 주세요.
-        </div>
-      ) : null}
-      {message ? <div className="monthly-plan-editor__message" role="status">{message}</div> : null}
 
       {gearPickerOpen ? (
         <section className="monthly-plan-gear-picker" aria-label="계획안 교구 선택">
@@ -1474,7 +1568,26 @@ export default function SuperadminMonthlyPlanEditor({
           </div>
         </section>
       ) : null}
+      </MonthlyPlanStep>
 
+      <MonthlyPlanStep
+        step={5}
+        status={stepStatus(5)}
+        current={currentStep === 5}
+        title="계획안 내용 작성"
+        hint="이렇게 하세요: 4단계에서 채워진 교구명·활동 내용을 확인하고 필요한 부분만 고치세요."
+      >
+      <p className="monthly-plan-editor__edit-hint">
+        현재 <strong>{language === "ko" ? "한국어 계획안" : "영어 계획안"}</strong>을 작성하고 있습니다.
+        {language === "ko"
+          ? (editorGroups.length
+            ? ` ${editorGroups.map(({ label }) => label).join(", ")} 계획안이 아래에 이어집니다.`
+            : " 2단계에서 작성할 연령을 선택하면 그 연령 표만 나옵니다.")
+          : (editorGroups.length
+            ? ` ${editorGroups.map(({ age }) => `AGE ${age}`).join(", ")} 계획안이 아래에 이어집니다.`
+            : " 2단계에서 작성할 연령을 선택하면 그 연령 표만 나옵니다.")}
+        {" "}지금은 {weekCount}주 계획안입니다. 교구명, 활동 내용과 운동발달 목적은 표 안에서 자유롭게 수정할 수 있습니다.
+      </p>
       <div className={`monthly-plan-document monthly-plan-document--${language}`}>
         {language === "en" ? (
           <>
@@ -1498,7 +1611,7 @@ export default function SuperadminMonthlyPlanEditor({
 
         {!editorGroups.length ? (
           <div className="monthly-plan-editor__empty-ages" role="status">
-            위에서 작성할 연령을 선택하면 그 연령의 월간 목표와 주차별 표가 나옵니다.
+            2단계에서 작성할 연령을 선택하면 그 연령의 월간 목표와 주차별 표가 나옵니다.
           </div>
         ) : language === "ko" ? editorGroups.map(({ id, label }) => (
           <section key={id} className="monthly-plan-age-section">
@@ -1555,6 +1668,8 @@ export default function SuperadminMonthlyPlanEditor({
             <p className="monthly-plan-english-note">This monthly plan is subject to change depending on circumstances.</p>
           </section>
         ))}
+      </div>
+      </MonthlyPlanStep>
       </div>
 
       <footer className="monthly-plan-editor__footer">

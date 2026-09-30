@@ -9,6 +9,7 @@ import {
   TEACHER_SETTLEMENT_HEADERS,
 } from "./teacherSettlement.js";
 import { downloadXlsx, exportFilename } from "./xlsxDownload.js";
+import { fetchAllPages } from "../supabaseFetchAll.js";
 
 function yearMonthKey(date = new Date()) {
   const y = date.getFullYear();
@@ -27,8 +28,8 @@ export async function exportEquipmentStatus(supabase, { allPeriod, month }) {
   const monthForFile = allPeriod ? null : (month || yearMonthKey());
   const [items, ris, rets] = await Promise.all([
     throwIfError("교구", await supabase.from("items").select("*").order("code")),
-    throwIfError("대여항목", await supabase.from("rental_items").select("*")),
-    throwIfError("반납", await supabase.from("return_requests").select("*")),
+    throwIfError("대여항목", await fetchAllPages(() => supabase.from("rental_items").select("*"))),
+    throwIfError("반납", await fetchAllPages(() => supabase.from("return_requests").select("*"))),
   ]);
 
   const rows = buildEquipmentStatusRows(items, ris, rets);
@@ -43,9 +44,9 @@ export async function exportRentalHistory(supabase, { allPeriod, month }) {
 
   const [items, reqs, ris, rets, teachers] = await Promise.all([
     throwIfError("교구", await supabase.from("items").select("id, name")),
-    throwIfError("대여신청", await supabase.from("rental_requests").select("*")),
-    throwIfError("대여항목", await supabase.from("rental_items").select("*")),
-    throwIfError("반납", await supabase.from("return_requests").select("*")),
+    throwIfError("대여신청", await fetchAllPages(() => supabase.from("rental_requests").select("*"))),
+    throwIfError("대여항목", await fetchAllPages(() => supabase.from("rental_items").select("*"))),
+    throwIfError("반납", await fetchAllPages(() => supabase.from("return_requests").select("*"))),
     throwIfError("선생님", await supabase.from("teachers").select("id, name")),
   ]);
 

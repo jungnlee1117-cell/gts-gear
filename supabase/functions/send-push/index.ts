@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import webpush from "npm:web-push@3";
 import { runClassCheckinReminders } from "./classCheckinCron.ts";
+import { fetchAllPages } from "../_shared/fetchAllPages.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -359,8 +360,8 @@ async function loadRegularClassGuideContext(adminClient) {
     adminClient.from("item_rotation_month_weeks")
       .select("year_month, week_number, week_start_date, week_end_date")
       .in("year_month", ymKeys),
-    adminClient.from("institution_weekly_schedule")
-      .select("teacher_id, day_of_week, class_type, label, effective_from, effective_to"),
+    fetchAllPages(() => adminClient.from("institution_weekly_schedule")
+      .select("teacher_id, day_of_week, class_type, label, effective_from, effective_to")),
   ]);
 
   if (teachersRes.error) console.warn("[send-push] regular class guide teachers", teachersRes.error.message);

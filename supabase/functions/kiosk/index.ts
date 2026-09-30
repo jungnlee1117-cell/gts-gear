@@ -5,6 +5,7 @@ import {
   timingSafeEqual,
   verifyKioskPin,
 } from "./kioskPin.js";
+import { fetchAllPages } from "../_shared/fetchAllPages.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -494,16 +495,20 @@ function requireDeviceAccess(body: Record<string, unknown>, headers: Headers, de
 }
 
 async function loadCatalogStock(admin) {
-  const [{ data: items, error: iErr }, { data: ris }, { data: rets }] = await Promise.all([
+  const [{ data: items, error: iErr }, risRes, retsRes] = await Promise.all([
     admin
       .from("items")
       .select("id, code, name, alias, category, branch, total_quantity, photo_url, activity_photos, status")
       .eq("status", "available")
       .order("code"),
-    admin.from("rental_items").select("id, item_id, quantity, status"),
-    admin.from("return_requests").select("rental_item_id, quantity, status"),
+    fetchAllPages(() => admin.from("rental_items").select("id, item_id, quantity, status")),
+    fetchAllPages(() => admin.from("return_requests").select("rental_item_id, quantity, status")),
   ]);
   if (iErr) throw iErr;
+  if (risRes.error) throw risRes.error;
+  if (retsRes.error) throw retsRes.error;
+  const ris = risRes.data || [];
+  const rets = retsRes.data || [];
   return (items || [])
     .filter((it) => it.status === "available")
     .map((it) => ({
@@ -837,13 +842,23 @@ async function rentItemsBatch(admin, {
 }
 
 async function teacherHoldings(admin, teacherId: string) {
-  const [{ data: reqs }, { data: ris }, { data: rets }, { data: items }] = await Promise.all([
-    admin.from("rental_requests").select("id, teacher_id, dispatch_start, status").eq("teacher_id", teacherId),
-    admin.from("rental_items").select("id, request_id, item_id, quantity, status, due_date, approved_at, created_at"),
-    admin.from("return_requests").select("rental_item_id, quantity, status"),
-    admin.from("items").select("id, code, name, category, photo_url"),
+  const [reqsRes, itemsRes] = await Promise.all([
+    fetchAllPages(() => admin.from("rental_requests").select("id, teacher_id, dispatch_start, status").eq("teacher_id", teacherId)),
+    fetchAllPages(() => admin.from("items").select("id, code, name, category, photo_url")),
   ]);
-  const reqIds = new Set((reqs || []).map((r) => r.id));
+  const reqs = reqsRes.data || [];
+  const reqIdList = [...new Set(reqs.map((r) => r.id).filter(Boolean))];
+  const risRes = reqIdList.length
+    ? await fetchAllPages(() => admin.from("rental_items").select("id, request_id, item_id, quantity, status, due_date, approved_at, created_at").in("request_id", reqIdList))
+    : { data: [], error: null };
+  const ris = risRes.data || [];
+  const riIds = ris.map((r) => r.id).filter(Boolean);
+  const retsRes = riIds.length
+    ? await fetchAllPages(() => admin.from("return_requests").select("rental_item_id, quantity, status").in("rental_item_id", riIds))
+    : { data: [], error: null };
+  const rets = retsRes.data || [];
+  const items = itemsRes.data || [];
+  const reqIds = new Set(reqIdList);
   const itemMap = Object.fromEntries((items || []).map((i) => [i.id, i]));
   const holdings = [];
   for (const ri of ris || []) {

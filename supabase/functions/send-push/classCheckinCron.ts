@@ -1,3 +1,5 @@
+import { fetchAllPages } from "../_shared/fetchAllPages.ts";
+
 const ONEOFF_PREFIX = "__oneoff:";
 const ROUND1_DELAY_MIN = 10;
 const ROUND2_DELAY_MIN = 70;
@@ -109,17 +111,31 @@ function homeVisitOnDate(pattern: any, dateStr: string, dow: number) {
   return Boolean(sliceHm(pattern.end_time) || sliceHm(pattern.start_time));
 }
 
+function asYmd(value: unknown) {
+  const raw = String(value || "");
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const dt = value instanceof Date ? value : new Date(raw);
+  if (Number.isNaN(dt.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(dt);
+}
+
 function findEntry(entries: any[], planned: { source: string; id: string; dateStr?: string }) {
-  const dateStr = planned.dateStr ? String(planned.dateStr).slice(0, 10) : "";
+  const dateStr = asYmd(planned.dateStr);
   if (planned.source === "home_visit") {
     return entries.find((e) => (
       e.home_visit_pattern_id === planned.id
-      && (!dateStr || String(e.class_date || "").slice(0, 10) === dateStr)
+      && (!dateStr || asYmd(e.class_date) === dateStr)
     )) || null;
   }
   return entries.find((e) => (
     e.schedule_slot_id === planned.id
-    && (!dateStr || String(e.class_date || "").slice(0, 10) === dateStr)
+    && (!dateStr || asYmd(e.class_date) === dateStr)
   )) || null;
 }
 
@@ -157,23 +173,53 @@ function isVacationOn(vacations: any[], teacherId: string, dateStr: string) {
   ));
 }
 
-function roundCopy(round: number, count: number) {
-  const n = Math.max(1, count);
+function formatClassPreview(item: PlannedItem | undefined, ymd: string) {
+  if (!item) return "수업";
+  const datePart = item.dateStr === ymd
+    ? "오늘"
+    : `${Number(String(item.dateStr).slice(5, 7))}.${Number(String(item.dateStr).slice(8, 10))}`;
+  const place = item.placeName || (item.source === "home_visit" ? "가정방문" : "수업");
+  const time = String(item.endTime || "").slice(0, 5);
+  return [datePart, place, time].filter(Boolean).join(" ");
+}
+
+function roundCopy(round: number, unconfirmed: PlannedItem[], ymd: string) {
+  const items = [...(unconfirmed || [])].sort((a, b) => (
+    String(a.dateStr).localeCompare(String(b.dateStr))
+    || String(a.endTime).localeCompare(String(b.endTime))
+  ));
+  const n = Math.max(1, items.length);
+  const todayCount = items.filter((item) => item.dateStr === ymd).length;
+  const pastCount = items.length - todayCount;
+  const preview = formatClassPreview(items[0], ymd);
+  const extra = n > 1 ? ` 외 ${n - 1}건` : "";
+  if (round === 3) {
+    if (pastCount && !todayCount) {
+      return {
+        title: "아직 체크하지 않은 수업이 있어요",
+        body: `${preview}${extra} · 오늘이 아니라 이전 날짜 미확인입니다`,
+      };
+    }
+    if (pastCount && todayCount) {
+      return {
+        title: "미확인 수업이 남아 있어요",
+        body: `오늘 ${todayCount}건, 이전 날짜 ${pastCount}건 · 예: ${preview}`,
+      };
+    }
+    return {
+      title: "오늘 수업 마치셨나요?",
+      body: `${preview}${extra} 아직 체크되지 않았어요`,
+    };
+  }
   if (round === 2) {
     return {
       title: "오늘 수업 확인",
-      body: `아직 확인하지 않은 오늘 수업이 있어요 (${n}건)`,
-    };
-  }
-  if (round === 3) {
-    return {
-      title: "오늘 수업 마치셨나요?",
-      body: `아직 체크하지 않은 수업이 ${n}건 있어요`,
+      body: `${preview}${extra} 아직 확인되지 않았어요`,
     };
   }
   return {
     title: "오늘 수업 마치셨나요?",
-    body: `오늘 미확인 수업 ${n}건 · 완료/수정 후 특이사항을 남겨 주세요`,
+    body: `${preview}${extra} · 완료/수정 후 특이사항을 남겨 주세요`,
   };
 }
 
@@ -183,6 +229,7 @@ type PlannedItem = {
   endTime: string;
   dateStr: string;
   institutionId?: string | null;
+  placeName?: string;
 };
 
 function collectPlannedForDate(
@@ -191,6 +238,7 @@ function collectPlannedForDate(
   exceptions: any[],
   dateStr: string,
   gearOnlyIds: Set<string>,
+  institutionNames: Map<string, string> = new Map(),
 ) {
   const dow = kstDow(dateStr);
   const items: Array<PlannedItem & { teacherId: string }> = [];
@@ -208,6 +256,7 @@ function collectPlannedForDate(
       endTime,
       dateStr,
       institutionId: slot.institution_id || null,
+      placeName: institutionNames.get(slot.institution_id) || "기관 수업",
     });
   }
   for (const pattern of patterns || []) {
@@ -222,6 +271,7 @@ function collectPlannedForDate(
       endTime,
       dateStr,
       institutionId: null,
+      placeName: "가정방문",
     });
   }
   return items;
@@ -261,7 +311,7 @@ async function deliverClassCheckinRound(
     return null;
   }
 
-  const copy = roundCopy(round, unconfirmed.length);
+  const copy = roundCopy(round, unconfirmed, ymd);
   const result = await deliverPushNotifications(adminClient, vapid, "cron_class_checkin", {
     teacherIds: [teacherId],
     title: copy.title,
@@ -291,40 +341,43 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
   const dailyAt = kstDate(ymd, ROUND3_HM);
   const dailyOpen = now >= dailyAt;
 
-  const [slotsRes, hvRes, exRes, payRes, logRes, gearOnlyRes, vacationsRes, settledRes] = await Promise.all([
-    adminClient
+  const [slotsRes, hvRes, exRes, payRes, logRes, gearOnlyRes, vacationsRes, settledRes, institutionsRes] = await Promise.all([
+    fetchAllPages(() => adminClient
       .from("institution_weekly_schedule")
-      .select("id, teacher_id, institution_id, day_of_week, start_time, end_time, label, effective_from, effective_to, schedule_series_id"),
-    adminClient
+      .select("id, teacher_id, institution_id, day_of_week, start_time, end_time, label, effective_from, effective_to, schedule_series_id")),
+    fetchAllPages(() => adminClient
       .from("home_visit_patterns")
-      .select("id, teacher_id, day_of_week, start_time, end_time, pattern_start_date, pattern_end_date, status"),
-    adminClient
+      .select("id, teacher_id, day_of_week, start_time, end_time, pattern_start_date, pattern_end_date, status")),
+    fetchAllPages(() => adminClient
       .from("institution_schedule_exceptions")
       .select("id, institution_id, exception_type, exception_date, end_date, institution_schedule_exception_classes(*)")
-      .lte("exception_date", ymd),
-    adminClient
+      .lte("exception_date", ymd)),
+    fetchAllPages(() => adminClient
       .from("payroll_entries")
       .select("id, teacher_id, class_date, entry_status, schedule_slot_id, home_visit_pattern_id")
       .gte("class_date", fromYmd)
-      .lte("class_date", ymd),
-    adminClient
+      .lte("class_date", ymd)),
+    fetchAllPages(() => adminClient
       .from("class_checkin_pushes")
-      .select("teacher_id, round")
-      .eq("class_date", ymd),
+      .select("id, teacher_id, round")
+      .eq("class_date", ymd)),
     adminClient
       .from("teachers")
       .select("id")
       .eq("access_scope", "gear_only"),
-    adminClient
+    fetchAllPages(() => adminClient
       .from("teacher_vacations")
-      .select("teacher_id, start_date, end_date")
+      .select("id, teacher_id, start_date, end_date")
       .lte("start_date", ymd)
-      .gte("end_date", fromYmd),
-    adminClient
+      .gte("end_date", fromYmd)),
+    fetchAllPages(() => adminClient
       .from("monthly_settlements")
-      .select("institution_id, year_month, is_finalized")
+      .select("id, institution_id, year_month, is_finalized")
       .gte("year_month", fromMonth)
-      .eq("is_finalized", true),
+      .eq("is_finalized", true)),
+    fetchAllPages(() => adminClient
+      .from("institutions")
+      .select("id, name")),
   ]);
 
   if (slotsRes.error) throw new Error(slotsRes.error.message);
@@ -342,10 +395,10 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
 
   let exceptions = exRes.data || [];
   if (exRes.error) {
-    const fallback = await adminClient
+    const fallback = await fetchAllPages(() => adminClient
       .from("institution_schedule_exceptions")
       .select("id, institution_id, exception_type, exception_date, end_date")
-      .lte("exception_date", ymd);
+      .lte("exception_date", ymd));
     if (fallback.error) throw new Error(fallback.error.message);
     exceptions = fallback.data || [];
   }
@@ -353,6 +406,11 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
   if (logRes.error && !/schema cache|does not exist|class_checkin_pushes/i.test(logRes.error.message || "")) {
     throw new Error(logRes.error.message);
   }
+  const institutionNames = new Map<string, string>(
+    (institutionsRes.error ? [] : institutionsRes.data || [])
+      .map((row: any) => [row.id, String(row.name || "").trim()])
+      .filter((entry: [string, string]) => entry[0] && entry[1]),
+  );
   const sentMap = new Map<string, Set<number>>();
   for (const row of logRes.data || []) {
     const key = row.teacher_id;
@@ -386,7 +444,7 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
   };
 
   for (const dateStr of eachYmd(fromYmd, ymd)) {
-    for (const item of collectPlannedForDate(slotsRes.data || [], hvRes.data || [], exceptions, dateStr, gearOnlyIds)) {
+    for (const item of collectPlannedForDate(slotsRes.data || [], hvRes.data || [], exceptions, dateStr, gearOnlyIds, institutionNames)) {
       if (isVacationOn(vacations, item.teacherId, dateStr)) continue;
       if (item.institutionId && finalizedKeys.has(`${item.institutionId}:${dateStr.slice(0, 7)}`)) continue;
       const planned = {
@@ -395,6 +453,7 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
         endTime: item.endTime,
         dateStr,
         institutionId: item.institutionId,
+        placeName: item.placeName,
       };
       if (dateStr === ymd) addTo(todayAllByTeacher, item.teacherId, planned);
       const entries = entriesByTeacher.get(item.teacherId) || [];
