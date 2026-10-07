@@ -3,10 +3,13 @@
  *
  * 2026-09-23 (한국 시간) 전 → 사진 권장(건너뛰기 가능)
  * 2026-09-23 (한국 시간)부터 → 사진 필수
+ * 대표(role superadmin)는 날짜와 관계없이 사진 없이 반납할 수 있다.
  */
 
 export const RETURN_PHOTO_REQUIRED_FROM = "2026-09-23";
 export const RETURN_PHOTO_REQUIRED_MESSAGE = "반납 사진을 업로드해야 반납이 완료됩니다";
+export const RETURN_ALBUM_PHOTO_HINT =
+  "사진첩에서 고르실 때는, 지금 반납하는 교구 사진이 맞는지 한 번만 확인해 주세요. 다른 사진이 올라가면 재고가 어긋나서, 다음에 그 교구를 쓰시는 선생님이 찾기 어려울 수 있어요.";
 
 export const RETURN_PHOTO_BUCKET = "item-photos";
 export const RETURN_PHOTO_MAX_WIDTH = 1280;
@@ -25,6 +28,11 @@ export function kstDateYmd(date = new Date()) {
 
 export function isReturnPhotoRequired(date = new Date()) {
   return kstDateYmd(date) >= RETURN_PHOTO_REQUIRED_FROM;
+}
+
+export function isReturnPhotoRequiredFor(user, date = new Date()) {
+  if (user?.role === "superadmin") return false;
+  return isReturnPhotoRequired(date);
 }
 
 export function returnPhotoStoragePath(itemId) {

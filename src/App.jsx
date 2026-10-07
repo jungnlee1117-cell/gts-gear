@@ -38,6 +38,7 @@ import GitiReportSection from "./GitiReportSection.jsx";
 import { formatPushItemNames, sendPushEvent } from "./pushNotifications.js";
 import MyGearRotationPage, {
   checkRotationRentalConflicts,
+  formatKoMonthDay,
   formatRotationConflictConfirmMessage,
   ymdAddDays,
 } from "./MyGearRotationPage.jsx";
@@ -106,9 +107,10 @@ import {
 import ItemQuantityAdjustModal, { StockAdjustButton } from "./ItemQuantityAdjustModal.jsx";
 import ItemQuantityAdjustHistoryPage from "./ItemQuantityAdjustHistoryPage.jsx";
 import {
+  RETURN_ALBUM_PHOTO_HINT,
   RETURN_PHOTO_REQUIRED_MESSAGE,
   compressReturnPhoto,
-  isReturnPhotoRequired,
+  isReturnPhotoRequiredFor,
   uploadReturnPhoto,
   validateReturnLocationGroups,
 } from "./returnPhoto.js";
@@ -1265,6 +1267,12 @@ const EXTENSION_PERIOD_OPTIONS = [
 
 function extensionCountOf(ri) {
   return Number(ri?.extension_count || 0);
+}
+
+function extendableHoldingLines(group) {
+  return (group?.lines || []).filter((line) => (
+    line.held > 0 && extensionCountOf(line.ri) < MAX_RENTAL_EXTENSIONS
+  ));
 }
 
 function toLocalYMD(d) {
@@ -9190,7 +9198,7 @@ function RentalManageHubPage({me,setPage}) {
   );
 }
 
-function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem, onReturnItems, onCancelRequest, onEditRequest, embedded = false }) {
+function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem, onReturnItems, onExtendItems, onCancelRequest, onEditRequest, embedded = false }) {
   const currentYmd = useTodayYmd();
   const holdings = useMemo(
     () => buildTeacherHoldingsByItem(me, reqs, ris, items, rets, itemSets),
@@ -9218,6 +9226,12 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
     const selected = holdings.filter(h => selectedItemIds.has(h.item_id) && h.totalReturnable > 0);
     if (!selected.length) return alert("반납할 교구를 선택하세요");
     onReturnItems?.(selected);
+  };
+
+  const startMultiExtend = () => {
+    const selected = holdings.filter(h => selectedItemIds.has(h.item_id) && extendableHoldingLines(h).length);
+    if (!selected.length) return alert("연장할 수 있는 교구를 선택하세요. 한도에 도달한 교구는 연장되지 않습니다.");
+    onExtendItems?.(selected);
   };
 
   const renderPendingActions = (req) => (
@@ -9275,11 +9289,13 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
           <Empty text="현재 대여 중인 교구가 없습니다"/>
         </PanelSection>
       ) : (
-        <PanelSection
-          title={`대여 중인 교구 (${holdings.length})`}
-          action={selectedItemIds.size > 0 ? startMultiReturn : undefined}
-          actionLabel={selectedItemIds.size > 0 ? `선택 ${selectedItemIds.size}건 반납 ›` : undefined}
-        >
+        <PanelSection title={`대여 중인 교구 (${holdings.length})`}>
+          {selectedItemIds.size > 0 ? (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              <Btn sm ghost onClick={startMultiExtend}>선택 {selectedItemIds.size}건 연장</Btn>
+              <Btn sm color={RETURN_THEME.primary} onClick={startMultiReturn}>선택 {selectedItemIds.size}건 반납</Btn>
+            </div>
+          ) : null}
           <div className="gts-rental-cards-grid">
           {holdings.map(group => {
             const item = group.item;
@@ -9346,7 +9362,17 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
                         {line.pendingRet > 0 && (
                           <span style={{ color: RETURN_THEME.text, fontWeight: 600 }}> (반납 대기 {line.pendingRet}개)</span>
                         )}
+                        {line.due_date && (
+                          <span style={{ marginLeft: 6, fontWeight: 700, color: DS.textPrimary }}>
+                            반납예정 {fmt(line.due_date)}
+                          </span>
+                        )}
                         {dd && <span style={{ color: dd.color, marginLeft: 6 }}>{dd.text}</span>}
+                        {extensionCountOf(line.ri) > 0 && (
+                          <span style={{ marginLeft: 6, color: DS.textMuted }}>
+                            연장 {extensionCountOf(line.ri)}/{MAX_RENTAL_EXTENSIONS}
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -9361,6 +9387,14 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
                   </div>
                 )}
                 <div className="gts-rental-holding-card__actions">
+                  <Btn
+                    sm
+                    ghost
+                    disabled={extendableHoldingLines(group).length === 0}
+                    onClick={() => onExtendItems?.([group])}
+                  >
+                    {extendableHoldingLines(group).length ? "연장" : "연장 한도"}
+                  </Btn>
                   <Btn
                     sm
                     color={RETURN_THEME.primary}
@@ -9389,7 +9423,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
 }
 
 function TeacherRentalReturnPage({
-  me, reqs, ris, items, itemSets, rets, teachers, onReturnItem, onReturnItems, onCancelRequest, onUpdateRequest, initialTab = "return",
+  me, reqs, ris, items, itemSets, rets, teachers, onReturnItem, onReturnItems, onExtendItems, onCancelRequest, onUpdateRequest, initialTab = "return",
 }) {
   const [tab, setTab] = useState(initialTab);
   const [editReq, setEditReq] = useState(null);
@@ -9459,6 +9493,7 @@ function TeacherRentalReturnPage({
           rets={rets}
           onReturnItem={onReturnItem}
           onReturnItems={onReturnItems}
+          onExtendItems={onExtendItems}
           onCancelRequest={onCancelRequest}
           onEditRequest={setEditReq}
           embedded
@@ -10967,6 +11002,122 @@ function ExtensionPromptModal({ candidates, maxExtensions, onConfirm, onSkip, on
   );
 }
 
+function ExtendHoldingsModal({ groups, maxExtensions, onConfirm, onClose }) {
+  const lines = (groups || []).flatMap((group) => extendableHoldingLines(group).map((line) => ({
+    ri: line.ri,
+    itemName: group.item?.name || "-",
+    due_date: line.due_date,
+    extCount: extensionCountOf(line.ri),
+    held: line.held,
+    pendingRet: line.pendingRet,
+  })));
+  const skipped = (groups || []).reduce((count, group) => (
+    count + (group.lines || []).filter((line) => line.held > 0 && extensionCountOf(line.ri) >= maxExtensions).length
+  ), 0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
+
+  const handleExtend = async (weeks) => {
+    if (!lines.length || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const outcome = await onConfirm(lines.map((line) => line.ri.id), weeks);
+      if (outcome?.ok) setResult(outcome);
+      else setError(outcome?.message || "연장하지 못했습니다.");
+    } catch (extendError) {
+      setError(extendError?.message || "연장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (result?.ok) {
+    return (
+      <Modal title="연장되었습니다" onClose={onClose}>
+        <div style={{ padding: "0 20px 20px" }}>
+          <p style={{ fontSize: 14, color: DS.textPrimary, lineHeight: 1.5, margin: "0 0 14px" }}>
+            {result.lines.length}개 교구를 {result.weeks}주 연장했습니다. 아래 반납예정일로 바뀌었습니다.
+          </p>
+          <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+            {result.lines.map((line) => (
+              <div key={`${line.name}-${line.due}`} style={{
+                padding: "10px 12px", border: "1px solid #bbf7d0", borderRadius: 10, background: "#f0fdf4",
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: DS.textPrimary }}>{line.name}</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#15803d", marginTop: 4 }}>
+                  반납예정 {fmt(line.due)}
+                </div>
+              </div>
+            ))}
+          </div>
+          <Btn full onClick={onClose}>대여 목록으로</Btn>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="대여 연장" onClose={busy ? undefined : onClose} dismissible={!busy}>
+      <div style={{ padding: "0 20px 20px" }}>
+        <p style={{ fontSize: 14, color: DS.textSecondary, lineHeight: 1.5, margin: "0 0 14px" }}>
+          1주 또는 2주를 누르면 바로 연장되고, 바뀐 반납예정일을 보여 줍니다.
+        </p>
+        {!lines.length ? (
+          <p style={{ fontSize: 14, color: DS.textPrimary, margin: "0 0 14px" }}>연장할 수 있는 교구가 없습니다.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+            {lines.map((line) => (
+              <div key={line.ri.id} style={{
+                padding: "10px 12px", border: `1px solid ${DS.inputBorder}`, borderRadius: 10, background: "#fff",
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: DS.textPrimary }}>
+                  {line.itemName} <span style={{ fontWeight: 500, color: DS.textSecondary }}>×{line.held}</span>
+                </div>
+                <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 4 }}>
+                  지금 반납예정 {fmt(line.due_date)}
+                </div>
+                <div style={{ fontSize: 12, color: DS.textPrimary, marginTop: 2 }}>
+                  1주 연장 시 {fmt(computeExtendedDueDate(line.due_date, 1))}
+                  {" · "}
+                  2주 연장 시 {fmt(computeExtendedDueDate(line.due_date, 2))}
+                </div>
+                <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
+                  연장 {line.extCount}/{maxExtensions}
+                  {line.pendingRet > 0 ? " · 반납 승인 대기는 그대로 둡니다" : ""}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {skipped > 0 ? (
+          <p style={{ fontSize: 12, color: "#dc2626", margin: "0 0 12px" }}>
+            연장 한도에 도달한 {skipped}건은 빠집니다.
+          </p>
+        ) : null}
+        {error ? (
+          <p style={{ fontSize: 13, color: "#dc2626", margin: "0 0 12px", lineHeight: 1.5 }}>{error}</p>
+        ) : null}
+        <div style={{ display: "flex", gap: 8 }}>
+          {EXTENSION_PERIOD_OPTIONS.map((opt) => (
+            <div key={opt.weeks} style={{ flex: 1 }}>
+              <Btn
+                full
+                color={opt.weeks === 1 ? DS.primary : "#0f766e"}
+                onClick={() => handleExtend(opt.weeks)}
+                disabled={busy || !lines.length}
+              >
+                {busy ? "연장 중..." : `${opt.weeks}주 연장`}
+              </Btn>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose,onQuantityAdjusted}) {
   const initialDates = useMemo(() => defaultRentalDates(), []);
   const institutionState = useRentalInstitutionOptions(me);
@@ -11254,8 +11405,30 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, me, onSubmit, o
   );
 }
 
-function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
-  const photoRequired = isReturnPhotoRequired();
+function ReturnAlbumPhotoNote({ onConfirm }) {
+  return (
+    <div style={{
+      marginTop: 10,
+      background: "#fffbeb",
+      border: "1px solid #fde68a",
+      borderRadius: 10,
+      padding: "10px 12px",
+      fontSize: 12,
+      lineHeight: 1.55,
+      color: "#92400e",
+      textAlign: "left",
+    }}>
+      {RETURN_ALBUM_PHOTO_HINT}
+      {onConfirm && (
+        <Btn sm color="#b45309" onClick={onConfirm} style={{ marginTop: 8 }}>
+          확인하고 사진 고르기
+        </Btn>
+      )}
+    </div>
+  );
+}
+
+function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose, photoRequired = true }) {
   const initialGroups = useMemo(() => {
     const list = groupsProp?.length ? groupsProp : (group ? [group] : []);
     return list.map(g => ({
@@ -11279,7 +11452,9 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
   const [photoByLocation, setPhotoByLocation] = useState({}); // loc -> { file, preview, skipped }
   const [photoLocIndex, setPhotoLocIndex] = useState(0);
   const [saving, setSaving] = useState(false);
-  const fileRef = useRef(null);
+  const [albumHintOpen, setAlbumHintOpen] = useState(false);
+  const cameraRef = useRef(null);
+  const albumRef = useRef(null);
 
   useEffect(() => {
     setRows(initialGroups);
@@ -11287,6 +11462,7 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
     setStep("location");
     setPhotoByLocation({});
     setPhotoLocIndex(0);
+    setAlbumHintOpen(false);
   }, [initialGroups]);
 
   const locationGroups = useMemo(() => {
@@ -11339,6 +11515,7 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
       return next;
     });
     setPhotoLocIndex(0);
+    setAlbumHintOpen(false);
     setStep("photo");
   };
 
@@ -11354,21 +11531,28 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
     }));
   };
 
-  const onPickFile = async (e) => {
+  const onPickFile = async (e, source) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       alert("이미지 파일만 업로드할 수 있습니다");
+      e.target.value = "";
       return;
     }
     try {
       const blob = await compressReturnPhoto(file);
       const preview = URL.createObjectURL(blob);
-      setCurrentPhoto({ file: blob, preview, skipped: false });
+      setCurrentPhoto({ file: blob, preview, skipped: false, source });
+      setAlbumHintOpen(false);
     } catch (err) {
       alert("사진 처리 오류: " + (err.message || "알 수 없는 오류"));
     }
     e.target.value = "";
+  };
+
+  const openCamera = () => {
+    setAlbumHintOpen(false);
+    cameraRef.current?.click();
   };
 
   const finishCurrentLocAndMaybeNext = (skipped) => {
@@ -11377,20 +11561,21 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
     const state = photoByLocation[loc] || {};
     let nextPhotos = photoByLocation;
     if (skipped) {
-      if (isReturnPhotoRequired()) {
+      if (photoRequired) {
         return alert(RETURN_PHOTO_REQUIRED_MESSAGE);
       }
       const patch = { skipped: true, file: null, preview: null };
       nextPhotos = { ...photoByLocation, [loc]: { ...(state), ...patch } };
       setPhotoByLocation(nextPhotos);
     } else if (!state.file && !state.skipped) {
-      if (isReturnPhotoRequired()) {
+      if (photoRequired) {
         return alert(RETURN_PHOTO_REQUIRED_MESSAGE);
       }
       return alert("사진을 업로드하거나 「사진 없이 이 위치 반납」을 눌러 주세요.");
     }
 
     if (photoLocIndex < locationGroups.length - 1) {
+      setAlbumHintOpen(false);
       setPhotoLocIndex(i => i + 1);
       return;
     }
@@ -11407,7 +11592,7 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
       };
     });
     const err = validateReturnLocationGroups(groupsForValidate, {
-      photoRequired: isReturnPhotoRequired(),
+      photoRequired,
     });
     if (err) return alert(err);
 
@@ -11546,29 +11731,39 @@ function ItemReturnModal({ groups: groupsProp, group, onSubmit, onClose }) {
                 </div>
               </div>
 
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={onPickFile}/>
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => onPickFile(e, "camera")}/>
+              <input ref={albumRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => onPickFile(e, "album")}/>
 
               {currentPhoto?.preview ? (
                 <div style={{ marginBottom: 12 }}>
                   <img src={currentPhoto.preview} alt="반납 사진 미리보기" style={{ width: "100%", maxHeight: 240, objectFit: "cover", borderRadius: 12, border: "1px solid #e2e8f0" }}/>
-                  <Btn sm ghost onClick={() => fileRef.current?.click()} style={{ marginTop: 8 }}>사진 다시 선택</Btn>
+                  {currentPhoto.source === "album" && !albumHintOpen && <ReturnAlbumPhotoNote />}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    <Btn sm ghost onClick={openCamera}>카메라로 다시 촬영</Btn>
+                    <Btn sm ghost onClick={() => setAlbumHintOpen(true)}>사진첩에서 다시 선택</Btn>
+                  </div>
+                  {albumHintOpen && <ReturnAlbumPhotoNote onConfirm={() => albumRef.current?.click()} />}
                 </div>
               ) : (
                 <div
-                  onClick={() => fileRef.current?.click()}
                   style={{
-                    width: "100%", height: 160, borderRadius: 14, border: `2px dashed ${DS.inputBorder}`,
+                    width: "100%", minHeight: 160, borderRadius: 14, border: `2px dashed ${DS.inputBorder}`,
                     background: "#fafafa", display: "flex", flexDirection: "column",
-                    alignItems: "center", justifyContent: "center", cursor: "pointer", marginBottom: 12,
+                    alignItems: "center", justifyContent: "center", marginBottom: 12, padding: 16,
                   }}
                 >
-                  <div style={{ fontSize: 13, fontWeight: 700, color: DS.textSecondary }}>사진 촬영 / 업로드</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: DS.textSecondary }}>반납 사진</div>
                   <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 4 }}>자동 압축 · JPEG</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginTop: 12 }}>
+                    <Btn sm color={RETURN_THEME.primary} onClick={openCamera}>카메라로 촬영</Btn>
+                    <Btn sm ghost onClick={() => setAlbumHintOpen(true)}>사진첩에서 선택</Btn>
+                  </div>
+                  {albumHintOpen && <ReturnAlbumPhotoNote onConfirm={() => albumRef.current?.click()} />}
                 </div>
               )}
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Btn ghost onClick={() => setStep("location")} disabled={saving}>이전</Btn>
+                <Btn ghost onClick={() => { setAlbumHintOpen(false); setStep("location"); }} disabled={saving}>이전</Btn>
                 {!photoRequired && (
                   <Btn ghost onClick={() => finishCurrentLocAndMaybeNext(true)} disabled={saving}>
                     사진 없이 이 위치 반납
@@ -12830,6 +13025,7 @@ function EquipmentApp({ onBack, me, session }) {
   const [cart,       setCart]       = useState([]);
   const [showCart,   setShowCart]   = useState(false);
   const [extPrompt,  setExtPrompt]  = useState(null);
+  const [extendGroups, setExtendGroups] = useState(null);
   const [detailItem, setDetailItem] = useState(null);
   const [detailSet, setDetailSet] = useState(null);
   const [detailBackPage, setDetailBackPage] = useState("items");
@@ -13364,7 +13560,48 @@ function EquipmentApp({ onBack, me, session }) {
         item_names: formatPushItemNames(extended.map(u => items.find(i => i.id === u.item_id)?.name)),
       }).catch(() => {});
     }
-    return extended.length;
+    return extended;
+  };
+
+  const applyHoldingExtension = async (groups, riIds, weeks) => {
+    const today = toLocalYMD(new Date());
+    const selectedLines = (groups || []).flatMap((group) => (
+      (group.lines || []).filter((line) => riIds.includes(line.ri.id))
+    ));
+    const dispatchEnd = selectedLines
+      .map((line) => computeExtendedDueDate(line.due_date, weeks))
+      .filter(Boolean)
+      .sort()
+      .at(-1) || today;
+    const cartItems = (groups || [])
+      .filter((group) => group.lines?.some((line) => riIds.includes(line.ri.id)))
+      .map((group) => ({ item_id: group.item_id, quantity: group.totalHeld || 1 }));
+    const conflicts = await checkRotationRentalConflicts(supabase, {
+      me, cartItems, items, dispatch_start: today, dispatch_end: dispatchEnd, teachers,
+    });
+    if (conflicts.length) {
+      const messages = [...new Set(conflicts.map((conflict) => {
+        const range = (conflict.weekStart && conflict.weekEnd)
+          ? `${formatKoMonthDay(conflict.weekStart)} ~ ${formatKoMonthDay(conflict.weekEnd)}`
+          : (conflict.dateRange || "이번 기간");
+        return `${conflict.itemName}은(는) ${conflict.teacherName}님의 ${range} 정규수업 교구라 연장할 수 없습니다.`;
+      }))];
+      return { ok: false, message: messages.join("\n") };
+    }
+    const extended = await extendRentalItems(riIds, weeks);
+    if (!extended.length) return { ok: false, message: "연장할 수 있는 교구가 없습니다." };
+    const nameByRi = new Map();
+    for (const group of groups || []) {
+      for (const line of group.lines || []) nameByRi.set(line.ri.id, group.item?.name || "교구");
+    }
+    return {
+      ok: true,
+      weeks,
+      lines: extended.map((row) => ({
+        name: nameByRi.get(row.id) || items.find((item) => item.id === row.item_id)?.name || "교구",
+        due: row.due_date,
+      })),
+    };
   };
 
   const submitRent = async (payload) => {
@@ -13715,7 +13952,7 @@ function EquipmentApp({ onBack, me, session }) {
     const allCreated = [];
 
     for (const { quantity, condition, memo, lines, itemId, idea, return_location, return_photo_url } of list) {
-      if (isReturnPhotoRequired() && !return_photo_url) {
+      if (!isSuperAdmin(me) && isReturnPhotoRequiredFor(me) && !return_photo_url) {
         alert(RETURN_PHOTO_REQUIRED_MESSAGE);
         return;
       }
@@ -14445,6 +14682,7 @@ function EquipmentApp({ onBack, me, session }) {
             teachers={teachers}
             onReturnItem={setItemReturnGroup}
             onReturnItems={setItemReturnGroups}
+            onExtendItems={setExtendGroups}
             onCancelRequest={cancelRentalRequest}
             onUpdateRequest={updateRentalRequest}
             initialTab={page==="rentals"?"rent":"return"}
@@ -14486,6 +14724,15 @@ function EquipmentApp({ onBack, me, session }) {
       </>
     );
   };
+
+  const extendHoldingsModal = extendGroups ? (
+    <ExtendHoldingsModal
+      groups={extendGroups}
+      maxExtensions={MAX_RENTAL_EXTENSIONS}
+      onClose={() => setExtendGroups(null)}
+      onConfirm={(riIds, weeks) => applyHoldingExtension(extendGroups, riIds, weeks)}
+    />
+  ) : null;
 
   // ── PC 레이아웃 ──────────────────────────────────────────
   if (isPC) {
@@ -14644,16 +14891,17 @@ function EquipmentApp({ onBack, me, session }) {
         </div>
 
         {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} me={me} onSubmit={submitRent} onClose={()=>setShowCart(false)} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
+        {extendHoldingsModal}
         {extPrompt&&(
           <ExtensionPromptModal
             candidates={extPrompt.candidates}
             maxExtensions={MAX_RENTAL_EXTENSIONS}
             onConfirm={async (riIds, weeks) => {
-              const n = await extendRentalItems(riIds, weeks);
+              const extended = await extendRentalItems(riIds, weeks);
               const payload = extPrompt.payload;
               setExtPrompt(null);
               await doSubmitRent(payload);
-              if (n) alert(`${n}개 교구를 ${weeks}주 연장 신청했습니다.`);
+              if (extended.length) alert(`${extended.length}개 교구를 ${weeks}주 연장 신청했습니다.`);
             }}
             onSkip={async () => {
               const payload = extPrompt.payload;
@@ -14667,6 +14915,7 @@ function EquipmentApp({ onBack, me, session }) {
           <ItemReturnModal
             groups={itemReturnGroups}
             group={itemReturnGroup}
+            photoRequired={!isSuperAdmin(me) && isReturnPhotoRequiredFor(me)}
             onSubmit={submitReturnByItem}
             onClose={() => { setItemReturnGroup(null); setItemReturnGroups(null); }}
           />
@@ -14987,16 +15236,17 @@ function EquipmentApp({ onBack, me, session }) {
       </nav>
 
       {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} me={me} onSubmit={submitRent} onClose={()=>setShowCart(false)} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
+      {extendHoldingsModal}
       {extPrompt&&(
         <ExtensionPromptModal
           candidates={extPrompt.candidates}
           maxExtensions={MAX_RENTAL_EXTENSIONS}
           onConfirm={async (riIds, weeks) => {
-            const n = await extendRentalItems(riIds, weeks);
+            const extended = await extendRentalItems(riIds, weeks);
             const payload = extPrompt.payload;
             setExtPrompt(null);
             await doSubmitRent(payload);
-            if (n) alert(`${n}개 교구를 ${weeks}주 연장 신청했습니다.`);
+            if (extended.length) alert(`${extended.length}개 교구를 ${weeks}주 연장 신청했습니다.`);
           }}
           onSkip={async () => {
             const payload = extPrompt.payload;
@@ -15010,6 +15260,7 @@ function EquipmentApp({ onBack, me, session }) {
         <ItemReturnModal
           groups={itemReturnGroups}
           group={itemReturnGroup}
+          photoRequired={!isSuperAdmin(me) && isReturnPhotoRequiredFor(me)}
           onSubmit={submitReturnByItem}
           onClose={() => { setItemReturnGroup(null); setItemReturnGroups(null); }}
         />
