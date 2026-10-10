@@ -3,17 +3,22 @@ import {
   CHANGE_REASON_CUSTOM,
   CHANGE_REASON_PRESETS,
   composeSkippedEntryNote,
+  composeTimeChangeNote,
   isMakeupReason,
   isPersonalReason,
   isSubstituteReason,
+  isTimeChangeReason,
   parseSkippedEntryNote,
+  parseTimeChangeNote,
   REASON_MAKEUP,
   REASON_SUBSTITUTE,
+  REASON_TIME_CHANGE,
   resolveChangeReason,
   validateChangeReason,
 } from "./changeReasonOptions.js";
 import { shouldNotifyScheduleChange } from "./scheduleChangeNotifications.js";
 import { upsertPayrollSlotWithNotification } from "./payrollSaveWithNotification.js";
+import { confirmLongClassMinutes } from "./longClassConfirm.js";
 import { ENTRY_STATUS } from "./payrollCalendar.js";
 
 function formatMakeupTime(value) {
@@ -56,9 +61,17 @@ export function buildCustomEditState(planned, existing) {
   let changeReasonPreset = "";
   let changeReasonCustom = "";
   let note = existing?.note || "";
+  let startTime = planned.startTime;
+  let endTime = planned.endTime;
+  const timeChange = parseTimeChangeNote(existing?.note);
   if (existing?.substitute_teacher_id) changeReasonPreset = REASON_SUBSTITUTE;
   else if (existing?.is_makeup) changeReasonPreset = REASON_MAKEUP;
-  else if (existing?.entry_status === ENTRY_STATUS.skipped) {
+  else if (timeChange) {
+    changeReasonPreset = REASON_TIME_CHANGE;
+    note = timeChange.memo;
+    if (timeChange.start) startTime = timeChange.start;
+    if (timeChange.end) endTime = timeChange.end;
+  } else if (existing?.entry_status === ENTRY_STATUS.skipped) {
     const parsed = parseSkippedEntryNote(existing.note);
     if (CHANGE_REASON_PRESETS.includes(parsed.reason)) {
       changeReasonPreset = parsed.reason;
@@ -76,8 +89,8 @@ export function buildCustomEditState(planned, existing) {
       || existing?.is_makeup
       ? (existing.minutes || planned.scheduledMinutes)
       : planned.scheduledMinutes,
-    startTime: planned.startTime,
-    endTime: planned.endTime,
+    startTime,
+    endTime,
     note,
     changeReasonPreset,
     changeReasonCustom,
@@ -97,7 +110,8 @@ export function customEditNeedsChangeReason(customEdit, existingEntry, teacherId
   if (!customEdit) return false;
   if (isSubstituteReason(customEdit.changeReasonPreset)
     || isMakeupReason(customEdit.changeReasonPreset)
-    || isPersonalReason(customEdit.changeReasonPreset)) {
+    || isPersonalReason(customEdit.changeReasonPreset)
+    || isTimeChangeReason(customEdit.changeReasonPreset)) {
     return true;
   }
   const savePayload = buildPayrollSlotPayload(customEdit.planned, {
@@ -118,7 +132,26 @@ export function customEditNeedsChangeReason(customEdit, existingEntry, teacherId
     || shouldNotifyScheduleChange(customEdit.planned, skipPayload);
 }
 
-export async function confirmPayrollSlotAsScheduled(planned, { existingEntry, teacherId }) {
+export function customEditSaveMinutes(customEdit) {
+  const isMk = isMakeupReason(customEdit?.changeReasonPreset)
+    || isPersonalMakeupYes(customEdit);
+  let mins = Number(customEdit?.minutes);
+  if (isMk) {
+    const makeupStart = customEdit.makeupStartTime || customEdit.planned?.startTime;
+    const makeupEnd = customEdit.makeupEndTime || customEdit.planned?.endTime;
+    mins = minutesBetween(makeupStart, makeupEnd) || mins;
+  } else if (isTimeChangeReason(customEdit?.changeReasonPreset)) {
+    mins = minutesBetween(customEdit.startTime, customEdit.endTime) || mins;
+  }
+  return mins;
+}
+
+export async function confirmPayrollSlotAsScheduled(planned, {
+  existingEntry,
+  teacherId,
+  skipLongConfirm = false,
+}) {
+  if (!skipLongConfirm && !confirmLongClassMinutes(planned.scheduledMinutes)) return null;
   const payload = buildPayrollSlotPayload(planned, {
     status: ENTRY_STATUS.as_scheduled,
     minutes: planned.scheduledMinutes,
@@ -136,11 +169,12 @@ export async function saveCustomPayrollSlot(customEdit, { existingEntry, teacher
   const isSub = isSubstituteReason(customEdit.changeReasonPreset);
   const isMk = isMakeupReason(customEdit.changeReasonPreset)
     || isPersonalMakeupYes(customEdit);
+  const isTime = isTimeChangeReason(customEdit.changeReasonPreset);
 
   if (isSub) {
-    if (!customEdit.substituteTeacherId) throw new Error("대체 선생님을 선택해주세요.");
+    if (!customEdit.substituteTeacherId) throw new Error("대체선생님을 선택해주세요.");
     if (customEdit.substituteTeacherId === teacherId) {
-      throw new Error("본인은 대체 선생님으로 선택할 수 없습니다.");
+      throw new Error("본인은 대체선생님으로 선택할 수 없습니다.");
     }
   }
   if (isMk) {
@@ -155,17 +189,25 @@ export async function saveCustomPayrollSlot(customEdit, { existingEntry, teacher
     }
     customEdit = { ...customEdit, makeupStartTime: makeupStart, makeupEndTime: makeupEnd };
   }
-
-  let mins = Number(customEdit.minutes);
-  if (isMk) {
-    mins = minutesBetween(customEdit.makeupStartTime, customEdit.makeupEndTime) || mins;
+  if (isTime) {
+    if (!customEdit.startTime || !customEdit.endTime) {
+      throw new Error("변경된 시간을 입력해주세요.");
+    }
+    if (customEdit.startTime >= customEdit.endTime) {
+      throw new Error("변경된 종료 시간은 시작 시간보다 늦어야 합니다.");
+    }
   }
+
+  const mins = customEditSaveMinutes(customEdit);
   if (!mins || mins <= 0) throw new Error("1분 이상 입력해주세요.");
+  if (!confirmLongClassMinutes(mins)) return null;
 
   const payload = buildPayrollSlotPayload(planned, {
     status: ENTRY_STATUS.custom,
     minutes: mins,
-    note: customEdit.note,
+    note: isTime
+      ? composeTimeChangeNote(customEdit.startTime, customEdit.endTime, customEdit.note)
+      : customEdit.note,
     substitute_teacher_id: isSub ? customEdit.substituteTeacherId : null,
     is_makeup: isMk,
     makeup_date: isMk ? customEdit.makeupDate : null,

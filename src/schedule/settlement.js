@@ -163,15 +163,41 @@ export function sumPayrollCost(entries, ratesByTeacherPayType) {
   return Math.round(total);
 }
 
-/** 해당 날짜 기준 유효 단가 선택.
+export function isSessionRate(rate) {
+  return rate?.rate_unit === "session";
+}
+
+export function isRevenueShareRate(rate) {
+  return rate?.rate_unit === "revenue_share";
+}
+
+/** 수업일 기준 원 회당 단가. 수업 구분과 같은 단가를 쓰고, 인당을 뺀 단가가 하나뿐이면 그 금액을 쓴다. */
+export function institutionSessionUnitPrice(sessionRates, institutionId, payType, classDate) {
+  if (!institutionId || !classDate) return 0;
+  const rows = (sessionRates || []).filter(r =>
+    r.institution_id === institutionId
+    && String(r.effective_from) <= classDate,
+  );
+  const newest = (list) => [...list].sort((a, b) =>
+    String(b.effective_from).localeCompare(String(a.effective_from)),
+  )[0];
+  const typed = rows.filter(r => r.session_type === payType);
+  if (typed.length) return Number(newest(typed).rate_per_session) || 0;
+  const classRates = rows.filter(r => r.session_type !== "인당");
+  const types = new Set(classRates.map(r => r.session_type));
+  if (types.size === 1) return Number(newest(classRates).rate_per_session) || 0;
+  return 0;
+}
+
+/** 해당 날짜 기준 유효 단가 행.
  *  institutionId가 있으면 기관별 단가 우선, 없으면(또는 미설정이면) 기본 단가(institution_id null). */
-export function pickRateForDate(rates, teacherId, payType, classDate, institutionId = null) {
+export function pickRateRowForDate(rates, teacherId, payType, classDate, institutionId = null) {
   const candidates = (rates || []).filter(r =>
     r.teacher_id === teacherId
     && r.pay_type === payType
     && r.effective_from <= classDate,
   );
-  if (!candidates.length) return 0;
+  if (!candidates.length) return null;
 
   const sortNewest = (a, b) => b.effective_from.localeCompare(a.effective_from);
 
@@ -179,13 +205,46 @@ export function pickRateForDate(rates, teacherId, payType, classDate, institutio
     const specific = candidates
       .filter(r => r.institution_id === institutionId)
       .sort(sortNewest);
-    if (specific.length) return Number(specific[0].rate_per_minute) || 0;
+    if (specific.length) return specific[0];
   }
 
   const defaults = candidates
     .filter(r => !r.institution_id)
     .sort(sortNewest);
-  return Number(defaults[0]?.rate_per_minute) || 0;
+  return defaults[0] || null;
+}
+
+/** 해당 날짜 기준 유효 분당 단가. 회당 단가면 0. */
+export function pickRateForDate(rates, teacherId, payType, classDate, institutionId = null) {
+  const row = pickRateRowForDate(rates, teacherId, payType, classDate, institutionId);
+  if (!row || isSessionRate(row)) return 0;
+  return Number(row.rate_per_minute) || 0;
+}
+
+/** 원 회당 단가 × 배분율. 수업 시간이 있어야 1회로 본다. */
+export function revenueShareAmount(entry, rateRow, sessionRates) {
+  if (!isRevenueShareRate(rateRow)) return 0;
+  if (!(Number(entry?.minutes) > 0)) return 0;
+  const share = Number(rateRow.share_ratio) || 0;
+  if (share <= 0) return 0;
+  const unit = institutionSessionUnitPrice(
+    sessionRates,
+    entry.institution_id,
+    entry.pay_type,
+    entry.class_date,
+  );
+  if (unit <= 0) return 0;
+  return Math.round(unit * share);
+}
+
+/** 분당이면 시간으로 환산하고, 회당이면 수업 1회 금액을 그대로 쓴다. */
+export function payAmountFromRateRow(minutes, rateRow) {
+  if (!rateRow || isRevenueShareRate(rateRow)) return 0;
+  if (isSessionRate(rateRow)) {
+    const session = Number(rateRow.rate_per_session) || 0;
+    return Number(minutes) > 0 && session > 0 ? session : 0;
+  }
+  return payAmountFromMinutesAndRate(minutes, rateRow.rate_per_minute);
 }
 
 export function buildRatesMap(rates, asOfDate) {
@@ -245,7 +304,7 @@ export function payAmountFromMinutesAndRate(minutes, ratePerMinute) {
 /** 항목별 급여 — flat 규칙·슬롯 label 우선, 없으면 분×단가.
  *  substitute_teacher_id가 있으면 대체 선생님 단가로 계산.
  *  기관별 단가 > 기본 단가. */
-export function entryPayAmount(entry, rates, slotById = {}) {
+export function entryPayAmount(entry, rates, slotById = {}, sessionRates = []) {
   if (!entry?.minutes || entry.minutes <= 0) return 0;
   // 참관수업은 선생님·기관·진행시간과 관계없이 회당 15,000원 고정입니다.
   if (entry.pay_type === "참관수업") return 15000;
@@ -256,14 +315,15 @@ export function entryPayAmount(entry, rates, slotById = {}) {
   const flat = matchesFlatPayRule(entry);
   if (flat) return flat.amount;
   const rateTeacherId = entry.substitute_teacher_id || entry.teacher_id;
-  const rate = Number(pickRateForDate(
+  const rateRow = pickRateRowForDate(
     rates,
     rateTeacherId,
     entry.pay_type,
     entry.class_date,
     entry.institution_id || null,
-  )) || 0;
-  return payAmountFromMinutesAndRate(entry.minutes, rate);
+  );
+  if (isRevenueShareRate(rateRow)) return revenueShareAmount(entry, rateRow, sessionRates);
+  return payAmountFromRateRow(entry.minutes, rateRow);
 }
 
 /** 해당 선생님 급여에 포함될 항목만 (대체 배정 시 원래 선생님 제외) */
@@ -276,15 +336,37 @@ export function payRelevantEntries(entries, teacherId) {
 }
 
 /** 항목별 class_date 기준 단가 적용 (정확한 급여 계산) */
-export function estimateTeacherPayByEntry(entries, rates, slotById = {}, teacherId = null) {
+export function estimateTeacherPayByEntry(entries, rates, slotById = {}, teacherId = null, sessionRates = []) {
   const list = teacherId
     ? payRelevantEntries(entries, teacherId)
     : withoutLegacyPayrollDuplicates(entries);
   let total = 0;
   for (const e of list) {
-    total += entryPayAmount(e, rates, slotById);
+    total += entryPayAmount(e, rates, slotById, sessionRates);
   }
   return Math.round(total);
+}
+
+/** 아직 급여 행이 없는 예정 수업 중, 매출 배분 단가가 있는 것만 합산한다. */
+export function sumRevenueSharePreview(entries, rates, sessionRates, slotById = {}) {
+  const counted = [];
+  let total = 0;
+  for (const entry of entries || []) {
+    const rateTeacherId = entry.substitute_teacher_id || entry.teacher_id;
+    const row = pickRateRowForDate(
+      rates,
+      rateTeacherId,
+      entry.pay_type,
+      entry.class_date,
+      entry.institution_id || null,
+    );
+    if (!isRevenueShareRate(row)) continue;
+    const amount = entryPayAmount(entry, rates, slotById, sessionRates);
+    if (amount <= 0) continue;
+    total += amount;
+    counted.push(entry);
+  }
+  return { total: Math.round(total), entries: counted };
 }
 
 export function ratesRowsToMap(rows) {

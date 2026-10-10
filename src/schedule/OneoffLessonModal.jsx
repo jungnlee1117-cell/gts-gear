@@ -4,7 +4,7 @@ import { fetchInstitutions, fetchPayRates, fetchTeachers } from "./api.js";
 import { registerOneoffLesson, saveOneoffLesson } from "./oneoffLessonService.js";
 import { oneoffLessonMinutes } from "./oneoffLessons.js";
 import { listInstitutionsForOneoffLesson } from "./oneoffInstitutions.js";
-import { pickRateForDate, payAmountFromMinutesAndRate } from "./settlement.js";
+import { pickRateRowForDate, payAmountFromRateRow } from "./settlement.js";
 import InstitutionSearchSelect from "./InstitutionSearchSelect.jsx";
 import { filterAssignableClassTeachers } from "./roles.js";
 
@@ -110,21 +110,22 @@ export default function OneoffLessonModal({
     return "정규";
   }, [selectedInstitution]);
 
-  const ratePerMinute = useMemo(() => {
-    if (!effectiveTeacherId || !effectiveLessonDate) return 0;
-    return Number(pickRateForDate(
+  const rateRow = useMemo(() => {
+    if (!effectiveTeacherId || !effectiveLessonDate) return null;
+    return pickRateRowForDate(
       payRates,
       effectiveTeacherId,
       payTypeForRate,
       effectiveLessonDate,
       form.institution_id || null,
-    )) || 0;
+    );
   }, [payRates, effectiveTeacherId, payTypeForRate, effectiveLessonDate, form.institution_id]);
 
   const autoPayAmount = useMemo(() => {
-    if (!form.link_payroll || previewMinutes <= 0 || ratePerMinute <= 0) return null;
-    return Math.round(payAmountFromMinutesAndRate(previewMinutes, ratePerMinute));
-  }, [form.link_payroll, previewMinutes, ratePerMinute]);
+    if (!form.link_payroll || previewMinutes <= 0) return null;
+    const amount = payAmountFromRateRow(previewMinutes, rateRow);
+    return amount > 0 ? Math.round(amount) : null;
+  }, [form.link_payroll, previewMinutes, rateRow]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -296,10 +297,11 @@ export default function OneoffLessonModal({
                 </label>
                 {form.pay_amount === "" && autoPayAmount != null ? (
                   <p className="sch-oneoff-pay-hint">
-                    자동 계산: {previewMinutes}분 ÷ 60 × 시간당 {(ratePerMinute * 60).toLocaleString("ko-KR")}원
-                    {" "}= {formatWon(autoPayAmount)}
+                    {rateRow?.rate_unit === "session"
+                      ? `회당 ${formatWon(autoPayAmount)}`
+                      : `자동 계산: ${previewMinutes}분 ÷ 60 × 시간당 ${Math.round((Number(rateRow?.rate_per_minute) || 0) * 60).toLocaleString("ko-KR")}원 = ${formatWon(autoPayAmount)}`}
                   </p>
-                ) : form.pay_amount === "" && previewMinutes > 0 && ratePerMinute <= 0 ? (
+                ) : form.pay_amount === "" && previewMinutes > 0 && !rateRow ? (
                   <p className="sch-muted sch-oneoff-pay-hint">
                     등록된 {payTypeForRate} 단가가 없어 자동 계산할 수 없습니다. 수업료를 직접 입력해 주세요.
                   </p>

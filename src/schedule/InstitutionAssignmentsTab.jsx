@@ -1,10 +1,13 @@
 import { useMemo, useState } from "react";
 import { Pencil, Plus, Repeat2, Search, Trash2, X } from "lucide-react";
-import { PAY_TYPES } from "./constants.js";
+import { PAY_TYPES, fmtLocalDate } from "./constants.js";
 import { deactivateAssignment, saveAssignment } from "./api.js";
 import { filterClassTeacherAssignments } from "./assignmentRoles.js";
 import InstitutionTeacherPayTypesModal from "./InstitutionTeacherPayTypesModal.jsx";
-import InstitutionTeacherTransferModal from "./InstitutionTeacherTransferModal.jsx";
+import InstitutionTeacherSlotTransferModal from "./InstitutionTeacherSlotTransferModal.jsx";
+import WeeklySlotDayList from "./WeeklySlotDayList.jsx";
+import WeeklySlotHistoryModal from "./WeeklySlotHistoryModal.jsx";
+import { openTeacherSlots } from "./weeklySlotVersion.js";
 
 function formatAssignDate(iso) {
   if (!iso) return "—";
@@ -18,9 +21,10 @@ export default function InstitutionAssignmentsTab({
   assignments,
   weekly = [],
   teachers = [],
-  teacherList,
+  teacherList = [],
   onRefresh,
   canEdit = true,
+  changedBy = null,
 }) {
   const classAssignments = useMemo(
     () => filterClassTeacherAssignments(assignments),
@@ -35,8 +39,17 @@ export default function InstitutionAssignmentsTab({
   });
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [editAssignment, setEditAssignment] = useState(null);
-  const [showTransfer, setShowTransfer] = useState(false);
+  const [transferAssignment, setTransferAssignment] = useState(null);
+  const [historySlot, setHistorySlot] = useState(null);
   const [saving, setSaving] = useState(false);
+  const today = fmtLocalDate(new Date());
+
+  const teacherName = (teacherId) => (
+    teachers.find((teacher) => teacher.id === teacherId)?.name
+    || teacherList.find((teacher) => teacher.id === teacherId)?.name
+    || classAssignments.find((row) => row.teacher_id === teacherId)?.teachers?.name
+    || "선생님"
+  );
 
   const assignedIds = useMemo(
     () => new Set(classAssignments.map(a => a.teacher_id)),
@@ -106,46 +119,36 @@ export default function InstitutionAssignmentsTab({
     <div>
       <p className="sch-muted" style={{ marginTop: 0 }}>
         실제 수업을 진행하는 선생님입니다. 담당 관리자와는 별개입니다.
-        명단에서 추가·제거하고, 기존 수업을 다른 선생님에게 넘기려면 교체를 사용하세요.
+        교체는 선택한 시간표 수업만 넘기고, 적용일 기준으로 기존 수업은 이력에 남습니다.
       </p>
       {canEdit ? (
         <div className="sch-toolbar">
           <button type="button" className="sch-btn sch-btn--primary" onClick={openModal}>
             <Plus size={16}/> 수업 선생님 추가
           </button>
-          <button type="button" className="sch-btn" onClick={() => setShowTransfer(true)}>
-            <Repeat2 size={16}/> 수업 선생님 교체
-          </button>
         </div>
       ) : null}
 
-      <div className="sch-table-wrap">
-        <table className="sch-table">
-          <thead>
-            <tr>
-              <th>수업 선생님</th>
-              <th>수업유형</th>
-              <th>배정일</th>
-              <th/>
-            </tr>
-          </thead>
-          <tbody>
-            {classAssignments.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="sch-muted">등록된 수업 선생님이 없습니다.</td>
-              </tr>
-            ) : classAssignments.map(a => (
-              <tr key={a.id}>
-                <td>{a.teachers?.name || "—"}</td>
-                <td>
+      {classAssignments.length === 0 ? (
+        <p className="sch-muted">등록된 수업 선생님이 없습니다.</p>
+      ) : (
+        <div className="sch-teacher-roster">
+          {classAssignments.map((a) => {
+            const slots = openTeacherSlots(weekly, {
+              teacherId: a.teacher_id,
+              institutionId,
+              today,
+            });
+            return (
+              <section key={a.id} className="sch-teacher-roster-card">
+                <header className="sch-teacher-roster-head">
+                  <strong>{a.teachers?.name || "—"}</strong>
                   <div className="sch-chip-row">
-                    {(a.pay_types || []).map(t => (
-                      <span key={t} className="sch-chip active">{t}</span>
+                    {(a.pay_types || []).map((type) => (
+                      <span key={type} className="sch-chip active">{type}</span>
                     ))}
                   </div>
-                </td>
-                <td>{formatAssignDate(a.created_at)}</td>
-                <td>
+                  <span className="sch-muted">배정일 {formatAssignDate(a.created_at)}</span>
                   {canEdit ? (
                     <div className="sch-table-actions">
                       <button
@@ -160,6 +163,15 @@ export default function InstitutionAssignmentsTab({
                       <button
                         type="button"
                         className="sch-icon-btn"
+                        title="선택한 수업만 교체"
+                        aria-label={`${a.teachers?.name || "선생님"} 교체`}
+                        onClick={() => setTransferAssignment(a)}
+                      >
+                        <Repeat2 size={16}/>
+                      </button>
+                      <button
+                        type="button"
+                        className="sch-icon-btn"
                         aria-label="수업 선생님 제거"
                         onClick={() => setConfirmDelete(a)}
                       >
@@ -167,12 +179,19 @@ export default function InstitutionAssignmentsTab({
                       </button>
                     </div>
                   ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </header>
+                <div className="sch-regular-classes sch-regular-classes--no-inst sch-teacher-roster-slots">
+                  <WeeklySlotDayList
+                    slots={slots}
+                    teacherName={teacherName}
+                    onHistory={setHistorySlot}
+                  />
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
 
       {showModal ? (
         <div className="sch-modal-overlay" onClick={() => !saving && setShowModal(false)}>
@@ -238,16 +257,26 @@ export default function InstitutionAssignmentsTab({
         </div>
       ) : null}
 
-      {showTransfer ? (
-        <InstitutionTeacherTransferModal
-          mode="teacher"
+      {transferAssignment ? (
+        <InstitutionTeacherSlotTransferModal
           institution={institution}
-          assignments={assignments}
+          fromAssignment={transferAssignment}
           weekly={weekly}
           teachers={teachers}
           teacherList={teacherList}
-          onClose={() => setShowTransfer(false)}
+          changedBy={changedBy}
+          onClose={() => setTransferAssignment(null)}
           onDone={onRefresh}
+        />
+      ) : null}
+
+      {historySlot ? (
+        <WeeklySlotHistoryModal
+          slot={historySlot}
+          slots={weekly}
+          institutionName={institution?.name}
+          teacherName={teacherName}
+          onClose={() => setHistorySlot(null)}
         />
       ) : null}
 

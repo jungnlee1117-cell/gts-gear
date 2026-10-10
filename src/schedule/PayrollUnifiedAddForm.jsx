@@ -11,7 +11,7 @@ import {
   insertApprovedAdditionalPaymentRequest,
 } from "./api.js";
 import { ENTRY_STATUS } from "./payrollCalendar.js";
-import { pickRateForDate, payAmountFromMinutesAndRate } from "./settlement.js";
+import { pickRateRowForDate, payAmountFromRateRow } from "./settlement.js";
 import TimeDualInput from "./TimeDualInput.jsx";
 import {
   EXPENSE_TYPES,
@@ -114,19 +114,19 @@ export default function PayrollUnifiedAddForm({
   const billingPayType = resolveBillingPayType(form.class_type, form.rate_type);
   const institutionId = form.class_type === "개인레슨" || isExpense ? "" : form.institution_id;
 
-  const ratePerMinute = useMemo(() => {
-    if (isExpense || !teacherId || !form.class_date) return 0;
-    return Number(pickRateForDate(
+  const rateRow = useMemo(() => {
+    if (isExpense || !teacherId || !form.class_date) return null;
+    return pickRateRowForDate(
       rates,
       teacherId,
       billingPayType,
       form.class_date,
       institutionId || null,
-    )) || 0;
+    );
   }, [isExpense, rates, teacherId, billingPayType, form.class_date, institutionId]);
 
-  const autoAmount = !isExpense && mins > 0 && ratePerMinute > 0
-    ? Math.round(payAmountFromMinutesAndRate(mins, ratePerMinute))
+  const autoAmount = !isExpense && mins > 0
+    ? Math.round(payAmountFromRateRow(mins, rateRow))
     : 0;
   const previewAmount = amountEntered ? Number(form.amount) : autoAmount;
 
@@ -515,8 +515,10 @@ export default function PayrollUnifiedAddForm({
               <span className="sch-field-hint sch-field-hint--quiet">
                 {amountEntered
                   ? "금액은 알림·안내용입니다. 급여는 수업 시간(분)으로 반영됩니다."
-                  : ratePerMinute > 0
-                    ? `자동 계산: ${mins || 0}분 × ${ratePerMinute.toLocaleString("ko-KR")}원 = ${formatWon(autoAmount)} (${billingPayType})`
+                  : rateRow
+                    ? (rateRow.rate_unit === "session"
+                      ? `회당 ${formatWon(autoAmount)} (${billingPayType})`
+                      : `자동 계산: ${mins || 0}분 × ${Number(rateRow.rate_per_minute).toLocaleString("ko-KR")}원 = ${formatWon(autoAmount)} (${billingPayType})`)
                     : "등록된 단가가 없으면 금액을 입력해 알림에 표시할 수 있습니다."}
               </span>
             ) : (

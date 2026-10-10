@@ -28,10 +28,11 @@ describe("findOverlappingInstitutionSlots", () => {
     effective_to: null,
   };
 
-  it("같은 요일·같은 기관·시간 겹침을 찾는다", () => {
+  it("같은 선생님·같은 요일·같은 기관·시간 겹침을 찾는다", () => {
     const hits = findOverlappingInstitutionSlots({
       slots: [existing],
       institutionId: "inst-1",
+      teacherId: "t-kim",
       dayOfWeek: 1,
       startTime: "10:15",
       endTime: "10:45",
@@ -42,10 +43,24 @@ describe("findOverlappingInstitutionSlots", () => {
     assert.equal(hits[0].id, "slot-a");
   });
 
+  it("같은 원·같은 시간이어도 선생님이 다르면 겹치지 않는다", () => {
+    const hits = findOverlappingInstitutionSlots({
+      slots: [existing],
+      institutionId: "inst-1",
+      teacherId: "t-oh",
+      dayOfWeek: 1,
+      startTime: "10:00",
+      endTime: "10:30",
+      effectiveFrom: "2026-08-31",
+    });
+    assert.equal(hits.length, 0);
+  });
+
   it("다른 기관이면 겹치지 않는다", () => {
     const hits = findOverlappingInstitutionSlots({
       slots: [existing],
       institutionId: "inst-2",
+      teacherId: "t-kim",
       dayOfWeek: 1,
       startTime: "10:00",
       endTime: "10:30",
@@ -58,11 +73,40 @@ describe("findOverlappingInstitutionSlots", () => {
     const hits = findOverlappingInstitutionSlots({
       slots: [existing],
       institutionId: "inst-1",
+      teacherId: "t-kim",
       dayOfWeek: 1,
       startTime: "10:00",
       endTime: "10:30",
       effectiveFrom: "2026-08-31",
       excludeSlotIds: ["slot-a"],
+    });
+    assert.equal(hits.length, 0);
+  });
+
+  it("같은 수업의 이전 버전은 시리즈 id로 제외한다", () => {
+    const previous = {
+      ...existing,
+      id: "slot-prev",
+      schedule_series_id: "series-1",
+      effective_to: "2026-10-01",
+    };
+    const current = {
+      ...existing,
+      id: "slot-current",
+      schedule_series_id: "series-1",
+      effective_from: "2026-10-02",
+    };
+    const hits = findOverlappingInstitutionSlots({
+      slots: [previous, current],
+      institutionId: "inst-1",
+      teacherId: "t-kim",
+      dayOfWeek: 1,
+      startTime: "10:00",
+      endTime: "10:30",
+      effectiveFrom: "2026-09-01",
+      effectiveTo: null,
+      excludeSlotIds: ["slot-current"],
+      excludeSeriesIds: ["series-1"],
     });
     assert.equal(hits.length, 0);
   });

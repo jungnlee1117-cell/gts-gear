@@ -8,6 +8,8 @@ import {
   insertPayRate,
 } from "./api.js";
 import InstitutionSearchSelect from "./InstitutionSearchSelect.jsx";
+import { formatStoredRate, revenueShareListLabel } from "./payRateLabel.js";
+import { isAssignableClassTeacher } from "./roles.js";
 
 // 참관수업은 누구나 회당 15,000원 고정이므로 단가 등록 대상에서 제외합니다.
 const RATE_PAY_TYPES = PAY_TYPES.filter(type => type !== "참관수업");
@@ -40,7 +42,10 @@ function getCurrentRatesFromHistory(history) {
 
 function switchRateInputMode(currentMode, nextMode, amount) {
   const n = Number(amount);
-  if (!n || n <= 0) return { mode: nextMode, amount };
+  if (!n || n <= 0 || currentMode === nextMode) return { mode: nextMode, amount };
+  if (currentMode === "session" || nextMode === "session") {
+    return { mode: nextMode, amount };
+  }
   if (currentMode === "minute" && nextMode === "hour") {
     return { mode: nextMode, amount: String(Math.round(n * 60)) };
   }
@@ -50,9 +55,67 @@ function switchRateInputMode(currentMode, nextMode, amount) {
   return { mode: nextMode, amount };
 }
 
+function initialRateInput(rate) {
+  if (rate?.rate_unit === "session" && Number(rate.rate_per_session) > 0) {
+    return { mode: "session", amount: String(Math.round(Number(rate.rate_per_session))) };
+  }
+  if (rate?.rate_per_minute) {
+    return { mode: "minute", amount: String(rate.rate_per_minute) };
+  }
+  return { mode: "minute", amount: "" };
+}
+
+function buildRateSaveFields(inputMode, amount) {
+  const n = Number(amount);
+  if (inputMode === "session") {
+    const session = Math.round(n);
+    if (!session || session <= 0) return null;
+    return { rate_unit: "session", rate_per_session: session, rate_per_minute: 0 };
+  }
+  const perMinute = inputMode === "hour" ? n / 60 : n;
+  const rounded = Math.round(perMinute * 100) / 100;
+  if (!rounded || rounded <= 0) return null;
+  return { rate_unit: "minute", rate_per_session: null, rate_per_minute: rounded };
+}
+
+function rateAmountLabel(inputMode) {
+  if (inputMode === "hour") return "시간당 단가 (원)";
+  if (inputMode === "session") return "회당 단가 (원)";
+  return "분당 단가 (원)";
+}
+
+function RateUnitChips({ inputMode, amount, onChange }) {
+  const choose = (nextMode) => {
+    const next = switchRateInputMode(inputMode, nextMode, amount);
+    onChange(next);
+  };
+  return (
+    <div className="sch-chip-row">
+      {[
+        ["hour", "시간당"],
+        ["minute", "분당"],
+        ["session", "회당"],
+      ].map(([mode, label]) => (
+        <button
+          key={mode}
+          type="button"
+          className={`sch-chip${inputMode === mode ? " active" : ""}`}
+          onClick={() => choose(mode)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function storedRateText(rate) {
+  return formatStoredRate(rate, formatWon);
+}
+
 function RateEditForm({
   label,
-  currentRatePerMinute,
+  currentRate = null,
   institutions = [],
   institutionId = "",
   onInstitutionChange,
@@ -61,31 +124,28 @@ function RateEditForm({
   onCancel,
   submitLabel = "단가 등록",
 }) {
-  const [inputMode, setInputMode] = useState("minute");
-  const [amount, setAmount] = useState(() => {
-    if (!currentRatePerMinute) return "";
-    return String(currentRatePerMinute);
-  });
+  const initial = initialRateInput(currentRate);
+  const [inputMode, setInputMode] = useState(initial.mode);
+  const [amount, setAmount] = useState(initial.amount);
   const [effectiveFrom, setEffectiveFrom] = useState(todayISO());
   const [localInstitutionId, setLocalInstitutionId] = useState(institutionId || "");
   const [saving, setSaving] = useState(false);
 
-  const ratePerMinute = useMemo(() => {
-    const n = Number(amount);
-    if (!n || n <= 0) return 0;
-    return inputMode === "hour" ? n / 60 : n;
-  }, [amount, inputMode]);
+  const saveFields = useMemo(
+    () => buildRateSaveFields(inputMode, amount),
+    [amount, inputMode],
+  );
 
   const selectedInstitutionId = onInstitutionChange ? institutionId : localInstitutionId;
   const setSelectedInstitutionId = onInstitutionChange || setLocalInstitutionId;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (ratePerMinute <= 0) return alert("단가를 입력해주세요.");
+    if (!saveFields) return alert("단가를 입력해주세요.");
     setSaving(true);
     try {
       await onSave({
-        rate_per_minute: Math.round(ratePerMinute * 100) / 100,
+        ...saveFields,
         effective_from: effectiveFrom,
         institution_id: selectedInstitutionId || null,
       });
@@ -97,6 +157,9 @@ function RateEditForm({
   return (
     <form className="sch-rate-form" onSubmit={handleSubmit}>
       {label ? <h4 className="sch-rate-form-title">{label}</h4> : null}
+      {currentRate?.rate_unit === "revenue_share" ? (
+        <p className="sch-muted">현재 단가: {storedRateText(currentRate)}. 새 단가를 등록하면 이 날짜부터 그 단가로 바뀝니다.</p>
+      ) : null}
       {showInstitution ? (
         <div className="sch-field">
           <span>적용 기관 (선택)</span>
@@ -123,46 +186,32 @@ function RateEditForm({
           ) : null}
         </div>
       ) : null}
-      <div className="sch-chip-row">
-        <button
-          type="button"
-          className={`sch-chip${inputMode === "hour" ? " active" : ""}`}
-          onClick={() => {
-            const next = switchRateInputMode(inputMode, "hour", amount);
-            setInputMode(next.mode);
-            setAmount(next.amount);
-          }}
-        >
-          시간당
-        </button>
-        <button
-          type="button"
-          className={`sch-chip${inputMode === "minute" ? " active" : ""}`}
-          onClick={() => {
-            const next = switchRateInputMode(inputMode, "minute", amount);
-            setInputMode(next.mode);
-            setAmount(next.amount);
-          }}
-        >
-          분당
-        </button>
-      </div>
+      <RateUnitChips
+        inputMode={inputMode}
+        amount={amount}
+        onChange={(next) => {
+          setInputMode(next.mode);
+          setAmount(next.amount);
+        }}
+      />
       <label className="sch-field">
-        <span>{inputMode === "hour" ? "시간당 단가 (원)" : "분당 단가 (원)"}</span>
+        <span>{rateAmountLabel(inputMode)}</span>
         <input
           type="number"
           inputMode="decimal"
           className="sch-input"
           min={0}
-          step={inputMode === "hour" ? "100" : "1"}
+          step={inputMode === "minute" ? "1" : "100"}
           value={amount}
           onChange={e => setAmount(e.target.value)}
         />
       </label>
-      {inputMode === "hour" && ratePerMinute > 0 ? (
-        <p className="sch-muted">→ 분당 {ratePerMinute.toFixed(2)}원으로 저장</p>
-      ) : inputMode === "minute" && ratePerMinute > 0 ? (
-        <p className="sch-muted">→ 시간당 {Math.round(ratePerMinute * 60).toLocaleString("ko-KR")}원 · 30분 {formatWon(ratePerMinute * 30)}</p>
+      {inputMode === "hour" && saveFields ? (
+        <p className="sch-muted">→ 분당 {saveFields.rate_per_minute.toFixed(2)}원으로 저장</p>
+      ) : inputMode === "minute" && saveFields ? (
+        <p className="sch-muted">→ 시간당 {Math.round(saveFields.rate_per_minute * 60).toLocaleString("ko-KR")}원 · 30분 {formatWon(saveFields.rate_per_minute * 30)}</p>
+      ) : inputMode === "session" && saveFields ? (
+        <p className="sch-muted">→ 수업 1회마다 {formatWon(saveFields.rate_per_session)}. 수업 시간과 관계없습니다.</p>
       ) : null}
       <label className="sch-field">
         <span>적용 시작일</span>
@@ -183,11 +232,21 @@ function RateEditForm({
   );
 }
 
-function uniformRatePerMinute(currentByType) {
-  const rates = RATE_PAY_TYPES.map(t => currentByType[t]?.rate_per_minute).filter(v => v != null);
-  if (!rates.length) return null;
-  const first = rates[0];
-  return rates.every(r => Math.abs(r - first) < 0.01) ? first : null;
+function sharedCurrentRate(currentByType) {
+  const rows = RATE_PAY_TYPES.map(t => currentByType[t]).filter(Boolean);
+  if (!rows.length) return null;
+  const first = rows[0];
+  const same = rows.every((row) => {
+    if ((row.rate_unit || "minute") !== (first.rate_unit || "minute")) return false;
+    if ((row.rate_unit || "minute") === "session") {
+      return Number(row.rate_per_session) === Number(first.rate_per_session);
+    }
+    if (row.rate_unit === "revenue_share") {
+      return Number(row.share_ratio) === Number(first.share_ratio);
+    }
+    return Math.abs(Number(row.rate_per_minute) - Number(first.rate_per_minute)) < 0.01;
+  });
+  return same ? first : null;
 }
 
 function rateLabel(r, institutionsById) {
@@ -224,7 +283,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
   }, [defaultRates]);
 
   const sharedUniformRate = useMemo(
-    () => uniformRatePerMinute(currentByType),
+    () => sharedCurrentRate(currentByType),
     [currentByType],
   );
 
@@ -242,6 +301,8 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
       teacher_id: teacher.id,
       pay_type: payload.pay_type,
       rate_per_minute: payload.rate_per_minute,
+      rate_unit: payload.rate_unit || "minute",
+      rate_per_session: payload.rate_unit === "session" ? payload.rate_per_session : null,
       effective_from: payload.effective_from,
       institution_id: payload.institution_id || null,
     });
@@ -251,14 +312,16 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
     await onSaved();
   };
 
-  const handleBulkSave = async ({ rate_per_minute, effective_from }) => {
+  const handleBulkSave = async (payload) => {
     await Promise.all(
       RATE_PAY_TYPES.map(payType =>
         insertPayRate({
           teacher_id: teacher.id,
           pay_type: payType,
-          rate_per_minute,
-          effective_from,
+          rate_per_minute: payload.rate_per_minute,
+          rate_unit: payload.rate_unit || "minute",
+          rate_per_session: payload.rate_unit === "session" ? payload.rate_per_session : null,
+          effective_from: payload.effective_from,
           institution_id: null,
         }),
       ),
@@ -267,6 +330,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
   };
 
   const unsetCount = RATE_PAY_TYPES.filter(t => !currentByType[t]).length;
+  const shareLabel = revenueShareListLabel(defaultRates);
 
   return (
     <div className="sch-rate-card">
@@ -277,6 +341,11 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
       >
         <div>
           <strong>{teacher.name}</strong>
+          {shareLabel ? (
+            <span className="sch-muted" style={{ marginLeft: 8, fontSize: 12 }}>
+              {shareLabel}
+            </span>
+          ) : null}
           {unsetCount > 0 ? (
             <span className="sch-alert-badge">미설정 {unsetCount}</span>
           ) : null}
@@ -311,7 +380,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
               </p>
               <RateEditForm
                 label="전체 유형 기본 단가"
-                currentRatePerMinute={sharedUniformRate}
+                currentRate={sharedUniformRate}
                 showInstitution={false}
                 onSave={handleBulkSave}
                 onCancel={() => setUniformMode(false)}
@@ -325,7 +394,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
             <thead>
               <tr>
                 <th>유형</th>
-                <th>시간당 단가</th>
+                <th>단가</th>
                 <th>적용일</th>
                 <th/>
               </tr>
@@ -338,10 +407,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
                     <td>{payType}</td>
                     <td>
                       {cur ? (
-                        <>
-                          {formatWon(cur.rate_per_minute * 60)}/시간
-                          <span className="sch-muted"> ({formatWon(cur.rate_per_minute)}/분)</span>
-                        </>
+                        storedRateText(cur)
                       ) : (
                         <span className="sch-muted">미설정</span>
                       )}
@@ -371,7 +437,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
               <p className="sch-muted">기존 단가는 보존되며, 새 이력이 추가됩니다. 기관을 고르면 해당 기관 전용 단가가 됩니다.</p>
               <RateEditForm
                 label={`${editingType} 단가 ${currentByType[editingType] ? "변경" : "등록"}`}
-                currentRatePerMinute={currentByType[editingType]?.rate_per_minute}
+                currentRate={currentByType[editingType]}
                 institutions={institutions}
                 institutionId={editingInstitutionId}
                 onInstitutionChange={setEditingInstitutionId}
@@ -423,7 +489,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
                 <tr>
                   <th>기관</th>
                   <th>유형</th>
-                  <th>분당</th>
+                  <th>단가</th>
                   <th>적용일</th>
                   <th/>
                 </tr>
@@ -433,10 +499,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
                   <tr key={r.id}>
                     <td>{rateLabel(r, institutionsById)}</td>
                     <td>{r.pay_type}</td>
-                    <td>
-                      {formatWon(r.rate_per_minute)}/분
-                      <span className="sch-muted"> ({formatWon(r.rate_per_minute * 60)}/시간)</span>
-                    </td>
+                    <td>{storedRateText(r)}</td>
                     <td>{r.effective_from}</td>
                     <td>
                       <button
@@ -461,11 +524,9 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
             <div className="sch-rate-edit-panel">
               <RateEditForm
                 label={`${rateLabel({ institution_id: editingInstitutionId }, institutionsById)} · ${editingType} 변경`}
-                currentRatePerMinute={
-                  institutionRates.find(
-                    r => r.pay_type === editingType && r.institution_id === editingInstitutionId,
-                  )?.rate_per_minute
-                }
+                currentRate={institutionRates.find(
+                  r => r.pay_type === editingType && r.institution_id === editingInstitutionId,
+                )}
                 institutions={institutions}
                 institutionId={editingInstitutionId}
                 onInstitutionChange={setEditingInstitutionId}
@@ -497,8 +558,7 @@ function TeacherRateCard({ teacher, currentRates, history, institutions, institu
                     <ul>
                       {rows.map(r => (
                         <li key={r.id}>
-                          [{rateLabel(r, institutionsById)}] {r.effective_from} · {formatWon(r.rate_per_minute * 60)}/시간
-                          <span className="sch-muted"> ({formatWon(r.rate_per_minute)}/분)</span>
+                          [{rateLabel(r, institutionsById)}] {r.effective_from} · {storedRateText(r)}
                         </li>
                       ))}
                     </ul>
@@ -521,22 +581,21 @@ function InstitutionRateAddForm({ institutions, onSave, onCancel }) {
   const [effectiveFrom, setEffectiveFrom] = useState(todayISO());
   const [saving, setSaving] = useState(false);
 
-  const ratePerMinute = useMemo(() => {
-    const n = Number(amount);
-    if (!n || n <= 0) return 0;
-    return inputMode === "hour" ? n / 60 : n;
-  }, [amount, inputMode]);
+  const saveFields = useMemo(
+    () => buildRateSaveFields(inputMode, amount),
+    [amount, inputMode],
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!institutionId) return alert("기관을 선택해 주세요.");
-    if (ratePerMinute <= 0) return alert("단가를 입력해주세요.");
+    if (!saveFields) return alert("단가를 입력해주세요.");
     setSaving(true);
     try {
       await onSave({
         pay_type: payType,
         institution_id: institutionId,
-        rate_per_minute: Math.round(ratePerMinute * 100) / 100,
+        ...saveFields,
         effective_from: effectiveFrom,
       });
     } finally {
@@ -564,45 +623,31 @@ function InstitutionRateAddForm({ institutions, onSave, onCancel }) {
           ))}
         </select>
       </label>
-      <div className="sch-chip-row">
-        <button
-          type="button"
-          className={`sch-chip${inputMode === "hour" ? " active" : ""}`}
-          onClick={() => {
-            const next = switchRateInputMode(inputMode, "hour", amount);
-            setInputMode(next.mode);
-            setAmount(next.amount);
-          }}
-        >
-          시간당
-        </button>
-        <button
-          type="button"
-          className={`sch-chip${inputMode === "minute" ? " active" : ""}`}
-          onClick={() => {
-            const next = switchRateInputMode(inputMode, "minute", amount);
-            setInputMode(next.mode);
-            setAmount(next.amount);
-          }}
-        >
-          분당
-        </button>
-      </div>
+      <RateUnitChips
+        inputMode={inputMode}
+        amount={amount}
+        onChange={(next) => {
+          setInputMode(next.mode);
+          setAmount(next.amount);
+        }}
+      />
       <label className="sch-field">
-        <span>{inputMode === "hour" ? "시간당 단가 (원)" : "분당 단가 (원)"}</span>
+        <span>{rateAmountLabel(inputMode)}</span>
         <input
           type="number"
           inputMode="decimal"
           className="sch-input"
           min={0}
-          step={inputMode === "hour" ? "100" : "1"}
+          step={inputMode === "minute" ? "1" : "100"}
           value={amount}
           onChange={e => setAmount(e.target.value)}
         />
       </label>
-      {ratePerMinute > 0 ? (
+      {inputMode === "session" && saveFields ? (
+        <p className="sch-muted">수업 1회마다 {formatWon(saveFields.rate_per_session)}. 수업 시간과 관계없습니다.</p>
+      ) : saveFields?.rate_unit === "minute" ? (
         <p className="sch-muted">
-          30분 = {formatWon(ratePerMinute * 30)} · 시간당 {formatWon(ratePerMinute * 60)}
+          30분 = {formatWon(saveFields.rate_per_minute * 30)} · 시간당 {formatWon(saveFields.rate_per_minute * 60)}
         </p>
       ) : null}
       <label className="sch-field">
@@ -639,7 +684,7 @@ export default function TeacherPayRatesView({ onBack }) {
         fetchInstitutions({ activeOnly: false }),
         fetchPayRates(),
       ]);
-      setTeachers(ts.filter(t => t.role === "teacher"));
+      setTeachers(ts.filter(isAssignableClassTeacher));
       setInstitutions(inst);
       setAllHistory(history);
     } catch (e) {

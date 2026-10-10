@@ -1,7 +1,7 @@
 export const PAY_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조", "참관수업"];
 /** 급여 요약 집계·표시 순서 */
 export const PAYROLL_SUMMARY_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조", "참관수업"];
-export const CLASS_TYPES = ["정규", "방과후", "어린이집", "센터보조", "참관수업"];
+export const CLASS_TYPES = ["정규", "방과후", "어린이집", "센터", "센터보조", "참관수업"];
 
 /** 화면에서는 기존 내부값 「센터보조」를 간결하게 「보조」로 표시 */
 export function classTypeLabel(classType) {

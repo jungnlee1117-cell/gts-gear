@@ -32,6 +32,7 @@ import {
   findOverlappingInstitutionSlots,
   formatInstitutionOverlapWarning,
 } from "./weeklySlotOverlap.js";
+import WeeklySlotHistoryModal from "./WeeklySlotHistoryModal.jsx";
 
 function formatTime(t) {
   return t ? String(t).slice(0, 5) : "";
@@ -45,36 +46,6 @@ function formatDateShort(d) {
   if (!d) return "—";
   const [, m, day] = String(d).slice(0, 10).split("-");
   return `${Number(m)}/${Number(day)}`;
-}
-
-function formatChangedAt(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-}
-
-function slotSummary(slot, institutionMap, teacherLabel) {
-  if (!slot) return "—";
-  const institution = institutionMap.get(slot.institution_id)?.name
-    || slot.institutions?.name
-    || "기관";
-  const classGroup = classGroupFromStoredLabel(slot.label);
-  return [
-    `${DAY_LABELS[slot.day_of_week]} ${formatTime(slot.start_time)}–${formatTime(slot.end_time)}`,
-    classTypeLabel(resolveInstitutionSlotPayType(slot)),
-    institution,
-    classGroup || null,
-    teacherLabel(slot.teacher_id),
-  ].filter(Boolean).join(" · ");
 }
 
 function emptyPeriod(index = 0) {
@@ -168,6 +139,7 @@ function classTypeTone(classType) {
 function assignmentPayTypes(classType) {
   if (classType === "방과후") return ["방과후"];
   if (classType === "어린이집") return ["어린이집"];
+  if (classType === "센터") return ["센터"];
   if (classType === "센터보조") return ["센터보조"];
   if (classType === "참관수업") return ["참관수업"];
   return ["정규"];
@@ -354,14 +326,6 @@ export default function RegularClassesManagePanel({
     };
   }).filter(group => group.rows.length > 0), [filteredSlots]);
 
-  const historyRows = useMemo(() => {
-    if (!historySlot) return [];
-    const seriesId = historySlot.schedule_series_id || historySlot.id;
-    return slots
-      .filter(s => (s.schedule_series_id || s.id) === seriesId)
-      .sort((a, b) => String(b.effective_from || "").localeCompare(String(a.effective_from || "")));
-  }, [historySlot, slots]);
-
   const openCreate = () => {
     setCreateForm({
       ...EMPTY_CREATE,
@@ -464,6 +428,7 @@ export default function RegularClassesManagePanel({
       for (const hit of findOverlappingInstitutionSlots({
         slots,
         institutionId: institution_id,
+        teacherId: teacher_id,
         dayOfWeek: day_of_week,
         startTime: p.start_time,
         endTime: p.end_time,
@@ -536,15 +501,18 @@ export default function RegularClassesManagePanel({
     const overlapTo = originalForOverlap?.effective_to
       ? String(originalForOverlap.effective_to).slice(0, 10)
       : null;
+    const seriesId = originalForOverlap?.schedule_series_id || editForm.id;
     const editOverlaps = findOverlappingInstitutionSlots({
       slots,
       institutionId: editForm.institution_id,
+      teacherId: editForm.teacher_id || null,
       dayOfWeek: editForm.day_of_week,
       startTime: editForm.start_time,
       endTime: editForm.end_time,
       effectiveFrom: overlapFrom,
       effectiveTo: overlapTo,
       excludeSlotIds: [editForm.id],
+      excludeSeriesIds: seriesId ? [seriesId] : [],
     });
     if (!confirmInstitutionTimeOverlap(editOverlaps)) return;
 
@@ -1193,70 +1161,13 @@ export default function RegularClassesManagePanel({
       ) : null}
 
       {historySlot ? (
-        <div className="sch-modal-overlay" onClick={() => setHistorySlot(null)}>
-          <section className="sch-modal sch-modal--wide" onClick={e => e.stopPropagation()}>
-            <div className="sch-section-header-row">
-              <div>
-                <h3>수업 변경 이력</h3>
-                <p className="sch-muted">
-                  {institutionMap.get(historySlot.institution_id)?.name || historySlot.institutions?.name || "기관"}
-                </p>
-              </div>
-              <button type="button" className="sch-btn sch-btn--ghost" onClick={() => setHistorySlot(null)}>닫기</button>
-            </div>
-            <div className="sch-regular-classes-history-list">
-              {historyRows.map((row, index) => {
-                const status = slotStatus(row, fmtLocalDate(new Date()));
-                const previous = historyRows[index + 1] || null;
-                return (
-                  <article key={row.id} className="sch-regular-classes-history-row">
-                    <div>
-                      <strong>{index === 0 ? "최근 기록" : `이전 기록 ${index}`}</strong>
-                      <span className={`sch-regular-classes-status sch-regular-classes-status--${status}`}>
-                        {statusLabel(status)}
-                      </span>
-                    </div>
-                    {previous ? (
-                      <div className="sch-regular-classes-history-compare">
-                        <div>
-                          <span>변경 전</span>
-                          <p>{slotSummary(previous, institutionMap, teacherLabel)}</p>
-                        </div>
-                        <span className="sch-regular-classes-history-arrow" aria-hidden="true">→</span>
-                        <div>
-                          <span>변경 후</span>
-                          <p>{slotSummary(row, institutionMap, teacherLabel)}</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="sch-regular-classes-history-first">
-                        최초 등록 · {slotSummary(row, institutionMap, teacherLabel)}
-                      </p>
-                    )}
-                    <dl className="sch-regular-classes-history-details">
-                      <div>
-                        <dt>적용 기간</dt>
-                        <dd>{formatDateShort(row.effective_from)} ~ {row.effective_to ? formatDateShort(row.effective_to) : "계속"}</dd>
-                      </div>
-                      <div>
-                        <dt>변경 사유</dt>
-                        <dd>{row.change_reason || (previous ? "수업 조건 변경" : "최초 등록")}</dd>
-                      </div>
-                      <div>
-                        <dt>처리자</dt>
-                        <dd>{row.changed_by ? teacherLabel(row.changed_by) : "기존 등록 자료"}</dd>
-                      </div>
-                      <div>
-                        <dt>처리 일시</dt>
-                        <dd>{formatChangedAt(row.updated_at || row.created_at)}</dd>
-                      </div>
-                    </dl>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        </div>
+        <WeeklySlotHistoryModal
+          slot={historySlot}
+          slots={slots}
+          institutionName={institutionMap.get(historySlot.institution_id)?.name || historySlot.institutions?.name || ""}
+          teacherName={teacherLabel}
+          onClose={() => setHistorySlot(null)}
+        />
       ) : null}
     </div>
   );

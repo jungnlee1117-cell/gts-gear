@@ -23,9 +23,13 @@ import {
   monthLabel,
   resolveEnglishFromKorean,
   buildAliasMaps,
-  naturalEnglishEquipmentName,
   schoolYearStartYear,
+  storedEnglishEquipmentName,
 } from "./lessonPlan.js";
+import {
+  fallbackEnglishKeyExpression,
+  fallbackEnglishPlanText,
+} from "./englishPlanSentences.js";
 import { itemPhotoStyle } from "./gearPhoto.js";
 import { buildCurrentRentals } from "./teacherGearStatus.js";
 import { isScheduleAdmin } from "./authRoles.js";
@@ -290,62 +294,6 @@ function fallbackKoreanPlanText(name, ageGroup = "5") {
   if (ageGroup === "3_4") return `${objectName} 천천히 탐색하고 간단한 이동 동작을 따라 하며 대근육과 균형감각, 기본적인 신체 조절력과 자신감을 기릅니다.`;
   if (ageGroup === "7") return `${objectName} 활용한 복합 움직임 과제를 빠르고 정확하게 수행하며 민첩성과 전신 협응력, 판단력과 협동심을 기릅니다.`;
   return `${objectName} 활용해 방향과 빠르기를 바꾸며 연속 동작을 수행해 전신 협응력과 대근육, 공간 인지력과 신체 조절력을 기릅니다.`;
-}
-
-function fallbackEnglishPlanText(koreanName, englishName) {
-  const value = String(koreanName || "");
-  const equipment = englishName || naturalEnglishEquipmentName(value);
-  if (/꽃게.*낚시|낚시.*꽃게/i.test(value)) {
-    return "Children use rings to catch crabs, octopuses, and other sea-animal shapes. This playful fishing activity develops hand-eye coordination, fine motor control, concentration, and distance awareness.";
-  }
-  if (/도넛/i.test(value)) {
-    return "Children carry and stack the donut rings to build towers and create different shapes. The activity develops hand-eye coordination, fine motor control, concentration, and spatial awareness.";
-  }
-  if (/에어\s*T\s*터널|에어\s*티\s*터널|T\s*터널|티\s*터널/i.test(value)) {
-    return "Children jump over, climb onto, and crawl through the Air T-Tunnel in different ways. These movements strengthen the lower body and improve balance, whole-body coordination, and spatial awareness.";
-  }
-  if (/밸런스|균형|징검|쿠션|스톤/i.test(value)) {
-    return `Children step, stop, and balance on the ${equipment} using different body positions. The activity develops core strength, balance, concentration, and body control.`;
-  }
-  if (/파이프.*공.*나르|공.*파이프|공.*나르/i.test(value)) {
-    return "Children balance a table-tennis ball on a pipe, carry it carefully to a partner, and connect several pipes to move the ball to a target. The activity develops hand-eye coordination, concentration, precise force control, and teamwork.";
-  }
-  if (/판.*뒤집|보드.*뒤집/i.test(value)) {
-    return "Children balance on the boards, turn them over to match the correct color, and play a lively team challenge. The activity develops balance, reaction speed, color recognition, decision-making, and teamwork.";
-  }
-  if (/스펀지.*체조.*볼|체조.*스펀지.*볼/i.test(value)) {
-    return "Children balance and step across the sponge exercise balls, jump over them, and practice forward or backward rolls at an appropriate level. The activity develops core strength, flexibility, whole-body coordination, balance, and confidence.";
-  }
-  if (/공|볼|오자미|빈백|바스켓/i.test(value)) {
-    return `Children roll, throw, catch, and aim the ${equipment} at targets from different distances. The activity improves hand-eye coordination, distance control, reaction speed, and gross motor skills.`;
-  }
-  if (/줄넘|점프|허들/i.test(value)) {
-    return `Children jump over and move around the ${equipment} using different directions and rhythms. The activity develops lower-body strength, agility, balance, and whole-body coordination.`;
-  }
-  if (/에어|사다리|터널|옥타곤|삼각|클라이밍/i.test(value)) {
-    return `Children climb, cross, and move safely around the ${equipment} in different ways. The activity develops gross motor strength, balance, whole-body coordination, and spatial awareness.`;
-  }
-  if (/컵|도미노|블록|스택/i.test(value)) {
-    return `Children carry and stack the ${equipment} to build towers and create different structures. The activity develops hand-eye coordination, fine motor control, concentration, and spatial planning.`;
-  }
-  return `Children explore the ${equipment} through guided movement challenges and simple games. The activity develops coordination, body control, spatial awareness, and confidence.`;
-}
-
-function fallbackEnglishKeyExpression(koreanName) {
-  const value = String(koreanName || "");
-  if (/꽃게.*낚시|낚시.*꽃게/i.test(value)) return "Aim the ring and catch a sea animal!";
-  if (/도넛/i.test(value)) return "Stack the rings carefully and build it higher!";
-  if (/에어\s*T\s*터널|에어\s*티\s*터널|T\s*터널|티\s*터널/i.test(value)) return "Jump over, climb up, and crawl through!";
-  if (/파이프.*공.*나르|공.*나르/i.test(value)) return "Keep the ball steady and work together!";
-  if (/판.*뒤집/i.test(value)) return "Move quickly, flip the board, and change direction!";
-  if (/스펀지.*체조.*볼|체조.*스펀지.*볼/i.test(value)) return "Balance, jump over, and roll with control!";
-  if (/밸런스|균형|징검|쿠션|스톤/i.test(value)) return "Step slowly, stop, and keep your balance!";
-  if (/공|볼|오자미|빈백/i.test(value)) return "Aim, throw, and catch with both hands!";
-  if (/바스켓/i.test(value)) return "Look at the basket and throw gently!";
-  if (/줄넘|점프|허들/i.test(value)) return "Bend your knees, jump, and land softly!";
-  if (/에어|사다리|터널|옥타곤|삼각|클라이밍|장애물/i.test(value)) return "Climb carefully, move across, and finish the course!";
-  if (/컵|도미노|블록|스택/i.test(value)) return "Carry, stack, and build it together!";
-  return "Follow the course, control your body, and finish strong!";
 }
 
 function hasKorean(value) {
@@ -885,13 +833,10 @@ export default function MyGearRotationPage({
           row.weekNumber,
           koreanName,
         );
-        const englishNameCandidate = lessonPlan?.equipment_name_en
-          || resolveEnglishFromKorean(koreanName, aliasMaps)
-          || "";
-        const englishName = naturalEnglishEquipmentName(
-          koreanName,
-          hasKorean(englishNameCandidate) ? "" : englishNameCandidate,
-        );
+        const itemAlias = String(item?.alias || "").trim();
+        const englishName = storedEnglishEquipmentName(resolveEnglishFromKorean(koreanName, aliasMaps))
+          || storedEnglishEquipmentName(itemAlias);
+        const sentenceEquipment = englishName || "equipment";
         const englishActivity = lessonPlan?.activity_description || "";
         const keyExpression = lessonPlan?.key_expressions || "";
         return {
@@ -907,7 +852,7 @@ export default function MyGearRotationPage({
           englishName,
           englishActivity: englishActivity && !hasKorean(englishActivity)
             ? englishActivity
-            : fallbackEnglishPlanText(koreanName, englishName),
+            : fallbackEnglishPlanText(koreanName, sentenceEquipment),
           keyExpression: keyExpression && !hasKorean(keyExpression)
             ? keyExpression
             : fallbackEnglishKeyExpression(koreanName),
@@ -1288,6 +1233,7 @@ export default function MyGearRotationPage({
           onMonthChange={(nextMonth) => setViewMonth(clampToSchoolYear(nextMonth, startYear))}
           suggestedActivities={monthlyPlanGearSuggestions}
           companyEquipment={items}
+          equipmentAliases={equipmentAliases}
           programSuggestions={itemSets.map((program) => ({
             id: program.id,
             name: program.name,

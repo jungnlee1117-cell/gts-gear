@@ -15,7 +15,21 @@ export function normalizeEquipmentEnKey(name) {
   return normalizeEquipmentEn(name).toUpperCase();
 }
 
-const GENERIC_ENGLISH_EQUIPMENT_NAMES = /^(selected equipment|movement activity equipment|activity equipment|sports equipment|equipment)$/i;
+const GENERIC_ENGLISH_EQUIPMENT_NAMES = /^(gts activity set|selected equipment|movement activity equipment|activity equipment|sports equipment|equipment)$/i;
+
+/** DB에 저장된 영문명만 남긴다. 패턴으로 만든 대체 이름은 넣지 않는다. */
+export function storedEnglishEquipmentName(value) {
+  const registered = normalizeEquipmentEn(value);
+  if (!registered || /[가-힣]/.test(registered) || !/[A-Za-z]/.test(registered)) return "";
+  if (GENERIC_ENGLISH_EQUIPMENT_NAMES.test(registered)) return "";
+  return registered;
+}
+
+export function isUnresolvedEnglishEquipmentName(value) {
+  const text = normalizeEquipmentEn(value);
+  if (!text) return true;
+  return GENERIC_ENGLISH_EQUIPMENT_NAMES.test(text);
+}
 
 const KOREAN_EQUIPMENT_ENGLISH_NAMES = {
   "사각징검다리/방구": "Square Balance Stepping Stones", "밸런스 징검다리": "Balance Stepping Stones",

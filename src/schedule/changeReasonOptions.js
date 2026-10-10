@@ -9,11 +9,15 @@ export const REASON_MAKEUP = "보강수업";
 /** 개인 사정 — 수업 안 함 시 보강 여부 선택 */
 export const REASON_PERSONAL = "선생님 개인 사정";
 
+/** 같은 날 수업 시각만 바꿈 */
+export const REASON_TIME_CHANGE = "시간변경";
+
 export const CHANGE_REASON_PRESETS = [
   REASON_PERSONAL,
   "기관 휴원",
   "공휴일",
   REASON_SUBSTITUTE,
+  REASON_TIME_CHANGE,
   REASON_MAKEUP,
 ];
 
@@ -30,6 +34,27 @@ export function isMakeupReason(presetOrReason) {
 export function isPersonalReason(presetOrReason) {
   const r = String(presetOrReason || "").trim();
   return r === REASON_PERSONAL || r === "선생님 개인사정";
+}
+
+export function isTimeChangeReason(presetOrReason) {
+  const r = String(presetOrReason || "").trim();
+  return r === REASON_TIME_CHANGE || r === "시간 변경";
+}
+
+export function composeTimeChangeNote(start, end, memo) {
+  const range = `${String(start || "").slice(0, 5)}-${String(end || "").slice(0, 5)}`;
+  const head = range.length > 1 ? `${REASON_TIME_CHANGE}${SKIP_NOTE_SEP}${range}` : REASON_TIME_CHANGE;
+  const extra = String(memo || "").trim();
+  if (!extra || extra === head || extra.startsWith(`${head}${SKIP_NOTE_SEP}`)) return head;
+  return `${head}${SKIP_NOTE_SEP}${extra}`;
+}
+
+export function parseTimeChangeNote(note) {
+  const parsed = parseSkippedEntryNote(note);
+  if (!isTimeChangeReason(parsed.reason)) return null;
+  const match = String(parsed.memo || "").match(/^(\d{2}:\d{2})-(\d{2}:\d{2})(?: · (.*))?$/);
+  if (!match) return { start: "", end: "", memo: parsed.memo || "" };
+  return { start: match[1], end: match[2], memo: match[3] || "" };
 }
 
 export function resolveChangeReason(preset, customText) {

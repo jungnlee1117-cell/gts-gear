@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, Bell, ChevronLeft, ClipboardList, Clock, CloudUpload, FileSpreadsheet, MessageSquareWarning, Users, Wallet } from "lucide-react";
 import { CONTRACT_TYPES, formatMinutes, formatWon, grossToNetPay, yearMonthKey, yearMonthLastDay } from "./constants.js";
 import {
+  fetchMyTeachingSessionRates,
+  fetchOwnPayrollEntries,
   fetchPayrollEntries,
+  fetchSessionRates,
   fetchScheduleExceptions,
   fetchWeeklySchedule,
   loadPayrollDashboard,
   scheduleSupabase,
 } from "./api.js";
+import { buildDirectTeachingPayRows } from "./myTeachingInstitutions.js";
 import PayrollDebugPanel from "./PayrollDebugPanel.jsx";
 import PayrollTeacherView from "./PayrollTeacherView.jsx";
 import TempTeacherPayrollDetail, { TempTeacherPayrollTableRow } from "./TempTeacherPayrollDetail.jsx";
@@ -318,6 +322,16 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   const [institutionSearch, setInstitutionSearch] = useState("");
   const [viewingTeacher, setViewingTeacher] = useState(null);
   const [viewingTempTeacher, setViewingTempTeacher] = useState(null);
+  const [teachingSessionRates, setTeachingSessionRates] = useState([]);
+  const [adminSessionRates, setAdminSessionRates] = useState([]);
+  const [directPayroll, setDirectPayroll] = useState({
+    teacherId: null,
+    yearMonth: null,
+    entries: [],
+    slots: [],
+    loading: false,
+  });
+  const [expandedDirectIds, setExpandedDirectIds] = useState(() => new Set());
   const [requestStats, setRequestStats] = useState({
     total: 0,
     pendingTotal: 0,
@@ -385,12 +399,24 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     try {
       const d = await loadPayrollDashboard(yearMonth);
       setData(d);
+      if (isScheduleRegionalManager(me)) {
+        const sessionRates = await fetchMyTeachingSessionRates();
+        setTeachingSessionRates(sessionRates || []);
+        setAdminSessionRates([]);
+      } else if (isScheduleSuperAdmin(me)) {
+        const sessionRates = await fetchSessionRates();
+        setAdminSessionRates(sessionRates || []);
+        setTeachingSessionRates([]);
+      } else {
+        setTeachingSessionRates([]);
+        setAdminSessionRates([]);
+      }
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [yearMonth]);
+  }, [yearMonth, me]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -584,6 +610,125 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   }, [filteredCanonicalRows, data?.managerMap, effectiveManagerFilter]);
 
   const institutionFilterActive = effectiveManagerFilter !== "all" || institutionSearch.trim().length > 0;
+
+  const directTeacherId = isScheduleRegionalManager(me)
+    ? (me?.id || null)
+    : (effectiveManagerFilter === "yang"
+      ? managerFilterIds.yangId
+      : effectiveManagerFilter === "oh"
+        ? managerFilterIds.ohId
+        : null);
+
+  useEffect(() => {
+    if (!directTeacherId) {
+      setDirectPayroll({
+        teacherId: null,
+        yearMonth,
+        entries: [],
+        slots: [],
+        loading: false,
+      });
+      return undefined;
+    }
+    let cancelled = false;
+    setDirectPayroll((prev) => ({
+      ...prev,
+      teacherId: directTeacherId,
+      yearMonth,
+      loading: true,
+    }));
+    setExpandedDirectIds(new Set());
+    Promise.all([
+      fetchOwnPayrollEntries(directTeacherId, yearMonth),
+      fetchWeeklySchedule(null, directTeacherId),
+    ]).then(([entries, slots]) => {
+      if (cancelled) return;
+      setDirectPayroll({
+        teacherId: directTeacherId,
+        yearMonth,
+        entries: (entries || []).filter((row) => row.teacher_id === directTeacherId),
+        slots: (slots || []).filter((slot) => slot.teacher_id === directTeacherId),
+        loading: false,
+      });
+    }).catch((error) => {
+      console.error(error);
+      if (cancelled) return;
+      setDirectPayroll({
+        teacherId: directTeacherId,
+        yearMonth,
+        entries: [],
+        slots: [],
+        loading: false,
+      });
+    });
+    return () => { cancelled = true; };
+  }, [directTeacherId, yearMonth]);
+
+  const directManagedIds = useMemo(
+    () => new Set(
+      (data?.institutions || [])
+        .filter((inst) => inst.manager_id === directTeacherId)
+        .map((inst) => inst.id),
+    ),
+    [data?.institutions, directTeacherId],
+  );
+
+  const directTeachingRows = useMemo(() => {
+    if (!directTeacherId) return [];
+    if (directPayroll.teacherId !== directTeacherId || directPayroll.yearMonth !== yearMonth) return [];
+    const namesById = new Map((data?.institutions || []).map((inst) => [inst.id, inst.name]));
+    const q = institutionSearch.trim().toLowerCase();
+    const sessionRates = superAdmin ? adminSessionRates : teachingSessionRates;
+    return buildDirectTeachingPayRows({
+      entries: directPayroll.entries,
+      slots: directPayroll.slots,
+      yearMonth,
+      teacherId: directTeacherId,
+      managedIds: directManagedIds,
+      namesById,
+      rates: data?.rates || [],
+      sessionRates,
+    }).filter((row) => !q || row.name.toLowerCase().includes(q));
+  }, [
+    directTeacherId,
+    directPayroll,
+    yearMonth,
+    data?.institutions,
+    data?.rates,
+    institutionSearch,
+    directManagedIds,
+    superAdmin,
+    adminSessionRates,
+    teachingSessionRates,
+  ]);
+
+  const directRowsReady = Boolean(
+    directTeacherId
+    && !directPayroll.loading
+    && directPayroll.teacherId === directTeacherId
+    && directPayroll.yearMonth === yearMonth
+  );
+
+  const institutionTotalRows = useMemo(() => {
+    if (!directRowsReady) return displayInstitutionRows;
+    const extras = directTeachingRows
+      .map((row) => row.settlementRow)
+      .filter(Boolean);
+    return [...displayInstitutionRows, ...extras];
+  }, [directRowsReady, displayInstitutionRows, directTeachingRows]);
+
+  const personalPayTotal = directTeacherId
+    ? (sumInstitutionRows(institutionTotalRows, me).manager_share || 0)
+    : 0;
+
+  const toggleDirectInstitution = (institutionId) => {
+    setExpandedDirectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(institutionId)) next.delete(institutionId);
+      else next.add(institutionId);
+      return next;
+    });
+  };
 
   return (
     <div className="sch-view sch-payroll-admin-view">
@@ -1029,7 +1174,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                     </label>
                   ) : (
                     <p className="sch-muted sch-toolbar-hint">
-                      담당 원만 표시됩니다
+                      담당 원은 전체 정산, 수업만 하는 원은 내 수업만 표시됩니다
                       {lockedManagerFilter === "yang" ? " (양의인)" : lockedManagerFilter === "oh" ? " (오정석)" : ""}
                     </p>
                   )}
@@ -1067,7 +1212,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                       </tr>
                     </thead>
                     <tbody>
-                      {displayInstitutionRows.length === 0 ? (
+                      {displayInstitutionRows.length === 0 && directTeachingRows.length === 0 ? (
                         <tr>
                           <td colSpan={9} className="sch-muted">
                             조건에 맞는 원이 없습니다.
@@ -1108,10 +1253,79 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                           </tr>
                         );
                       })}
+                      {directRowsReady ? directTeachingRows.map((row) => {
+                        const open = expandedDirectIds.has(row.institutionId);
+                        const managerLabel = formatInstitutionManagerLabel(data?.managerMap?.[directTeacherId]);
+                        const contractPriced = !row.rateMissing && row.feeMode !== "instructor_fee";
+                        return (
+                          <Fragment key={`direct-${row.institutionId}`}>
+                            <tr>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="sch-link-btn"
+                                  aria-expanded={open}
+                                  onClick={() => toggleDirectInstitution(row.institutionId)}
+                                >
+                                  {row.name}
+                                </button>
+                              </td>
+                              <td>{managerLabel}</td>
+                              <td>GTS공식· 직접 수업</td>
+                              <td className="sch-td-num">
+                                {row.rateMissing ? (
+                                  <span className="sch-admin-status-warn">단가 입력 필요</span>
+                                ) : contractPriced ? (
+                                  <span className="sch-admin-status-ok">{formatWon(row.revenue)}</span>
+                                ) : "—"}
+                              </td>
+                              <td className="sch-td-num">{contractPriced ? formatWon(row.vat) : "—"}</td>
+                              <td className="sch-td-num">—</td>
+                              <td className="sch-td-num">—</td>
+                              <td className="sch-td-num">—</td>
+                              <td className="sch-td-num">
+                                {row.rateMissing
+                                  ? "—"
+                                  : (isScheduleSuperAdmin(me)
+                                    ? `${formatWon(row.managerShare)} / ${formatWon(0)}`
+                                    : formatWon(row.managerShare))}
+                              </td>
+                            </tr>
+                            {open ? (
+                              <tr>
+                                <td colSpan={9}>
+                                  <table className="sch-table sch-table--compact">
+                                    <thead>
+                                      <tr>
+                                        <th>날짜</th>
+                                        <th>수업명</th>
+                                        <th>시간</th>
+                                        <th className="sch-th-num">본인 금액</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {row.classes.map((item) => (
+                                        <tr key={item.id}>
+                                          <td>{item.date}</td>
+                                          <td>{item.name}</td>
+                                          <td>{item.timeLabel || "—"}</td>
+                                          <td className="sch-td-num">
+                                            {row.rateMissing ? "단가 입력 필요" : formatWon(item.amount)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </td>
+                              </tr>
+                            ) : null}
+                          </Fragment>
+                        );
+                      }) : null}
                     </tbody>
-                    {filteredCanonicalRows.length > 0 ? (
+                    {institutionTotalRows.length > 0 ? (
                       <InstitutionTotalsFoot
-                        rows={displayInstitutionRows}
+                        rows={institutionTotalRows}
                         managerFilter={effectiveManagerFilter}
                         institutionSearch={institutionSearch}
                         me={me}
@@ -1119,6 +1333,11 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                     ) : null}
                   </table>
                 </div>
+                {directTeacherId && directRowsReady ? (
+                  <p className="sch-admin-dash-section-desc" style={{ marginTop: 12 }}>
+                    <strong>본인 총 급여 = {formatWon(personalPayTotal)}</strong>
+                  </p>
+                ) : null}
               </section>
             </div>
           )}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, Pencil } from "lucide-react";
-import { DAY_LABELS, PAY_TYPES, PAYROLL_SUMMARY_TYPES, classTypeLabel, formatMinutes, formatWon, grossToNetPay, homeVisitColor, institutionColor, isHomeVisitPlanned, yearMonthKey } from "./constants.js";
+import { DAY_LABELS, PAY_TYPES, PAYROLL_SUMMARY_TYPES, classTypeLabel, formatMinutes, formatWon, grossToNetPay, homeVisitColor, institutionColor, isHomeVisitPlanned, minutesBetween, yearMonthKey } from "./constants.js";
 import PayrollMonthNotices from "./PayrollMonthNotices.jsx";
 import {
   findFixedGrossPay,
@@ -19,6 +19,7 @@ import {
   fetchInstitutions,
   fetchPayRates,
   fetchPayrollEntries,
+  fetchSessionRates,
   fetchScheduleExceptions,
   fetchSubstituteAssignmentsForTeacher,
   fetchSubstituteLessons,
@@ -31,10 +32,15 @@ import {
 } from "./payrollSaveWithNotification.js";
 import ChangeReasonField from "./ChangeReasonField.jsx";
 import {
+  composeTimeChangeNote,
+  isSubstituteReason,
+  isTimeChangeReason,
+  parseTimeChangeNote,
   resolveChangeReason,
   validateChangeReason,
 } from "./changeReasonOptions.js";
 import PayrollSlotCustomModal, { PAYROLL_QUICK_MINUTES } from "./PayrollSlotCustomModal.jsx";
+import { confirmLongClassMinuteList } from "./longClassConfirm.js";
 import {
   buildCustomEditState,
   buildPayrollSlotPayload,
@@ -42,7 +48,7 @@ import {
   saveCustomPayrollSlot,
   skipPayrollSlot,
 } from "./payrollSlotPayload.js";
-import { estimateTeacherPayByEntry, payRelevantEntries } from "./settlement.js";
+import { estimateTeacherPayByEntry, payRelevantEntries, sumRevenueSharePreview } from "./settlement.js";
 import {
   ENTRY_STATUS,
   calendarPayrollBadgesForDate,
@@ -56,6 +62,7 @@ import {
   findEntryForPlanned,
   findMakeupEntriesForDate,
   findManualExtraEntriesForDate,
+  findOffScheduleSlotEntriesForDate,
   formatKoMonthDay,
   plannedSlotDisplayLabel,
   getEffectiveSlotStatus,
@@ -66,6 +73,7 @@ import {
   isSlotUnconfirmed,
   groupPayrollByTypeConfirmed,
   payrollCalendarDayMark,
+  unconfirmedPlannedPayrollEntries,
 } from "./payrollCalendar.js";
 import { patternsForCalendarMonth } from "./homeVisitPatterns.js";
 import { buildHomeVisitLegend, buildInstitutionLegend, resolveInstitutionDisplayName } from "./calendarLegend.js";
@@ -80,7 +88,7 @@ import { applySubstituteLessonsToSchedule } from "./substituteLessons.js";
 import { isScheduleSuperAdmin } from "./managerScope.js";
 import ClassIncidentSlotForm from "./ClassIncidentSlotForm.jsx";
 import { fetchClassIncidentReports, reportsByPayrollEntryId } from "./classIncidentReports.js";
-import { isScheduleAdmin } from "./roles.js";
+import { isAssignableClassTeacher, isScheduleAdmin } from "./roles.js";
 import { useScheduleAuthReady } from "./ScheduleAuthContext.jsx";
 import CalendarClassLines from "./CalendarClassLines.jsx";
 
@@ -113,6 +121,7 @@ export default function PayrollTeacherView({
   const [incidentReports, setIncidentReports] = useState([]);
   const [additionalPayments, setAdditionalPayments] = useState([]);
   const [rates, setRates] = useState([]);
+  const [sessionRates, setSessionRates] = useState([]);
   const [substituteAssignments, setSubstituteAssignments] = useState([]);
   const [substituteLessons, setSubstituteLessons] = useState([]);
   const [finalizedIds, setFinalizedIds] = useState(new Set());
@@ -145,7 +154,7 @@ export default function PayrollTeacherView({
 
   useEffect(() => {
     fetchTeachers({ yearMonth })
-      .then(rows => setTeacherOptions((rows || []).filter(t => t.role === "teacher")))
+      .then(rows => setTeacherOptions((rows || []).filter(isAssignableClassTeacher)))
       .catch(console.error);
   }, [yearMonth]);
 
@@ -159,7 +168,7 @@ export default function PayrollTeacherView({
     if (!teacherId || !scheduleAuthReady) return;
     setLoading(true);
     try {
-      const [w, hv, insts, allInsts, ents, ex, incidents, adds, rts, fin, subs, subLessons] = await Promise.all([
+      const [w, hv, insts, allInsts, ents, ex, incidents, adds, rts, fin, subs, subLessons, sessRates] = await Promise.all([
         fetchWeeklySchedule(null, teacherId),
         fetchHomeVisitPatterns({ teacherId }),
         fetchInstitutions({ teacherScope: !adminInspectMode, activeOnly: true }),
@@ -174,6 +183,7 @@ export default function PayrollTeacherView({
         fetchFinalizedInstitutionIds(yearMonth),
         fetchSubstituteAssignmentsForTeacher(teacherId, rangeFrom, rangeTo),
         fetchSubstituteLessons({ teacherId, fromDate: rangeFrom, toDate: rangeTo }),
+        fetchSessionRates(),
       ]);
       setWeeklySlots(w);
       setHomeVisitPatterns(hv);
@@ -198,6 +208,7 @@ export default function PayrollTeacherView({
       }
       setAdditionalPayments(adds);
       setRates(rts);
+      setSessionRates(sessRates);
       setFinalizedIds(fin);
       setSubstituteAssignments(subs);
       setSubstituteLessons(subLessons);
@@ -297,14 +308,20 @@ export default function PayrollTeacherView({
     return map;
   }, [weeklySlots]);
 
-  const lessonPay = useMemo(
-    () => estimateTeacherPayByEntry(payEntries, rates, slotById, teacherId),
-    [payEntries, rates, slotById, teacherId],
-  );
+  const lessonPay = useMemo(() => {
+    const confirmed = estimateTeacherPayByEntry(payEntries, rates, slotById, teacherId, sessionRates);
+    const preview = sumRevenueSharePreview(
+      unconfirmedPlannedPayrollEntries(scheduleByDate, entries, teacherId),
+      rates,
+      sessionRates,
+      slotById,
+    );
+    return confirmed + preview.total;
+  }, [payEntries, rates, slotById, teacherId, sessionRates, scheduleByDate, entries]);
 
   const makeupPay = useMemo(
-    () => estimateTeacherPayByEntry(makeupPayEntries, rates, slotById, teacherId),
-    [makeupPayEntries, rates, slotById, teacherId],
+    () => estimateTeacherPayByEntry(makeupPayEntries, rates, slotById, teacherId, sessionRates),
+    [makeupPayEntries, rates, slotById, teacherId, sessionRates],
   );
   const fixedGrossPay = useMemo(
     () => findFixedGrossPay(teacherId, yearMonth),
@@ -340,6 +357,10 @@ export default function PayrollTeacherView({
     () => findMakeupEntriesForDate(entries, selectedDateStr, teacherId),
     [entries, selectedDateStr, teacherId],
   );
+  const selectedOffScheduleEntries = useMemo(
+    () => findOffScheduleSlotEntriesForDate(entries, selectedDateStr, selectedPlanned, teacherId),
+    [entries, selectedDateStr, selectedPlanned, teacherId],
+  );
   const incidentByEntryId = useMemo(
     () => reportsByPayrollEntryId(incidentReports),
     [incidentReports],
@@ -368,8 +389,12 @@ export default function PayrollTeacherView({
       minutes += e.minutes || 0;
       count += 1;
     }
+    for (const e of selectedOffScheduleEntries) {
+      minutes += e.minutes || 0;
+      count += 1;
+    }
     return { count, minutes };
-  }, [selectedPlanned, selectedManualEntries, selectedMakeupArrivals, entries]);
+  }, [selectedPlanned, selectedManualEntries, selectedMakeupArrivals, selectedOffScheduleEntries, entries]);
 
   const isLocked = (institutionId) =>
     institutionId && finalizedIds.has(institutionId);
@@ -414,6 +439,10 @@ export default function PayrollTeacherView({
     if (targets.some(p => isLocked(p.institutionId))) {
       alert("정산 확정된 원의 수업은 수정할 수 없습니다.");
       return;
+    }
+    if (status !== ENTRY_STATUS.skipped) {
+      const minutes = targets.map((p) => (minutesFor ? minutesFor(p) : p.scheduledMinutes));
+      if (!confirmLongClassMinuteList(minutes)) return;
     }
 
     setSaving(true);
@@ -519,17 +548,23 @@ export default function PayrollTeacherView({
     setBulkEditModal({
       rows: dayUnlockablePlanned.map((planned) => {
         const entry = findEntryForPlanned(entries, planned);
+        const savedTime = parseTimeChangeNote(entry?.note);
         const minutes = entry?.entry_status && entry.entry_status !== ENTRY_STATUS.skipped
           ? (Number(entry.minutes) || planned.scheduledMinutes)
           : planned.scheduledMinutes;
         return {
           plannedKey: plannedKeyOf(planned),
           planned,
-          minutes,
+          minutes: savedTime?.start
+            ? (minutesBetween(savedTime.start, savedTime.end) || minutes)
+            : minutes,
+          startTime: savedTime?.start || planned.startTime,
+          endTime: savedTime?.end || planned.endTime,
         };
       }),
       changeReasonPreset: "",
       changeReasonCustom: "",
+      substituteTeacherId: "",
     });
   };
 
@@ -541,28 +576,52 @@ export default function PayrollTeacherView({
       bulkEditModal.changeReasonCustom,
     );
     if (reasonErr) return alert(reasonErr);
-    for (const row of bulkEditModal.rows) {
-      const mins = Number(row.minutes);
-      if (!mins || mins <= 0) {
-        return alert("모든 수업은 1분 이상이어야 합니다.");
+    const isSub = isSubstituteReason(bulkEditModal.changeReasonPreset);
+    const isTime = isTimeChangeReason(bulkEditModal.changeReasonPreset);
+    if (isSub) {
+      if (!bulkEditModal.substituteTeacherId) return alert("대체선생님을 선택해주세요.");
+      if (bulkEditModal.substituteTeacherId === teacherId) {
+        return alert("본인은 대체선생님으로 선택할 수 없습니다.");
+      }
+    }
+    if (isTime) {
+      for (const row of bulkEditModal.rows) {
+        if (!row.startTime || !row.endTime) return alert("변경된 시간을 입력해주세요.");
+        if (row.startTime >= row.endTime) {
+          return alert("변경된 종료 시간은 시작 시간보다 늦어야 합니다.");
+        }
       }
     }
     const changeReason = resolveChangeReason(
       bulkEditModal.changeReasonPreset,
       bulkEditModal.changeReasonCustom,
     );
+    const minuteList = bulkEditModal.rows.map((row) => (
+      isTime
+        ? (minutesBetween(row.startTime, row.endTime) || Number(row.minutes))
+        : Number(row.minutes)
+    ));
+    if (minuteList.some((mins) => !mins || mins <= 0)) {
+      return alert("모든 수업은 1분 이상이어야 합니다.");
+    }
+    if (!confirmLongClassMinuteList(minuteList)) return;
     setSaving(true);
     try {
-      const payloads = bulkEditModal.rows.map(({ planned, minutes }) => {
-        const mins = Number(minutes);
-        const isCustom = mins !== planned.scheduledMinutes;
+      const payloads = bulkEditModal.rows.map((row, index) => {
+        const mins = minuteList[index];
+        const isCustom = isSub || isTime || mins !== row.planned.scheduledMinutes;
         return {
-          planned,
-          payload: buildPayload(planned, {
+          planned: row.planned,
+          payload: buildPayload(row.planned, {
             status: isCustom ? ENTRY_STATUS.custom : ENTRY_STATUS.as_scheduled,
             minutes: mins,
+            note: isTime ? composeTimeChangeNote(row.startTime, row.endTime) : undefined,
+            substitute_teacher_id: isSub ? bulkEditModal.substituteTeacherId : null,
           }),
-          handlingExtra: { changeReason },
+          handlingExtra: {
+            changeReason,
+            ...(isTime ? { startTime: row.startTime, endTime: row.endTime } : {}),
+          },
         };
       });
       await bulkUpsertPayrollSlotsWithNotifications(payloads);
@@ -619,10 +678,11 @@ export default function PayrollTeacherView({
     }
     setSaving(true);
     try {
-      await saveCustomPayrollSlot(customEdit, {
+      const saved = await saveCustomPayrollSlot(customEdit, {
         existingEntry: findEntryForPlanned(entries, customEdit.planned),
         teacherId,
       });
+      if (!saved) return;
       setCustomEdit(null);
       await load();
     } catch (err) {
@@ -639,10 +699,11 @@ export default function PayrollTeacherView({
     }
     setSaving(true);
     try {
-      await skipPayrollSlot(customEdit, {
+      const saved = await skipPayrollSlot(customEdit, {
         existingEntry: findEntryForPlanned(entries, customEdit.planned),
         teacherId,
       });
+      if (!saved) return;
       setCustomEdit(null);
       await load();
     } catch (err) {
@@ -913,7 +974,7 @@ export default function PayrollTeacherView({
                 <span className="sch-holiday-banner-hint">실제 수업했다면 각 타임에서 수정해 주세요.</span>
               </p>
             ) : null}
-            {selectedPlanned.length === 0 && selectedManualEntries.length === 0 && selectedMakeupArrivals.length === 0 ? (
+            {selectedPlanned.length === 0 && selectedManualEntries.length === 0 && selectedMakeupArrivals.length === 0 && selectedOffScheduleEntries.length === 0 ? (
               <p className="sch-muted">이 날짜에 예정된 수업이 없습니다.</p>
             ) : (
               <>
@@ -990,7 +1051,12 @@ export default function PayrollTeacherView({
                         <div className="sch-payroll-slot-card-body">
                           <div className="sch-payroll-slot-card-head">
                             <span className="sch-payroll-slot-time">
-                              {planned.startTime}–{planned.endTime}
+                              {(() => {
+                                const changed = parseTimeChangeNote(entry?.note);
+                                return changed?.start && changed?.end
+                                  ? `${changed.start}–${changed.end}`
+                                  : `${planned.startTime}–${planned.endTime}`;
+                              })()}
                             </span>
                             <span className="sch-payroll-slot-type">{classTypeLabel(planned.payType)}</span>
                           </div>
@@ -1046,6 +1112,34 @@ export default function PayrollTeacherView({
                     );
                   })}
                   </ul>
+                ) : null}
+
+                {selectedOffScheduleEntries.length > 0 ? (
+                  <>
+                    <h4 className="sch-payroll-extra-day-title">대체 수업</h4>
+                    <ul className="sch-payroll-slot-grid">
+                      {selectedOffScheduleEntries.map(entry => {
+                        const color = entry.institution_id
+                          ? institutionColor(entry.institution_id)
+                          : "#94a3b8";
+                        const name = entry.institutions?.name?.trim()
+                          || (entry.institution_id ? "원" : "개인레슨");
+                        return (
+                          <li key={entry.id} className="sch-payroll-slot-card">
+                            <span className="sch-payroll-slot-card-accent" style={{ background: color }} aria-hidden/>
+                            <div className="sch-payroll-slot-card-body">
+                              <div className="sch-payroll-slot-card-head">
+                                <span className="sch-payroll-slot-time">{entry.minutes}분</span>
+                                <span className="sch-payroll-slot-type">{entry.pay_type}</span>
+                              </div>
+                              <div className="sch-payroll-slot-inst">{name}</div>
+                              <div className="sch-payroll-status sch-payroll-status--custom">대체 수업</div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </>
                 ) : null}
 
                 {selectedManualEntries.length > 0 ? (
@@ -1344,6 +1438,7 @@ export default function PayrollTeacherView({
             <p className="sch-muted">
               {selectedDate.getMonth() + 1}월 {selectedDate.getDate()}일 수업 분을 한 번에 수정합니다.
             </p>
+            {isTimeChangeReason(bulkEditModal.changeReasonPreset) ? null : (
             <div className="sch-chip-row">
               {PAYROLL_QUICK_MINUTES.map((m) => (
                 <button
@@ -1359,9 +1454,13 @@ export default function PayrollTeacherView({
                 </button>
               ))}
             </div>
+            )}
             <ul className="sch-payroll-bulk-edit-list">
               {bulkEditModal.rows.map((row, idx) => (
-                <li key={row.plannedKey} className="sch-payroll-bulk-edit-row">
+                <li
+                  key={row.plannedKey}
+                  className={`sch-payroll-bulk-edit-row${isTimeChangeReason(bulkEditModal.changeReasonPreset) ? " sch-payroll-bulk-edit-row--time" : ""}`}
+                >
                   <div className="sch-payroll-bulk-edit-meta">
                     <strong>{plannedSlotDisplayLabel(row.planned)}</strong>
                     <span>
@@ -1372,24 +1471,77 @@ export default function PayrollTeacherView({
                       {row.planned.scheduledMinutes}분
                     </span>
                   </div>
-                  <label className="sch-field sch-field--inline">
-                    <span>분</span>
-                    <input
-                      type="number"
-                      className="sch-input sch-input--narrow"
-                      min={1}
-                      value={row.minutes}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setBulkEditModal((modal) => ({
-                          ...modal,
-                          rows: modal.rows.map((r, i) => (
-                            i === idx ? { ...r, minutes: value } : r
-                          )),
-                        }));
-                      }}
-                    />
-                  </label>
+                  {isTimeChangeReason(bulkEditModal.changeReasonPreset) ? (
+                    <div className="sch-payroll-bulk-edit-times">
+                      <label className="sch-field sch-field--inline">
+                        <span>변경된 시작</span>
+                        <input
+                          type="time"
+                          className="sch-input"
+                          required
+                          value={row.startTime}
+                          onChange={(e) => {
+                            const startTime = e.target.value;
+                            setBulkEditModal((modal) => ({
+                              ...modal,
+                              rows: modal.rows.map((r, i) => (
+                                i === idx
+                                  ? {
+                                    ...r,
+                                    startTime,
+                                    minutes: r.endTime ? minutesBetween(startTime, r.endTime) : r.minutes,
+                                  }
+                                  : r
+                              )),
+                            }));
+                          }}
+                        />
+                      </label>
+                      <label className="sch-field sch-field--inline">
+                        <span>변경된 종료</span>
+                        <input
+                          type="time"
+                          className="sch-input"
+                          required
+                          value={row.endTime}
+                          onChange={(e) => {
+                            const endTime = e.target.value;
+                            setBulkEditModal((modal) => ({
+                              ...modal,
+                              rows: modal.rows.map((r, i) => (
+                                i === idx
+                                  ? {
+                                    ...r,
+                                    endTime,
+                                    minutes: r.startTime ? minutesBetween(r.startTime, endTime) : r.minutes,
+                                  }
+                                  : r
+                              )),
+                            }));
+                          }}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <label className="sch-field sch-field--inline">
+                      <span>분</span>
+                      <input
+                        type="number"
+                        className="sch-input sch-input--narrow"
+                        min={1}
+                        value={row.minutes}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setBulkEditModal((modal) => ({
+                            ...modal,
+                            rows: modal.rows.map((r, i) => (
+                              i === idx ? { ...r, minutes: value } : r
+                            )),
+                          }));
+                        }}
+                      />
+                    </label>
+                  )}
                 </li>
               ))}
             </ul>
@@ -1400,12 +1552,34 @@ export default function PayrollTeacherView({
               onPresetChange={(preset) => setBulkEditModal((m) => ({
                 ...m,
                 changeReasonPreset: preset,
+                substituteTeacherId: isSubstituteReason(preset) ? m.substituteTeacherId : "",
               }))}
               onCustomChange={(text) => setBulkEditModal((m) => ({
                 ...m,
                 changeReasonCustom: text,
               }))}
             />
+            {isSubstituteReason(bulkEditModal.changeReasonPreset) ? (
+              <label className="sch-field">
+                <span>대체선생님 *</span>
+                <select
+                  className="sch-select"
+                  required
+                  value={bulkEditModal.substituteTeacherId || ""}
+                  onChange={(e) => setBulkEditModal((m) => ({
+                    ...m,
+                    substituteTeacherId: e.target.value,
+                  }))}
+                >
+                  <option value="">대체선생님 선택</option>
+                  {teacherOptions
+                    .filter((teacher) => teacher.id !== teacherId)
+                    .map((teacher) => (
+                      <option key={teacher.id} value={teacher.id}>{teacher.name}</option>
+                    ))}
+                </select>
+              </label>
+            ) : null}
             <div className="sch-form-actions sch-form-actions--stack">
               <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
                 {saving ? "저장 중..." : "일괄 저장"}

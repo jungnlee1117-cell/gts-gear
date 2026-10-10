@@ -139,6 +139,7 @@ export function supplementaryInstructorPayAtInstitution({
   entries,
   rates,
   teachers,
+  sessionRates = [],
 }) {
   if (!matchInstitutionName(institution?.name, LITTLE_INSTITUTION_PATTERN)) return 0;
   if (institution?.contract_type !== "manager_fixed_payout") return 0;
@@ -150,7 +151,7 @@ export function supplementaryInstructorPayAtInstitution({
     (entries || []).filter(e => e.institution_id === institution.id),
     teacher.id,
   );
-  return estimateTeacherPayByEntry(instEntries, rates);
+  return estimateTeacherPayByEntry(instEntries, rates, {}, null, sessionRates);
 }
 
 /**
@@ -166,6 +167,7 @@ export function computeInstitutionInstructorCost({
   temporaryEngagements = [],
   weeklySlots = [],
   scheduleExceptions = [],
+  sessionRates = [],
 }) {
   const instEntries = (entries || []).filter(e => e.institution_id === institution.id);
 
@@ -200,7 +202,7 @@ export function computeInstitutionInstructorCost({
 
   let sessionPay = institution?.contract_type === "manager_personal"
     ? 0
-    : estimateTeacherPayByEntry(sessionEntries, rates);
+    : estimateTeacherPayByEntry(sessionEntries, rates, {}, null, sessionRates);
 
   const breakdown = [];
   const rules = findInstitutionInstructorRules(institution);
@@ -211,7 +213,7 @@ export function computeInstitutionInstructorCost({
 
     if (rule.mode === "fixed_monthly") {
       const teacherEntries = entriesForTeacher(instEntries, teacher.id);
-      const entryPay = estimateTeacherPayByEntry(teacherEntries, rates);
+      const entryPay = estimateTeacherPayByEntry(teacherEntries, rates, {}, null, sessionRates);
       sessionPay = Math.max(0, sessionPay - entryPay);
       breakdown.push({
         teacherName: rule.teacherName,
@@ -232,6 +234,7 @@ export function computeInstitutionInstructorCost({
     entries,
     rates,
     teachers,
+    sessionRates,
   });
 
   if (supplementaryPay > 0) {

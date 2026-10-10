@@ -40,6 +40,7 @@ import {
   filterInstitutionsForManagerScope,
   formatInstitutionManagerLabel,
   institutionInManagerScope,
+  isScheduleRegionalManager,
 } from "./managerScope.js";
 
 const TABS = ["기본정보", "시간표", "계약/매출", "수업 선생님"];
@@ -178,6 +179,7 @@ export default function InstitutionDetailView({
   const [exceptions, setExceptions] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [scopeDenied, setScopeDenied] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [editPayTypesAssignment, setEditPayTypesAssignment] = useState(null);
   const [exForm, setExForm] = useState({
@@ -191,6 +193,24 @@ export default function InstitutionDetailView({
   const load = async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
+      if (isScheduleRegionalManager(me)) {
+        let gate = null;
+        try {
+          gate = await fetchInstitution(institutionId);
+        } catch {
+          gate = null;
+        }
+        if (!institutionInManagerScope(gate, me)) {
+          setScopeDenied(true);
+          setInst(null);
+          setWeekly([]);
+          setAssignments([]);
+          setTeachers([]);
+          setExceptions([]);
+          return;
+        }
+      }
+      setScopeDenied(false);
       const [i, ts, w, ex, a] = await Promise.all([
         fetchInstitution(institutionId),
         fetchTeachers(),
@@ -322,6 +342,15 @@ export default function InstitutionDetailView({
       alert("삭제 실패: " + err.message);
     }
   };
+
+  if (scopeDenied) {
+    return (
+      <div className="sch-view">
+        <p className="sch-muted">이 원에 대한 접근 권한이 없습니다.</p>
+        <button type="button" className="sch-btn sch-btn--ghost" onClick={onBack}>돌아가기</button>
+      </div>
+    );
+  }
 
   if (!inst) return <p className="sch-muted">불러오는 중...</p>;
 
@@ -501,6 +530,7 @@ export default function InstitutionDetailView({
           teacherList={teacherList}
           onRefresh={load}
           canEdit={canManageRoles}
+          changedBy={me?.id || null}
         />
       )}
         </>

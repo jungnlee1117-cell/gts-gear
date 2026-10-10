@@ -1,6 +1,6 @@
 import { resolveTeacherMonthlyGross } from "./additionalPayments.js";
 import { createClient } from "@supabase/supabase-js";
-import { fmtLocalDate, minutesBetween, yearMonthFirstDay, yearMonthKey, yearMonthLastDay } from "./constants.js";
+import { fmtLocalDate, minutesBetween, resolvePayrollSummaryType, yearMonthFirstDay, yearMonthKey, yearMonthLastDay } from "./constants.js";
 import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, isPerCapitaBilling, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
 import {
   computeInstitutionInstructorCost,
@@ -14,6 +14,7 @@ import {
   computeSettlement,
   estimateTeacherPayByEntry,
   resolveInstitutionRevenue,
+  sumRevenueSharePreview,
 } from "./settlement.js";
 import { resolveSettlementContractType } from "./thresholdSplitSettlement.js";
 import {
@@ -23,11 +24,13 @@ import {
   expandMonthSchedule,
   getSlotsForDate,
   groupPayrollByTypeConfirmed,
+  unconfirmedPlannedPayrollEntries,
 } from "./payrollCalendar.js";
 import {
   filterTeachersVisibleInYearMonth,
   isTeacherVisibleInYearMonth,
 } from "./teacherEmployment.js";
+import { isAssignableClassTeacher } from "./roles.js";
 import { fetchAllPages } from "../supabaseFetchAll.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
@@ -1241,6 +1244,20 @@ export async function bulkSaveMonthlyRevenue({ yearMonth, institutions, drafts, 
   return { contractCount, sessionCount };
 }
 
+/** 본인 수업이 있는 원의 이름만. 계약·매출은 포함하지 않는다. */
+export async function fetchMyTeachingInstitutions() {
+  const { data, error } = await scheduleSupabase.rpc("get_my_teaching_institutions");
+  if (error) throw error;
+  return data || [];
+}
+
+/** 본인 수업이 있는 원의 회당 단가만. */
+export async function fetchMyTeachingSessionRates() {
+  const { data, error } = await scheduleSupabase.rpc("get_my_teaching_session_rates");
+  if (error) throw error;
+  return data || [];
+}
+
 export async function fetchPayRates(teacherId) {
   let q = scheduleSupabase
     .from("teacher_pay_rates")
@@ -1341,6 +1358,21 @@ async function fetchPayrollEntryPages(buildQuery) {
     q = buildQuery(q);
     return q;
   });
+}
+
+/** 본인 teacher_id 수업만. 대체 선생님 행은 포함하지 않는다. */
+export async function fetchOwnPayrollEntries(teacherId, yearMonth) {
+  if (!teacherId || !yearMonth) return [];
+  const start = yearMonthFirstDay(yearMonth);
+  const end = yearMonthLastDay(yearMonth);
+  const { data, error } = await fetchPayrollEntryPages((q) => q
+    .eq("teacher_id", teacherId)
+    .gte("class_date", start)
+    .lte("class_date", end));
+  if (error) throw error;
+  return sortPayrollEntriesByClassDateDesc(
+    (data || []).filter((row) => row.teacher_id === teacherId),
+  );
 }
 
 export async function fetchPayrollEntries({ teacherId, institutionId, yearMonth } = {}) {
@@ -2077,6 +2109,7 @@ export async function computeAndSaveSettlement(institution, yearMonth, payrollEn
     temporaryEngagements,
     weeklySlots: allWeekly,
     scheduleExceptions,
+    sessionRates,
   });
   const settlementType = resolveSettlementContractType(institution);
   const settlementSessionCost = settlementType === "manager_fixed_payout"
@@ -2181,6 +2214,7 @@ async function buildInstitutionDashboardRow(
     temporaryEngagements,
     weeklySlots,
     scheduleExceptions,
+    sessionRates,
   });
   const settlementType = resolveSettlementContractType(institution);
   const settlementSessionCost = settlementType === "manager_fixed_payout"
@@ -2240,7 +2274,7 @@ export async function loadPayrollDashboard(yearMonth) {
   const monthEnd = yearMonthLastDay(yearMonth);
   const [y, m] = yearMonth.split("-").map(Number);
 
-  const [teachers, entries, rates, institutions, allWeekly, exceptions, additionalPayments, substituteLessons, oneoffLessons, homeVisitPatterns] = await Promise.all([
+  const [teachers, entries, rates, institutions, allWeekly, exceptions, additionalPayments, substituteLessons, oneoffLessons, homeVisitPatterns, sessionRates] = await Promise.all([
     fetchTeachers({ yearMonth }),
     fetchPayrollEntries({ yearMonth }),
     fetchPayRates(),
@@ -2251,6 +2285,7 @@ export async function loadPayrollDashboard(yearMonth) {
     fetchSubstituteLessons({ yearMonth }),
     fetchOneoffLessons({ yearMonth }),
     fetchHomeVisitPatterns(),
+    fetchSessionRates(),
   ]);
 
   const weeklyByTeacher = {};
@@ -2270,21 +2305,17 @@ export async function loadPayrollDashboard(yearMonth) {
   }
 
   const teacherRows = teachers
-    .filter(t => t.role === "teacher")
+    .filter(isAssignableClassTeacher)
     .map(t => {
       const mine = entries.filter(e =>
         e.teacher_id === t.id || e.substitute_teacher_id === t.id,
       );
       const byType = groupPayrollByTypeConfirmed(mine, t.id);
-      const lessonPay = estimateTeacherPayByEntry(mine, rates, {}, t.id);
+      const lessonPay = estimateTeacherPayByEntry(mine, rates, {}, t.id, sessionRates);
       const teacherOneoff = oneoffLessons.filter(l => l.teacher_id === t.id);
       const oneoffPayAdj = sumOneoffCustomPayAdjustments(mine, teacherOneoff, rates);
-      const adjustedLessonPay = lessonPay + oneoffPayAdj;
       const teacherAdditional = additionalPayments.filter(p => p.teacher_id === t.id);
       const additionalTotal = sumMergedAdditionalPayments(teacherAdditional);
-      const estimatedPay = resolveTeacherMonthlyGross(
-        t.id, yearMonth, adjustedLessonPay, teacherAdditional, t.name,
-      );
       const lastEntry = mine[0];
       const teacherInstIds = new Set(
         (weeklyByTeacher[t.id] || []).map(s => s.institution_id).filter(Boolean),
@@ -2296,6 +2327,19 @@ export async function loadPayrollDashboard(yearMonth) {
         m - 1,
         teacherExceptions,
         homeVisitsByTeacher[t.id] || [],
+      );
+      const preview = sumRevenueSharePreview(
+        unconfirmedPlannedPayrollEntries(scheduleByDate, mine, t.id),
+        rates,
+        sessionRates,
+      );
+      for (const entry of preview.entries) {
+        const summaryType = resolvePayrollSummaryType(entry);
+        byType[summaryType] = (byType[summaryType] || 0) + entry.minutes;
+      }
+      const adjustedLessonPay = lessonPay + oneoffPayAdj + preview.total;
+      const estimatedPay = resolveTeacherMonthlyGross(
+        t.id, yearMonth, adjustedLessonPay, teacherAdditional, t.name,
       );
       const unconfirmedDays = countUnconfirmedDays(scheduleByDate, mine);
       const unconfirmedSlots = countUnconfirmedSlots(scheduleByDate, mine);

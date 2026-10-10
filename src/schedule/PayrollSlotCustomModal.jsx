@@ -4,6 +4,7 @@ import {
   isMakeupReason,
   isPersonalReason,
   isSubstituteReason,
+  isTimeChangeReason,
 } from "./changeReasonOptions.js";
 import { plannedSlotDisplayLabel } from "./payrollCalendar.js";
 
@@ -21,6 +22,7 @@ export default function PayrollSlotCustomModal({
   onClose,
 }) {
   if (!customEdit) return null;
+  const timeChange = isTimeChangeReason(customEdit.changeReasonPreset);
 
   return (
     <div className="sch-modal-overlay" onClick={onClose}>
@@ -55,10 +57,11 @@ export default function PayrollSlotCustomModal({
         </label>
         <div className="sch-time-row">
           <label className="sch-field">
-            <span>시작 (참고)</span>
+            <span>{timeChange ? "변경된 시작 *" : "시작 (참고)"}</span>
             <input
               type="time"
               className="sch-input"
+              required={timeChange}
               value={customEdit.startTime}
               onChange={(e) => {
                 const start = e.target.value;
@@ -71,10 +74,11 @@ export default function PayrollSlotCustomModal({
             />
           </label>
           <label className="sch-field">
-            <span>종료 (참고)</span>
+            <span>{timeChange ? "변경된 종료 *" : "종료 (참고)"}</span>
             <input
               type="time"
               className="sch-input"
+              required={timeChange}
               value={customEdit.endTime}
               onChange={(e) => {
                 const end = e.target.value;
@@ -102,7 +106,8 @@ export default function PayrollSlotCustomModal({
           required={needsReason
             || isSubstituteReason(customEdit.changeReasonPreset)
             || isMakeupReason(customEdit.changeReasonPreset)
-            || isPersonalReason(customEdit.changeReasonPreset)}
+            || isPersonalReason(customEdit.changeReasonPreset)
+            || timeChange}
         />
         {isPersonalReason(customEdit.changeReasonPreset) ? (
           <div className="sch-field">
@@ -143,14 +148,14 @@ export default function PayrollSlotCustomModal({
         ) : null}
         {isSubstituteReason(customEdit.changeReasonPreset) ? (
           <label className="sch-field">
-            <span>누가 수업했나요? *</span>
+            <span>대체선생님 *</span>
             <select
               className="sch-select"
               required
               value={customEdit.substituteTeacherId}
               onChange={(e) => setCustomEdit((c) => ({ ...c, substituteTeacherId: e.target.value }))}
             >
-              <option value="">대체 선생님 선택</option>
+              <option value="">대체선생님 선택</option>
               {teacherOptions
                 .filter((t) => t.id !== teacherId)
                 .map((t) => (
@@ -158,7 +163,7 @@ export default function PayrollSlotCustomModal({
                 ))}
             </select>
             <span className="sch-muted sch-field-hint">
-              선택 시 수업료는 대체 선생님 급여로 이동하고, 원래 선생님 급여에서는 제외됩니다.
+              선택하면 수업료는 대체선생님 급여로 이동하고, 원래 선생님 급여에서는 제외됩니다.
             </span>
           </label>
         ) : null}

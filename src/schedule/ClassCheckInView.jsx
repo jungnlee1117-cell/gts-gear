@@ -27,11 +27,13 @@ import {
 import { filterExceptionsForInstitutions } from "./scheduleExceptions.js";
 import { useScheduleAuthReady } from "./ScheduleAuthContext.jsx";
 import PayrollSlotCustomModal from "./PayrollSlotCustomModal.jsx";
+import { confirmLongClassMinuteList, confirmLongClassMinutes } from "./longClassConfirm.js";
 import {
   buildCustomEditState,
   buildPayrollSlotPayload,
   confirmPayrollSlotAsScheduled,
   customEditNeedsChangeReason,
+  customEditSaveMinutes,
   saveCustomPayrollSlot,
   skipPayrollSlot,
 } from "./payrollSlotPayload.js";
@@ -279,6 +281,7 @@ export default function ClassCheckInView({ me, onBack }) {
     setSaving(true);
     try {
       if (isDemo) {
+        if (!confirmLongClassMinutes(plannedItem.scheduledMinutes)) return;
         markDemoDone([plannedItem]);
         goIncident(demoEntryFromPlanned(plannedItem, ENTRY_STATUS.as_scheduled));
         return;
@@ -287,6 +290,7 @@ export default function ClassCheckInView({ me, onBack }) {
         existingEntry: findEntryForPlanned(entries, plannedItem),
         teacherId,
       });
+      if (!entry) return;
       goIncident(entry);
     } catch (err) {
       alert("저장 실패: " + (err.message || err));
@@ -298,6 +302,7 @@ export default function ClassCheckInView({ me, onBack }) {
   const handleConfirmRemaining = async () => {
     if (!unconfirmed.length) return;
     if (!confirm(`남은 수업 ${unconfirmed.length}개를 평소대로 확정할까요?`)) return;
+    if (!confirmLongClassMinuteList(unconfirmed.map((p) => p.scheduledMinutes))) return;
     setSaving(true);
     try {
       if (isDemo) {
@@ -337,6 +342,7 @@ export default function ClassCheckInView({ me, onBack }) {
     setSaving(true);
     try {
       if (isDemo) {
+        if (!confirmLongClassMinutes(customEditSaveMinutes(customEdit))) return;
         markDemoDone([customEdit.planned]);
         setCustomEdit(null);
         goIncident(demoEntryFromPlanned(
@@ -350,6 +356,7 @@ export default function ClassCheckInView({ me, onBack }) {
         existingEntry: findEntryForPlanned(entries, customEdit.planned),
         teacherId,
       });
+      if (!entry) return;
       setCustomEdit(null);
       goIncident(entry);
     } catch (err) {
@@ -376,6 +383,7 @@ export default function ClassCheckInView({ me, onBack }) {
         existingEntry: findEntryForPlanned(entries, customEdit.planned),
         teacherId,
       });
+      if (!entry) return;
       setCustomEdit(null);
       goIncident(entry);
     } catch (err) {

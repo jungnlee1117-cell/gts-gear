@@ -13,7 +13,7 @@ import { expandPatternsForRange } from "./homeVisitPatterns.js";
 import { isKoreanHoliday } from "./koreanHolidays.js";
 import { withoutLegacyPayrollDuplicates } from "./payrollEntryDedupe.js";
 import { isInstitutionSlotCancelledOnDate } from "./scheduleExceptions.js";
-import { skippedReasonFromNote } from "./changeReasonOptions.js";
+import { parseTimeChangeNote, skippedReasonFromNote } from "./changeReasonOptions.js";
 
 export { getMonthGrid, fmtLocalDate, isSameDay };
 
@@ -211,6 +211,10 @@ export function effectiveSlotStatusLabel(planned, entry, { teachersById } = {}) 
     return `평소대로 · ${planned.scheduledMinutes}분`;
   }
   if (status === ENTRY_STATUS.custom) {
+    const timeChange = parseTimeChangeNote(entry?.note);
+    if (timeChange?.start && timeChange?.end) {
+      return `시간변경 · ${timeChange.start}–${timeChange.end}`;
+    }
     return `시간 수정 · ${entry.minutes}분`;
   }
   if (status === ENTRY_STATUS.skipped) {
@@ -247,6 +251,33 @@ export function findEntryForPlanned(entries, planned) {
     && e.institution_id === slot.institution_id
     && e.pay_type === resolveInstitutionSlotPayType(slot),
   ) ?? null;
+}
+
+/** 급여 행이 아직 없는 이번 달 예정 수업. 공휴일·수업 안 함·이미 분이 있는 행은 빼다. */
+export function unconfirmedPlannedPayrollEntries(scheduleByDate, entries, teacherId) {
+  const out = [];
+  for (const [dateStr, plannedList] of Object.entries(scheduleByDate || {})) {
+    for (const planned of plannedList || []) {
+      if (planned.source === "home_visit" || planned.patternId) continue;
+      const entry = findEntryForPlanned(entries, planned);
+      if (isMakeupRescheduled(entry)) continue;
+      const status = getEffectiveSlotStatus(entry, dateStr);
+      if (status === ENTRY_STATUS.skipped) continue;
+      if (entry?.entry_status && Number(entry.minutes) > 0) continue;
+      const minutes = Number(planned.scheduledMinutes) || 0;
+      if (minutes <= 0) continue;
+      out.push({
+        teacher_id: teacherId,
+        pay_type: planned.payType,
+        class_date: dateStr,
+        minutes,
+        institution_id: planned.institutionId,
+        schedule_slot_id: planned.slot?.id ?? null,
+        entry_status: ENTRY_STATUS.as_scheduled,
+      });
+    }
+  }
+  return out;
 }
 
 export function buildEntriesBySlotKey(entries) {
@@ -438,7 +469,7 @@ export function buildSkippedCalendarDayLines(planned = [], entries = []) {
 }
 
 /** 선생님 월간 시간표 — 예정 수업을 급여 달력과 같은 "원 유형 N분" 줄로 */
-export function buildScheduleCalendarDayLines(planned = [], entries = []) {
+export function buildScheduleCalendarDayLines(planned = [], entries = [], options = {}) {
   /** @type {Map<string, { key: string, name: string, payType: string, minutes: number, sort: string, label?: string, sublabel?: string, colorId: string, colorKind: string }>} */
   const groups = new Map();
 
@@ -532,6 +563,11 @@ export function buildScheduleCalendarDayLines(planned = [], entries = []) {
       colorKind: isHome ? "home_visit" : "institution",
       sort: `${p.startTime || "99:99"}\0${name}\0${payType}`,
     });
+  }
+
+  const dateStr = options.dateStr || planned?.[0]?.dateStr || null;
+  if (dateStr) {
+    appendOffScheduleSlotLines(addLine, entries, dateStr, planned, options.teacherId ?? null);
   }
 
   return [...groups.values()]
@@ -814,6 +850,8 @@ export function buildConfirmedPayrollDayLines(
     });
   }
 
+  appendOffScheduleSlotLines(addLine, entries, dateStr, planned, teacherId, usedEntryIds);
+
   // 보강 진행일: "(보강) 기관 N분" + 원래 날짜 안내
   for (const e of findMakeupEntriesForDate(entries, dateStr, teacherId)) {
     if (usedEntryIds.has(e.id) && e.class_date === dateStr) {
@@ -874,6 +912,49 @@ export function isSlotBulkProtected(entries, planned) {
   if (entry?.entry_status === ENTRY_STATUS.skipped) return true;
   if (isKoreanHoliday(planned.dateStr) && !entry?.entry_status) return true;
   return false;
+}
+
+function entryInstitutionName(entry) {
+  return entry?.institutions?.name?.trim()
+    || (entry?.institution_id ? "원" : "개인레슨");
+}
+
+/** 본인 급여인데 그 선생님 달력 슬롯에는 없는 수업. 다른 선생님 슬롯을 대체한 경우. */
+export function findOffScheduleSlotEntriesForDate(entries, dateStr, plannedList = [], teacherId = null) {
+  const matchedIds = new Set();
+  for (const planned of plannedList || []) {
+    const hit = findEntryForPlanned(entries, planned);
+    if (hit?.id) matchedIds.add(hit.id);
+  }
+  return withoutLegacyPayrollDuplicates(entries).filter((entry) => {
+    if (String(entry.class_date || "").slice(0, 10) !== dateStr) return false;
+    if (!entry.schedule_slot_id) return false;
+    if (!entry.entry_status || entry.entry_status === ENTRY_STATUS.skipped) return false;
+    if (!(Number(entry.minutes) > 0)) return false;
+    if (!entryBelongsToTeacher(entry, teacherId)) return false;
+    if (matchedIds.has(entry.id)) return false;
+    if (isMakeupRescheduled(entry)) return false;
+    return true;
+  });
+}
+
+function appendOffScheduleSlotLines(addLine, entries, dateStr, planned, teacherId, usedEntryIds = null) {
+  if (!dateStr) return;
+  for (const entry of findOffScheduleSlotEntriesForDate(entries, dateStr, planned, teacherId)) {
+    if (usedEntryIds?.has(entry.id)) continue;
+    if (usedEntryIds) usedEntryIds.add(entry.id);
+    const name = entryInstitutionName(entry);
+    const payType = entry.pay_type || "";
+    addLine({
+      groupKey: `offslot:${entry.institution_id || name}:${payType}`,
+      name,
+      payType,
+      minutes: Number(entry.minutes) || 0,
+      colorId: entry.institution_id || name,
+      colorKind: "institution",
+      sort: `zy\0${name}\0${payType}`,
+    });
+  }
 }
 
 /** 스케줄 슬롯 없이 강사가 직접 추가한 payroll entry */

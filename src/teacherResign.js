@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { sendPushEvent } from "./pushNotifications.js";
 import { fmtLocalDate } from "./schedule/constants.js";
+import { unreturnedGearBlockMessage } from "./unreturnedGear.js";
 
 export {
   toYearMonth,
@@ -102,41 +103,6 @@ export async function fetchActiveRentalsForTeacher(teacherId) {
     .in("status", ["rented", "partial_returned"]);
   if (error) throw error;
   return items || [];
-}
-
-async function forceReturnOne(ri, actor, reason) {
-  const now = new Date().toISOString();
-  const qty = Math.max(1, Number(ri.quantity) || 1);
-  const memo = `강제 반납: ${reason}`;
-  const teacherId = ri.rental_requests?.teacher_id;
-
-  const { error: retErr } = await supabase.from("return_requests").insert({
-    rental_item_id: ri.id,
-    quantity: qty,
-    condition: "normal",
-    memo,
-    teacher_id: teacherId || actor.id,
-    status: "return_approved",
-    approved_by: actor.id,
-    approved_at: now,
-  });
-  if (retErr) throw retErr;
-
-  const { error } = await supabase
-    .from("rental_items")
-    .update({ status: "returned" })
-    .eq("id", ri.id);
-  if (error) throw error;
-
-  await supabase.from("activity_logs").insert({
-    entity_type: "rental_item",
-    entity_id: ri.id,
-    action: memo,
-    actor_id: actor.id,
-    actor_name: actor.name,
-    target_id: teacherId || null,
-    target_name: null,
-  });
 }
 
 async function copyRotationSchedule(fromTeacherId, toTeacherId, resignDate) {
@@ -250,7 +216,7 @@ async function notifyAdminsUnassigned({ resigningName, institutionName, resignDa
  * @param {Record<string, string>} opts.reassignments - institutionId -> successorTeacherId ("" = 미배정)
  * @param {Array} opts.institutionGroups - fetchUpcomingClassesByInstitution 결과
  * @param {object} opts.actor - 처리자 (슈퍼관리자)
- * @param {Array} opts.rentalItems - 강제 반납 대상
+ * @param {Array} opts.rentalItems - 아직 반납되지 않은 교구. 있으면 퇴직을 중단한다.
  */
 export async function completeTeacherResignation({
   teacher,
@@ -263,11 +229,8 @@ export async function completeTeacherResignation({
 }) {
   const resignDay = String(resignDate).slice(0, 10);
   const reasonText = String(reason || "").trim() || "퇴직";
-
-  // 1) 교구 강제 반납
-  for (const ri of rentalItems || []) {
-    await forceReturnOne(ri, actor, `퇴직 처리 (${teacher.name})`);
-  }
+  const unreturned = unreturnedGearBlockMessage(teacher?.name, rentalItems, "퇴직 처리");
+  if (unreturned) throw new Error(unreturned);
 
   // 2) 수업 재배정 / 미배정 종료
   for (const group of institutionGroups || []) {

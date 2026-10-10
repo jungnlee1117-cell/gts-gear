@@ -1,12 +1,78 @@
 import { useEffect, useMemo, useState } from "react";
 import TeacherResignModal from "./TeacherResignModal.jsx";
 import {
+  fetchActiveRentalsForTeacher,
   isResignedTeacher,
   isTeacherVisibleInYearMonth,
   reactivateTeacher,
   updateResignationInfo,
 } from "./teacherResign.js";
+import { unreturnedGearBlockMessage } from "./unreturnedGear.js";
 import { yearMonthKey } from "./schedule/constants.js";
+
+function heldGearCount(teacherId, ris, reqs) {
+  return (ris || [])
+    .filter(ri => ["rented", "partial_returned"].includes(ri.status)
+      && (reqs || []).some(r => r.id === ri.request_id && r.teacher_id === teacherId))
+    .reduce((sum, ri) => sum + (Number(ri.quantity) || 0), 0);
+}
+
+function PeopleGrid({
+  people,
+  borderColor,
+  emptyText,
+  card,
+  ris,
+  reqs,
+  DS,
+  onOpen,
+  AccountTeacherInfo,
+  showSelfBadge = false,
+  meId,
+  locked = false,
+}) {
+  if (!people.length) {
+    return emptyText
+      ? <div style={{ color: DS.textMuted, fontSize: 13, padding: "8px 0 16px" }}>{emptyText}</div>
+      : null;
+  }
+  return (
+    <div className="accounts-people-grid">
+      {people.map((person) => {
+        const style = {
+          ...card,
+          borderLeft: borderColor ? `3px solid ${borderColor}` : card.borderLeft,
+          opacity: person.active === false || isResignedTeacher(person) ? 0.55 : 1,
+          width: "100%",
+          minWidth: 0,
+          margin: 0,
+          textAlign: "left",
+        };
+        if (locked) {
+          return (
+            <div key={person.id} style={style}>
+              <AccountTeacherInfo t={person} showSelfBadge={showSelfBadge && person.id === meId} />
+              <div style={{ fontSize: 11, color: DS.textMuted, fontWeight: 600, marginTop: 6 }}>변경 불가</div>
+            </div>
+          );
+        }
+        return (
+          <button
+            key={person.id}
+            type="button"
+            onClick={() => onOpen(person.id)}
+            style={{ ...style, cursor: "pointer" }}
+          >
+            <AccountTeacherInfo t={person} />
+            <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 6 }}>
+              보유 교구: {heldGearCount(person.id, ris, reqs)}개 · 클릭하여 상세
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 /**
  * 선생님관리 — 목록 + 상세 + 퇴직 처리
@@ -53,6 +119,8 @@ export default function TeacherAccountsPage({
   const [savingEdit, setSavingEdit] = useState(false);
   const [hireDateEdit, setHireDateEdit] = useState("");
   const [savingHire, setSavingHire] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [rosterFilter, setRosterFilter] = useState("all");
 
   useEffect(() => {
     const t = teachers.find(x => x.id === detailId);
@@ -194,7 +262,10 @@ export default function TeacherAccountsPage({
   const admins = teachers.filter(t => t.role === "admin" && listVisible(t));
   const itemAdmins = teachers.filter(t => t.is_item_admin && t.role !== "superadmin" && listVisible(t));
   const tList = teachers.filter(t => t.role === "teacher" && listVisible(t));
-  const resignedCount = teachers.filter(isResignedTeacher).length;
+  const plainTeachers = tList.filter(t => !t.is_item_admin);
+  const resignedTeachers = teachers.filter(isResignedTeacher);
+  const resignedCount = resignedTeachers.length;
+  const selectRoster = (id) => setRosterFilter(cur => (cur === id ? "all" : id));
 
   const detail = useMemo(
     () => teachers.find(t => t.id === detailId) || null,
@@ -276,6 +347,29 @@ export default function TeacherAccountsPage({
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!detail) return;
+    if (!confirm(`${detail.name} 선생님 계정을 삭제할까요?\n이 선생님의 급여 기록도 함께 지워지고, 수업 시간표의 선생님 자리는 비워집니다. 되돌릴 수 없습니다.`)) return;
+    setDeletingAccount(true);
+    try {
+      const rentals = await fetchActiveRentalsForTeacher(detail.id);
+      const block = unreturnedGearBlockMessage(detail.name, rentals, "삭제");
+      if (block) {
+        alert(block);
+        return;
+      }
+      const { error } = await supabase.rpc("delete_departed_teacher", { p_teacher_id: detail.id });
+      if (error) throw error;
+      setTeachers(p => p.filter(x => x.id !== detail.id));
+      setDetailId(null);
+      alert("계정을 삭제했습니다.");
+    } catch (e) {
+      alert(e.message || "삭제 실패");
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   const handleSaveHireDate = async () => {
     if (!detail) return;
     setSavingHire(true);
@@ -303,6 +397,10 @@ export default function TeacherAccountsPage({
       && detail.role !== "superadmin"
       && !isResignedTeacher(detail)
       && detail.id !== me.id;
+    const canDeleteAccount = isSuperAdmin(me)
+      && detail.role !== "superadmin"
+      && detail.id !== me.id
+      && (isResignedTeacher(detail) || detail.active === false);
 
     return (
       <PageShell>
@@ -358,7 +456,7 @@ export default function TeacherAccountsPage({
           <div style={{ ...card, marginBottom: 16 }}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>퇴직 정보 관리</div>
             <p style={{ fontSize: 12, color: DS.textMuted, marginBottom: 12 }}>
-              퇴직 선생님 데이터는 삭제할 수 없습니다. 퇴직일·사유 수정 또는 재활성화만 가능합니다.
+              퇴직일·사유를 수정하거나 다시 활성화할 수 있습니다. 계정을 지우려면 아래 삭제를 사용하세요.
             </p>
             {editResign ? (
               <div>
@@ -420,6 +518,18 @@ export default function TeacherAccountsPage({
           </div>
         ) : null}
 
+        {canDeleteAccount ? (
+          <div style={{ ...card, marginTop: 16 }}>
+            <div style={{ fontWeight: 800, marginBottom: 10 }}>계정 삭제</div>
+            <p style={{ fontSize: 12, color: DS.textMuted, marginBottom: 12 }}>
+              퇴직했거나 비활성화된 계정만 삭제할 수 있습니다. 대여 중인 교구가 있으면 삭제되지 않습니다.
+            </p>
+            <Btn sm danger onClick={handleDeleteAccount} disabled={deletingAccount}>
+              {deletingAccount ? "삭제 중..." : "계정 삭제"}
+            </Btn>
+          </div>
+        ) : null}
+
         {resignOpen ? (
           <TeacherResignModal
             teacher={detail}
@@ -464,11 +574,11 @@ export default function TeacherAccountsPage({
         display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
         gap: 14, marginBottom: 24,
       }}>
-        <DashStatCard label="전체 사용자" value={teachers.length} iconMark="전체" iconBg={DS.primaryLight} iconColor={DS.primary} />
-        <DashStatCard label="스케줄 관리자" value={admins.length} iconMark="관리" iconBg="#fee2e2" iconColor="#dc2626" />
-        <DashStatCard label="교구 관리자" value={itemAdmins.length} iconMark="교구" iconBg="#dbeafe" iconColor="#1d4ed8" />
-        <DashStatCard label="선생님" value={tList.filter(t => !t.is_item_admin).length} iconMark="선생" iconBg="#ede9fe" iconColor="#7c3aed" />
-        <DashStatCard label="퇴직" value={resignedCount} iconMark="퇴직" iconBg="#f1f5f9" iconColor="#64748b" />
+        <DashStatCard label="전체 사용자" value={teachers.length} iconMark="전체" iconBg={DS.primaryLight} iconColor={DS.primary} active={rosterFilter === "all"} onClick={() => setRosterFilter("all")} />
+        <DashStatCard label="스케줄 관리자" value={admins.length} iconMark="관리" iconBg="#fee2e2" iconColor="#dc2626" active={rosterFilter === "admin"} onClick={() => selectRoster("admin")} />
+        <DashStatCard label="교구 관리자" value={itemAdmins.length} iconMark="교구" iconBg="#dbeafe" iconColor="#1d4ed8" active={rosterFilter === "gear"} onClick={() => selectRoster("gear")} />
+        <DashStatCard label="선생님" value={plainTeachers.length} iconMark="선생" iconBg="#ede9fe" iconColor="#7c3aed" active={rosterFilter === "teacher"} onClick={() => selectRoster("teacher")} />
+        <DashStatCard label="퇴직" value={resignedCount} iconMark="퇴직" iconBg="#f1f5f9" iconColor="#64748b" active={rosterFilter === "resigned"} onClick={() => selectRoster("resigned")} />
       </div>
 
       <div style={{
@@ -479,61 +589,79 @@ export default function TeacherAccountsPage({
         슈퍼관리자 전용 메뉴입니다. 선생님을 클릭하면 상세·퇴직 처리를 할 수 있습니다.
       </div>
 
-      {sectionTitle("슈퍼관리자")}
-      {teachers.filter(t => t.role === "superadmin").map(t => (
-        <div key={t.id} style={{ ...card, borderLeft: "3px solid #854d0e" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <AccountTeacherInfo t={t} showSelfBadge />
-            <div style={{ fontSize: 11, color: DS.textMuted, fontWeight: 600 }}>변경 불가</div>
-          </div>
-        </div>
-      ))}
+      {rosterFilter === "all" ? sectionTitle("슈퍼관리자") : null}
+      {rosterFilter === "all" ? (
+        <PeopleGrid
+          people={teachers.filter(t => t.role === "superadmin")}
+          borderColor="#854d0e"
+          card={card}
+          ris={ris}
+          reqs={reqs}
+          DS={DS}
+          showSelfBadge
+          meId={me.id}
+          locked
+          AccountTeacherInfo={AccountTeacherInfo}
+        />
+      ) : null}
 
-      {sectionTitle(`스케줄 관리자 (${admins.length}명)`)}
-      {admins.length === 0 && <div style={{ color: DS.textMuted, fontSize: 13, padding: "8px 0" }}>임명된 스케줄 관리자가 없습니다</div>}
-      {admins.map(t => {
-        const held = ris.filter(ri => ["rented", "partial_returned"].includes(ri.status) && reqs.find(r => r.id === ri.request_id && r.teacher_id === t.id));
-        return (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setDetailId(t.id)}
-            style={{
-              ...card,
-              borderLeft: "3px solid #dc2626",
-              opacity: t.active === false || isResignedTeacher(t) ? 0.55 : 1,
-              width: "100%",
-              textAlign: "left",
-              cursor: "pointer",
-            }}
-          >
-            <AccountTeacherInfo t={t} />
-            <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 6 }}>보유 교구: {held.reduce((s, r) => s + r.quantity, 0)}개 · 클릭하여 상세</div>
-          </button>
-        );
-      })}
+      {rosterFilter === "all" || rosterFilter === "admin" ? sectionTitle(`스케줄 관리자 (${admins.length}명)`) : null}
+      {rosterFilter === "all" || rosterFilter === "admin" ? (
+        <PeopleGrid
+          people={admins}
+          borderColor="#dc2626"
+          emptyText="임명된 스케줄 관리자가 없습니다"
+          card={card}
+          ris={ris}
+          reqs={reqs}
+          DS={DS}
+          onOpen={setDetailId}
+          AccountTeacherInfo={AccountTeacherInfo}
+        />
+      ) : null}
 
-      {sectionTitle(`선생님 (${tList.length}명)`)}
-      {tList.map(t => {
-        const held = ris.filter(ri => ["rented", "partial_returned"].includes(ri.status) && reqs.find(r => r.id === ri.request_id && r.teacher_id === t.id));
-        return (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setDetailId(t.id)}
-            style={{
-              ...card,
-              opacity: t.active === false || isResignedTeacher(t) ? 0.55 : 1,
-              width: "100%",
-              textAlign: "left",
-              cursor: "pointer",
-            }}
-          >
-            <AccountTeacherInfo t={t} />
-            <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 6 }}>보유: {held.reduce((s, r) => s + r.quantity, 0)}개 · 클릭하여 상세</div>
-          </button>
-        );
-      })}
+      {rosterFilter === "gear" ? sectionTitle(`교구 관리자 (${itemAdmins.length}명)`) : null}
+      {rosterFilter === "gear" ? (
+        <PeopleGrid
+          people={itemAdmins}
+          borderColor="#1d4ed8"
+          emptyText="임명된 교구 관리자가 없습니다"
+          card={card}
+          ris={ris}
+          reqs={reqs}
+          DS={DS}
+          onOpen={setDetailId}
+          AccountTeacherInfo={AccountTeacherInfo}
+        />
+      ) : null}
+
+      {rosterFilter === "all" || rosterFilter === "teacher" ? sectionTitle(`선생님 (${(rosterFilter === "teacher" ? plainTeachers : tList).length}명)`) : null}
+      {rosterFilter === "all" || rosterFilter === "teacher" ? (
+        <PeopleGrid
+          people={rosterFilter === "teacher" ? plainTeachers : tList}
+          card={card}
+          ris={ris}
+          reqs={reqs}
+          DS={DS}
+          onOpen={setDetailId}
+          AccountTeacherInfo={AccountTeacherInfo}
+        />
+      ) : null}
+
+      {rosterFilter === "resigned" ? sectionTitle(`퇴직 (${resignedTeachers.length}명)`) : null}
+      {rosterFilter === "resigned" ? (
+        <PeopleGrid
+          people={resignedTeachers}
+          borderColor="#64748b"
+          emptyText="퇴직한 선생님이 없습니다"
+          card={card}
+          ris={ris}
+          reqs={reqs}
+          DS={DS}
+          onOpen={setDetailId}
+          AccountTeacherInfo={AccountTeacherInfo}
+        />
+      ) : null}
 
       {addOpen && (
         <Modal title="계정 추가" onClose={() => setAddOpen(false)}>

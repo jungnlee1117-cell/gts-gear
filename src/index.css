@@ -3377,6 +3377,8 @@ code {
 .gts-rental-holding-card__actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-top: auto;
   padding-top: 2px;
 }
@@ -4903,13 +4905,34 @@ code {
   height: 86px;
   background: #fbfcfb;
 }
-.monthly-plan-document--en .monthly-plan-equipment > input {
+.monthly-plan-document--en .monthly-plan-equipment > input,
+.monthly-plan-document--en .monthly-plan-equipment-name > input {
   color: #13264a;
   font-weight: 850;
 }
 .monthly-plan-document--en .monthly-plan-purpose textarea {
   color: #13264a;
   font-weight: 750;
+}
+.monthly-plan-sentence-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+.monthly-plan-sentence-field textarea {
+  width: 100%;
+}
+.monthly-plan-review-flag {
+  align-self: flex-start;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #fff4d6;
+  color: #8a5a00;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.4;
 }
 .monthly-plan-table__header {
   min-height: 44px;
@@ -4949,7 +4972,15 @@ code {
   gap: 9px;
   text-align: center;
 }
-.monthly-plan-equipment > input { text-align: center; }
+.monthly-plan-equipment > input,
+.monthly-plan-equipment-name > input { text-align: center; width: 100%; }
+.monthly-plan-equipment-name {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .monthly-plan-image-field {
   display: flex;
   flex-direction: column;
@@ -5039,8 +5070,8 @@ code {
 }
 .monthly-plan-korean-goal {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
   gap: 12px;
   margin: 0 0 14px;
   padding: 11px 14px;
@@ -5055,7 +5086,18 @@ code {
   color: #198754;
   font-size: 13px;
   font-weight: 850;
+  line-height: 1.25;
   text-align: center;
+}
+.monthly-plan-korean-goal textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #172033;
+  font: 550 13px/1.55 inherit;
+  resize: vertical;
 }
 .monthly-plan-english-note {
   margin: 20px 0 0;
@@ -16137,6 +16179,14 @@ button.pe-res-resource-youtube-thumb:hover {
   font-size: 13px;
   color: #0f172a;
 }
+.sch-payroll-bulk-edit-row--time {
+  flex-wrap: wrap;
+}
+.sch-payroll-bulk-edit-times {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
 .sch-payroll-bulk-edit-modal .sch-field--inline {
   display: flex;
   flex-direction: column;
@@ -16704,9 +16754,32 @@ button.pe-res-resource-youtube-thumb:hover {
 }
 .sch-modal--wide { width: min(560px, 100%); }
 .sch-modal.sch-modal--transfer {
-  width: min(640px, calc(100vw - 32px));
-  max-width: 640px;
+  width: min(960px, calc(100vw - 32px));
+  max-width: 960px;
 }
+.sch-teacher-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sch-teacher-roster-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.sch-teacher-roster-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.sch-teacher-roster-head > strong { min-width: 72px; }
+.sch-teacher-roster-head .sch-muted { margin-left: auto; white-space: nowrap; }
+.sch-teacher-roster-slots { padding-bottom: 4px; }
+.sch-teacher-slot-empty { margin: 0; padding: 12px 14px; }
 .sch-info-teacher-list {
   list-style: none;
   margin: 10px 0 0;
@@ -17832,6 +17905,9 @@ button.pe-res-resource-youtube-thumb:hover {
 }
 .sch-regular-classes--no-inst {
   --rc-cols: 124px 54px minmax(88px, 200px) 80px 108px 56px minmax(154px, 1fr);
+}
+.sch-regular-classes.sch-regular-classes--pick {
+  --rc-cols: 28px 118px 54px minmax(88px, 1fr) 80px 118px 56px;
 }
 .sch-regular-classes-toolbar {
   display: flex;
@@ -21879,6 +21955,19 @@ button.pe-res-resource-youtube-thumb:hover {
   border-color: #eef2f6;
 }
 
+.accounts-people-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 720px) {
+  .accounts-people-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 900px) {
   .dash-two-col {
     grid-template-columns: minmax(0, 1fr) !important;
@@ -23646,4 +23735,25 @@ button.pe-res-resource-youtube-thumb:hover {
   background: #3d3428;
   border-color: #3d3428;
   color: #fff;
+}
+
+/* 퇴직 처리 창은 화면 가운데. 좁은 화면의 하단 시트로 내리지 않는다. */
+@media (max-width: 768px) {
+  .app-modal-backdrop--center:has(.app-modal-sheet--resign) {
+    align-items: center;
+    padding: 16px;
+  }
+  .app-modal-sheet--center.app-modal-sheet--resign {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    width: min(96vw, 560px);
+    max-width: 560px;
+    max-height: min(90vh, 760px);
+    border-radius: 16px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+  }
 }

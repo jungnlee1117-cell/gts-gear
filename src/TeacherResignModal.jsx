@@ -7,6 +7,7 @@ import {
   todayLocalDateStr,
   toYearMonth,
 } from "./teacherResign.js";
+import { unreturnedGearBlockMessage } from "./unreturnedGear.js";
 
 const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -103,6 +104,12 @@ export default function TeacherResignModal({
     setSaving(true);
     setErr("");
     try {
+      const latestRentals = await fetchActiveRentalsForTeacher(teacher.id);
+      setRentals(latestRentals);
+      if (latestRentals.length) {
+        setErr(unreturnedGearBlockMessage(teacher.name, latestRentals, "퇴직 처리"));
+        return;
+      }
       const updated = await completeTeacherResignation({
         teacher,
         resignDate,
@@ -110,7 +117,7 @@ export default function TeacherResignModal({
         reassignments,
         institutionGroups: groups,
         actor: me,
-        rentalItems: rentals,
+        rentalItems: latestRentals,
       });
       onComplete?.(updated);
       setStep(4);
@@ -127,7 +134,13 @@ export default function TeacherResignModal({
   }).length;
 
   return (
-    <Modal title={`퇴직 처리 · ${teacher.name}`} onClose={onClose} dismissible={!saving}>
+    <Modal
+      title={`퇴직 처리 · ${teacher.name}`}
+      onClose={onClose}
+      dismissible={!saving}
+      center
+      sheetClassName="app-modal-sheet--resign"
+    >
       <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
         {[1, 2, 3, 4].map(n => (
           <div
@@ -267,7 +280,7 @@ export default function TeacherResignModal({
           ) : null}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <Btn ghost onClick={() => setStep(1)} disabled={saving}>이전</Btn>
-            <Btn onClick={() => { setErr(""); setStep(3); }}>다음</Btn>
+            <Btn onClick={() => { setErr(""); setLoading(true); setRentals([]); setStep(3); }}>다음</Btn>
           </div>
         </div>
       ) : null}
@@ -278,23 +291,13 @@ export default function TeacherResignModal({
             <p style={{ fontSize: 13, color: "#64748b" }}>대여 교구를 불러오는 중...</p>
           ) : rentals.length === 0 ? (
             <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
-              대여 중인 교구가 없습니다. 강제 반납할 항목이 없습니다.
+              대여 중인 교구가 없습니다. 반납이 끝난 상태입니다.
             </p>
           ) : (
             <>
-              <p style={{ fontSize: 13, color: "#b91c1c", fontWeight: 600, marginBottom: 10 }}>
-                아래 교구 {rentals.length}건을 강제 반납 처리합니다.
+              <p style={{ fontSize: 13, color: "#b91c1c", fontWeight: 600, marginBottom: 16, whiteSpace: "pre-line" }}>
+                {unreturnedGearBlockMessage(teacher.name, rentals, "퇴직 처리")}
               </p>
-              <ul style={{
-                margin: "0 0 16px", padding: 12, background: "#fef2f2",
-                borderRadius: 10, fontSize: 13, maxHeight: 240, overflowY: "auto",
-              }}>
-                {rentals.map(ri => (
-                  <li key={ri.id} style={{ marginBottom: 4 }}>
-                    {ri.items?.name || "교구"} × {ri.quantity}
-                  </li>
-                ))}
-              </ul>
             </>
           )}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -302,7 +305,7 @@ export default function TeacherResignModal({
             <Btn
               danger
               onClick={handleFinish}
-              disabled={saving}
+              disabled={saving || loading || rentals.length > 0}
             >
               {saving ? "처리 중..." : "퇴직 처리 완료"}
             </Btn>

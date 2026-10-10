@@ -52,6 +52,7 @@ import {
   plannedSlotDisplayLabel,
 } from "./payrollCalendar.js";
 import PayrollSlotCustomModal from "./PayrollSlotCustomModal.jsx";
+import { confirmLongClassMinuteList } from "./longClassConfirm.js";
 import {
   buildCustomEditState,
   confirmPayrollSlotAsScheduled,
@@ -396,10 +397,11 @@ export default function TeacherMonthlyScheduleView({
     if (slotLocked(planned)) return alert("정산 확정된 원은 수정할 수 없습니다.");
     setSaving(true);
     try {
-      await confirmPayrollSlotAsScheduled(planned, {
+      const saved = await confirmPayrollSlotAsScheduled(planned, {
         existingEntry: findEntryForPlanned(entries, planned),
         teacherId,
       });
+      if (!saved) return;
       await load();
     } catch (err) {
       alert("저장 실패: " + (err.message || err));
@@ -412,12 +414,14 @@ export default function TeacherMonthlyScheduleView({
     const n = dayUnconfirmedUnlockable.length;
     if (!n) return alert("평소대로 확정할 미확인 수업이 없습니다.");
     if (!confirm(`이 날짜의 미확인 수업 ${n}개를 평소대로 확정할까요?`)) return;
+    if (!confirmLongClassMinuteList(dayUnconfirmedUnlockable.map((p) => p.scheduledMinutes))) return;
     setSaving(true);
     try {
       for (const planned of dayUnconfirmedUnlockable) {
         await confirmPayrollSlotAsScheduled(planned, {
           existingEntry: findEntryForPlanned(entries, planned),
           teacherId,
+          skipLongConfirm: true,
         });
       }
       await load();
@@ -440,10 +444,11 @@ export default function TeacherMonthlyScheduleView({
     }
     setSaving(true);
     try {
-      await saveCustomPayrollSlot(customEdit, {
+      const saved = await saveCustomPayrollSlot(customEdit, {
         existingEntry: findEntryForPlanned(entries, customEdit.planned),
         teacherId,
       });
+      if (!saved) return;
       setCustomEdit(null);
       await load();
     } catch (err) {
@@ -460,10 +465,11 @@ export default function TeacherMonthlyScheduleView({
     }
     setSaving(true);
     try {
-      await skipPayrollSlot(customEdit, {
+      const saved = await skipPayrollSlot(customEdit, {
         existingEntry: findEntryForPlanned(entries, customEdit.planned),
         teacherId,
       });
+      if (!saved) return;
       setCustomEdit(null);
       await load();
     } catch (err) {
@@ -634,7 +640,7 @@ export default function TeacherMonthlyScheduleView({
                 const dayEvents = inMonth ? (exceptionsByDate[dateStr] || []) : [];
                 const planned = inMonth ? (displayScheduleByDate[dateStr] || []) : [];
                 const classLines = inMonth && !holiday
-                  ? buildScheduleCalendarDayLines(planned, entries)
+                  ? buildScheduleCalendarDayLines(planned, entries, { dateStr, teacherId })
                   : [];
                 const subBadge = inMonth
                   ? calendarSubstituteBadge(substituteLessons, teacherId, dateStr)

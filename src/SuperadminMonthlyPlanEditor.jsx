@@ -1,6 +1,21 @@
 import { Children, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Download, FileImage, FileText, Languages, PartyPopper, RefreshCw, Save, Sparkles, Upload } from "lucide-react";
-import { naturalEnglishEquipmentName } from "./lessonPlan.js";
+import { buildAliasMaps, isUnresolvedEnglishEquipmentName, resolveEnglishFromKorean, storedEnglishEquipmentName } from "./lessonPlan.js";
+import {
+  buildEnglishActivity,
+  buildEnglishPurpose,
+  isGenericEnglishActivity,
+  isGenericEnglishPurpose,
+} from "./englishPlanSentences.js";
+import {
+  emptyEnglishGoals,
+  emptyKoreanGoals,
+  isCustomMonthlyGoal,
+  mergeGoalsAfterGearFill,
+  parseStoredPlanGoals,
+  resolveMonthlyGoal,
+  serializePlanGoals,
+} from "./monthlyPlanGoals.js";
 import { buildMonthlyPlanPdfBlob, downloadPdfBlob } from "./monthlyPlanPdf.js";
 import {
   monthlyPlanPdfFileName,
@@ -62,7 +77,8 @@ function scrollToMonthlyPlanStep(step) {
   document.getElementById(`monthly-plan-step-${step}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-const EMPTY_ENGLISH_GOALS = Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age }) => [age, ""]));
+const EMPTY_ENGLISH_GOALS = emptyEnglishGoals();
+const EMPTY_KOREAN_GOALS = emptyKoreanGoals();
 const EVENT_PRESETS = [
   { id: "holiday", name: "명절", englishName: "Korean Holiday Games", ko: "우리나라 명절에 담긴 의미와 정겨운 문화를 아이들의 눈높이에서 함께 알아봅니다. 전통놀이와 명절 이야기를 활용한 즐거운 활동을 통해 자연스럽게 우리 문화와 가까워집니다.", en: "Children discover the meaning and warm traditions of Korean holidays through age-appropriate stories. They enjoy traditional games and playful activities that help them feel closer to Korean culture." },
   { id: "christmas", name: "크리스마스", englishName: "Christmas Activity Day", ko: "크리스마스가 전하는 나눔과 따뜻한 마음을 이야기하며 특별한 계절의 분위기를 함께 느껴봅니다. 선물 배달과 겨울 이야기를 주제로 한 활동에 참여하며 친구들과 즐거움을 나눕니다.", en: "Children share stories about kindness, giving, and the special atmosphere of Christmas. Gift-delivery missions and winter-themed play create a joyful experience with friends." },
@@ -76,15 +92,25 @@ function planDisplayName(value) {
   return String(value || "").trim().replace(/\s*프로그램\s*$/u, "").replace(/\s*program\s*$/iu, "").trim();
 }
 
-function isGenericEnglishEquipmentName(value) {
-  return /^(selected equipment|movement activity equipment|activity equipment|sports equipment|equipment)$/i.test(String(value || "").trim());
+function loadedEnglishEquipmentName(value) {
+  const text = String(value || "").trim();
+  return isUnresolvedEnglishEquipmentName(text) ? "" : text;
 }
 
-function loadedEnglishEquipmentName(value, position, suggestions) {
-  if (!isGenericEnglishEquipmentName(value)) return value || "";
-  const suggestion = (suggestions || []).find((item) => Number(item?.weekNumber) === Number(position))
-    || suggestions?.[Number(position) - 1];
-  return suggestion?.englishName || naturalEnglishEquipmentName(suggestion?.name || "", value);
+function englishEquipmentNeedsName(row) {
+  if (!isUnresolvedEnglishEquipmentName(row?.activity_name)) return false;
+  return Boolean(
+    String(row?.activity_description || "").trim()
+    || String(row?.key_expression || "").trim()
+    || String(row?.image_path || "").trim()
+    || String(row?.activity_name || "").trim(),
+  );
+}
+
+function englishGearOptionLabel(option) {
+  return option?.englishName
+    ? `${option.name} · ${option.englishName}`
+    : `${option.name} · 영어 이름 없음`;
 }
 
 function eventDescriptionForAge(description, ageGroup) {
@@ -151,69 +177,8 @@ function hasFifthWeekContent(rowsByGroup) {
   });
 }
 
-function parseEnglishGoals(value) {
-  const text = String(value || "").trim();
-  if (!text) return { ...EMPTY_ENGLISH_GOALS };
-  try {
-    const parsed = JSON.parse(text);
-    if (parsed && typeof parsed === "object") {
-      return Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age }) => [age, String(parsed[age] || "")]));
-    }
-  } catch {
-    // 이전 공통 영어 목표는 세 연령에 그대로 이어서 사용합니다.
-  }
-  return Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age }) => [age, text]));
-}
-
 function englishAgeLevel(groupId) {
   return String(groupId || "").replace("en_", "") || "5";
-}
-
-function buildEnglishPurpose(suggestion, age = "5", index = 0) {
-  const source = `${suggestion?.englishName || ""} ${suggestion?.name || ""} ${suggestion?.englishActivity || ""}`.toLowerCase();
-  let focus = "whole-body coordination, balance, and confident body control";
-  if (/ball|catch|throw|basket|fishing|ring toss|target|pipe/.test(source)) focus = "hand-eye coordination, object control, and movement accuracy";
-  else if (/stack|block|donut|cup|domino|build/.test(source)) focus = "spatial planning, balance, and controlled hand-body coordination";
-  else if (/tunnel|climb|air mat|obstacle|ladder/.test(source)) focus = "core stability, whole-body coordination, and spatial awareness";
-  else if (/jump|hurdle|rope|stepping|stone/.test(source)) focus = "dynamic balance, lower-body strength, and controlled landing";
-  else if (/board|flip|balance/.test(source)) focus = "postural control, balance reactions, and movement confidence";
-
-  const verbs = age === "7"
-    ? ["Refines", "Advances", "Integrates"]
-    : age === "6"
-      ? ["Strengthens", "Expands", "Connects"]
-      : age === "4"
-        ? ["Introduces", "Encourages", "Supports"]
-        : ["Builds", "Develops", "Supports"];
-  const progression = age === "7"
-    ? "through complex sequences, precise control, and independent decisions"
-    : age === "6"
-      ? "through linked actions, direction changes, and responsive challenges"
-      : age === "4"
-        ? "through playful first tries, simple steps, and lots of encouragement"
-        : "through guided exploration, repetition, and successful first attempts";
-  return `${verbs[index % verbs.length]} ${focus} ${progression}.`;
-}
-
-function buildEnglishActivity(suggestion, age = "5", index = 0) {
-  let base = String(suggestion?.englishActivity || "").trim();
-  if (!base) return "";
-  const leads = age === "7"
-    ? ["Children work with greater independence as they", "Children use longer movement sequences to", "Children take part in advanced challenges as they"]
-    : age === "6"
-      ? ["Children work through linked challenges as they", "Children work with partners and small groups to", "Children respond to direction and speed changes as they"]
-      : age === "4"
-        ? ["Children try simple, playful movements as they", "Children follow short, clear steps as they", "Children enjoy safe, guided practice as they"]
-        : ["Children explore through playful activities as they", "Children follow clear demonstrations as they", "Children build confidence through safe, repeated practice as they"];
-  base = base.replace(/^Children\s+/i, `${leads[index % leads.length]} `);
-  const extension = age === "7"
-    ? "Movements are combined into a longer sequence with precise control and independent choices."
-    : age === "6"
-      ? "Two or more actions are connected while direction, speed, or partner cues change."
-      : age === "4"
-        ? "Short, cheerful steps help every child feel successful."
-        : "Simple steps and encouraging repetition help every learner experience success.";
-  return `${base} ${extension}`;
 }
 
 function normalizeEnglishActivitySubject(value) {
@@ -320,34 +285,63 @@ function printableEnglishTemplateHtml({
     </body></html>`;
 }
 
+function koreanEquipmentCell(row, index) {
+  const name = escapeHtml(row.activity_name || "");
+  const image = row.image_url
+    ? `<img src="${escapeHtml(row.image_url)}" alt="${escapeHtml(row.activity_name || `${index + 1}주차`)}" />`
+    : "";
+  return `<strong>${name}</strong>${image}`;
+}
+
 function printableKoreanTemplateHtml({
   month,
   rowsByGroup,
   selectedAge,
   selectedKoreanAges,
+  koreanGoals,
   templateUrl,
+  fourWeekTemplateUrl,
   documentTitle,
 }) {
   const selectedIds = [...new Set((selectedKoreanAges?.length ? selectedKoreanAges : [selectedAge]).map(String))];
   const pages = AGE_GROUPS.filter(({ id }) => selectedIds.includes(id));
   const title = documentTitle || monthTitle(month);
+  const fourWeekRowBounds = [
+    [96.4, 139.2],
+    [140.0, 183.5],
+    [184.3, 229.1],
+    [229.9, 273.6],
+  ];
   const pageMarkup = pages.map((selectedAgeMeta) => {
     const rows = rowsByGroup[selectedAgeMeta.id] || [];
     const weekCount = normalizeWeekCount(rows.length);
-    const rowHeight = weekCount === 4 ? "44.75mm" : "35.75mm";
-    const rowMarkup = rows.slice(0, weekCount).map((row, index) => `
-    <div class="ko-row" style="height:${rowHeight}">
+    const useFourWeekForm = weekCount === 4 && fourWeekTemplateUrl;
+    const goalText = escapeHtml(resolveMonthlyGoal(
+      koreanGoals?.[selectedAgeMeta.id],
+      buildMonthlyKoreanGoal(rows, selectedAgeMeta.label, month),
+    ));
+    const rowMarkup = useFourWeekForm
+      ? rows.slice(0, 4).map((row, index) => {
+        const [top, bottom] = fourWeekRowBounds[index];
+        return `<div class="ko4-row" style="top:${top}mm;height:${(bottom - top).toFixed(1)}mm">
+          <div class="ko4-equipment">${koreanEquipmentCell(row, index)}</div>
+          <div class="ko4-description">${escapeHtml(row.activity_description || "")}</div>
+        </div>`;
+      }).join("")
+      : rows.slice(0, weekCount).map((row, index) => `
+    <div class="ko-row" style="height:${weekCount === 4 ? "44.75mm" : "35.75mm"}">
       <div class="ko-week">${index + 1}주</div>
-      <div class="ko-equipment"><strong>${escapeHtml(row.activity_name || "")}</strong>${row.image_url ? `<img src="${escapeHtml(row.image_url)}" alt="${escapeHtml(row.activity_name || `${index + 1}주차`)}" />` : ""}</div>
+      <div class="ko-equipment">${koreanEquipmentCell(row, index)}</div>
       <div class="ko-description">${escapeHtml(row.activity_description || "")}</div>
     </div>`).join("");
-    return `<main class="template-page">
+    const pageTemplate = useFourWeekForm ? fourWeekTemplateUrl : templateUrl;
+    return `<main class="template-page${useFourWeekForm ? " template-page--4w" : ""}" style="background-image:url('${escapeHtml(pageTemplate)}')">
       <div class="plan-title">${escapeHtml(title)}</div>
       <div class="age-label">${escapeHtml(selectedAgeMeta.label)}</div>
-      <div class="goal-label">월간 목표</div>
-      <div class="goal-text">${escapeHtml(buildMonthlyKoreanGoal(rows, selectedAgeMeta.label, month))}</div>
-      <div class="ko-table"><div class="ko-head"><div>주차</div><div>교구 및 활동</div><div>활동 내용 및 발달 도움</div></div>${rowMarkup}</div>
-      <div class="footer-clean"><span>This monthly plan is subject to change depending on circumstances.</span></div>
+      ${useFourWeekForm ? "" : `<div class="goal-label">월간 목표</div>`}
+      <div class="goal-text">${goalText}</div>
+      ${useFourWeekForm ? rowMarkup : `<div class="ko-table"><div class="ko-head"><div>주차</div><div>교구 및 활동</div><div>활동 내용 및 발달 도움</div></div>${rowMarkup}</div>`}
+      ${useFourWeekForm ? "" : `<div class="footer-clean"><span>This monthly plan is subject to change depending on circumstances.</span></div>`}
     </main>`;
   }).join("");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title>
@@ -373,6 +367,13 @@ function printableKoreanTemplateHtml({
       .ko-equipment strong { min-height: 4.5mm; font-size: 2.75mm; font-weight: 900; }
       .ko-equipment img { width: 31mm; height: 24mm; margin-top: 1mm; object-fit: contain; border-radius: 2mm; }
       .ko-description { justify-content: flex-start !important; padding: 3mm 4mm; white-space: pre-wrap; color: #102341; font-size: 2.7mm; line-height: 1.55; font-weight: 550; }
+      .template-page--4w .age-label { top: 45.8mm; left: 75.2mm; width: 48.2mm; height: 7.4mm; }
+      .template-page--4w .goal-text { top: 55.5mm; left: 43mm; width: 153mm; height: 26mm; background: transparent; overflow: hidden; }
+      .ko4-row { position: absolute; z-index: 4; left: 29.6mm; width: 168.8mm; display: grid; grid-template-columns: 49.8mm 1fr; overflow: hidden; }
+      .ko4-equipment { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2mm 1.5mm; text-align: center; overflow: hidden; color: #102341; }
+      .ko4-equipment strong { min-height: 4.5mm; font-size: 3.1mm; font-weight: 900; }
+      .ko4-equipment img { width: 38mm; height: 30mm; margin-top: 1mm; object-fit: contain; }
+      .ko4-description { display: flex; align-items: center; padding: 3mm 4mm; overflow: hidden; white-space: pre-wrap; color: #102341; font-size: 3.05mm; line-height: 1.55; font-weight: 550; }
       .footer-clean { position: absolute; z-index: 5; left: 10mm; right: 10mm; bottom: 4.2mm; height: 8mm; display: grid; place-items: center; background: #fff; border-top: .35mm solid #9bc9aa; }
       .footer-clean span { color: #6f8971; font-size: 2.25mm; line-height: 1; white-space: nowrap; }
       @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
@@ -468,11 +469,13 @@ export function printableReportHtml({
   month,
   rowsByGroup,
   englishGoals,
+  koreanGoals,
   selectedAge,
   selectedEnglishAges,
   selectedKoreanAges,
   logoUrl,
   templateUrl,
+  fourWeekTemplateUrl,
   documentTitle,
 }) {
   /* eslint-disable no-unreachable */
@@ -493,7 +496,9 @@ export function printableReportHtml({
     rowsByGroup,
     selectedAge,
     selectedKoreanAges,
+    koreanGoals,
     templateUrl,
+    fourWeekTemplateUrl,
     documentTitle,
   });
   const selectedAgeMeta = AGE_GROUPS.find(({ id }) => id === selectedAge) || AGE_GROUPS[0];
@@ -606,6 +611,7 @@ export default function SuperadminMonthlyPlanEditor({
   suggestedActivities = [],
   programSuggestions = [],
   companyEquipment = [],
+  equipmentAliases = [],
 }) {
   const [planId, setPlanId] = useState(null);
   const [weekCount, setWeekCount] = useState(DEFAULT_WEEK_COUNT);
@@ -614,6 +620,7 @@ export default function SuperadminMonthlyPlanEditor({
   weekCountRef.current = weekCount;
   const [language, setLanguage] = useState("ko");
   const [englishGoals, setEnglishGoals] = useState(EMPTY_ENGLISH_GOALS);
+  const [koreanGoals, setKoreanGoals] = useState(EMPTY_KOREAN_GOALS);
   const [selectedKoreanAges, setSelectedKoreanAges] = useState(() => AGE_GROUPS.map(({ id }) => id));
   const [selectedEnglishAges, setSelectedEnglishAges] = useState(() => ENGLISH_AGE_GROUPS.map(({ age }) => age));
   const pdfAge = selectedKoreanAges[0] || "3_4";
@@ -706,18 +713,21 @@ export default function SuperadminMonthlyPlanEditor({
     requiredGear: Array.isArray(program?.requiredGear) ? program.requiredGear : [],
   })).filter((program) => program.id && program.name), [programSuggestions]);
 
-  const normalizedCompanyEquipment = useMemo(() => companyEquipment.map((item) => ({
-    id: `company:${item.id}`,
-    name: String(item.name || item.item_name || "").trim(),
-    englishName: naturalEnglishEquipmentName(
-      item.name || item.item_name || "",
-      item.english_name || item.name_en || item.alias || "",
-    ),
-    photoUrl: String(item.photo_url || item.image_url || "").trim(),
-    activityDescription: String(item.usage_description || item.activity_description || item.description || "").trim(),
-    englishActivity: String(item.english_activity || item.activity_description_en || item.english_description || "").trim(),
-    activityDescriptions: {},
-  })).filter((item) => item.id !== "company:undefined" && item.name), [companyEquipment]);
+  const aliasMaps = useMemo(() => buildAliasMaps(equipmentAliases), [equipmentAliases]);
+  const normalizedCompanyEquipment = useMemo(() => companyEquipment.map((item) => {
+    const name = String(item.name || item.item_name || "").trim();
+    const englishName = storedEnglishEquipmentName(resolveEnglishFromKorean(name, aliasMaps))
+      || storedEnglishEquipmentName(item.alias);
+    return {
+      id: `company:${item.id}`,
+      name,
+      englishName,
+      photoUrl: String(item.photo_url || item.image_url || "").trim(),
+      activityDescription: String(item.usage_description || item.activity_description || item.description || "").trim(),
+      englishActivity: String(item.english_activity || item.activity_description_en || item.english_description || "").trim(),
+      activityDescriptions: {},
+    };
+  }).filter((item) => item.id !== "company:undefined" && item.name), [companyEquipment, aliasMaps]);
   const gearPickerSuggestions = useMemo(() => {
     const byWeek = new Map(normalizedSuggestions.map((item) => [Number(item.weekNumber), item]));
     return Array.from({ length: weekCount }, (_, index) => {
@@ -789,6 +799,7 @@ export default function SuperadminMonthlyPlanEditor({
           setPlanId(null);
           setRowsByGroup(makeRows(weekCountRef.current));
           setEnglishGoals({ ...EMPTY_ENGLISH_GOALS });
+          setKoreanGoals({ ...EMPTY_KOREAN_GOALS });
           setLastSavedAt(null);
         }
         return;
@@ -819,7 +830,7 @@ export default function SuperadminMonthlyPlanEditor({
         group[index] = {
           position: index + 1,
           activity_name: entry.age_group?.startsWith("en")
-            ? loadedEnglishEquipmentName(entry.activity_name, entry.position, suggestedActivities)
+            ? loadedEnglishEquipmentName(entry.activity_name)
             : (entry.activity_name || ""),
           activity_description: entry.age_group?.startsWith("en")
             ? normalizeEnglishActivitySubject(entry.activity_description)
@@ -847,7 +858,7 @@ export default function SuperadminMonthlyPlanEditor({
             }
             next[id][index] = {
               position: index + 1,
-              activity_name: loadedEnglishEquipmentName(entry.activity_name, entry.position, suggestedActivities),
+              activity_name: loadedEnglishEquipmentName(entry.activity_name),
               activity_description: normalizeEnglishActivitySubject(entry.activity_description),
               key_expression: entry.key_expression || "",
               image_path: entry.image_path || "",
@@ -857,10 +868,10 @@ export default function SuperadminMonthlyPlanEditor({
         }
       }
       if (!cancelled) {
-        const parsedGoals = parseEnglishGoals(plan.english_goal);
-        const populatedGoals = Object.values(parsedGoals).map((value) => value.trim()).filter(Boolean);
+        const parsedGoals = parseStoredPlanGoals(plan.english_goal);
+        const populatedGoals = Object.values(parsedGoals.english).map((value) => value.trim()).filter(Boolean);
         const goalsAreDuplicated = populatedGoals.length > 1 && new Set(populatedGoals).size === 1;
-        const nextEnglishGoals = goalsAreDuplicated
+        const nextEnglishGoals = parsedGoals.legacySharedEnglish && goalsAreDuplicated
           ? Object.fromEntries(ENGLISH_AGE_GROUPS.map(({ age, id }) => [
             age,
             buildMonthlyEnglishGoal(next[id].map((row) => ({
@@ -868,11 +879,12 @@ export default function SuperadminMonthlyPlanEditor({
               englishActivity: row.activity_description,
             })), month, age),
           ]))
-          : parsedGoals;
+          : parsedGoals.english;
         setPlanId(plan.id);
         setWeekCount(loadedWeekCount);
         setRowsByGroup(next);
         setEnglishGoals(nextEnglishGoals);
+        setKoreanGoals(parsedGoals.korean);
         setLastSavedAt(plan.updated_at || null);
       }
     })()
@@ -913,18 +925,13 @@ export default function SuperadminMonthlyPlanEditor({
   };
 
   const applyGearSuggestions = (suggestionsByGroup) => {
-    const englishSuggestions = Array.isArray(suggestionsByGroup)
-      ? suggestionsByGroup
-      : suggestionsByGroup.en_4 || suggestionsByGroup.en_5 || suggestionsByGroup.en || [];
-    setRowsByGroup((previous) => ({
-      ...previous,
-      ...Object.fromEntries(editorGroups.map(({ id }) => [
-        id,
-        previous[id].map((row, index) => {
-        const groupSuggestions = Array.isArray(suggestionsByGroup)
-          ? suggestionsByGroup
-          : suggestionsByGroup[id] || [];
-        const byWeek = new Map(groupSuggestions.map((suggestion) => [suggestion.weekNumber, suggestion]));
+    const suggestionsFor = (id) => (
+      Array.isArray(suggestionsByGroup) ? suggestionsByGroup : (suggestionsByGroup[id] || [])
+    );
+    const fillGroupRows = (id, rows) => {
+      const groupSuggestions = suggestionsFor(id);
+      const byWeek = new Map(groupSuggestions.map((suggestion) => [suggestion.weekNumber, suggestion]));
+      return (rows || []).map((row, index) => {
         const suggestion = byWeek.get(index + 1) || groupSuggestions[index];
         if (!suggestion) return row;
         const isEnglish = id.startsWith("en_");
@@ -932,7 +939,7 @@ export default function SuperadminMonthlyPlanEditor({
         return {
           ...row,
           activity_name: isEnglish
-            ? (suggestion.englishName || "Selected Equipment")
+            ? (storedEnglishEquipmentName(suggestion.englishName) || "")
             : (suggestion.name || row.activity_name),
           activity_description: (
             isEnglish
@@ -945,20 +952,65 @@ export default function SuperadminMonthlyPlanEditor({
           image_path: suggestion.photoUrl || row.image_path,
           image_url: suggestion.photoUrl || row.image_url,
         };
-        }),
-      ])),
+      });
+    };
+    const nextRowsById = Object.fromEntries(editorGroups.map(({ id }) => [
+      id,
+      fillGroupRows(id, rowsByGroup[id]),
+    ]));
+    const goalEntries = language === "en"
+      ? editorGroups.map(({ age, id }) => ({
+        key: age,
+        saved: englishGoals[age],
+        currentDefault: buildMonthlyEnglishGoal(
+          (rowsByGroup[id] || []).map((row) => ({
+            englishName: row.activity_name,
+            englishActivity: row.activity_description,
+          })),
+          month,
+          age,
+        ),
+        nextDefault: buildMonthlyEnglishGoal(
+          (nextRowsById[id] || []).map((row) => ({
+            englishName: row.activity_name,
+            englishActivity: row.activity_description,
+          })),
+          month,
+          age,
+        ),
+      }))
+      : editorGroups.map(({ id, label }) => ({
+        key: id,
+        saved: koreanGoals[id],
+        currentDefault: buildMonthlyKoreanGoal(rowsByGroup[id], label, month),
+        nextDefault: buildMonthlyKoreanGoal(nextRowsById[id], label, month),
+      }));
+    const customCount = goalEntries.filter((entry) => isCustomMonthlyGoal(entry.saved, entry.currentDefault)).length;
+    const replaceEdited = customCount > 0 && window.confirm(
+      "수정한 월간 목표가 있습니다. 목표도 새 문구로 바꿀까요?\n\n취소하면 수정한 목표는 그대로 두고, 기본 문구인 연령만 바꿉니다.",
+    );
+    const { goals: nextGoals } = mergeGoalsAfterGearFill(goalEntries, replaceEdited);
+    setRowsByGroup((previous) => ({
+      ...previous,
+      ...nextRowsById,
     }));
     if (language === "en") {
-      setEnglishGoals((previous) => ({
-        ...previous,
-        ...Object.fromEntries(editorGroups.map(({ age, id }) => [
-          age,
-          buildMonthlyEnglishGoal(Array.isArray(suggestionsByGroup) ? englishSuggestions : (suggestionsByGroup[id] || englishSuggestions), month, age),
-        ])),
-      }));
+      setEnglishGoals((previous) => ({ ...previous, ...nextGoals }));
+    } else {
+      setKoreanGoals((previous) => ({ ...previous, ...nextGoals }));
     }
     setGearPickerOpen(false);
-    setMessage("선택한 교구를 불러와 교육계획안을 자동완성했습니다. 아래 표에서 내용을 확인하고 수정할 수 있습니다.");
+    const missingEnglishNames = language === "en"
+      ? Object.entries(nextRowsById).reduce((count, [id, rows]) => (
+        id.startsWith("en_") ? count + rows.filter((row) => englishEquipmentNeedsName(row)).length : count
+      ), 0)
+      : 0;
+    const filledMessage = customCount > 0 && !replaceEdited
+      ? "선택한 교구를 불러와 교육계획안을 자동완성했습니다. 수정한 월간 목표는 그대로 두었습니다."
+      : "선택한 교구를 불러와 교육계획안을 자동완성했습니다. 아래 표에서 내용을 확인하고 수정할 수 있습니다.";
+    setMessage(missingEnglishNames
+      ? `${filledMessage} 영어 이름이 없는 교구는 EQUIPMENT 칸에 직접 입력해 주세요.`
+      : filledMessage);
   };
 
   const fillFromGear = () => {
@@ -1115,8 +1167,40 @@ export default function SuperadminMonthlyPlanEditor({
     }
   };
 
+  const genericEnglishCellCount = () => {
+    if (language !== "en") return 0;
+    let count = 0;
+    for (const { id } of editorGroups) {
+      for (const row of rowsByGroup[id] || []) {
+        if (isGenericEnglishActivity(row.activity_description)) count += 1;
+        if (isGenericEnglishPurpose(row.key_expression)) count += 1;
+      }
+    }
+    return count;
+  };
+
+  const confirmReviewedEnglishSentences = () => {
+    const count = genericEnglishCellCount();
+    if (!count) return true;
+    return window.confirm(`검토하지 않은 자동 문장이 ${count}곳 있어요. 그대로 저장할까요?`);
+  };
+
+  const confirmMissingEnglishEquipmentNames = () => {
+    if (language !== "en") return true;
+    let count = 0;
+    for (const { id } of editorGroups) {
+      for (const row of rowsByGroup[id] || []) {
+        if (englishEquipmentNeedsName(row)) count += 1;
+      }
+    }
+    if (!count) return true;
+    return window.confirm(`영어 이름이 없는 칸이 ${count}곳 있어요. 그대로 저장할까요?`);
+  };
+
   const save = async () => {
     if (!me?.id || !month || saving || setupRequired) return;
+    if (!confirmMissingEnglishEquipmentNames()) return;
+    if (!confirmReviewedEnglishSentences()) return;
     setSaving(true);
     setMessage("");
     let draftSaved = false;
@@ -1128,7 +1212,7 @@ export default function SuperadminMonthlyPlanEditor({
           owner_id: me.id,
           year_month: `${month}-01`,
           title: monthTitle(month),
-          english_goal: JSON.stringify(englishGoals),
+          english_goal: serializePlanGoals(englishGoals, koreanGoals),
           status: "draft",
           updated_at: now,
         }, { onConflict: "owner_id,year_month" })
@@ -1167,11 +1251,13 @@ export default function SuperadminMonthlyPlanEditor({
         month,
         rowsByGroup,
         englishGoals,
+        koreanGoals,
         selectedAge: pdfAge,
         selectedEnglishAges,
         selectedKoreanAges,
         logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
         templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
+        fourWeekTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-ko.png", window.location.origin).href,
       }));
       await upsertMonthlyPlanResourceFile(supabase, {
         me,
@@ -1195,6 +1281,8 @@ export default function SuperadminMonthlyPlanEditor({
 
   const saveAsPdf = async () => {
     if (pdfSaving) return;
+    if (!confirmMissingEnglishEquipmentNames()) return;
+    if (!confirmReviewedEnglishSentences()) return;
     if (!editorGroups.length) {
       setMessage("작성할 연령을 하나 이상 선택해 주세요.");
       return;
@@ -1208,11 +1296,13 @@ export default function SuperadminMonthlyPlanEditor({
         month,
         rowsByGroup,
         englishGoals,
+        koreanGoals,
         selectedAge: pdfAge,
         selectedEnglishAges,
         selectedKoreanAges,
         logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
         templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
+        fourWeekTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-ko.png", window.location.origin).href,
       }));
       const fileName = monthlyPlanPdfFileName({
         month,
@@ -1473,7 +1563,7 @@ export default function SuperadminMonthlyPlanEditor({
                               />
                               <small className="monthly-plan-gear-picker__option-label">교구 {optionIndex + 1}</small>
                               {option.photoUrl ? <img src={option.photoUrl} alt="" /> : <FileImage size={18} />}
-                              <span>{id.startsWith("en_") ? `${option.name} · ${option.englishName || naturalEnglishEquipmentName(option.name)}` : option.name}</span>
+                              <span>{id.startsWith("en_") ? englishGearOptionLabel(option) : option.name}</span>
                             </label>
                           ))}
                           {normalizedCompanyEquipment.length || gearPickerEventOptions.length ? (
@@ -1518,7 +1608,7 @@ export default function SuperadminMonthlyPlanEditor({
                                       const query = String(companyGearSearchByWeek[selectionKey] || "").trim().toLowerCase();
                                       return !query || `${item.name} ${item.englishName}`.toLowerCase().includes(query);
                                     }).map((item) => (
-                                      <option key={item.id} value={item.id}>{id.startsWith("en_") ? `${item.name} · ${item.englishName || naturalEnglishEquipmentName(item.name)}` : item.name}</option>
+                                      <option key={item.id} value={item.id}>{id.startsWith("en_") ? englishGearOptionLabel(item) : item.name}</option>
                                     ))}
                                   </select>
                                 </label>
@@ -1616,10 +1706,14 @@ export default function SuperadminMonthlyPlanEditor({
         ) : language === "ko" ? editorGroups.map(({ id, label }) => (
           <section key={id} className="monthly-plan-age-section">
             <h3>{label}</h3>
-            <div className="monthly-plan-korean-goal" aria-label={`${label} 월간 목표`}>
-              <strong>목표</strong>
-              <span>{buildMonthlyKoreanGoal(rowsByGroup[id], label, month)}</span>
-            </div>
+            <label className="monthly-plan-korean-goal">
+              <strong>월간<br />목표</strong>
+              <textarea
+                value={resolveMonthlyGoal(koreanGoals[id], buildMonthlyKoreanGoal(rowsByGroup[id], label, month))}
+                onChange={(event) => setKoreanGoals((previous) => ({ ...previous, [id]: event.target.value }))}
+                aria-label={`${label} 월간 목표`}
+              />
+            </label>
             <div className="monthly-plan-table monthly-plan-table--ko" role="table" aria-label={`${label} 계획안`}>
               <div className="monthly-plan-table__header" role="row">
                 <div role="columnheader">주차</div><div role="columnheader">교구 및 활동</div><div role="columnheader">활동 내용 및 발달 도움</div>
@@ -1657,11 +1751,34 @@ export default function SuperadminMonthlyPlanEditor({
                 <div className="monthly-plan-table__row" role="row" key={`${id}-${row.position}`}>
                   <div className="monthly-plan-week" role="cell"><span>{index + 1}</span></div>
                   <div className="monthly-plan-equipment" role="cell">
-                    <input value={row.activity_name} onChange={(event) => setRow(id, index, "activity_name", event.target.value)} placeholder="Equipment" />
+                    <div className="monthly-plan-equipment-name">
+                      {englishEquipmentNeedsName(row) ? (
+                        <span className="monthly-plan-review-flag">영어 이름 없음 · 입력 필요</span>
+                      ) : null}
+                      <input
+                        value={row.activity_name}
+                        onChange={(event) => setRow(id, index, "activity_name", event.target.value)}
+                        placeholder={englishEquipmentNeedsName(row) ? "영어 이름 없음 · 입력 필요" : "Equipment"}
+                      />
+                    </div>
                     {imageCell(id, row, index)}
                   </div>
-                  <div role="cell"><textarea value={row.activity_description} onChange={(event) => setRow(id, index, "activity_description", event.target.value)} placeholder="Describe the age-appropriate activity." /></div>
-                  <div className="monthly-plan-purpose" role="cell"><textarea value={row.key_expression} onChange={(event) => setRow(id, index, "key_expression", event.target.value)} placeholder="Describe the motor-development purpose." /></div>
+                  <div role="cell">
+                    <div className="monthly-plan-sentence-field">
+                      {isGenericEnglishActivity(row.activity_description) ? (
+                        <span className="monthly-plan-review-flag">자동 문장 · 검토 필요</span>
+                      ) : null}
+                      <textarea value={row.activity_description} onChange={(event) => setRow(id, index, "activity_description", event.target.value)} placeholder="Describe the age-appropriate activity." />
+                    </div>
+                  </div>
+                  <div className="monthly-plan-purpose" role="cell">
+                    <div className="monthly-plan-sentence-field">
+                      {isGenericEnglishPurpose(row.key_expression) ? (
+                        <span className="monthly-plan-review-flag">자동 문장 · 검토 필요</span>
+                      ) : null}
+                      <textarea value={row.key_expression} onChange={(event) => setRow(id, index, "key_expression", event.target.value)} placeholder="Describe the motor-development purpose." />
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

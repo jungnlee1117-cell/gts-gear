@@ -1,28 +1,35 @@
-import { scheduleSupabase } from "./api.js";
+import {
+  createWeeklySlotVersion,
+  deactivateAssignment,
+  fetchAssignments,
+  fetchWeeklySchedule,
+  saveAssignment,
+  saveWeeklySlot,
+  scheduleSupabase,
+} from "./api.js";
 import { sendPushEvent } from "../pushNotifications.js";
-import { DAY_LABELS, resolveInstitutionSlotPayType } from "./constants.js";
+import { DAY_LABELS, fmtLocalDate } from "./constants.js";
+import { slotTransferLine } from "./weeklySlotDisplay.js";
+import {
+  openTeacherSlots,
+  payTypesAfterSlotTransfer,
+  slotPayType,
+  slotTeacherChangePlan,
+} from "./weeklySlotVersion.js";
 import { filterClassTeacherAssignments } from "./assignmentRoles.js";
+import {
+  TRANSFER_CLASS_TYPES,
+  matchingSlotsForTransfer,
+  resolveTransferClassType,
+  slotStillActiveOnOrAfter,
+} from "./transferTeacherScope.js";
 
-export const TRANSFER_CLASS_TYPES = ["정규", "방과후", "어린이집", "가정방문", "센터", "센터보조", "참관수업"];
-
-function dayBefore(dateStr) {
-  const d = new Date(`${String(dateStr).slice(0, 10)}T12:00:00`);
-  d.setDate(d.getDate() - 1);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function slotStillActiveOnOrAfter(slot, transferDate) {
-  const to = slot.effective_to ? String(slot.effective_to).slice(0, 10) : null;
-  if (to && to < transferDate) return false;
-  return true;
-}
-
-export function resolveTransferClassType(slot) {
-  return resolveInstitutionSlotPayType(slot) || slot?.class_type || "정규";
-}
+export {
+  TRANSFER_CLASS_TYPES,
+  classTypesHeldByTeacher,
+  matchingSlotsForTransfer,
+  resolveTransferClassType,
+} from "./transferTeacherScope.js";
 
 function formatSlotSummary(slots) {
   const days = [];
@@ -125,6 +132,15 @@ export function buildClassTypeTransferGroups({
     });
 }
 
+function dayBefore(dateStr) {
+  const d = new Date(`${String(dateStr).slice(0, 10)}T12:00:00`);
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 async function reassignWeeklySlot(slot, toTeacherId, startDay) {
   const from = slot.effective_from ? String(slot.effective_from).slice(0, 10) : null;
   const to = slot.effective_to ? String(slot.effective_to).slice(0, 10) : null;
@@ -214,14 +230,17 @@ async function upsertTeacherAssignment({ institutionId, teacherId, payTypes, exi
 
 /**
  * 수업 유형별로 담당 선생님을 이관한다.
- * 선택하지 않은 유형은 기존 선생님·시간표를 유지한다.
+ * fromTeacherId가 있으면 그 선생님의 수업·배정만 넘기고, 같은 유형의 다른 선생님은 그대로 둔다.
+ * fromTeacherId가 없으면 해당 유형의 기존 담당 전체를 새 선생님에게 모은다.
  *
  * @param {object} opts
+ * @param {string|null} [opts.fromTeacherId]
  * @param {Array<{ classType: string, toTeacherId: string, transferDate?: string }>} opts.transfers
  */
 export async function transferInstitutionTeachersByClassType({
   institutionId,
   institutionName,
+  fromTeacherId = null,
   transfers = [],
   defaultTransferDate,
 }) {
@@ -254,15 +273,16 @@ export async function transferInstitutionTeachersByClassType({
   const transferredTypes = [];
 
   for (const row of planned) {
-    const matchingSlots = (slots || []).filter((slot) =>
-      resolveTransferClassType(slot) === row.classType
-      && slotStillActiveOnOrAfter(slot, row.transferDate)
-      && slot.teacher_id
-      && slot.teacher_id !== row.toTeacherId,
-    );
+    const matchingSlots = matchingSlotsForTransfer(slots, {
+      classType: row.classType,
+      fromTeacherId,
+      toTeacherId: row.toTeacherId,
+      transferDate: row.transferDate,
+    });
 
     const fromIds = new Set(matchingSlots.map((s) => s.teacher_id));
     for (const a of assignments) {
+      if (fromTeacherId && a.teacher_id !== fromTeacherId) continue;
       if (!(a.pay_types || []).includes(row.classType)) continue;
       if (!a.teacher_id || a.teacher_id === row.toTeacherId) continue;
       if (a.is_active === false) continue;
@@ -395,4 +415,158 @@ export async function transferInstitutionTeachersByClassType({
     transferredTypes,
     newTeacherIds: [...addedByTo.keys()],
   };
+}
+
+function slotVersionPayload(slot, toTeacherId) {
+  return {
+    institution_id: slot.institution_id,
+    teacher_id: toTeacherId,
+    day_of_week: slot.day_of_week,
+    class_type: slot.class_type,
+    start_time: slot.start_time,
+    end_time: slot.end_time,
+    label: slot.label ?? null,
+    sort_order: slot.sort_order ?? 0,
+  };
+}
+
+async function syncRosterAfterSlotTransfer({
+  institutionId,
+  institutionName,
+  fromTeacherId,
+  toTeacherId,
+  transferred,
+}) {
+  const today = fmtLocalDate(new Date());
+  const [weekly, assignments] = await Promise.all([
+    fetchWeeklySchedule(institutionId),
+    fetchAssignments(institutionId, { activeOnly: false }),
+  ]);
+  const fromRow = (assignments || []).find((row) => row.teacher_id === fromTeacherId) || null;
+  const toRow = (assignments || []).find((row) => row.teacher_id === toTeacherId) || null;
+  const remaining = openTeacherSlots(weekly, {
+    teacherId: fromTeacherId,
+    institutionId,
+    today,
+  });
+  const toIsActive = toRow?.is_active !== false;
+  const next = payTypesAfterSlotTransfer({
+    fromPayTypes: fromRow?.pay_types || [],
+    toPayTypes: toIsActive ? (toRow?.pay_types || []) : [],
+    transferredTypes: transferred.map(slotPayType),
+    remainingTypes: remaining.map(slotPayType),
+    fromHasOpenSlots: remaining.length > 0,
+  });
+
+  if (next.toPayTypes.length) {
+    await saveAssignment({
+      institution_id: institutionId,
+      teacher_id: toTeacherId,
+      pay_types: next.toPayTypes,
+      role: "teacher",
+    });
+  }
+
+  if (fromRow?.role === "teacher") {
+    if (next.deactivateFrom) {
+      await deactivateAssignment(fromRow.id);
+    } else if (next.fromPayTypes.length) {
+      await saveAssignment({
+        institution_id: institutionId,
+        teacher_id: fromTeacherId,
+        pay_types: next.fromPayTypes,
+        role: "teacher",
+      });
+    }
+  }
+
+  const name = institutionName || "기관";
+  const typeLabel = formatTypeList(next.toPayTypes);
+  try {
+    await sendPushEvent(scheduleSupabase, "institution_teacher_assigned", {
+      teacher_id: toTeacherId,
+      body: `${name} ${typeLabel} 수업이 배정됐습니다`,
+      institution_name: name,
+      class_types: next.toPayTypes,
+    });
+  } catch (e) {
+    console.warn("new teacher push failed", e);
+  }
+  if (next.deactivateFrom && fromTeacherId !== toTeacherId) {
+    try {
+      await sendPushEvent(scheduleSupabase, "institution_teacher_changed", {
+        teacher_id: fromTeacherId,
+        body: `${name} 담당 수업이 변경됐습니다`,
+        institution_name: name,
+        class_types: transferred.map(slotPayType),
+      });
+    } catch (e) {
+      console.warn("old teacher push failed", e);
+    }
+  }
+}
+
+/**
+ * 선택한 시간표 슬롯만 다른 선생님에게 넘긴다.
+ * 시간표 수정과 같이 기존 행을 닫고 같은 schedule_series_id의 새 행을 만든다.
+ */
+export async function transferSelectedWeeklySlots({
+  slots,
+  toTeacherId,
+  transferDate,
+  changedBy = null,
+  institutionId,
+  institutionName,
+  fromTeacherId,
+}) {
+  if (!institutionId) throw new Error("기관을 확인해 주세요.");
+  if (!fromTeacherId) throw new Error("교체할 선생님을 찾을 수 없습니다.");
+  if (!toTeacherId) throw new Error("새 선생님을 선택해 주세요.");
+  const date = String(transferDate || "").slice(0, 10);
+  if (!date) throw new Error("변경 적용일을 입력해주세요.");
+  const selected = slots || [];
+  if (!selected.length) throw new Error("교체할 수업을 선택해 주세요.");
+
+  const today = fmtLocalDate(new Date());
+  for (const slot of selected) {
+    const plan = slotTeacherChangePlan(slot, date, today);
+    if (!plan.ok) {
+      throw new Error(`${slotTransferLine(slot)}: ${plan.message}`);
+    }
+    const next = slotVersionPayload(slot, toTeacherId);
+    if (plan.mode === "inplace") {
+      await saveWeeklySlot({
+        ...next,
+        id: slot.id,
+        effective_from: slot.effective_from || null,
+        effective_to: slot.effective_to || null,
+        schedule_series_id: slot.schedule_series_id || slot.id,
+        previous_slot_id: slot.previous_slot_id || null,
+        change_reason: "선생님 교체",
+        changed_by: changedBy,
+        updated_at: new Date().toISOString(),
+      });
+      const { error: payrollError } = await scheduleSupabase
+        .from("payroll_entries")
+        .update({
+          teacher_id: toTeacherId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("schedule_slot_id", slot.id)
+        .gte("class_date", date);
+      if (payrollError) throw payrollError;
+    } else {
+      await createWeeklySlotVersion(slot, next, date, "선생님 교체", changedBy);
+    }
+  }
+
+  await syncRosterAfterSlotTransfer({
+    institutionId,
+    institutionName,
+    fromTeacherId,
+    toTeacherId,
+    transferred: selected,
+  });
+
+  return { weeklyTransferred: selected.length };
 }

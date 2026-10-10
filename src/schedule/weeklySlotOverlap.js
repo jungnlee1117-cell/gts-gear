@@ -20,18 +20,25 @@ export function dateRangesOverlap(fromA, toA, fromB, toB) {
 export function findOverlappingInstitutionSlots({
   slots = [],
   institutionId,
+  teacherId = null,
   dayOfWeek,
   startTime,
   endTime,
   effectiveFrom,
   effectiveTo,
   excludeSlotIds = [],
+  excludeSeriesIds = [],
 } = {}) {
   if (!institutionId || !startTime || !endTime) return [];
   const exclude = new Set((excludeSlotIds || []).filter(Boolean));
+  const excludeSeries = new Set((excludeSeriesIds || []).filter(Boolean));
   const day = Number(dayOfWeek);
+  const teacher = teacherId || null;
   return (slots || []).filter((slot) => {
     if (!slot?.id || exclude.has(slot.id)) return false;
+    const seriesId = slot.schedule_series_id || slot.id;
+    if (excludeSeries.has(seriesId) || excludeSeries.has(slot.id)) return false;
+    if ((slot.teacher_id || null) !== teacher) return false;
     if (slot.institution_id !== institutionId) return false;
     if (Number(slot.day_of_week) !== day) return false;
     if (!timesOverlap(startTime, endTime, hhmm(slot.start_time), hhmm(slot.end_time))) return false;
