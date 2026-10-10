@@ -148,11 +148,11 @@ async function reportRows(adminClient, yearMonth: string, secret: string) {
         residentId = "";
       }
     }
-    if (!/^\d{6}-?\d{7}$/.test(residentId.replace(/\s/g, ""))) {
-      missing.push(snapshot.teacher_name);
-    }
     const digits = residentId.replace(/\D/g, "");
-    const formattedResident = digits.length === 13 ? `${digits.slice(0, 6)}-${digits.slice(6)}` : "미등록";
+    const formattedResident = digits.length === 13
+      ? `${digits.slice(0, 6)}-${digits.slice(6)}`
+      : (digits.length === 10 ? `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}` : "미등록");
+    if (formattedResident === "미등록") missing.push(snapshot.teacher_name);
     const gross = Number(snapshot.gross_amount) || 0;
     const incomeTax = floorTen(gross * 0.03);
     const localTax = floorTen(gross * 0.003);

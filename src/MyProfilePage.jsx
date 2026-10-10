@@ -642,6 +642,7 @@ export default function MyProfilePage({ me, session, supabase, onBack, onMeUpdat
                       teacherId={requestedId}
                       canEdit={canHr}
                       canReveal={canRevealSettlement}
+                      payeeKind={profile?.payee_kind === "partner" ? "partner" : "teacher"}
                       onSaved={refreshHrBadges}
                       editing={settlementEditing}
                       onEditingChange={setSettlementEditing}

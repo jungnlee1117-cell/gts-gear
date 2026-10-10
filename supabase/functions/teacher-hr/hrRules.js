@@ -14,6 +14,29 @@ export function maskResidentId(raw) {
   return `${d.slice(0, 6)}-${d[6]}******`;
 }
 
+export function maskBusinessNumber(raw) {
+  const d = digitsOnly(raw);
+  if (d.length !== 10) return "***-**-*****";
+  return `${d.slice(0, 3)}-${d.slice(3, 5)}-*****`;
+}
+
+export function formatBusinessNumber(raw) {
+  const d = digitsOnly(raw);
+  if (d.length !== 10) return d;
+  return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
+}
+
+export function isValidBusinessNumber(raw) {
+  const d = digitsOnly(raw);
+  if (!/^\d{10}$/.test(d)) return false;
+  const weights = [1, 3, 7, 1, 3, 7, 1, 3, 5];
+  let sum = 0;
+  for (let i = 0; i < 9; i += 1) sum += Number(d[i]) * weights[i];
+  sum += Math.floor((Number(d[8]) * 5) / 10);
+  const check = (10 - (sum % 10)) % 10;
+  return check === Number(d[9]);
+}
+
 export function maskAccountNumber(raw) {
   const d = digitsOnly(raw);
   if (!d) return "";
@@ -60,6 +83,7 @@ export function formatRevealedAccount(raw) {
 export function formatRevealedResidentId(raw) {
   const d = digitsOnly(raw);
   if (d.length === 13) return `${d.slice(0, 6)}-${d.slice(6)}`;
+  if (d.length === 10) return formatBusinessNumber(d);
   return d;
 }
 
@@ -143,6 +167,13 @@ export function validateResidentId(raw) {
   return d;
 }
 
+export function validateBusinessNumber(raw) {
+  const d = digitsOnly(raw);
+  if (d.length !== 10) throw new Error("사업자등록번호는 숫자 10자리로 입력해 주세요.");
+  if (!isValidBusinessNumber(d)) throw new Error("사업자등록번호 형식이 올바르지 않습니다.");
+  return d;
+}
+
 export function validateSettlementInput(existing, input = {}) {
   const bankName = String(input.bankName || "").trim();
   const accountHolder = String(input.accountHolder || "").trim();
@@ -151,6 +182,7 @@ export function validateSettlementInput(existing, input = {}) {
 
   const accountRaw = String(input.accountNumber || "").trim();
   const residentRaw = String(input.residentId || "").trim();
+  const partner = input.payeeKind === "partner";
   if (!existing && !accountRaw) throw fieldError("account_number", "계좌번호를 입력해 주세요.");
 
   let accountDigits = null;
@@ -161,7 +193,9 @@ export function validateSettlementInput(existing, input = {}) {
     throw fieldError("account_number", err.message);
   }
   try {
-    residentDigits = residentRaw ? validateResidentId(residentRaw) : null;
+    if (residentRaw) {
+      residentDigits = partner ? validateBusinessNumber(residentRaw) : validateResidentId(residentRaw);
+    }
   } catch (err) {
     throw fieldError("resident_id", err.message);
   }
@@ -171,6 +205,7 @@ export function validateSettlementInput(existing, input = {}) {
     accountHolder,
     accountDigits,
     residentDigits,
+    payeeKind: partner ? "partner" : "teacher",
   };
 }
 

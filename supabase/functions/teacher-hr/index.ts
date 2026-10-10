@@ -14,6 +14,7 @@ import {
   requireSignAgreement,
   safeErrorMessage,
   settlementRevealAuditRow,
+  maskBusinessNumber,
   validateSettlementInput,
 } from "./hrRules.js";
 import { generateGtsContractPdf, appendSignedPartyPage } from "./contractPdf.js";
@@ -208,11 +209,20 @@ async function upsertSettlement(adminClient, {
     .maybeSingle();
   if (exErr) throw exErr;
 
+  const { data: teacherRow, error: teacherErr } = await adminClient
+    .from("teachers")
+    .select("payee_kind")
+    .eq("id", teacherId)
+    .maybeSingle();
+  if (teacherErr) throw teacherErr;
+  const payeeKind = teacherRow?.payee_kind === "partner" ? "partner" : "teacher";
+
   const parsed = validateSettlementInput(existing, {
     bankName,
     accountHolder,
     accountNumber,
     residentId,
+    payeeKind,
   });
 
   const row: Record<string, unknown> = {
@@ -236,7 +246,9 @@ async function upsertSettlement(adminClient, {
   if (parsed.residentDigits) {
     try {
       row.resident_id_ciphertext = await encryptText(parsed.residentDigits, secret);
-      row.resident_id_mask = maskResidentId(parsed.residentDigits);
+      row.resident_id_mask = parsed.payeeKind === "partner"
+        ? maskBusinessNumber(parsed.residentDigits)
+        : maskResidentId(parsed.residentDigits);
     } catch {
       const err = new Error("encrypt failed");
       err.code = "ENCRYPT_FAILED";

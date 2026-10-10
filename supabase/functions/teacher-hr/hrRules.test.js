@@ -15,6 +15,7 @@ import {
   sanitizeLogValue,
   settlementRevealAuditRow,
   validateAccountNumber,
+  validateBusinessNumber,
   validateResidentId,
   validateSettlementInput,
 } from "./hrRules.js";
@@ -149,6 +150,31 @@ describe("resident id and account server validation", () => {
     });
     assert.equal(ok.accountDigits, VALID_ACCOUNT);
     assert.equal(ok.residentDigits, VALID_RRN);
+  });
+
+  it("협력업체는 주민번호 대신 사업자등록번호 10자리를 받는다", () => {
+    const body = "123456789";
+    const weights = [1, 3, 7, 1, 3, 7, 1, 3, 5];
+    let sum = 0;
+    for (let i = 0; i < 9; i += 1) sum += Number(body[i]) * weights[i];
+    sum += Math.floor((Number(body[8]) * 5) / 10);
+    const businessNumber = `${body}${(10 - (sum % 10)) % 10}`;
+    assert.equal(validateBusinessNumber(businessNumber), businessNumber);
+    const saved = validateSettlementInput(null, {
+      bankName: "국민은행",
+      accountHolder: "와이에이에듀",
+      accountNumber: VALID_ACCOUNT,
+      residentId: businessNumber,
+      payeeKind: "partner",
+    });
+    assert.equal(saved.residentDigits, businessNumber);
+    assert.equal(saved.payeeKind, "partner");
+    assert.throws(() => validateSettlementInput(null, {
+      bankName: "국민은행",
+      accountHolder: "와이에이에듀",
+      accountNumber: VALID_ACCOUNT,
+      residentId: businessNumber,
+    }), /주민등록번호/);
   });
 });
 

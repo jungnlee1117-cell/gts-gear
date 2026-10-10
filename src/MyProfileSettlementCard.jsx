@@ -36,6 +36,7 @@ function formatRemain(ms) {
 function SettlementEditForm({
   saved,
   hasSaved,
+  payeeKind,
   onCancel,
   onSave,
 }) {
@@ -61,6 +62,7 @@ function SettlementEditForm({
           accountHolder: form.account_holder,
           accountNumber: form.account_number,
           residentId: form.resident_id,
+          payeeKind,
         },
       );
     } catch (err) {
@@ -112,12 +114,12 @@ function SettlementEditForm({
             autoComplete="off"
           />
         </FormField>
-        <FormField label="주민등록번호" error={fieldErrors.resident_id}>
+        <FormField label={payeeKind === "partner" ? "사업자등록번호" : "주민등록번호"} error={fieldErrors.resident_id}>
           <input
             className="my-profile-input"
             value={form.resident_id}
             onChange={(e) => setField("resident_id", sanitizeLooseNumber(e.target.value))}
-            placeholder={saved.resident_id_mask || "000000-0000000"}
+            placeholder={saved.resident_id_mask || (payeeKind === "partner" ? "000-00-00000" : "000000-0000000")}
             inputMode="numeric"
             autoComplete="off"
           />
@@ -141,6 +143,7 @@ export default function MyProfileSettlementCard({
   teacherId,
   canEdit,
   canReveal,
+  payeeKind = "teacher",
   onSaved,
   editing: editingProp,
   onEditingChange,
@@ -266,7 +269,7 @@ export default function MyProfileSettlementCard({
   if (loading) {
     return (
       <section className="my-profile-card">
-        <h2 className="my-profile-card-title">급여 정산정보</h2>
+        <h2 className="my-profile-card-title">{payeeKind === "partner" ? "급여 정산정보 · 협력업체" : "급여 정산정보"}</h2>
         <p className="my-profile-muted" style={{ margin: "8px 0 0" }}>불러오는 중...</p>
       </section>
     );
@@ -277,7 +280,7 @@ export default function MyProfileSettlementCard({
   return (
     <section className="my-profile-card my-profile-card--secure">
       <div className="my-profile-section-head">
-        <h2 className="my-profile-card-title">급여 정산정보</h2>
+        <h2 className="my-profile-card-title">{payeeKind === "partner" ? "급여 정산정보 · 협력업체" : "급여 정산정보"}</h2>
         {!showForm ? (
           <div className="my-profile-section-actions">
             {canReveal && hasSensitive ? (
@@ -328,7 +331,7 @@ export default function MyProfileSettlementCard({
               locked={Boolean(saved.account_number_mask) && !(showRevealed && revealed?.account_number)}
             />
           </FormField>
-          <FormField label="주민등록번호">
+          <FormField label={payeeKind === "partner" ? "사업자등록번호" : "주민등록번호"}>
             <MaskedValue
               value={showRevealed && revealed.resident_id ? revealed.resident_id : saved.resident_id_mask}
               revealed={showRevealed && Boolean(revealed?.resident_id)}
@@ -341,6 +344,7 @@ export default function MyProfileSettlementCard({
           key={`${teacherId}-edit`}
           saved={saved}
           hasSaved={hasSaved}
+          payeeKind={payeeKind}
           onCancel={() => setEditing(false)}
           onSave={handleSave}
         />
