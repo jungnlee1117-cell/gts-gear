@@ -145,6 +145,12 @@ import { buildRegularClassGuideByItem } from "./regularClassGearGuide.js";
 import { schoolYearStartYear, schoolYearMonths } from "./lessonPlan.js";
 import { yearMonthFirstDay } from "./itemRotation.js";
 import { buildCurrentRentals, buildDueReturns } from "./teacherGearStatus.js";
+import {
+  NO_RENTAL_INSTITUTION_MESSAGE,
+  loadRentalInstitutionOptions,
+  resolveChosenRentalLocation,
+  shouldAutofillRentalLocation,
+} from "./rentalInstitutionOptions.js";
 import { fetchItemIdeas, insertItemIdea, toggleItemIdeaLike } from "./itemIdeas.js";
 import DataExportPage from "./DataExportPage.jsx";
 import {
@@ -10747,27 +10753,14 @@ function canChooseAnyRentalInstitution(me) {
 }
 
 async function fetchRentalInstitutionOptions(me) {
-  if (!me?.id) throw new Error("로그인 정보를 확인할 수 없습니다.");
-  const { data, error } = canChooseAnyRentalInstitution(me)
-    ? await supabase.from("institutions").select("id, name, is_active").eq("is_active", true).order("name")
-    : await supabase.rpc("get_teacher_assigned_institutions");
-  if (error) throw error;
-  const unique = new Map();
-  for (const institution of data || []) {
-    if (institution?.id && institution?.name && institution.is_active !== false) {
-      unique.set(institution.id, institution);
-    }
-  }
-  return [...unique.values()];
+  return loadRentalInstitutionOptions(supabase, me, {
+    canChooseAll: canChooseAnyRentalInstitution(me),
+  });
 }
 
 async function resolveRentalInstitutionName(me, requestedName) {
   const options = await fetchRentalInstitutionOptions(me);
-  if (!options.length) throw new Error("등록된 소속 기관이 없습니다. 관리자에게 문의해 주세요.");
-  if (!canChooseAnyRentalInstitution(me) && options.length === 1) return options[0].name;
-  const matched = options.find(institution => institution.name === requestedName);
-  if (!matched) throw new Error("사용 기관을 선택해 주세요.");
-  return matched.name;
+  return resolveChosenRentalLocation(requestedName, options, canChooseAnyRentalInstitution(me));
 }
 
 function useRentalInstitutionOptions(me) {
@@ -10802,7 +10795,7 @@ function RentalInstitutionField({ institutionState, value, onChange }) {
   if (error || options.length === 0) {
     return (
       <div style={{ fontSize: 12, color: DS.danger, marginBottom: 14 }}>
-        {error ? `기관 정보를 불러오지 못했습니다: ${error}` : "등록된 소속 기관이 없습니다. 관리자에게 문의해 주세요."}
+        {error ? `기관 정보를 불러오지 못했습니다: ${error}` : NO_RENTAL_INSTITUTION_MESSAGE}
       </div>
     );
   }
@@ -10849,7 +10842,7 @@ function ReservationModal({ item, me, onClose, onSubmit }) {
   const startMin = reservationMinStartYmd();
 
   useEffect(() => {
-    if (!institutionState.loading && !institutionState.canChoose && institutionState.options.length === 1) {
+    if (shouldAutofillRentalLocation(institutionState)) {
       setF(previous => ({ ...previous, location: institutionState.options[0].name }));
     }
   }, [institutionState.loading, institutionState.canChoose, institutionState.options]);
@@ -11149,7 +11142,7 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose,onQ
   }, [cart, f.dispatch_end]);
 
   useEffect(() => {
-    if (!institutionState.loading && !institutionState.canChoose && institutionState.options.length === 1) {
+    if (shouldAutofillRentalLocation(institutionState)) {
       setF(previous => ({ ...previous, dispatch_location: institutionState.options[0].name }));
     }
   }, [institutionState.loading, institutionState.canChoose, institutionState.options]);
@@ -11310,7 +11303,7 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, me, onSubmit, o
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!institutionState.loading && !institutionState.canChoose && institutionState.options.length === 1) {
+    if (shouldAutofillRentalLocation(institutionState)) {
       setF(previous => ({ ...previous, dispatch_location: institutionState.options[0].name }));
     }
   }, [institutionState.loading, institutionState.canChoose, institutionState.options]);
