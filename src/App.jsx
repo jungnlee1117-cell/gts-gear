@@ -110,6 +110,7 @@ import {
   RETURN_ALBUM_PHOTO_HINT,
   RETURN_PHOTO_REQUIRED_MESSAGE,
   compressReturnPhoto,
+  listReturnPhotoUrls,
   isReturnPhotoRequiredFor,
   uploadReturnPhoto,
   validateReturnLocationGroups,
@@ -7054,13 +7055,47 @@ function MyReservationsPage({ me, reservations, items, ris, rets, onCancel }) {
   );
 }
 
+function ReturnHistoryPhotos({ urls, label, onOpen }) {
+  const [failed, setFailed] = useState(() => new Set());
+  const visible = urls.filter(url => url && !failed.has(url));
+  if (!visible.length) return <span className="gts-return-history-empty">사진 없음</span>;
+  return (
+    <div className="gts-return-history-photos">
+      {visible.map((url, index) => (
+        <button
+          key={`${url}-${index}`}
+          type="button"
+          className="gts-return-history-photo"
+          onClick={() => onOpen(visible, index, label)}
+          aria-label={`${label} 반납 사진 ${index + 1} 크게 보기`}
+        >
+          <img
+            src={url}
+            alt=""
+            onError={() => setFailed(prev => {
+              const next = new Set(prev);
+              next.add(url);
+              return next;
+            })}
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRet,onDamage,onLoss}) {
-  const pendRets = filterReturnPendingLastWeek(rets);
+  const canSeeAllReturns = isItemAdmin(me) || isGearPlatformAdmin(me);
+  const visibleRets = useMemo(
+    () => (canSeeAllReturns ? (rets || []) : (rets || []).filter(ret => ret.teacher_id === me?.id)),
+    [rets, canSeeAllReturns, me?.id],
+  );
+  const pendRets = filterReturnPendingLastWeek(visibleRets);
   const [rejectId, setRejectId] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
   const [photoLightbox, setPhotoLightbox] = useState(null);
 
-  const approvedRows = useMemo(() => (rets || [])
+  const approvedRows = useMemo(() => visibleRets
     .filter(r => ["return_approved", "damage_confirmed", "loss_confirmed", "return_rejected"].includes(r.status))
     .map(ret => {
       const ri = ris.find(r => r.id === ret.rental_item_id);
@@ -7076,8 +7111,9 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
       };
     })
     .sort((a, b) => new Date(b.approvedAt || b.returnDate) - new Date(a.approvedAt || a.returnDate)),
-  [rets, ris, items, teachers]);
+  [visibleRets, ris, items, teachers]);
 
+  const historyTableColumns = "minmax(72px, 0.9fr) minmax(72px, 0.8fr) minmax(72px, 0.9fr) minmax(108px, 1.1fr) minmax(120px, 1.4fr) minmax(88px, 180px) minmax(72px, 0.7fr)";
   const historyTableHead = {
     display: "grid",
     gap: 8,
@@ -7086,7 +7122,7 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
     fontSize: 10,
     fontWeight: 700,
     color: DS.textMuted,
-    gridTemplateColumns: "minmax(72px, 0.9fr) minmax(72px, 0.8fr) minmax(72px, 0.9fr) minmax(108px, 1.1fr) minmax(120px, 1.6fr) minmax(72px, 0.7fr)",
+    gridTemplateColumns: historyTableColumns,
   };
   const historyTableRow = {
     display: "grid",
@@ -7095,7 +7131,7 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
     borderTop: "1px solid #f8fafc",
     fontSize: 12,
     alignItems: "start",
-    gridTemplateColumns: "minmax(72px, 0.9fr) minmax(72px, 0.8fr) minmax(72px, 0.9fr) minmax(108px, 1.1fr) minmax(120px, 1.6fr) minmax(72px, 0.7fr)",
+    gridTemplateColumns: historyTableColumns,
   };
 
   return (
@@ -7118,7 +7154,7 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
             {pendRets.map(ret => {
               const ri = ris.find(r => r.id === ret.rental_item_id);
               const itemName = iname(ri?.item_id, items);
-              const photoUrl = ret.return_photo_url || null;
+              const photoUrls = listReturnPhotoUrls(ret.return_photo_url);
               const teacherName = tname(ret.teacher_id, teachers);
               return (
                 <article key={ret.id} className="gts-return-approval-card">
@@ -7138,19 +7174,12 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
                         <p className="gts-return-approval-card__memo">{ret.memo}</p>
                       ) : null}
                     </div>
-                    {photoUrl ? (
-                      <button
-                        type="button"
-                        className="gts-return-approval-card__photo"
-                        onClick={() => setPhotoLightbox({
-                          src: photoUrl,
-                          alt: `${itemName} 반납 사진`,
-                        })}
-                        aria-label={`${itemName} 반납 사진 크게 보기`}
-                        title="클릭하면 크게 보기"
-                      >
-                        <img src={photoUrl} alt="" />
-                      </button>
+                    {photoUrls.length ? (
+                      <ReturnHistoryPhotos
+                        urls={photoUrls}
+                        label={itemName}
+                        onOpen={(images, index, alt) => setPhotoLightbox({ images, index, alt, src: images[index] })}
+                      />
                     ) : null}
                   </div>
                   <div className="gts-return-approval-card__actions">
@@ -7169,6 +7198,8 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
       {photoLightbox ? (
         <ImageLightbox
           src={photoLightbox.src}
+          images={photoLightbox.images}
+          index={photoLightbox.index || 0}
           alt={photoLightbox.alt}
           onClose={() => setPhotoLightbox(null)}
         />
@@ -7202,21 +7233,27 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
           <Empty text="승인된 반납 내역이 없습니다"/>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <div style={{ ...historyTableHead, minWidth: 680 }}>
+            <div style={{ ...historyTableHead, minWidth: 820 }}>
               <span>반납자</span>
               <span>반납일</span>
               <span>승인자</span>
               <span>승인일시</span>
               <span>교구</span>
+              <span>사진</span>
               <span>상태</span>
             </div>
             {approvedRows.map(({ ret, teacherName, returnDate, approverName, approvedAt, itemLabel }) => (
-              <div key={ret.id} style={{ ...historyTableRow, minWidth: 680 }}>
+              <div key={ret.id} style={{ ...historyTableRow, minWidth: 820 }}>
                 <span style={{ fontWeight: 700, color: DS.textPrimary }}>{teacherName}</span>
                 <span style={{ color: DS.textSecondary }}>{fmt(returnDate)}</span>
                 <span style={{ fontWeight: 600, color: DS.textPrimary }}>{approverName}</span>
                 <span style={{ color: DS.textSecondary, lineHeight: 1.5 }}>{fmtdt(approvedAt)}</span>
                 <span style={{ color: DS.textSecondary, lineHeight: 1.5 }}>{itemLabel}</span>
+                <ReturnHistoryPhotos
+                  urls={listReturnPhotoUrls(ret.return_photo_url)}
+                  label={itemLabel}
+                  onOpen={(images, index, alt) => setPhotoLightbox({ images, index, alt, src: images[index] })}
+                />
                 <span><Badge s={ret.status}/></span>
               </div>
             ))}

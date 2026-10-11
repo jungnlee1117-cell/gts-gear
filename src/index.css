@@ -3362,6 +3362,42 @@ code {
   margin-top: auto;
 }
 
+.gts-return-history-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.gts-return-history-photo {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  overflow: hidden;
+  cursor: zoom-in;
+  font-family: inherit;
+}
+
+.gts-return-history-photo img {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+}
+
+.gts-return-history-empty {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 @media (max-width: 480px) {
   .gts-return-approval-card__photo {
     width: 76px;

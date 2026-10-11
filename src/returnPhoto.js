@@ -35,8 +35,26 @@ export function isReturnPhotoRequiredFor(user, date = new Date()) {
   return isReturnPhotoRequired(date);
 }
 
-export function returnPhotoStoragePath(itemId) {
-  return `returns/${itemId}.jpg`;
+export function returnPhotoStoragePath(itemId, stamp = Date.now()) {
+  return `returns/${itemId}/${stamp}.jpg`;
+}
+
+/** return_photo_url 한 칸에 들어 있는 사진을 모두 꺼낸다. 없으면 빈 배열. */
+export function listReturnPhotoUrls(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => String(item || "").trim()).filter(Boolean);
+  }
+  const text = String(value ?? "").trim();
+  if (!text) return [];
+  if (text.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return listReturnPhotoUrls(parsed);
+    } catch {
+      /* 단일 URL로 취급 */
+    }
+  }
+  return [text];
 }
 
 /**
@@ -72,15 +90,14 @@ export async function compressReturnPhoto(file) {
 }
 
 /**
- * 교구별 고정 경로에 업로드 (이전 파일 삭제 후 덮어쓰기)
+ * 반납 건마다 새 경로에 업로드한다. 이전 반납 파일은 지우지 않는다.
  * @returns {Promise<string>} public URL (cache-bust query 포함)
  */
 export async function uploadReturnPhoto(client, itemId, blob) {
   const path = returnPhotoStoragePath(itemId);
-  await client.storage.from(RETURN_PHOTO_BUCKET).remove([path]);
   const { error } = await client.storage
     .from(RETURN_PHOTO_BUCKET)
-    .upload(path, blob, { upsert: true, contentType: "image/jpeg", cacheControl: "60" });
+    .upload(path, blob, { upsert: false, contentType: "image/jpeg", cacheControl: "3600" });
   if (error) throw new Error(error.message);
   const { data } = client.storage.from(RETURN_PHOTO_BUCKET).getPublicUrl(path);
   const base = data?.publicUrl;
