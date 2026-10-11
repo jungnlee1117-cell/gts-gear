@@ -145,12 +145,7 @@ import { buildRegularClassGuideByItem } from "./regularClassGearGuide.js";
 import { schoolYearStartYear, schoolYearMonths } from "./lessonPlan.js";
 import { yearMonthFirstDay } from "./itemRotation.js";
 import { buildCurrentRentals, buildDueReturns } from "./teacherGearStatus.js";
-import {
-  NO_RENTAL_INSTITUTION_MESSAGE,
-  loadRentalInstitutionOptions,
-  resolveChosenRentalLocation,
-  shouldAutofillRentalLocation,
-} from "./rentalInstitutionOptions.js";
+import { OMITTED_RENTAL_LOCATION, rentalPartyTitle, visibleRentalLocation } from "./rentalInstitutionOptions.js";
 import { fetchItemIdeas, insertItemIdea, toggleItemIdeaLike } from "./itemIdeas.js";
 import DataExportPage from "./DataExportPage.jsx";
 import {
@@ -1230,7 +1225,7 @@ function buildItemRentalHistory(itemId, ris, reqs, teachers, rets) {
         ...ri,
         req,
         teacherName: req ? tname(req.teacher_id, teachers) : "-",
-        location: req?.dispatch_location || "-",
+        location: visibleRentalLocation(req?.dispatch_location),
         start: req?.dispatch_start,
         end: req?.dispatch_end,
         sortAt: ri.approved_at || ri.created_at || req?.created_at || "",
@@ -1312,7 +1307,7 @@ function getExtensionCandidates(me, reqs, ris, items, rets, itemSets = []) {
       out.push({
         ri: line.ri,
         itemName: g.item?.name || iname(line.ri.item_id, items),
-        location: line.req?.dispatch_location || "-",
+        location: visibleRentalLocation(line.req?.dispatch_location),
         due_date: line.due_date,
         dday: d,
         held: line.held,
@@ -4323,7 +4318,7 @@ function HoldingsListView({ held, items, reqs, me, onForceReturn, onGoAll }) {
       overdue: d!==null && d<0,
       dueToday: d===0,
       name: item?.name || iname(ri.item_id, items),
-      location: req?.dispatch_location || item?.branch || "-",
+      location: visibleRentalLocation(req?.dispatch_location) || item?.branch || "-",
     };
   }), [held, items, reqs]);
 
@@ -4474,9 +4469,10 @@ function HoldingsListView({ held, items, reqs, me, onForceReturn, onGoAll }) {
       {/* 행 상세 (반납/강제반납/히스토리) */}
       {selected && (() => {
         const { ri, item, req, d, overdue } = selected;
+        const dispatchPlace = visibleRentalLocation(req?.dispatch_location);
         const info = [
           ["보관 위치", selected.location],
-          ["파견지", req?.dispatch_location || "-"],
+          ...(dispatchPlace ? [["파견지", dispatchPlace]] : []),
           ["대여 기간", `${fmt(req?.dispatch_start)} ~ ${fmt(req?.dispatch_end)}`],
           ["반납 예정일", `${fmt(ri.due_date)}${d===null?"":`  ·  ${overdue?`D+${Math.abs(d)}`:d===0?"D-Day":`D-${d}`}`}`],
           ["신청일", fmt(req?.created_at)],
@@ -4523,7 +4519,7 @@ function HoldingsListView({ held, items, reqs, me, onForceReturn, onGoAll }) {
 function TeacherHoldingsModal({ teacher, items, reqs, me, onForceReturn, onClose, onGoAll }) {
   const subLine = useMemo(() => {
     const locs = teacher.held
-      .map(ri => reqs.find(r=>r.id===ri.request_id)?.dispatch_location)
+      .map(ri => visibleRentalLocation(reqs.find(r=>r.id===ri.request_id)?.dispatch_location))
       .filter(Boolean);
     return [...new Set(locs)].slice(0,3).join(" · ");
   }, [teacher, reqs]);
@@ -4698,7 +4694,9 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
                         <span style={{ fontWeight:800, fontSize:15, color:"#111827" }}>{t?.name||"-"}</span>
                         <span style={{ fontSize:11, fontWeight:700, color:"#ca8a04", background:"#fef9c3", padding:"2px 8px", borderRadius:99 }}>대여신청</span>
                       </div>
-                      <div style={{ fontSize:12, color:DS.textSecondary }}>{req.dispatch_location||"-"}</div>
+                      {visibleRentalLocation(req.dispatch_location) ? (
+                        <div style={{ fontSize:12, color:DS.textSecondary }}>{visibleRentalLocation(req.dispatch_location)}</div>
+                      ) : null}
                       <div style={{ fontSize:12, color:DS.textMuted, marginTop:3 }}>신청일 {fmt(req.created_at)} · 대여기간 {fmtShort(req.dispatch_start)} ~ {fmtShort(req.dispatch_end)}</div>
                     </div>
                   </div>
@@ -4867,7 +4865,9 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
               return(
                 <div key={req.id} style={{...card,borderLeft:`3px solid ${SC[req.status]?.c||"#e2e8f0"}`}}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                    <div style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{req.dispatch_location}</div>
+                    {visibleRentalLocation(req.dispatch_location) ? (
+                      <div style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{visibleRentalLocation(req.dispatch_location)}</div>
+                    ) : null}
                     <Badge s={req.status}/>
                   </div>
                   <div style={{fontSize:11,color:DS.textSecondary,marginBottom:8}}>{fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}</div>
@@ -5330,7 +5330,6 @@ function ItemsPage({items,setItems,itemSets,ris,rets,reqs,teachers,me,cart,setCa
       {reserveItem && (
         <ReservationModal
           item={reserveItem}
-          me={me}
           onClose={() => setReserveItem(null)}
           onSubmit={(payload) => {
             onSubmitReservation?.({ ...payload, item_id: reserveItem.id });
@@ -6095,7 +6094,6 @@ function ItemsBrowsePage({
       {reserveItem && (
         <ReservationModal
           item={reserveItem}
-          me={me}
           onClose={() => setReserveItem(null)}
           onSubmit={(payload) => {
             onSubmitReservation?.({ ...payload, item_id: reserveItem.id });
@@ -6564,10 +6562,12 @@ function ItemDetailPage({item,ris,rets,reqs,teachers,cart,setCart,onBack,backLab
                     gap: "10px 16px",
                     fontSize: 12,
                   }}>
-                    <div>
-                      <div style={{ color: DS.textMuted, marginBottom: 3 }}>파견지</div>
-                      <div style={{ fontWeight: 600, color: DS.textPrimary }}>{req?.dispatch_location || "-"}</div>
-                    </div>
+                    {visibleRentalLocation(req?.dispatch_location) ? (
+                      <div>
+                        <div style={{ color: DS.textMuted, marginBottom: 3 }}>파견지</div>
+                        <div style={{ fontWeight: 600, color: DS.textPrimary }}>{visibleRentalLocation(req.dispatch_location)}</div>
+                      </div>
+                    ) : null}
                     <div>
                       <div style={{ color: DS.textMuted, marginBottom: 3 }}>수량</div>
                       <div style={{ fontWeight: 700, color: DS.textPrimary }}>{ri.quantity}개</div>
@@ -6838,7 +6838,7 @@ function RentalApprovalPage({me,reqs,ris,items,itemSets,teachers,onApprove,onRej
         const t=teachers.find(x=>x.id===req.teacher_id);
         const reqRIs=ris.filter(ri=>ri.request_id===req.id);
         return(
-          <PanelSection key={req.id} title={`${t?.name||"선생님"} · ${req.dispatch_location}`}>
+          <PanelSection key={req.id} title={rentalPartyTitle(t?.name, req.dispatch_location)}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
               <div style={{fontSize:12,color:DS.textSecondary,lineHeight:1.7}}>
                 <div><strong style={{color:DS.textPrimary}}>대여자</strong> {t?.name||"-"}</div>
@@ -6939,7 +6939,7 @@ function ReservationApprovalPage({ me, reservations, items, teachers, onApprove,
           <PanelSection key={res.id} title={`${t?.name || "선생님"} · ${item?.name || "-"}`}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
               <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.7 }}>
-                <div>사용 장소: {res.location}</div>
+                {visibleRentalLocation(res.location) ? <div>사용 장소: {visibleRentalLocation(res.location)}</div> : null}
                 <div>예약 기간: {fmt(res.start_date)} ~ {fmt(res.end_date)}</div>
                 <div>수량: {res.quantity}개</div>
                 <div style={{ marginTop: 4 }}>신청일: {fmt(res.created_at)}</div>
@@ -7029,7 +7029,7 @@ function MyReservationsPage({ me, reservations, items, ris, rets, onCancel }) {
                       <CatTag cat={item?.category}/>
                       <span style={{ fontFamily: "monospace", fontSize: 10, color: DS.textMuted }}>{item?.code}</span>
                     </div>
-                    <div>사용 장소: {res.location}</div>
+                    {visibleRentalLocation(res.location) ? <div>사용 장소: {visibleRentalLocation(res.location)}</div> : null}
                     <div>예약 기간: {fmt(res.start_date)} ~ {fmt(res.end_date)}</div>
                     <div>수량: {res.quantity}개</div>
                     <div>신청일: {fmt(res.created_at)}</div>
@@ -9269,7 +9269,9 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
               <div key={req.id} style={{ ...card, borderLeft: "3px solid #d97706", marginBottom: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary }}>{req.dispatch_location}</div>
+                    {visibleRentalLocation(req.dispatch_location) ? (
+                      <div style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary }}>{visibleRentalLocation(req.dispatch_location)}</div>
+                    ) : null}
                     <div style={{ fontSize: 11, color: DS.textSecondary, marginTop: 2 }}>
                       {fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}
                     </div>
@@ -9364,7 +9366,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
                     const dd = ddayTag(line.due_date);
                     return (
                       <div key={line.ri.id}>
-                        · {line.req?.dispatch_location || "파견지"} — 보유 {line.held}개
+                        · {visibleRentalLocation(line.req?.dispatch_location) ? `${visibleRentalLocation(line.req.dispatch_location)} — ` : ""}보유 {line.held}개
                         {line.pendingRet > 0 && (
                           <span style={{ color: RETURN_THEME.text, fontWeight: 600 }}> (반납 대기 {line.pendingRet}개)</span>
                         )}
@@ -9508,7 +9510,6 @@ function TeacherRentalReturnPage({
       {editReq && (
         <EditRentalRequestModal
           req={editReq}
-          me={me}
           reqRIs={editReqRIs}
           items={items}
           ris={ris}
@@ -10173,7 +10174,9 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
                     </div>
                     <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 6, lineHeight: 1.7 }}>
                       <div>대여자: {teacher}</div>
-                      <div>사용 장소: {req?.dispatch_location || "-"}</div>
+                      {visibleRentalLocation(req?.dispatch_location) ? (
+                        <div>사용 장소: {visibleRentalLocation(req.dispatch_location)}</div>
+                      ) : null}
                       <div>
                         반납예정: {fmt(ri.due_date)} ·{" "}
                         <span style={{ fontWeight: 800, color: dd?.color }}>{dd?.text}</span>
@@ -10512,7 +10515,7 @@ function RentalStatusPage({me,teachers,reqs,ris,rets,items,initialFilter="all",o
                           <span style={{color:DS.textMuted}}>{dateStr}</span>
                           <span style={{fontWeight:600,color:DS.textPrimary}}>{l.item?.name||"-"}</span>
                           <span style={{fontWeight:700}}>{l.ri.quantity}</span>
-                          <span style={{color:DS.textSecondary}}>{l.req?.dispatch_location||"-"}</span>
+                          <span style={{color:DS.textSecondary}}>{visibleRentalLocation(l.req?.dispatch_location)}</span>
                           {l.forceReturn ? (
                             <span style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", lineHeight: 1.35 }}>
                               {FORCE_RETURN_MEMO}
@@ -10612,7 +10615,9 @@ function RentalsPage({me,reqs,ris,items,teachers,rets,onApprove,onReject,onCance
                   </div>
                 )}
                 <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8}}>
-                  <div style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{req.dispatch_location}</div>
+                  {visibleRentalLocation(req.dispatch_location) ? (
+                    <div style={{fontWeight:800,fontSize:14,color:DS.textPrimary}}>{visibleRentalLocation(req.dispatch_location)}</div>
+                  ) : null}
                   <Badge s={req.status}/>
                 </div>
                 <div style={{fontSize:11,color:DS.textSecondary,marginTop:2}}>{fmt(req.dispatch_start)} ~ {fmt(req.dispatch_end)}</div>
@@ -10748,117 +10753,21 @@ function validateReservationDates(startYmd, endYmd) {
   return null;
 }
 
-function canChooseAnyRentalInstitution(me) {
-  return isSuperAdmin(me) || isItemAdmin(me) || isGearPlatformAdmin(me);
-}
-
-async function fetchRentalInstitutionOptions(me) {
-  return loadRentalInstitutionOptions(supabase, me, {
-    canChooseAll: canChooseAnyRentalInstitution(me),
-  });
-}
-
-async function resolveRentalInstitutionName(me, requestedName) {
-  const options = await fetchRentalInstitutionOptions(me);
-  return resolveChosenRentalLocation(requestedName, options, canChooseAnyRentalInstitution(me));
-}
-
-function useRentalInstitutionOptions(me) {
-  const canChooseAll = canChooseAnyRentalInstitution(me);
-  const [state, setState] = useState({ options: [], loading: true, error: "" });
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ options: [], loading: true, error: "" });
-    fetchRentalInstitutionOptions(me)
-      .then(options => {
-        if (!cancelled) setState({ options, loading: false, error: "" });
-      })
-      .catch(error => {
-        if (!cancelled) setState({ options: [], loading: false, error: error.message });
-      });
-    return () => { cancelled = true; };
-  }, [me, canChooseAll]);
-
-  return {
-    ...state,
-    canChooseAll,
-    canChoose: canChooseAll || state.options.length > 1,
-  };
-}
-
-function RentalInstitutionField({ institutionState, value, onChange }) {
-  const { options, loading, error, canChoose, canChooseAll } = institutionState;
-  if (loading) {
-    return <div style={{ fontSize: 12, color: DS.textMuted, marginBottom: 14 }}>소속 기관을 확인하는 중...</div>;
-  }
-  if (error || options.length === 0) {
-    return (
-      <div style={{ fontSize: 12, color: DS.danger, marginBottom: 14 }}>
-        {error ? `기관 정보를 불러오지 못했습니다: ${error}` : NO_RENTAL_INSTITUTION_MESSAGE}
-      </div>
-    );
-  }
-  if (!canChoose) {
-    return (
-      <Fld label="사용 기관">
-        <div style={{
-          ...inp,
-          minHeight: 42,
-          display: "flex",
-          alignItems: "center",
-          background: "#f8fafc",
-          color: DS.textPrimary,
-          fontWeight: 700,
-        }}>
-          {options[0].name}
-        </div>
-      </Fld>
-    );
-  }
-  const hasLegacyValue = canChooseAll && value && !options.some(institution => institution.name === value);
-  return (
-    <Fld label="사용 기관 *">
-      <select value={value} onChange={event => onChange(event.target.value)} style={{ ...inp, minHeight: 42 }}>
-        <option value="">기관 선택</option>
-        {hasLegacyValue ? <option value={value}>{value}</option> : null}
-        {options.map(institution => (
-          <option key={institution.id} value={institution.name}>{institution.name}</option>
-        ))}
-      </select>
-    </Fld>
-  );
-}
-
-function ReservationModal({ item, me, onClose, onSubmit }) {
+function ReservationModal({ item, onClose, onSubmit }) {
   const initialDates = useMemo(() => defaultReservationDates(), []);
-  const institutionState = useRentalInstitutionOptions(me);
   const [f, setF] = useState({
-    location: "",
     start_date: initialDates.start_date,
     end_date: initialDates.end_date,
     quantity: 1,
   });
   const startMin = reservationMinStartYmd();
 
-  useEffect(() => {
-    if (shouldAutofillRentalLocation(institutionState)) {
-      setF(previous => ({ ...previous, location: institutionState.options[0].name }));
-    }
-  }, [institutionState.loading, institutionState.canChoose, institutionState.options]);
-
   const submit = () => {
-    if (institutionState.loading) return alert("소속 기관을 확인하는 중입니다.");
-    if (institutionState.error || institutionState.options.length === 0) {
-      return alert("소속 기관을 확인할 수 없습니다. 관리자에게 문의해 주세요.");
-    }
-    if (!f.location.trim()) return alert("사용 기관을 선택하세요");
     const dateErr = validateReservationDates(f.start_date, f.end_date);
     if (dateErr) return alert(dateErr);
     const maxQty = item?.total_quantity || 1;
     if (f.quantity < 1 || f.quantity > maxQty) return alert(`수량은 1~${maxQty}개까지 가능합니다`);
     onSubmit({
-      location: f.location.trim(),
       start_date: f.start_date,
       end_date: f.end_date,
       quantity: f.quantity,
@@ -10867,11 +10776,6 @@ function ReservationModal({ item, me, onClose, onSubmit }) {
 
   return (
     <Modal title={`교구 예약 · ${item?.name || ""}`} onClose={onClose}>
-      <RentalInstitutionField
-        institutionState={institutionState}
-        value={f.location}
-        onChange={location => setF(previous => ({ ...previous, location }))}
-      />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
         <Inp2 label="예약 시작일 *" type="date" min={startMin} value={f.start_date} onChange={e => setF(p => ({ ...p, start_date: e.target.value }))}/>
         <Inp2 label="예약 종료일 *" type="date" min={f.start_date || startMin} value={f.end_date} onChange={e => setF(p => ({ ...p, end_date: e.target.value }))}/>
@@ -10948,7 +10852,7 @@ function ExtensionPromptModal({ candidates, maxExtensions, onConfirm, onSkip, on
                     {c.itemName} <span style={{ fontWeight: 500, color: DS.textSecondary }}>×{c.held}</span>
                   </div>
                   <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 2 }}>
-                    {c.location} · 반납예정 {c.due_date || "-"}
+                    {c.location ? `${c.location} · ` : ""}반납예정 {c.due_date || "-"}
                     {dd ? " · " : ""}
                     {dd && <span style={{ color: dd.color, fontWeight: 700 }}>{dd.text}</span>}
                   </div>
@@ -11111,11 +11015,9 @@ function ExtendHoldingsModal({ groups, maxExtensions, onConfirm, onClose }) {
   );
 }
 
-function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose,onQuantityAdjusted}) {
+function CartModal({cart,setCart,items,itemSets,ris,rets,onSubmit,onClose,onQuantityAdjusted}) {
   const initialDates = useMemo(() => defaultRentalDates(), []);
-  const institutionState = useRentalInstitutionOptions(me);
   const[f,setF]=useState(()=>({
-    dispatch_location:"",
     dispatch_start: initialDates.dispatch_start,
     dispatch_end: initialDates.dispatch_end,
     memo:"",
@@ -11140,12 +11042,6 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose,onQ
       };
     }));
   }, [cart, f.dispatch_end]);
-
-  useEffect(() => {
-    if (shouldAutofillRentalLocation(institutionState)) {
-      setF(previous => ({ ...previous, dispatch_location: institutionState.options[0].name }));
-    }
-  }, [institutionState.loading, institutionState.canChoose, institutionState.options]);
 
   const cartAvail = (c) => {
     if (c.set_id && c.component_name) {
@@ -11186,9 +11082,6 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose,onQ
   };
   const remove=(idKey)=>{setCart(p=>p.filter(c=>cartLineKey(c)!==idKey));setDetails(p=>p.filter(c=>cartLineKey(c)!==idKey));};
   const submit=()=>{
-    if(institutionState.loading)return alert("소속 기관을 확인하는 중입니다.");
-    if(institutionState.error||institutionState.options.length===0)return alert("소속 기관을 확인할 수 없습니다. 관리자에게 문의해 주세요.");
-    if(!f.dispatch_location.trim())return alert("사용 기관을 선택하세요");
     if(!f.dispatch_start||!f.dispatch_end)return alert("대여 기간을 입력하세요");
     if(!details.length)return alert("교구를 담아주세요");
     const dateErr = validateCartRentalDates(f.dispatch_start, f.dispatch_end, details);
@@ -11202,11 +11095,6 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose,onQ
   return(
     <>
     <Modal title={`대여 신청 (${details.length}종)`} onClose={onClose}>
-      <RentalInstitutionField
-        institutionState={institutionState}
-        value={f.dispatch_location}
-        onChange={dispatch_location => setF(previous => ({ ...previous, dispatch_location }))}
-      />
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 10px"}}>
         <Inp2 label="대여 시작일 *" type="date" value={f.dispatch_start} onChange={e=>setF(p=>({...p,dispatch_start:e.target.value}))}/>
         <Inp2 label="대여 종료일 *" type="date" value={f.dispatch_end} onChange={e=>handleEndDateChange(e.target.value)}/>
@@ -11280,11 +11168,9 @@ function CartModal({cart,setCart,items,itemSets,ris,rets,me,onSubmit,onClose,onQ
   );
 }
 
-function EditRentalRequestModal({ req, reqRIs, items, ris, rets, me, onSubmit, onClose }) {
-  const institutionState = useRentalInstitutionOptions(me);
+function EditRentalRequestModal({ req, reqRIs, items, ris, rets, onSubmit, onClose }) {
   const endDefault = toDateInputValue(req.dispatch_end);
   const [f, setF] = useState({
-    dispatch_location: req.dispatch_location || "",
     dispatch_start: toDateInputValue(req.dispatch_start),
     dispatch_end: endDefault,
     memo: req.memo || "",
@@ -11302,12 +11188,6 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, me, onSubmit, o
   }));
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (shouldAutofillRentalLocation(institutionState)) {
-      setF(previous => ({ ...previous, dispatch_location: institutionState.options[0].name }));
-    }
-  }, [institutionState.loading, institutionState.canChoose, institutionState.options]);
-
   const setD = (rentalItemId, k, v) => {
     if (k === "due_date") {
       setDetails(p => p.map(c => c.rental_item_id === rentalItemId ? { ...c, due_date: v, due_date_custom: true } : c));
@@ -11321,11 +11201,6 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, me, onSubmit, o
   };
 
   const submit = async () => {
-    if (institutionState.loading) return alert("소속 기관을 확인하는 중입니다.");
-    if (institutionState.error || institutionState.options.length === 0) {
-      return alert("소속 기관을 확인할 수 없습니다. 관리자에게 문의해 주세요.");
-    }
-    if (!f.dispatch_location.trim()) return alert("사용 기관을 선택하세요");
     if (!f.dispatch_start || !f.dispatch_end) return alert("대여 기간을 입력하세요");
     const dateErr = validateCartRentalDates(f.dispatch_start, f.dispatch_end, details);
     if (dateErr) return alert(dateErr);
@@ -11337,7 +11212,6 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, me, onSubmit, o
     setSaving(true);
     try {
       const ok = await onSubmit({
-        dispatch_location: f.dispatch_location.trim(),
         dispatch_start: f.dispatch_start,
         dispatch_end: f.dispatch_end,
         memo: f.memo,
@@ -11356,11 +11230,6 @@ function EditRentalRequestModal({ req, reqRIs, items, ris, rets, me, onSubmit, o
 
   return (
     <Modal title="대여 신청 수정" onClose={onClose}>
-      <RentalInstitutionField
-        institutionState={institutionState}
-        value={f.dispatch_location}
-        onChange={dispatch_location => setF(previous => ({ ...previous, dispatch_location }))}
-      />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
         <Inp2 label="대여 시작일 *" type="date" value={f.dispatch_start} onChange={e => setF(p => ({ ...p, dispatch_start: e.target.value }))}/>
         <Inp2 label="대여 종료일 *" type="date" value={f.dispatch_end} onChange={e => handleEndDateChange(e.target.value)}/>
@@ -13483,14 +13352,7 @@ function EquipmentApp({ onBack, me, session }) {
     await supabase.auth.signOut();
   };
 
-  const doSubmitRent = async ({dispatch_location,dispatch_start,dispatch_end,memo,items:ci}) => {
-    let resolvedLocation;
-    try {
-      resolvedLocation = await resolveRentalInstitutionName(me, dispatch_location);
-    } catch (institutionError) {
-      alert(institutionError.message);
-      return;
-    }
+  const doSubmitRent = async ({dispatch_start,dispatch_end,memo,items:ci}) => {
     const conflicts = await checkRotationRentalConflicts(supabase, {
       me, cartItems: ci, items, dispatch_start, dispatch_end, teachers,
     });
@@ -13498,7 +13360,7 @@ function EquipmentApp({ onBack, me, session }) {
       const msg = formatRotationConflictConfirmMessage(conflicts, { actionLabel: "대여" });
       if (!confirm(msg)) return;
     }
-    const {data:newReq,error}=await supabase.from("rental_requests").insert({teacher_id:me.id,dispatch_location:resolvedLocation,dispatch_start,dispatch_end,memo,status:"pending"}).select().single();
+    const {data:newReq,error}=await supabase.from("rental_requests").insert({teacher_id:me.id,dispatch_location:OMITTED_RENTAL_LOCATION,dispatch_start,dispatch_end,memo,status:"pending"}).select().single();
     if(error||!newReq){alert("신청 오류: "+error?.message);return;}
     const {data:newRIs}=await supabase.from("rental_items").insert(ci.map(c=>({
       request_id:newReq.id,
@@ -13606,20 +13468,13 @@ function EquipmentApp({ onBack, me, session }) {
     await doSubmitRent(payload);
   };
 
-  const submitReservation = async ({ item_id, location, start_date, end_date, quantity }) => {
+  const submitReservation = async ({ item_id, start_date, end_date, quantity }) => {
     const dateErr = validateReservationDates(start_date, end_date);
     if (dateErr) { alert(dateErr); return false; }
     const item = items.find(i => i.id === item_id);
     const maxQty = item?.total_quantity || 1;
     if (quantity < 1 || quantity > maxQty) {
       alert(`수량은 1~${maxQty}개까지 가능합니다`);
-      return false;
-    }
-    let resolvedLocation;
-    try {
-      resolvedLocation = await resolveRentalInstitutionName(me, location);
-    } catch (institutionError) {
-      alert(institutionError.message);
       return false;
     }
     const existing = getTeacherPendingReservation(reservations, me.id, item_id);
@@ -13647,7 +13502,7 @@ function EquipmentApp({ onBack, me, session }) {
       quantity,
       start_date,
       end_date,
-      location: resolvedLocation,
+      location: null,
       status: "pending",
     }).select().single();
 
@@ -13688,7 +13543,7 @@ function EquipmentApp({ onBack, me, session }) {
     const itemStatus = res.start_date <= todayYmd() ? "rented" : "pending";
     const { data: newReq, error: reqErr } = await supabase.from("rental_requests").insert({
       teacher_id: res.teacher_id,
-      dispatch_location: res.location,
+      dispatch_location: visibleRentalLocation(res.location) || OMITTED_RENTAL_LOCATION,
       dispatch_start: res.start_date,
       dispatch_end: res.end_date,
       memo: "교구 예약 승인",
@@ -13890,22 +13745,14 @@ function EquipmentApp({ onBack, me, session }) {
     return true;
   };
 
-  const updateRentalRequest = async (reqId, { dispatch_location, dispatch_start, dispatch_end, memo, items: ci }) => {
+  const updateRentalRequest = async (reqId, { dispatch_start, dispatch_end, memo, items: ci }) => {
     const req = reqs.find(r => r.id === reqId);
     if (!req || req.teacher_id !== me.id || req.status !== "pending") {
       alert("수정할 수 없는 신청입니다.");
       return false;
     }
-    let resolvedLocation;
-    try {
-      resolvedLocation = await resolveRentalInstitutionName(me, dispatch_location);
-    } catch (institutionError) {
-      alert(institutionError.message);
-      return false;
-    }
 
     const { error: reqErr } = await supabase.from("rental_requests").update({
-      dispatch_location: resolvedLocation,
       dispatch_start,
       dispatch_end,
       memo: memo || "",
@@ -13927,7 +13774,7 @@ function EquipmentApp({ onBack, me, session }) {
     }
 
     setReqs(p => p.map(r => (
-      r.id === reqId ? { ...r, dispatch_location: resolvedLocation, dispatch_start, dispatch_end, memo: memo || "" } : r
+      r.id === reqId ? { ...r, dispatch_start, dispatch_end, memo: memo || "" } : r
     )));
     setRIs(p => p.map(ri => {
       const line = ci.find(c => c.rental_item_id === ri.id);
@@ -14883,7 +14730,7 @@ function EquipmentApp({ onBack, me, session }) {
           {renderPage()}
         </div>
 
-        {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} me={me} onSubmit={submitRent} onClose={()=>setShowCart(false)} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
+        {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
         {extendHoldingsModal}
         {extPrompt&&(
           <ExtensionPromptModal
@@ -15228,7 +15075,7 @@ function EquipmentApp({ onBack, me, session }) {
         </div>
       </nav>
 
-      {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} me={me} onSubmit={submitRent} onClose={()=>setShowCart(false)} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
+      {showCart&&<CartModal cart={cart} setCart={setCart} items={items} itemSets={itemSets} ris={ris} rets={rets} onSubmit={submitRent} onClose={()=>setShowCart(false)} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
       {extendHoldingsModal}
       {extPrompt&&(
         <ExtensionPromptModal

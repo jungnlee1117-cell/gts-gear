@@ -16,6 +16,7 @@ import {
   schoolYearMonths,
 } from "./itemRotation.js";
 import { schoolYearStartYear } from "./lessonPlan.js";
+import { visibleRentalLocation } from "./rentalInstitutionOptions.js";
 
 const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 const THREE_MONTHS_MS = 90 * 86400000;
@@ -76,7 +77,7 @@ function daysUntilDue(dueDate) {
 }
 
 function normalizeLocation(loc) {
-  return String(loc || "").trim().toLowerCase();
+  return visibleRentalLocation(loc).toLowerCase();
 }
 
 function gearNamesFromWeek(gear) {
@@ -123,7 +124,7 @@ export function buildCurrentRentals(me, reqs, ris, items, rets) {
         quantity: held,
         rentDate: req?.dispatch_start || ri.approved_at || ri.created_at,
         dueDate: ri.due_date || req?.dispatch_end,
-        location: req?.dispatch_location || "",
+        location: visibleRentalLocation(req?.dispatch_location),
       };
     })
     .filter(Boolean)
@@ -184,7 +185,8 @@ export function buildGearRecommendations(me, reqs, ris, items) {
   const teacherLocations = [...new Set(
     (reqs || [])
       .filter(r => r.teacher_id === me.id && r.dispatch_location)
-      .map(r => normalizeLocation(r.dispatch_location)),
+      .map(r => normalizeLocation(r.dispatch_location))
+      .filter(Boolean),
   )];
 
   const recs = [];
