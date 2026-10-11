@@ -39,6 +39,35 @@ export function returnPhotoStoragePath(itemId, stamp = Date.now()) {
   return `returns/${itemId}/${stamp}.jpg`;
 }
 
+/** 목록 칸(56px)의 2배. 레티나에서도 깨지지 않는 썸네일 한 변. */
+export const RETURN_PHOTO_THUMB_PX = 112;
+
+/**
+ * 공개 item-photos 원본 주소를 목록용 변환 주소로 바꾼다.
+ * 변환을 쓸 수 없는 주소는 원본을 그대로 돌려준다.
+ */
+export function returnPhotoThumbUrl(url, size = RETURN_PHOTO_THUMB_PX) {
+  const text = String(url || "").trim();
+  if (!text) return "";
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch {
+    return text;
+  }
+  const marker = "/storage/v1/object/public/";
+  const at = parsed.pathname.indexOf(marker);
+  if (at < 0) return text;
+  const objectPath = decodeURIComponent(parsed.pathname.slice(at + marker.length));
+  if (!objectPath.startsWith(`${RETURN_PHOTO_BUCKET}/`)) return text;
+  const render = new URL(`${parsed.origin}/storage/v1/render/image/public/${objectPath}`);
+  render.searchParams.set("width", String(size));
+  render.searchParams.set("height", String(size));
+  render.searchParams.set("resize", "cover");
+  render.searchParams.set("quality", "60");
+  return render.toString();
+}
+
 /** return_photo_url 한 칸에 들어 있는 사진을 모두 꺼낸다. 없으면 빈 배열. */
 export function listReturnPhotoUrls(value) {
   if (Array.isArray(value)) {

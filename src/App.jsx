@@ -111,6 +111,7 @@ import {
   RETURN_PHOTO_REQUIRED_MESSAGE,
   compressReturnPhoto,
   listReturnPhotoUrls,
+  returnPhotoThumbUrl,
   isReturnPhotoRequiredFor,
   uploadReturnPhoto,
   validateReturnLocationGroups,
@@ -7057,29 +7058,48 @@ function MyReservationsPage({ me, reservations, items, ris, rets, onCancel }) {
 
 function ReturnHistoryPhotos({ urls, label, onOpen }) {
   const [failed, setFailed] = useState(() => new Set());
+  const [fullSize, setFullSize] = useState(() => new Set());
   const visible = urls.filter(url => url && !failed.has(url));
   if (!visible.length) return <span className="gts-return-history-empty">사진 없음</span>;
   return (
     <div className="gts-return-history-photos">
-      {visible.map((url, index) => (
-        <button
-          key={`${url}-${index}`}
-          type="button"
-          className="gts-return-history-photo"
-          onClick={() => onOpen(visible, index, label)}
-          aria-label={`${label} 반납 사진 ${index + 1} 크게 보기`}
-        >
-          <img
-            src={url}
-            alt=""
-            onError={() => setFailed(prev => {
-              const next = new Set(prev);
-              next.add(url);
-              return next;
-            })}
-          />
-        </button>
-      ))}
+      {visible.map((url, index) => {
+        const thumb = returnPhotoThumbUrl(url);
+        const src = fullSize.has(url) || !thumb || thumb === url ? url : thumb;
+        return (
+          <button
+            key={`${url}-${index}`}
+            type="button"
+            className="gts-return-history-photo"
+            onClick={() => onOpen(visible, index, label)}
+            aria-label={`${label} 반납 사진 ${index + 1} 크게 보기`}
+          >
+            <img
+              src={src}
+              alt=""
+              width={56}
+              height={56}
+              loading="lazy"
+              decoding="async"
+              onError={() => {
+                if (src !== url) {
+                  setFullSize(prev => {
+                    const next = new Set(prev);
+                    next.add(url);
+                    return next;
+                  });
+                  return;
+                }
+                setFailed(prev => {
+                  const next = new Set(prev);
+                  next.add(url);
+                  return next;
+                });
+              }}
+            />
+          </button>
+        );
+      })}
     </div>
   );
 }
