@@ -316,7 +316,7 @@ function isWithinLastWeek(dateStr) {
 }
 
 function filterReturnPendingLastWeek(rets) {
-  return (rets || []).filter(r => r.status === "return_pending" && isWithinLastWeek(r.created_at));
+  return (rets || []).filter(r => r.status === "return_pending");
 }
 
 const NOTICES_STORAGE_KEY = "gts_notices";
@@ -4504,7 +4504,7 @@ function HoldingsListView({ held, items, reqs, me, onForceReturn, onGoAll }) {
                 ))}
               </div>
               <div style={{ marginTop:"auto", padding:"16px 22px calc(16px + env(safe-area-inset-bottom,0px))", borderTop:"1px solid #eef2f6", display:"flex", flexDirection:"column", gap:10 }}>
-                {onForceReturn && isSuperAdmin(me) ? (
+                {onForceReturn && isItemAdmin(me) ? (
                   <ForceReturnButton ri={ri} me={me} itemName={selected.name} onForceReturn={async (r,reason)=>{ const ok=await onForceReturn(r,reason); if(ok!==false) setSelected(null); return ok; }}/>
                 ) : (
                   <div style={{ fontSize:12, color:DS.textMuted, textAlign:"center" }}>반납·강제반납은 슈퍼관리자만 처리할 수 있습니다.</div>
@@ -4594,7 +4594,7 @@ function DashboardPage({me,items,teachers,reqs,ris,rets,reservations,onApprove,o
   const overdueList = ris.filter(r=>["rented","partial_returned"].includes(r.status)&&dday(r.due_date)!==null&&dday(r.due_date)<0);
   const pendRets = filterReturnPendingLastWeek(rets);
   const retPendN = pendRets.length;
-  const dmgPending = rets.filter(r=>r.status==="return_pending"&&["damaged","lost"].includes(r.condition)&&isWithinLastWeek(r.created_at));
+  const dmgPending = rets.filter(r=>r.status==="return_pending"&&["damaged","lost"].includes(r.condition));
   const dmgN = dmgPending.length;
   const dueAlerts = getDueAlerts(ris, reqs, items, teachers);
 
@@ -6749,7 +6749,7 @@ function ForceReturnModal({ itemLabel, onClose, onConfirm }) {
 
 function ForceReturnButton({ ri, me, onForceReturn, itemName, onClick }) {
   const [open, setOpen] = useState(false);
-  if (!isSuperAdmin(me) || !onForceReturn || !ri?.id) return null;
+  if (!isItemAdmin(me) || !onForceReturn || !ri?.id) return null;
 
   return (
     <>
@@ -7110,13 +7110,26 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
     () => (canSeeAllReturns ? (rets || []) : (rets || []).filter(ret => ret.teacher_id === me?.id)),
     [rets, canSeeAllReturns, me?.id],
   );
-  const pendRets = filterReturnPendingLastWeek(visibleRets);
+  const [searchQ, setSearchQ] = useState("");
+  const sq = searchQ.trim().toLowerCase();
+  const retMatchesQuery = (ret) => {
+    if (!sq) return true;
+    const ri = ris.find(r => r.id === ret.rental_item_id);
+    const t = String(tname(ret.teacher_id, teachers) || "").toLowerCase();
+    const it = String(iname(ri?.item_id, items) || "").toLowerCase();
+    return t.includes(sq) || it.includes(sq);
+  };
+  // 검색어가 있으면 7일 제한 없이 전체 대기 건을 검색
+  const pendRets = visibleRets
+    .filter(r => r.status === "return_pending" && retMatchesQuery(r))
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   const [rejectId, setRejectId] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
   const [photoLightbox, setPhotoLightbox] = useState(null);
 
   const approvedRows = useMemo(() => visibleRets
     .filter(r => ["return_approved", "damage_confirmed", "loss_confirmed", "return_rejected"].includes(r.status))
+    .filter(retMatchesQuery)
     .map(ret => {
       const ri = ris.find(r => r.id === ret.rental_item_id);
       return {
@@ -7131,7 +7144,7 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
       };
     })
     .sort((a, b) => new Date(b.approvedAt || b.returnDate) - new Date(a.approvedAt || a.returnDate)),
-  [visibleRets, ris, items, teachers]);
+  [visibleRets, ris, items, teachers, sq]);
 
   const historyTableColumns = "minmax(72px, 0.9fr) minmax(72px, 0.8fr) minmax(72px, 0.9fr) minmax(108px, 1.1fr) minmax(120px, 1.4fr) minmax(88px, 180px) minmax(72px, 0.7fr)";
   const historyTableHead = {
@@ -7156,7 +7169,7 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
 
   return (
     <PageShell>
-      <PageHeader me={me} subtitle={`${PAGE_META["returns-approval"].sub} (최근 7일)`} alertCount={pendRets.length}/>
+      <PageHeader me={me} subtitle={PAGE_META["returns-approval"].sub} alertCount={pendRets.length}/>
 
       <div style={{
         display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
@@ -7164,6 +7177,17 @@ function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRe
       }}>
         <DashStatCard label="승인 대기" value={pendRets.length} iconMark="대기" iconBg="#fef9c3" iconColor="#ca8a04"/>
         <DashStatCard label="승인 완료" value={approvedRows.length} iconMark="완료" iconBg="#dcfce7" iconColor="#16a34a"/>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <input
+          type="search"
+          value={searchQ}
+          onChange={e => setSearchQ(e.target.value)}
+          placeholder="선생님 이름 또는 교구 검색 (누가 언제 반납했는지)"
+          style={{ width: "100%", maxWidth: 420, padding: "10px 14px", borderRadius: 10, border: `1px solid ${DS.border || "#e2e8f0"}`, fontSize: 14 }}
+        />
+        {sq ? <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 6 }}>검색 중: 대기 {pendRets.length}건 · 내역 {approvedRows.length}건</div> : null}
       </div>
 
       <PanelSection title="반납 승인 대기">
@@ -13967,7 +13991,7 @@ function EquipmentApp({ onBack, me, session }) {
   };
 
   const forceReturnRentalItem = async (ri, reason) => {
-    if (!isSuperAdmin(me)) return false;
+    if (!isItemAdmin(me)) return false;
     if (!ri?.id) return false;
     const reasonText = (reason || "").trim();
     if (!reasonText) {
