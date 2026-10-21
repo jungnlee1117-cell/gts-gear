@@ -1474,6 +1474,7 @@ function NavGlyph({ id, color = "currentColor", size = 18 }) {
   if (id === "notices") return <svg {...s} viewBox="0 0 24 24"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3z"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
   if (id === "settings") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>;
   if (id === "data-export") return <svg {...s} viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>;
+  if (id === "long-term") return <svg {...s} viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>;
   if (id === "overdue") return <svg {...s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>;
   if (id === "returns-approval") return <svg {...s} viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>;
   if (id === "rental-approval") return <svg {...s} viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/></svg>;
@@ -1497,8 +1498,8 @@ function isNavPageActive(page, navId) {
     "items-browse": ["items-browse"],
     "my-gear-rotation": ["my-gear-rotation", "item-detail"],
     gear: ["items", "item-detail", "items-register", "items-qr", "gear-rotation-manage", "item-qty-history"],
-    rental: ["rental-approval", "rental-status", "returns-approval", "overdue", "reservation-approval"],
-    "rental-manage": ["rental-approval", "rental-status", "returns-approval", "overdue", "rental-manage", "rentals"],
+    rental: ["rental-approval", "rental-status", "returns-approval", "overdue", "long-term", "reservation-approval"],
+    "rental-manage": ["rental-approval", "rental-status", "returns-approval", "overdue", "long-term", "rental-manage", "rentals"],
     "rental-return": ["rental-return", "rentals", "my-rental-status", "return-request"],
     "return-request": ["return-request", "my-rental-status"],
     "my-rental-status": ["my-rental-status", "return-request"],
@@ -1538,6 +1539,7 @@ function buildSidebarNav(me) {
           { id: "returns-approval", label: "반납승인" },
           { id: "reservation-approval", label: "예약승인" },
           { id: "overdue", label: "연체관리" },
+          { id: "long-term", label: "장기대여" },
         ],
       },
       { type: "item", id: "accounts", label: "선생님관리", glyph: "accounts" },
@@ -1572,6 +1574,7 @@ function buildSidebarNav(me) {
           { id: "returns-approval", label: "반납승인" },
           { id: "reservation-approval", label: "예약승인" },
           { id: "overdue", label: "연체관리" },
+          { id: "long-term", label: "장기대여" },
         ],
       },
       { type: "item", id: "stats", label: "통계", glyph: "stats" },
@@ -2216,6 +2219,7 @@ const PAGE_META = {
   "rental-approval":  { title: "대여승인",     sub: "선생님의 교구 대여 신청을 검토하고 승인합니다." },
   "returns-approval": { title: "반납승인",     sub: "반납 신청을 검토하고 승인합니다." },
   overdue:            { title: "연체관리",     sub: "연체 대여 건을 확인하고 조치합니다." },
+  "long-term":        { title: "장기대여",     sub: "방과후 수업 등 장기 대여 신청을 승인하고 보유 현황을 봅니다." },
   institutions:       { title: "기관관리",     sub: "보관 지점·기관 정보를 관리합니다." },
   accounts:           { title: "선생님관리",   sub: "계정과 권한을 관리합니다." },
   stats:              { title: "통계",         sub: "대여·재고 통계를 확인합니다." },
@@ -7104,6 +7108,208 @@ function ReturnHistoryPhotos({ urls, label, onOpen }) {
   );
 }
 
+// ── 장기 대여 (승인제) ─────────────────────────────────────────
+const LONG_TERM_MAX_DAYS = 90;
+
+function ymdFromToday(days) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  return toLocalYMD(d);
+}
+
+/** 선생님: 대여 중인 교구의 장기 대여 신청 */
+function LongTermRequestModal({ group, me, onClose }) {
+  const lines = (group?.lines || []).filter(l => l.held > 0);
+  const minYmd = ymdFromToday(1);
+  const maxYmd = ymdFromToday(LONG_TERM_MAX_DAYS);
+  const [reason, setReason] = useState("");
+  const [until, setUntil] = useState(maxYmd);
+  const [busy, setBusy] = useState(false);
+  const totalQty = lines.reduce((s, l) => s + l.held, 0);
+
+  const submit = async () => {
+    if (!reason.trim()) { alert("사용 사유(수업·기관)를 입력해 주세요."); return; }
+    if (!until || until < minYmd || until > maxYmd) { alert(`반납 예정일은 내일부터 ${LONG_TERM_MAX_DAYS}일 이내로 선택해 주세요.`); return; }
+    setBusy(true);
+    try {
+      const riIds = lines.map(l => l.ri.id);
+      const { data: dup, error: dupErr } = await supabase.from("long_term_requests")
+        .select("id").in("rental_item_id", riIds).eq("status", "pending");
+      if (dupErr) throw dupErr;
+      if ((dup || []).length) { alert("이미 승인 대기 중인 장기 대여 신청이 있습니다."); setBusy(false); return; }
+      const rows = lines.map(l => ({
+        rental_item_id: l.ri.id,
+        teacher_id: me.id,
+        quantity: l.held,
+        reason: reason.trim(),
+        requested_until: until,
+        status: "pending",
+      }));
+      const { error } = await supabase.from("long_term_requests").insert(rows);
+      if (error) throw error;
+      alert("장기 대여 신청이 접수되었습니다.\n교구 담당자가 승인하면 반납 예정일이 변경됩니다.");
+      onClose();
+    } catch (e) {
+      alert("신청 오류: " + (e?.message || e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="장기 대여 신청" onClose={onClose} center>
+      <div style={{ fontSize: 14, fontWeight: 700, color: DS.textPrimary, marginBottom: 6 }}>
+        {group?.item?.name || "교구"} <span style={{ color: DS.textSecondary }}>×{totalQty}</span>
+      </div>
+      <div style={{ fontSize: 12, color: DS.textMuted, marginBottom: 14, lineHeight: 1.5 }}>
+        방과후 수업 등으로 계속 사용해야 할 때 교구 담당자의 승인을 받아 반납 예정일을 길게 잡습니다. 최대 {LONG_TERM_MAX_DAYS}일까지 신청할 수 있고, 에어·대형 교구는 거절될 수 있습니다.
+      </div>
+      <Fld label="사용 사유 *" hint="어느 기관·수업에서 쓰는지 적어 주세요">
+        <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3}
+          placeholder="예: 리비어 방과후 수업 (화·목)"
+          style={{ ...inp, resize: "vertical" }}/>
+      </Fld>
+      <Inp2 label="반납 예정일 *" type="date" min={minYmd} max={maxYmd} value={until} onChange={e => setUntil(e.target.value)}/>
+      <Btn full color={RETURN_THEME.primary} disabled={busy} onClick={submit}>{busy ? "신청 중..." : "장기 대여 신청"}</Btn>
+    </Modal>
+  );
+}
+
+/** 관리자: 장기 대여 승인 + 장기 보유 현황 */
+function LongTermAdminPage({ me, items, teachers, ris, reqs, setRIs }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [dates, setDates] = useState({});
+  const [notes, setNotes] = useState({});
+  const [busyId, setBusyId] = useState(null);
+  const today = todayYmd();
+  const maxYmd = ymdFromToday(LONG_TERM_MAX_DAYS);
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.from("long_term_requests")
+      .select("*").order("created_at", { ascending: false }).limit(300);
+    if (error) alert("장기 대여 신청 목록 오류: " + error.message);
+    else setRows(data || []);
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const itemNameOfRi = (riId) => {
+    const ri = ris.find(r => r.id === riId);
+    return ri ? iname(ri.item_id, items) : "교구";
+  };
+  const pending = rows.filter(r => r.status === "pending");
+  const history = rows.filter(r => r.status !== "pending").slice(0, 30);
+
+  const approve = async (row) => {
+    const until = dates[row.id] || row.requested_until;
+    if (!until || until < today || until > maxYmd) { alert(`승인 날짜는 오늘부터 ${LONG_TERM_MAX_DAYS}일 이내여야 합니다.`); return; }
+    setBusyId(row.id);
+    try {
+      const { error: e1 } = await supabase.from("long_term_requests").update({
+        status: "approved", approved_until: until, reviewed_by: me.id,
+        reviewed_at: new Date().toISOString(), review_note: (notes[row.id] || "").trim() || null,
+      }).eq("id", row.id);
+      if (e1) throw e1;
+      const { data: ri, error: e2 } = await supabase.from("rental_items").update({
+        long_term: true, long_term_until: until, due_date: until,
+      }).eq("id", row.rental_item_id).select().single();
+      if (e2) throw e2;
+      if (ri) setRIs?.(prev => prev.map(r => (r.id === ri.id ? ri : r)));
+      await load();
+    } catch (e) {
+      alert("승인 오류: " + (e?.message || e));
+    }
+    setBusyId(null);
+  };
+
+  const reject = async (row) => {
+    setBusyId(row.id);
+    const { error } = await supabase.from("long_term_requests").update({
+      status: "rejected", reviewed_by: me.id, reviewed_at: new Date().toISOString(),
+      review_note: (notes[row.id] || "").trim() || null,
+    }).eq("id", row.id);
+    if (error) alert("거절 오류: " + error.message);
+    await load();
+    setBusyId(null);
+  };
+
+  const holding = ris
+    .filter(ri => ri.long_term && ["rented", "partial_returned"].includes(ri.status))
+    .map(ri => {
+      const req = reqs.find(r => r.id === ri.request_id);
+      return { ri, teacher: tname(req?.teacher_id, teachers), item: iname(ri.item_id, items) };
+    })
+    .sort((a, b) => String(a.ri.long_term_until || "").localeCompare(String(b.ri.long_term_until || "")));
+
+  return (
+    <PageShell>
+      <PageHeader me={me} subtitle={PAGE_META["long-term"].sub} alertCount={pending.length}/>
+      <PanelSection title={`장기 대여 승인 대기 (${pending.length}건)`}>
+        {loading ? <Empty text="불러오는 중..."/> : pending.length === 0 ? (
+          <Empty text="승인 대기 중인 장기 대여 신청이 없습니다"/>
+        ) : pending.map(row => (
+          <div key={row.id} style={{ border: "1px solid #e8ecee", borderRadius: 12, padding: 14, marginBottom: 12 }}>
+            <div style={{ fontWeight: 800, color: DS.textPrimary }}>
+              {tname(row.teacher_id, teachers)} · {itemNameOfRi(row.rental_item_id)} ×{row.quantity}
+            </div>
+            <div style={{ fontSize: 13, color: DS.textSecondary, margin: "6px 0" }}>
+              사유: {row.reason} · 희망 반납일 {fmt(row.requested_until)} · 신청 {fmt(row.created_at)}
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <label style={{ fontSize: 12, color: DS.textMuted }}>승인 반납일
+                <input type="date" min={today} max={maxYmd}
+                  value={dates[row.id] || row.requested_until}
+                  onChange={e => setDates(p => ({ ...p, [row.id]: e.target.value }))}
+                  style={{ ...inp, display: "block", marginTop: 4 }}/>
+              </label>
+              <label style={{ fontSize: 12, color: DS.textMuted, flex: 1, minWidth: 160 }}>메모(선택)
+                <input type="text" value={notes[row.id] || ""}
+                  onChange={e => setNotes(p => ({ ...p, [row.id]: e.target.value }))}
+                  style={{ ...inp, display: "block", marginTop: 4 }}/>
+              </label>
+              <Btn sm color={RETURN_THEME.primary} disabled={busyId === row.id} onClick={() => approve(row)}>승인</Btn>
+              <Btn sm danger disabled={busyId === row.id} onClick={() => reject(row)}>거절</Btn>
+            </div>
+          </div>
+        ))}
+      </PanelSection>
+
+      <PanelSection title={`장기 보유 현황 (${holding.length}건)`}>
+        {holding.length === 0 ? <Empty text="장기 보유 중인 교구가 없습니다"/> : (
+          <div style={{ overflowX: "auto" }}>
+            {holding.map(({ ri, teacher, item }) => {
+              const d = dday(ri.long_term_until);
+              return (
+                <div key={ri.id} style={{ display: "flex", gap: 14, padding: "10px 0", borderBottom: "1px solid #f4f6f8", fontSize: 13, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, minWidth: 90 }}>{teacher}</span>
+                  <span style={{ flex: 1, minWidth: 120 }}>{item} ×{ri.quantity}</span>
+                  <span style={{ color: DS.textSecondary }}>~ {fmt(ri.long_term_until)}{d ? ` · ${d.text}` : ""}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </PanelSection>
+
+      {history.length > 0 ? (
+        <PanelSection title="최근 처리 내역">
+          {history.map(row => (
+            <div key={row.id} style={{ display: "flex", gap: 14, padding: "8px 0", borderBottom: "1px solid #f4f6f8", fontSize: 13, flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 700, minWidth: 90 }}>{tname(row.teacher_id, teachers)}</span>
+              <span style={{ flex: 1, minWidth: 120 }}>{itemNameOfRi(row.rental_item_id)} ×{row.quantity}</span>
+              <span style={{ color: DS.textSecondary }}>
+                {row.status === "approved" ? `승인 ~${fmt(row.approved_until)}` : row.status === "rejected" ? "거절" : "취소"}
+                {row.review_note ? ` · ${row.review_note}` : ""}
+              </span>
+            </div>
+          ))}
+        </PanelSection>
+      ) : null}
+    </PageShell>
+  );
+}
+
 function ReturnsApprovalPage({me,rets,ris,items,teachers,onApproveRet,onRejectRet,onDamage,onLoss}) {
   const canSeeAllReturns = isItemAdmin(me) || isGearPlatformAdmin(me);
   const visibleRets = useMemo(
@@ -9266,6 +9472,7 @@ function RentalManageHubPage({me,setPage}) {
     { id: "returns-approval", label: "반납승인", desc: "반납 신청 승인", color: "#2563eb" },
     { id: "reservation-approval", label: "예약승인", desc: "예약 신청 승인", color: "#0d9488" },
     { id: "overdue", label: "연체관리", desc: "연체 건 조회", color: "#dc2626" },
+    { id: "long-term", label: "장기대여", desc: "장기 대여 승인·현황", color: "#0d9488" },
   ];
   return (
     <PageShell>
@@ -9292,6 +9499,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
     [me, reqs, ris, items, itemSets, rets, currentYmd]
   );
   const [selectedItemIds, setSelectedItemIds] = useState(() => new Set());
+  const [longTermGroup, setLongTermGroup] = useState(null);
   const pendingReqs = useMemo(
     () => reqs.filter(r => r.teacher_id === me.id && r.status === "pending")
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
@@ -9476,6 +9684,13 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
                   </div>
                 )}
                 <div className="gts-rental-holding-card__actions">
+                  {group.lines.some(l => l.ri.long_term) ? (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#0d9488", alignSelf: "center" }}>
+                      장기 대여 ~{fmt(group.lines.find(l => l.ri.long_term)?.ri.long_term_until)}
+                    </span>
+                  ) : (
+                    <Btn sm ghost onClick={() => setLongTermGroup(group)}>장기 대여</Btn>
+                  )}
                   <Btn
                     sm
                     ghost
@@ -9499,6 +9714,7 @@ function MyRentalStatusPage({ me, reqs, ris, items, itemSets, rets, onReturnItem
           </div>
         </PanelSection>
       )}
+      {longTermGroup ? <LongTermRequestModal group={longTermGroup} me={me} onClose={() => setLongTermGroup(null)}/> : null}
     </>
   );
 
@@ -14433,7 +14649,7 @@ function EquipmentApp({ onBack, me, session }) {
         />
       );
     }
-    if (!admin && !superA && ["rental-approval","returns-approval","overdue","accounts","items-register","items-qr","gear-rotation-manage","gear-categories","stats","report","settings","rental-manage","reservation-approval","item-qty-history"].includes(page)) {
+    if (!admin && !superA && ["rental-approval","returns-approval","overdue","long-term","accounts","items-register","items-qr","gear-rotation-manage","gear-categories","stats","report","settings","rental-manage","reservation-approval","item-qty-history"].includes(page)) {
       return (
         <PageShell>
           <div style={{textAlign:"center",padding:"70px 20px"}}>
@@ -14456,6 +14672,7 @@ function EquipmentApp({ onBack, me, session }) {
       <>
         {page==="dashboard"&&<DashboardPage me={me} items={items} teachers={teachers} reqs={reqs} ris={ris} rets={rets} reservations={reservations} onApprove={approveReq} onReject={rejectReq} onApproveRet={approveReturn} onDamage={confirmDamage} onLoss={confirmLoss} onApproveReservation={approveReservation} onRejectReservation={rejectReservation} setPage={setPage} onForceReturn={forceReturnRentalItem} adminTodos={adminTodos} onAddTodo={addAdminTodo} onToggleTodo={toggleAdminTodo} onDeleteTodo={deleteAdminTodo} onUpdateTodo={updateAdminTodo}/>}
         {page==="rental-status"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} onForceReturn={forceReturnRentalItem}/>}
+        {page==="long-term"&&<LongTermAdminPage me={me} items={items} teachers={teachers} ris={ris} reqs={reqs} setRIs={setRIs}/>}
         {page==="overdue"&&<RentalStatusPage me={me} teachers={teachers} reqs={reqs} ris={ris} rets={rets} items={items} initialFilter="overdue" onForceReturn={forceReturnRentalItem}/>}
         {page==="items"&&<ItemsPage items={items} setItems={setItems} itemSets={itemSets} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items")} onSetDetail={set=>openSetDetail(set,"items")} onSaveItem={saveItem} onSaveSet={saveItemSet} onDeleteItem={deleteItem} onDeleteSet={deleteItemSet} onSubmitReservation={submitReservation} onCancelReservation={cancelReservation} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
         {page==="items-register"&&<ItemsPage items={items} setItems={setItems} itemSets={itemSets} ris={ris} rets={rets} reqs={reqs} teachers={teachers} me={me} cart={cart} setCart={setCart} reservations={reservations} onDetail={item=>openItemDetail(item,"items-register")} onSetDetail={set=>openSetDetail(set,"items-register")} onSaveItem={saveItem} onSaveSet={saveItemSet} onDeleteItem={deleteItem} onDeleteSet={deleteItemSet} openAddOnMount setPage={setPage} onQuantityAdjusted={handleItemQuantityAdjusted}/>}
