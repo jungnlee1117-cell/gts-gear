@@ -293,6 +293,105 @@ function MonthEndChecklist({
   );
 }
 
+function GoogleCalendarSync({ supabase, teacherId }) {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const feedUrl = (token) => `${window.location.origin}/api/calendar-feed?token=${token}`;
+
+  const load = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const { data, error } = await supabase.from("calendar_feed_tokens")
+        .select("token").eq("teacher_id", teacherId).maybeSingle();
+      if (error) throw error;
+      let token = data?.token;
+      if (!token) {
+        const ins = await supabase.from("calendar_feed_tokens")
+          .insert({ teacher_id: teacherId }).select("token").single();
+        if (ins.error) throw ins.error;
+        token = ins.data.token;
+      }
+      setUrl(feedUrl(token));
+    } catch (e) {
+      setMsg("주소를 만들지 못했습니다: " + (e?.message || e));
+    }
+    setBusy(false);
+  };
+
+  const regenerate = async () => {
+    if (!window.confirm("주소를 새로 만들면 지금 구글 캘린더에 연결된 주소는 더 이상 동작하지 않습니다. 계속할까요?")) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const del = await supabase.from("calendar_feed_tokens").delete().eq("teacher_id", teacherId);
+      if (del.error) throw del.error;
+      const ins = await supabase.from("calendar_feed_tokens")
+        .insert({ teacher_id: teacherId }).select("token").single();
+      if (ins.error) throw ins.error;
+      setUrl(feedUrl(ins.data.token));
+      setMsg("새 주소를 만들었습니다. 구글 캘린더에 다시 추가해 주세요.");
+    } catch (e) {
+      setMsg("다시 만들지 못했습니다: " + (e?.message || e));
+    }
+    setBusy(false);
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setMsg("주소를 복사했습니다.");
+    } catch {
+      setMsg("복사에 실패했습니다. 주소를 직접 길게 눌러 복사해 주세요.");
+    }
+  };
+
+  if (!teacherId) return null;
+  return (
+    <>
+      <button type="button" className="hub-todo-calendar__today"
+        onClick={() => { setOpen(true); if (!url) load(); }}>
+        구글 캘린더 연결
+      </button>
+      {open ? (
+        <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 1400, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "min(520px, 100%)", maxHeight: "90vh", overflow: "auto", color: "#111827" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <strong style={{ fontSize: 16 }}>구글 캘린더에서 내 일정 보기</strong>
+              <button type="button" onClick={() => setOpen(false)} aria-label="닫기" style={{ border: "none", background: "transparent", fontSize: 22, cursor: "pointer" }}>×</button>
+            </div>
+            <p style={{ fontSize: 13, color: "#64748b", lineHeight: 1.6, margin: "0 0 12px" }}>
+              앱에서 내가 만들었거나 나에게 배정된 일정(할 일)이 구글 캘린더에 <b>읽기 전용</b>으로 보입니다. 관리자 계정은 행사·휴강, 선생님 휴무, 선생님 생일도 함께 보입니다.
+              여러 명에게 배정한 일정은 한 건으로 묶여 "(n명)"으로 표시됩니다.
+            </p>
+            <input readOnly value={url || (busy ? "주소를 만드는 중..." : "")}
+              onFocus={e => e.target.select()}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 12, boxSizing: "border-box" }}/>
+            <div style={{ display: "flex", gap: 8, margin: "10px 0 14px", flexWrap: "wrap" }}>
+              <button type="button" disabled={!url || busy} onClick={copy} style={{ padding: "9px 14px", borderRadius: 10, border: "none", background: "#16a34a", color: "#fff", fontWeight: 700, cursor: "pointer" }}>주소 복사</button>
+              <button type="button" disabled={busy} onClick={regenerate} style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", cursor: "pointer" }}>주소 새로 만들기</button>
+            </div>
+            {msg ? <div style={{ fontSize: 12, color: "#0f766e", marginBottom: 10 }}>{msg}</div> : null}
+            <ol style={{ fontSize: 13, lineHeight: 1.8, paddingLeft: 18, margin: 0 }}>
+              <li>컴퓨터에서 <b>calendar.google.com</b>을 엽니다. (휴대폰 앱에서는 추가할 수 없습니다)</li>
+              <li>왼쪽 "다른 캘린더" 옆 <b>+</b> → <b>URL로 추가</b></li>
+              <li>위 주소를 붙여넣고 <b>캘린더 추가</b></li>
+            </ol>
+            <p style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6, margin: "12px 0 0" }}>
+              구글이 주소를 주기적으로 다시 읽어 오기 때문에 앱에서 등록한 뒤 반영까지 몇 시간~하루 걸릴 수 있습니다.
+              일정은 종일 일정으로 표시되며, "21시" 같은 시간은 제목에 적은 글자 그대로 보입니다.
+              이 주소를 아는 사람은 내 일정을 볼 수 있으니 공유하지 마세요.
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export default function HubTodoCalendar({
   supabase,
   todos = [],
@@ -659,6 +758,7 @@ export default function HubTodoCalendar({
           <strong>{monthBase.getFullYear()}년 {monthBase.getMonth() + 1}월</strong>
           <button type="button" onClick={() => moveMonth(1)} aria-label="다음 달"><ChevronRight size={17}/></button>
           <button type="button" className="hub-todo-calendar__today" onClick={returnToday}>오늘</button>
+          <GoogleCalendarSync supabase={supabase} teacherId={teacherId}/>
         </div>
       </header>
 
