@@ -3549,7 +3549,7 @@ code {
   min-height: 0;
   border: 1.2px solid #94a3b8;
   border-radius: 4mm;
-  padding: 4mm;
+  padding: 3.5mm;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -3567,7 +3567,7 @@ code {
   line-height: 1;
   font-weight: 900;
   letter-spacing: -0.02em;
-  padding-bottom: 2.5mm;
+  padding-bottom: 2.2mm;
   border-bottom: 1px solid #16a34a;
 }
 
@@ -3583,7 +3583,7 @@ code {
   width: 100%;
   flex: 1;
   min-height: 0;
-  margin: 3mm 0 2mm;
+  margin: 2.5mm 0 1.5mm;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3610,8 +3610,8 @@ code {
 .gts-label-print-name {
   width: 100%;
   color: #0f172a;
-  font-size: 17pt;
-  line-height: 1.2;
+  font-size: 24pt;
+  line-height: 1.15;
   font-weight: 900;
   text-align: center;
   word-break: keep-all;
@@ -3620,13 +3620,13 @@ code {
 
 .gts-label-print-details {
   width: 100%;
-  margin-top: 2.5mm;
+  margin-top: 1.5mm;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 2mm;
   color: #475569;
-  font-size: 8.5pt;
+  font-size: 7.5pt;
   font-weight: 700;
 }
 
