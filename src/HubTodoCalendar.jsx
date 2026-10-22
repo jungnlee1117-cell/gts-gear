@@ -410,7 +410,7 @@ export default function HubTodoCalendar({
     () => {
       if (!showTodos) return [];
       const now = today.getTime();
-      return (todos || []).filter(todo => {
+      const filtered = (todos || []).filter(todo => {
         if (!todo.due_date) return false;
         if (todo.recurrence_id) return false;
         // 관리자 달력은 자신이 다른 담당자에게 배정했거나 공용으로 만든
@@ -421,6 +421,24 @@ export default function HubTodoCalendar({
         }
         return true;
       });
+      if (!showAllTodos) return filtered;
+      // 여러 선생님에게 한 번에 배정한 일정(spawn_group_id)은 인원수만큼 행이 생기므로
+      // 관리자 달력에는 한 칸으로 묶어서 "(n명)"으로 표시한다.
+      const groups = new Map();
+      const out = [];
+      for (const todo of filtered) {
+        if (!todo.spawn_group_id) { out.push(todo); continue; }
+        const g = groups.get(todo.spawn_group_id);
+        if (g) { g.count += 1; continue; }
+        const entry = { count: 1, todo };
+        groups.set(todo.spawn_group_id, entry);
+        out.push(entry);
+      }
+      return out.map(item => (
+        item.todo
+          ? { ...item.todo, content: item.count > 1 ? `${item.todo.content} (${item.count}명)` : item.todo.content }
+          : item
+      ));
     },
     [todos, teacherId, today, showTodos, showAllTodos],
   );
