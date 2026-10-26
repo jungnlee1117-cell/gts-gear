@@ -14,6 +14,7 @@ const ICONS = {
   "temporary-teachers": UserPlus,
   institutions: Settings,
   "document-types": FileText,
+  resumes: FileText,
   "class-incidents": MessageSquareWarning,
 };
 

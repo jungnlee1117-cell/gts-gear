@@ -38,7 +38,7 @@ export default function ScheduleHub({ me, onSelect }) {
             : item.id === "change-alerts" ? "bell"
             : item.id === "class-incidents" ? "flag"
             : item.id === "temporary-teachers" ? "userplus"
-            : item.id === "document-types" ? "file"
+            : item.id === "document-types" || item.id === "resumes" ? "file"
             : "settings"];
           const badge = item.id === "change-alerts" && unreadAlerts > 0 ? unreadAlerts
             : item.id === "class-incidents" && unreadIncidents > 0 ? unreadIncidents

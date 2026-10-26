@@ -15,6 +15,7 @@ import ScheduleChangeAlertsView from "./schedule/ScheduleChangeAlertsView.jsx";
 import MonthlySettlementView from "./schedule/MonthlySettlementView.jsx";
 import TeacherPayRatesView from "./schedule/TeacherPayRatesView.jsx";
 import TeacherDocumentTypesView from "./schedule/TeacherDocumentTypesView.jsx";
+import ResumeBuilderView from "./schedule/ResumeBuilderView.jsx";
 import ClassIncidentInboxView from "./schedule/ClassIncidentInboxView.jsx";
 import ClassCheckInView from "./schedule/ClassCheckInView.jsx";
 import { ScheduleAuthContext } from "./schedule/ScheduleAuthContext.jsx";
@@ -37,7 +38,7 @@ const SCHEDULE_VIEWS = new Set([
   "hub", "teacher-monthly", "institution-schedule", "home-visit", "events",
   "change-alerts", "class-incidents", "class-checkin", "payroll", "settlement", "temporary-teachers", "pay-rates",
   "institutions", "institution-bulk-revenue", "institution-detail",
-  "document-types",
+  "document-types", "resumes",
 ]);
 
 function defaultScheduleView(admin) {
@@ -239,6 +240,15 @@ export default function ScheduleApp({ me, session, onBack, onLogout }) {
           : (
             <ScheduleAccessDenied
               message="서류 종류 관리는 관리자만 이용할 수 있습니다."
+              onBack={goHub}
+            />
+          );
+      case "resumes":
+        return admin
+          ? <ResumeBuilderView me={me} onBack={goHub}/>
+          : (
+            <ScheduleAccessDenied
+              message="이력서 만들기는 관리자만 이용할 수 있습니다."
               onBack={goHub}
             />
           );

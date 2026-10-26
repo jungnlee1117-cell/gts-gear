@@ -50,6 +50,7 @@ export function filterScheduleMenu(me) {
     ...(admin ? [
       { id: "institutions", title: "원 관리", desc: "원 마스터 · 시간표 · 계약", color: "#f97316", roles: "admin" },
       { id: "document-types", title: "서류 종류 관리", desc: "이력서·건강검진표 등 업로드 분류", color: "#0d9488", roles: "admin" },
+      { id: "resumes", title: "이력서 만들기", desc: "사진·경력 입력 → GTS 이력서 A4 출력", color: "#6366f1", roles: "admin" },
     ] : []),
   ];
 }

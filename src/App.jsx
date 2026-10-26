@@ -3834,11 +3834,17 @@ function ItemForm({item, items, onSave, onClose}) {
   );
 }
 
+/** 프로그램(수업용 교구 묶음)의 고정 카테고리: 이벤트(명절·행사) */
+const PROGRAM_FIXED_CATEGORY = "EVENT";
+
 function setToFormState(set, categoryKeys = [], categoryMap = {}) {
   const normalized = normalizeCategoryKey(set?.category);
   const keys = categoryKeys || [];
   const map = categoryMap || {};
-  const defaultCat = (normalized && map[normalized]) ? normalized : (keys[0] || normalized || "");
+  // 프로그램은 새로 등록할 때 카테고리가 이벤트(명절·행사)로 고정된다.
+  const defaultCat = !set?.id
+    ? PROGRAM_FIXED_CATEGORY
+    : ((normalized && map[normalized]) ? normalized : (keys[0] || normalized || ""));
   return {
     code: set?.code || "",
     name: set?.name || "",
@@ -4006,11 +4012,11 @@ function ItemSetForm({ set, itemSets, items, onSave, onClose }) {
       <div style={{ ...panelCard, padding: "16px 18px", marginBottom: 14 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: DS.textSecondary, marginBottom: 10 }}>카테고리 · 코드</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-          <Sel2 label="카테고리 *" value={f.category} onChange={e => onCategoryChange(e.target.value)}>
-            {categoryKeys.map(c => (
-              <option key={c} value={c}>{categoryMap[c]?.label || c} ({c})</option>
-            ))}
-          </Sel2>
+          <Fld label="카테고리 (고정)" hint="프로그램은 이벤트(명절·행사)로 등록됩니다">
+            <div style={{ ...inp, background: "#f8fafc", color: DS.textSecondary, display: "flex", alignItems: "center" }}>
+              {categoryMap[f.category]?.label || (f.category === PROGRAM_FIXED_CATEGORY ? "이벤트" : f.category)} ({f.category})
+            </div>
+          </Fld>
           <Inp2
             label="프로그램 코드 *"
             value={f.code}
