@@ -1,8 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Printer, Save, Trash2, Plus } from "lucide-react";
+import { ChevronLeft, Printer, Save, Trash2, Plus, Upload } from "lucide-react";
 import { scheduleSupabase, fetchTeachersUnfiltered } from "./api.js";
+import {
+  createTeacherDocumentType,
+  fetchTeacherDocuments,
+  fetchTeacherDocumentTypes,
+  teacherDocumentsErrorMessage,
+  uploadTeacherDocument,
+} from "../teacherDocuments.js";
+
+const RESUME_DOC_LABELS = { ko: "GTS 이력서 (국문)", en: "GTS 이력서 (영문)" };
+
+const LABELS = {
+  en: {
+    profile: "PROFILE", contact: "CONTACT", education: "EDUCATION", experience: "EXPERIENCE", certificates: "CERTIFICATES",
+    phone: "Phone Number :", email: "Email Address :", website: "Website :",
+    title: "PE Instructor (English & PE)", heading: "PE TEACHER",
+  },
+  ko: {
+    profile: "소개", contact: "연락처", education: "학력", experience: "경력", certificates: "자격증",
+    phone: "전화번호 :", email: "이메일 :", website: "웹사이트 :",
+    title: "영어체육 담당 강사", heading: "체육 교사",
+  },
+};
 
 const EMPTY = {
+  lang: "ko",
+  show_profile_title: false,
   name_en: "",
   name_ko: "",
   company: "GTS SPORTS ACADEMY",
@@ -55,9 +79,14 @@ function blocks(text) {
 }
 
 export function ResumePaper({ data, photo }) {
+  const L = LABELS[data.lang === "en" ? "en" : "ko"];
   const nameEn = data.name_en || "";
   const nameKo = data.name_ko || "";
+  const koWrapped = nameKo ? (nameKo.startsWith("(") ? nameKo : `(${nameKo})`) : "";
   const bullets = lines(data.current_bullets);
+  const hasContact = data.phone || data.email || data.website;
+  const expBlocks = blocks(data.experience);
+  const onlyTitles = expBlocks.length > 0 && expBlocks.every(b => b.startsWith("## "));
   return (
     <div className="resume-paper">
       <div className="resume-top">
@@ -66,55 +95,87 @@ export function ResumePaper({ data, photo }) {
         </div>
         <div className="resume-head">
           <div className="resume-name">
-            {nameEn ? <div>{nameEn}</div> : null}
-            {nameKo ? <div>{nameKo.startsWith("(") ? nameKo : `(${nameKo})`}</div> : null}
+            {data.lang === "en" ? (
+              <>
+                {nameEn ? <div className="resume-name__en">{nameEn}</div> : null}
+                {koWrapped ? <div className="resume-name__ko">{koWrapped}</div> : null}
+              </>
+            ) : (
+              <>
+                {nameKo ? <div className="resume-name__en">{nameKo}</div> : null}
+                {nameEn ? <div className="resume-name__ko">{nameEn}</div> : null}
+              </>
+            )}
           </div>
           <div className="resume-rule"/>
           <div className="resume-band">
-            <strong>{data.company}</strong>
+            <span>{data.company}</span>
             <span>{data.title}</span>
           </div>
         </div>
       </div>
 
-      <div className="resume-grid">
-        <section>
-          <h3>PROFILE</h3>
-          <p className="resume-text">{data.profile}</p>
-        </section>
-        <section>
-          <h3>CONTACT</h3>
-          <ul className="resume-contact">
-            {data.phone ? <li><b>Phone Number :</b><span>{data.phone}</span></li> : null}
-            {data.email ? <li><b>Email Address :</b><span>{data.email}</span></li> : null}
-            {data.website ? <li><b>Website :</b><span>{data.website}</span></li> : null}
-          </ul>
-        </section>
-
-        <section>
-          <h3>EDUCATION</h3>
-          <p className="resume-text resume-text--tight">{data.education}</p>
-        </section>
-        <section>
-          <h3>EXPERIENCE</h3>
-          {blocks(data.experience).map((b, i) => (
-            <p key={i} className="resume-text resume-exp">{b}</p>
-          ))}
-        </section>
-
-        <section>
-          <h3>CERTIFICATES</h3>
-          <p className="resume-text resume-text--tight">{data.certificates}</p>
-        </section>
-        <section>
-          {data.current_heading ? <h3 className="resume-h3-muted">{data.current_heading}</h3> : null}
-          {data.current_line ? <p className="resume-current">{data.current_line}</p> : null}
-          {bullets.length ? (
-            <ul className="resume-bullets">
-              {bullets.map((b, i) => <li key={i}>{b}</li>)}
-            </ul>
+      <div className="resume-cols">
+        <div className="resume-col">
+          {data.education ? (
+            <section className="resume-sec">
+              <h3>{L.education}</h3>
+              <p className="resume-text resume-text--tight">{data.education}</p>
+            </section>
           ) : null}
-        </section>
+          {data.profile ? (
+            <section className="resume-sec">
+              {data.show_profile_title ? <h3>{L.profile}</h3> : null}
+              <p className="resume-text resume-text--profile">{data.profile}</p>
+            </section>
+          ) : null}
+          {data.certificates ? (
+            <section className="resume-sec">
+              <h3>{L.certificates}</h3>
+              <p className="resume-text resume-text--tight">{data.certificates}</p>
+            </section>
+          ) : null}
+        </div>
+        <div className="resume-col">
+          {hasContact ? (
+            <section className="resume-sec">
+              <h3>{L.contact}</h3>
+              <ul className="resume-contact">
+                {data.phone ? <li><b>{L.phone}</b><span>{data.phone}</span></li> : null}
+                {data.email ? <li><b>{L.email}</b><span>{data.email}</span></li> : null}
+                {data.website ? <li><b>{L.website}</b><span>{data.website}</span></li> : null}
+              </ul>
+            </section>
+          ) : null}
+          {expBlocks.length ? (
+            <section className="resume-sec">
+              {!onlyTitles ? <h3>{L.experience}</h3> : null}
+              {expBlocks.map((b, i) => {
+                if (b.startsWith("## ")) {
+                  const [first, ...rest] = b.split("\n");
+                  return (
+                    <div key={i}>
+                      <div className="resume-exp-title">{first.replace(/^##\s+/, "")}</div>
+                      {rest.length ? <p className="resume-exp-body">{rest.join("\n")}</p> : null}
+                    </div>
+                  );
+                }
+                return <p key={i} className="resume-exp">{b}</p>;
+              })}
+            </section>
+          ) : null}
+          {(data.current_heading || data.current_line || bullets.length) ? (
+            <section className="resume-sec">
+              {data.current_heading ? <h3 className="resume-h3-muted">{data.current_heading}</h3> : null}
+              {data.current_line ? <p className="resume-current">{data.current_line}</p> : null}
+              {bullets.length ? (
+                <ul className="resume-bullets">
+                  {bullets.map((b, i) => <li key={i}>{b}</li>)}
+                </ul>
+              ) : null}
+            </section>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -140,6 +201,8 @@ export default function ResumeBuilderView({ me, onBack }) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const fileRef = useRef(null);
+  const captureRef = useRef(null);
+  const [filing, setFiling] = useState(false);
 
   const loadList = async () => {
     const { data: rows, error } = await scheduleSupabase
@@ -156,6 +219,27 @@ export default function ResumeBuilderView({ me, onBack }) {
   }, []);
 
   const set = (k, v) => { setData(p => ({ ...p, [k]: v })); setDirty(true); };
+
+  /** 언어를 바꾸면 기본 직책·직무 제목도 그 언어 기본값으로 바꾼다(직접 고친 값은 유지) */
+  const switchLang = (lang) => {
+    setData(p => {
+      const from = LABELS[p.lang === "en" ? "en" : "ko"];
+      const to = LABELS[lang];
+      return {
+        ...p,
+        lang,
+        title: p.title === from.title || !p.title ? to.title : p.title,
+        current_heading: p.current_heading === from.heading || !p.current_heading ? to.heading : p.current_heading,
+      };
+    });
+    setDirty(true);
+  };
+
+  /** 지금 내용을 그대로 복사해 새 이력서로 시작(언어만 바꿔 두 버전을 만들 때) */
+  const duplicate = () => {
+    setCurrentId(null);
+    setDirty(true);
+  };
 
   const startNew = () => {
     if (dirty && !window.confirm("저장하지 않은 내용이 사라집니다. 새로 만들까요?")) return;
@@ -200,8 +284,9 @@ export default function ResumeBuilderView({ me, onBack }) {
   };
 
   const save = async () => {
-    const title = (data.name_ko || data.name_en || "").trim();
-    if (!title) { alert("이름을 입력해 주세요."); return; }
+    const baseTitle = (data.name_ko || data.name_en || "").trim();
+    if (!baseTitle) { alert("이름을 입력해 주세요."); return; }
+    const title = `${baseTitle} (${data.lang === "en" ? "EN" : "KO"})`;
     setSaving(true);
     const payload = {
       title,
@@ -220,6 +305,45 @@ export default function ResumeBuilderView({ me, onBack }) {
     loadList();
   };
 
+  /** 이력서를 A4 PDF 로 만들어 선택한 선생님의 내정보 → 서류(이력서)에 저장 */
+  const saveToDocuments = async () => {
+    if (!teacherId) { alert("서류에 저장하려면 위에서 선생님을 먼저 연결해 주세요."); return; }
+    const teacherName = teachers.find(t => t.id === teacherId)?.name || "선생님";
+    if (!window.confirm(`${teacherName} 선생님의 내정보 > 서류(이력서)에 PDF로 저장할까요?\n이미 저장된 "${RESUME_DOC_LABELS[data.lang === "en" ? "en" : "ko"]}"가 있으면 새 파일로 바뀝니다.`)) return;
+    setFiling(true);
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
+      const node = captureRef.current?.firstElementChild;
+      if (!node) throw new Error("이력서 화면을 찾지 못했습니다.");
+      const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#f4f4f4", useCORS: true });
+      const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, 210, 297);
+      const blob = pdf.output("blob");
+      const baseName = (data.name_ko || data.name_en || teacherName).replace(/[\\/:*?"<>|]/g, "").trim() || "이력서";
+      const file = new File([blob], `이력서_${baseName}_${data.lang === "en" ? "EN" : "KO"}.pdf`, { type: "application/pdf" });
+
+      let types = await fetchTeacherDocumentTypes(scheduleSupabase);
+      let type = types.find(t => t.is_active && String(t.label).includes("이력서"));
+      if (!type) type = await createTeacherDocumentType(scheduleSupabase, { label: "이력서", allowsCustomLabel: true });
+      const resumeLabel = RESUME_DOC_LABELS[data.lang === "en" ? "en" : "ko"];
+      const { rows } = await fetchTeacherDocuments(scheduleSupabase, teacherId);
+      const existing = rows.find(r => r.doc_type_id === type.id && r.doc_label === resumeLabel) || null;
+      await uploadTeacherDocument(scheduleSupabase, {
+        teacherId,
+        uploadedBy: me?.id,
+        docTypeId: type.id,
+        docLabel: resumeLabel,
+        file,
+        existing,
+      });
+      alert(`${teacherName} 선생님의 내정보 > 서류에 "이력서" 로 저장했습니다.`);
+    } catch (err) {
+      alert("서류 저장 실패: " + teacherDocumentsErrorMessage(err));
+    } finally {
+      setFiling(false);
+    }
+  };
+
   const remove = async () => {
     if (!currentId) return;
     if (!window.confirm("이 이력서를 삭제할까요?")) return;
@@ -236,6 +360,9 @@ export default function ResumeBuilderView({ me, onBack }) {
 
   return (
     <div className="resume-view">
+      <div ref={captureRef} className="no-print" aria-hidden style={{ position: "fixed", left: "-10000px", top: 0, width: "210mm", height: "297mm", pointerEvents: "none" }}>
+        <ResumePaper data={data} photo={photo}/>
+      </div>
       <div className="resume-toolbar no-print">
         <button type="button" className="sch-btn sch-btn--ghost" onClick={onBack}><ChevronLeft size={15}/> 돌아가기</button>
         <h2>이력서 만들기</h2>
@@ -245,14 +372,22 @@ export default function ResumeBuilderView({ me, onBack }) {
             {list.map(r => <option key={r.id} value={r.id}>{r.title || "(이름 없음)"}</option>)}
           </select>
           <button type="button" className="sch-btn sch-btn--ghost" onClick={startNew}><Plus size={14}/> 새로</button>
+          {currentId ? <button type="button" className="sch-btn sch-btn--ghost" onClick={duplicate} title="내용을 복사해 새 이력서로 저장합니다(언어만 바꿔 두 버전 만들 때)">복사</button> : null}
           <button type="button" className="sch-btn" disabled={saving} onClick={save}><Save size={14}/> {saving ? "저장 중..." : "저장"}</button>
           <button type="button" className="sch-btn" onClick={() => window.print()}><Printer size={14}/> 인쇄 / PDF 저장</button>
+          <button type="button" className="sch-btn" disabled={filing || !teacherId} title={teacherId ? "" : "선생님을 먼저 연결해 주세요"} onClick={saveToDocuments}><Upload size={14}/> {filing ? "저장 중..." : "선생님 서류에 저장"}</button>
           {currentId ? <button type="button" className="sch-btn sch-btn--ghost" onClick={remove}><Trash2 size={14}/></button> : null}
         </div>
       </div>
 
       <div className="resume-layout">
         <div className="resume-form no-print">
+          <Field label="이력서 언어" hint="소제목(학력/EDUCATION 등)과 이름 배치가 바뀝니다. 내용은 직접 입력한 그대로 나옵니다.">
+            <div className="resume-lang">
+              <button type="button" className={data.lang === "ko" ? "is-on" : ""} onClick={() => switchLang("ko")}>한국어</button>
+              <button type="button" className={data.lang === "en" ? "is-on" : ""} onClick={() => switchLang("en")}>English</button>
+            </div>
+          </Field>
           <Field label="선생님 연결 (선택)" hint="고르면 이름·전화가 채워집니다. 신규 지원자는 비워 두세요.">
             <select value={teacherId} onChange={e => pickTeacher(e.target.value)}>
               <option value="">선택 안 함</option>
@@ -274,14 +409,17 @@ export default function ResumeBuilderView({ me, onBack }) {
             <Field label="회사명"><input value={data.company} onChange={e => set("company", e.target.value)}/></Field>
             <Field label="직책"><input value={data.title} onChange={e => set("title", e.target.value)}/></Field>
           </div>
-          <Field label="소개 (PROFILE)"><textarea rows={4} value={data.profile} onChange={e => set("profile", e.target.value)}/></Field>
+          <Field label="소개">
+            <textarea rows={5} value={data.profile} onChange={e => set("profile", e.target.value)}/>
+            <label className="resume-check"><input type="checkbox" style={{ width: "auto" }} checked={!!data.show_profile_title} onChange={e => set("show_profile_title", e.target.checked)}/> 소개 제목(PROFILE/소개) 표시</label>
+          </Field>
           <div className="resume-row2">
             <Field label="전화"><input value={data.phone} onChange={e => set("phone", e.target.value)}/></Field>
             <Field label="이메일"><input value={data.email} onChange={e => set("email", e.target.value)}/></Field>
           </div>
           <Field label="웹사이트"><input value={data.website} onChange={e => set("website", e.target.value)}/></Field>
           <Field label="학력 (EDUCATION)" hint="한 줄에 하나씩 적으세요."><textarea rows={4} value={data.education} onChange={e => set("education", e.target.value)}/></Field>
-          <Field label="경력 (EXPERIENCE)" hint="항목 사이는 빈 줄로 띄우세요."><textarea rows={7} value={data.experience} onChange={e => set("experience", e.target.value)}/></Field>
+          <Field label="경력 (EXPERIENCE)" hint="항목 사이는 빈 줄로 띄우세요. 줄 맨 앞에 '## '을 붙이면 굵은 소제목이 됩니다. (소제목만 쓰면 EXPERIENCE 제목은 숨겨집니다)"><textarea rows={7} value={data.experience} onChange={e => set("experience", e.target.value)}/></Field>
           <Field label="자격증 (CERTIFICATES)"><textarea rows={4} value={data.certificates} onChange={e => set("certificates", e.target.value)}/></Field>
           <div className="resume-row2">
             <Field label="현재 직무 제목"><input value={data.current_heading} onChange={e => set("current_heading", e.target.value)}/></Field>
