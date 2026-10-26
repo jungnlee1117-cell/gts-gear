@@ -69,6 +69,97 @@ function resizePhoto(file) {
   });
 }
 
+const PHOTO_BG = "#d1d5db";
+const MP_VERSION = "0.10.21";
+const MP_WASM = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`;
+const MP_MODEL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
+let segmenterPromise = null;
+
+async function getSegmenter() {
+  if (!segmenterPromise) {
+    segmenterPromise = (async () => {
+      const { ImageSegmenter, FilesetResolver } = await import("@mediapipe/tasks-vision");
+      const fileset = await FilesetResolver.forVisionTasks(MP_WASM);
+      const make = (delegate) => ImageSegmenter.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: MP_MODEL, delegate },
+        runningMode: "IMAGE",
+        outputCategoryMask: false,
+        outputConfidenceMasks: true,
+      });
+      try { return await make("GPU"); } catch { return await make("CPU"); }
+    })().catch(err => { segmenterPromise = null; throw err; });
+  }
+  return segmenterPromise;
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("이미지를 읽지 못했습니다."));
+    img.src = src;
+  });
+}
+
+/** 사진에서 인물만 오려 회색 배경 위에 올린 JPEG data URL 반환 (실패 시 throw) */
+async function cutoutOnGray(dataUrl) {
+  const img = await loadImage(dataUrl);
+  const w = img.width, h = img.height;
+  const segmenter = await getSegmenter();
+  const src = document.createElement("canvas");
+  src.width = w; src.height = h;
+  src.getContext("2d").drawImage(img, 0, 0);
+  const result = segmenter.segment(src);
+  try {
+    const mask = result.confidenceMasks?.[0];
+    if (!mask) throw new Error("인물을 찾지 못했습니다.");
+    const mw = mask.width, mh = mask.height;
+    const f = mask.getAsFloat32Array();
+    // 중앙(사람이 있을 영역)과 가장자리 평균을 비교해 마스크 방향을 자동 판별
+    let cs = 0, cn = 0, bs = 0, bn = 0;
+    for (let y = 0; y < mh; y++) {
+      for (let x = 0; x < mw; x++) {
+        const v = f[y * mw + x];
+        const fx = x / mw, fy = y / mh;
+        if (fx > 0.3 && fx < 0.7 && fy > 0.3 && fy < 0.7) { cs += v; cn++; }
+        else if (fx < 0.08 || fx > 0.92 || fy < 0.08 || fy > 0.92) { bs += v; bn++; }
+      }
+    }
+    const invert = cn && bn ? cs / cn < bs / bn : false;
+    const mc = document.createElement("canvas");
+    mc.width = mw; mc.height = mh;
+    const mctx = mc.getContext("2d");
+    const id = mctx.createImageData(mw, mh);
+    let fg = 0;
+    for (let i = 0; i < mw * mh; i++) {
+      const p = invert ? 1 - f[i] : f[i];
+      const a = Math.max(0, Math.min(1, (p - 0.5) * 8 + 0.5));
+      id.data[i * 4 + 3] = Math.round(a * 255);
+      fg += a;
+    }
+    const ratio = fg / (mw * mh);
+    if (ratio < 0.04 || ratio > 0.97) throw new Error("인물을 찾지 못했습니다.");
+    mctx.putImageData(id, 0, 0);
+    const person = document.createElement("canvas");
+    person.width = w; person.height = h;
+    const pctx = person.getContext("2d");
+    pctx.drawImage(img, 0, 0);
+    pctx.globalCompositeOperation = "destination-in";
+    pctx.imageSmoothingEnabled = true;
+    pctx.imageSmoothingQuality = "high";
+    pctx.drawImage(mc, 0, 0, w, h);
+    const out = document.createElement("canvas");
+    out.width = w; out.height = h;
+    const o = out.getContext("2d");
+    o.fillStyle = PHOTO_BG;
+    o.fillRect(0, 0, w, h);
+    o.drawImage(person, 0, 0);
+    return out.toDataURL("image/jpeg", 0.9);
+  } finally {
+    result.close?.();
+  }
+}
+
 function lines(text) {
   return String(text || "").split("\n").map(s => s.trimEnd()).filter(s => s.trim());
 }
@@ -89,6 +180,7 @@ export function ResumePaper({ data, photo }) {
   const onlyTitles = expBlocks.length > 0 && expBlocks.every(b => b.startsWith("## "));
   return (
     <div className="resume-paper">
+      <img className="resume-logo" src="/brand/gts-logo-full.png" alt="GTS"/>
       <div className="resume-top">
         <div className="resume-photo">
           {photo ? <img src={photo} alt=""/> : <span>사진</span>}
@@ -197,6 +289,9 @@ export default function ResumeBuilderView({ me, onBack }) {
   const [currentId, setCurrentId] = useState(null);
   const [data, setData] = useState({ ...EMPTY });
   const [photo, setPhoto] = useState("");
+  const [photoOrig, setPhotoOrig] = useState("");
+  const [cutout, setCutout] = useState(true);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [teacherId, setTeacherId] = useState("");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -243,7 +338,7 @@ export default function ResumeBuilderView({ me, onBack }) {
 
   const startNew = () => {
     if (dirty && !window.confirm("저장하지 않은 내용이 사라집니다. 새로 만들까요?")) return;
-    setCurrentId(null); setData({ ...EMPTY }); setPhoto(""); setTeacherId(""); setDirty(false);
+    setCurrentId(null); setData({ ...EMPTY }); setPhoto(""); setPhotoOrig(""); setTeacherId(""); setDirty(false);
   };
 
   const open = async (id) => {
@@ -253,7 +348,7 @@ export default function ResumeBuilderView({ me, onBack }) {
     if (error) { alert("불러오기 실패: " + error.message); return; }
     setCurrentId(row.id);
     setData({ ...EMPTY, ...(row.data || {}) });
-    setPhoto(row.photo_data || "");
+    setPhoto(row.photo_data || ""); setPhotoOrig("");
     setTeacherId(row.teacher_id || "");
     setDirty(false);
   };
@@ -271,16 +366,37 @@ export default function ResumeBuilderView({ me, onBack }) {
     setDirty(true);
   };
 
+  const applyPhoto = async (orig, useCutout) => {
+    if (!useCutout) { setPhoto(orig); setDirty(true); return; }
+    setPhotoBusy(true);
+    try {
+      setPhoto(await cutoutOnGray(orig));
+    } catch (err) {
+      console.error(err);
+      setPhoto(orig);
+      alert((err?.message || "배경 제거에 실패했습니다.") + "\n원본 사진을 그대로 사용합니다.");
+    } finally {
+      setPhotoBusy(false);
+      setDirty(true);
+    }
+  };
+
   const onPhoto = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      setPhoto(await resizePhoto(file));
-      setDirty(true);
+      const orig = await resizePhoto(file);
+      setPhotoOrig(orig);
+      await applyPhoto(orig, cutout);
     } catch (err) {
       alert(err.message || "사진을 불러오지 못했습니다.");
     }
     e.target.value = "";
+  };
+
+  const toggleCutout = async (on) => {
+    setCutout(on);
+    if (photoOrig) await applyPhoto(photoOrig, on);
   };
 
   const save = async () => {
@@ -349,7 +465,7 @@ export default function ResumeBuilderView({ me, onBack }) {
     if (!window.confirm("이 이력서를 삭제할까요?")) return;
     const { error } = await scheduleSupabase.from("resumes").delete().eq("id", currentId);
     if (error) { alert("삭제 실패: " + error.message); return; }
-    setCurrentId(null); setData({ ...EMPTY }); setPhoto(""); setTeacherId(""); setDirty(false);
+    setCurrentId(null); setData({ ...EMPTY }); setPhoto(""); setPhotoOrig(""); setTeacherId(""); setDirty(false);
     loadList();
   };
 
@@ -397,9 +513,13 @@ export default function ResumeBuilderView({ me, onBack }) {
           <Field label="사진" hint="가로·세로 비율은 자동으로 맞춰 잘립니다.">
             <div className="resume-photo-row">
               <button type="button" className="sch-btn sch-btn--ghost" onClick={() => fileRef.current?.click()}>사진 선택</button>
-              {photo ? <button type="button" className="sch-btn sch-btn--ghost" onClick={() => { setPhoto(""); setDirty(true); }}>사진 삭제</button> : null}
+              {photo ? <button type="button" className="sch-btn sch-btn--ghost" onClick={() => { setPhoto(""); setPhotoOrig(""); setDirty(true); }}>사진 삭제</button> : null}
               <input ref={fileRef} type="file" accept="image/*" hidden onChange={onPhoto}/>
             </div>
+            <label className="resume-check">
+              <input type="checkbox" checked={cutout} disabled={photoBusy} onChange={e => toggleCutout(e.target.checked)}/>
+              인물만 오려서 회색 배경에 올리기{photoBusy ? " (처리 중…)" : ""}
+            </label>
           </Field>
           <div className="resume-row2">
             <Field label="영문 이름"><input value={data.name_en} onChange={e => set("name_en", e.target.value)} placeholder="JIN"/></Field>

@@ -5,6 +5,8 @@ import TeacherContractsHub from "./TeacherContractsHub.jsx";
 import { canUploadTeacherContract } from "./teacherProfile.js";
 import PlatformMainButton from "./PlatformMainButton.jsx";
 import PeMediaLibrary from "./peMedia/PeMediaLibrary.jsx";
+import ResumeBuilderView from "./schedule/ResumeBuilderView.jsx";
+import { syncScheduleAuthSession } from "./schedule/api.js";
 import {
   Users, Trophy, Languages, ClipboardList, PartyPopper,
   Baby, GraduationCap, Video, Music, ChevronLeft, Search, X, Upload, Download,
@@ -25,6 +27,31 @@ function canAccessFullLibrary(user) {
   if (user?.access_scope === "gear_only") return false;
   return canUploadTeacherContract(user)
     || FULL_LIBRARY_USER_NAMES.has(String(user?.name || "").trim());
+}
+
+/** 서식 카테고리: 대표님 + 이력서를 만드는 관리자(전체 자료실 권한자) */
+function canSeeForms(user) {
+  return canUploadTeacherContract(user) || (PE_ADMIN(user) && canAccessFullLibrary(user));
+}
+
+function ResumeBuilderEntry({ supabase, me }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    supabase.auth.getSession()
+      .then(({ data }) => syncScheduleAuthSession(data?.session))
+      .catch(console.error);
+  }, [open, supabase]);
+  if (open) return <ResumeBuilderView me={me} onBack={() => setOpen(false)} />;
+  return (
+    <div style={{ margin: "0 0 16px", padding: "14px 16px", background: "#fff", border: "1px solid #fed7aa", borderRadius: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ fontWeight: 800, fontSize: 15 }}>이력서 만들기</div>
+        <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>사진·경력 입력 → GTS 이력서 A4 (국문/영문) 출력</div>
+      </div>
+      <button type="button" className="sch-btn" onClick={() => setOpen(true)}>이력서 만들기 열기</button>
+    </div>
+  );
 }
 
 const MEDIA_HUB_CATEGORIES = [
@@ -90,7 +117,7 @@ function hubCategoriesForUser(allCategories, me) {
   const base = (allCategories || [])
     .map(normalizeLibraryCategory)
     .filter(cat => !["videos", "video-media", "audio-media"].includes(cat.id))
-    .filter(cat => cat.id !== "child-dev" || canUploadTeacherContract(me));
+    .filter(cat => cat.id !== "child-dev" || canSeeForms(me));
   const lessonPlanCategories = base.filter(cat => cat.id === LESSON_PLAN_CATEGORY_ID);
   const visible = canAccessFullLibrary(me)
     ? [...base, ...MEDIA_HUB_CATEGORIES]
@@ -1620,7 +1647,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
     const teacherFolderCategory = directCategoryId === LESSON_PLAN_CATEGORY_ID;
     if (
       (!fullLibraryAccess && !mediaOnlyCategory && !teacherFolderCategory)
-      || (directCategoryId === "child-dev" && !canUploadTeacherContract(me))
+      || (directCategoryId === "child-dev" && !canSeeForms(me))
     ) {
       setCategory(null);
       setView("hub");
@@ -1652,7 +1679,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
   }, [resources]);
 
   const goCategory = (cat) => {
-    if (cat.id === "child-dev" && !canUploadTeacherContract(me)) return;
+    if (cat.id === "child-dev" && !canSeeForms(me)) return;
     if (cat.status === "coming-soon") return;
     if (cat.externalPath) {
       (onNavigate || navigate)(cat.externalPath);
@@ -1748,7 +1775,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
             fullLibraryAccess={fullLibraryAccess}
             onManageCategories={() => setShowCatManage(true)}
           />
-        ) : activeCategory?.id === "child-dev" && !canUploadTeacherContract(me) ? (
+        ) : activeCategory?.id === "child-dev" && !canSeeForms(me) ? (
           <p>계약서 서식은 대표님만 볼 수 있습니다.</p>
         ) : activeCategory?.id === "videos" ? (
           <PeMediaLibrary
@@ -1759,7 +1786,8 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
           />
         ) : (
           <>
-          {activeCategory?.id === "child-dev" && <TeacherContractsHub supabase={supabase} me={me} />}
+          {activeCategory?.id === "child-dev" && PE_ADMIN(me) && <ResumeBuilderEntry supabase={supabase} me={me} />}
+          {activeCategory?.id === "child-dev" && canUploadTeacherContract(me) && <TeacherContractsHub supabase={supabase} me={me} />}
           <ResourceListPage
             key={activeCategory?.id || "search"}
             category={activeCategory}

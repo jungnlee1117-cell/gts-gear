@@ -23817,8 +23817,9 @@ button.pe-res-resource-youtube-thumb:hover {
 .resume-preview__scale > #resume-print-area { width: 210mm; height: 297mm; transform: scale(0.68); transform-origin: top left; box-shadow: 0 4px 24px rgba(0,0,0,0.18); }
 
 /* A4 이력서 본문 (GTS 양식) */
-.resume-paper { width: 210mm; height: 297mm; box-sizing: border-box; background: #f4f4f4; padding: 13mm 12mm 10mm; color: #1f2937; font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Lato", sans-serif; overflow: hidden; }
+.resume-paper { position: relative; width: 210mm; height: 297mm; box-sizing: border-box; background: #f4f4f4; padding: 13mm 12mm 10mm; color: #1f2937; font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Lato", sans-serif; overflow: hidden; }
 .resume-top { display: grid; grid-template-columns: 76mm 1fr; column-gap: 12mm; align-items: stretch; height: 102mm; }
+.resume-logo { position: absolute; top: 12mm; right: 12mm; width: 40mm; height: auto; display: block; }
 .resume-photo { width: 76mm; height: 102mm; background: #d1d5db; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #9ca3af; font-size: 12pt; }
 .resume-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .resume-head { display: flex; flex-direction: column; justify-content: center; padding-right: 2mm; }
