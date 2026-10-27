@@ -1139,6 +1139,25 @@ export async function insertSessionRate(payload) {
   return data;
 }
 
+export async function updateSessionRate(id, patch) {
+  const { data, error } = await scheduleSupabase
+    .from("institution_session_rates")
+    .update(patch)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteSessionRate(id) {
+  const { error } = await scheduleSupabase
+    .from("institution_session_rates")
+    .delete()
+    .eq("id", id);
+  if (error) throw error;
+}
+
 export async function fetchMonthlySessionCounts(institutionId, yearMonth) {
   let q = scheduleSupabase
     .from("institution_monthly_session_counts")

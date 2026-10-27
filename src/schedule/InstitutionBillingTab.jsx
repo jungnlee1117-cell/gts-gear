@@ -18,6 +18,8 @@ import {
   fetchPayrollEntries,
   fetchSessionRates,
   insertSessionRate,
+  updateSessionRate,
+  deleteSessionRate,
   saveMonthlyContract,
   saveMonthlySessionCount,
   upsertInstitution,
@@ -156,6 +158,77 @@ export default function InstitutionBillingTab({
     }
   };
 
+  const canSwitchBilling = isScheduleSuperAdmin(me) && !isPartner;
+  const currentBillingKey = isPerCapita ? "per_capita" : isPerSession ? "per_session" : "monthly_fixed";
+  const BILLING_CHOICES = [
+    ["monthly_fixed", "월 고정"],
+    ["per_capita", "인원수(인당)"],
+    ["per_session", "회당"],
+  ];
+  const switchBilling = async (key) => {
+    if (key === currentBillingKey) return;
+    const label = BILLING_CHOICES.find(([k]) => k === key)?.[1];
+    if (!confirm(`과금방식을 "${label}"(으)로 바꿀까요?\n기존에 입력한 매출 기록은 지워지지 않습니다.`)) return;
+    try {
+      const saved = await upsertInstitution({ ...institution, billing_type: key, billing_type_explicit: true });
+      onInstitutionChange?.(saved);
+    } catch (err) {
+      alert("과금방식 변경 실패: " + err.message
+        + (String(err.message).includes("billing_type_explicit") ? "\n(Supabase에서 원_과금방식_SQL.sql을 먼저 실행하세요)" : ""));
+    }
+  };
+
+  const addCapitaRate = async () => {
+    const rate = prompt("인당 단가(원/인)", capitaRate ? String(capitaRate) : "0");
+    if (rate == null) return;
+    const effectiveFrom = prompt("적용 시작일 (YYYY-MM-DD)", new Date().toISOString().slice(0, 10));
+    if (!effectiveFrom) return;
+    try {
+      await insertSessionRate({
+        institution_id: institutionId,
+        session_type: PER_CAPITA_SESSION_TYPE,
+        rate_per_session: Number(rate.replace(/,/g, "")) || 0,
+        effective_from: effectiveFrom,
+      });
+      await load({ silent: true });
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const editRate = async (r) => {
+    const rate = prompt("단가(원)", String(r.rate_per_session ?? 0));
+    if (rate == null) return;
+    const effectiveFrom = prompt("적용 시작일 (YYYY-MM-DD)", String(r.effective_from || "").slice(0, 10));
+    if (!effectiveFrom) return;
+    try {
+      await updateSessionRate(r.id, {
+        rate_per_session: Number(rate.replace(/,/g, "")) || 0,
+        effective_from: effectiveFrom,
+      });
+      await load({ silent: true });
+    } catch (err) {
+      alert("단가 수정 실패: " + err.message);
+    }
+  };
+
+  const removeRate = async (r) => {
+    if (!confirm(`${r.session_type} ${Number(r.rate_per_session).toLocaleString()}원 단가를 삭제할까요?`)) return;
+    try {
+      await deleteSessionRate(r.id);
+      await load({ silent: true });
+    } catch (err) {
+      alert("단가 삭제 실패: " + err.message);
+    }
+  };
+
+  const rateActions = (r) => (
+    <span className="sch-rate-actions">
+      <button type="button" className="sch-btn sch-btn--ghost sch-btn--sm" onClick={() => editRate(r)}>수정</button>
+      <button type="button" className="sch-icon-btn" aria-label="단가 삭제" onClick={() => removeRate(r)}><Trash2 size={14}/></button>
+    </span>
+  );
+
   const saveCount = async (sessionType, count, note, existingId) => {
     const nextCount = Number(count) || 0;
     const nextNote = note || null;
@@ -258,6 +331,19 @@ export default function InstitutionBillingTab({
             : " 종료일이 속한 달까지는 매출을 등록할 수 있습니다."}
         </p>
       ) : null}
+      {canSwitchBilling ? (
+        <div className="sch-billing-switch" role="group" aria-label="과금방식">
+          <span className="sch-billing-switch__label">과금방식</span>
+          {BILLING_CHOICES.map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              className={`sch-billing-switch__btn${currentBillingKey === k ? " is-on" : ""}`}
+              onClick={() => switchBilling(k)}
+            >{label}</button>
+          ))}
+        </div>
+      ) : null}
       <div className="sch-toolbar">
         <label className="sch-field sch-field--inline">
           <span>대상 월</span>
@@ -281,15 +367,24 @@ export default function InstitutionBillingTab({
       ) : isPerCapita ? (
         <>
           <section className="sch-billing-panel">
-            <h4 className="sch-subtitle">인당 단가</h4>
+            <div className="sch-billing-panel-header">
+              <h4 className="sch-subtitle">인당 단가</h4>
+              <button type="button" className="sch-btn sch-btn--ghost" onClick={addCapitaRate}>
+                <Plus size={14}/> 단가 {capitaRate > 0 ? "추가·변경" : "등록"}
+              </button>
+            </div>
             <ul className="sch-entry-list">
-              {capitaRate > 0 ? (
-                <li className="sch-entry-item">
-                  <span>{Number(capitaRate).toLocaleString()}원/인</span>
-                </li>
-              ) : (
+              {sessionRates.filter(r => r.session_type === PER_CAPITA_SESSION_TYPE).length === 0 ? (
                 <li className="sch-muted">등록된 인당 단가가 없습니다.</li>
-              )}
+              ) : sessionRates.filter(r => r.session_type === PER_CAPITA_SESSION_TYPE).map(r => (
+                <li key={r.id} className="sch-entry-item">
+                  <span>
+                    {Number(r.rate_per_session).toLocaleString()}원/인
+                    <span className="sch-muted"> · {String(r.effective_from).slice(0, 10)}~</span>
+                  </span>
+                  {rateActions(r)}
+                </li>
+              ))}
             </ul>
           </section>
 
@@ -337,6 +432,7 @@ export default function InstitutionBillingTab({
                     {r.session_type} · {Number(r.rate_per_session).toLocaleString()}원/회
                     <span className="sch-muted"> · {r.effective_from}~</span>
                   </span>
+                  {rateActions(r)}
                 </li>
               ))}
             </ul>
@@ -766,7 +862,7 @@ function InstitutionBizInfoForm({
               className="sch-select"
               value={institution.billing_type}
               disabled={!canEditContract}
-              onChange={e => patch({ billing_type: e.target.value })}
+              onChange={e => patch({ billing_type: e.target.value, billing_type_explicit: true })}
             >
               {Object.entries(BILLING_TYPES).map(([k, v]) => (
                 <option key={k} value={k}>{v}</option>

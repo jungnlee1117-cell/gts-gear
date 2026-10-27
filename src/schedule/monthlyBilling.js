@@ -110,6 +110,8 @@ export function buildMonthlyContractPayload({
 
 export function isPerCapitaBilling(institution, sessionRates = [], sessionCounts = []) {
   if (institution?.contract_type === "partner_billing") return false;
+  // 앱에서 과금방식을 직접 바꾼 원은 선택한 값을 그대로 따른다 (옛 데이터 추정보다 우선)
+  if (institution?.billing_type_explicit) return institution.billing_type === "per_capita";
   if (institution?.billing_type === "per_capita") return true;
   if ((sessionRates || []).some(
     r => r.institution_id === institution?.id && r.session_type === PER_CAPITA_SESSION_TYPE,

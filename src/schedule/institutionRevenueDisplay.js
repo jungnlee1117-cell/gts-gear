@@ -28,7 +28,16 @@ function instCountsFor(institutionId, sessionCounts) {
 /** 과금 컬럼 — billing_type 라벨 */
 export function formatInstitutionBillingLabel(institution, sessionRates = [], sessionCounts = []) {
   const type = resolveInstitutionBillingType(institution, sessionRates, sessionCounts);
-  return BILLING_TYPES[type] || type;
+  const base = BILLING_TYPES[type] || type;
+  if (type === "per_session") {
+    const types = [...new Set(
+      (sessionRates || [])
+        .filter(r => r.institution_id === institution?.id && r.session_type !== PER_CAPITA_SESSION_TYPE)
+        .map(r => r.session_type),
+    )];
+    if (types.length) return `${base} (${types.join("·")})`;
+  }
+  return base;
 }
 
 /** 매출 컬럼 — 계산된 금액 (과금 유형명은 포함하지 않음) */

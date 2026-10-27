@@ -23865,3 +23865,10 @@ td > .sch-inst-ended-badge { margin-left: 0; }
 .sch-inst-cal-classes { display: flex; flex-direction: column; gap: 1px; margin-top: 2px; width: 100%; }
 .sch-inst-cal-class { display: block; font-size: 9px; font-weight: 700; line-height: 1.25; padding: 1px 3px; border-radius: 3px; background: #dbeafe; color: #1d4ed8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .sch-inst-cal-class--more { background: #e2e8f0; color: #475569; }
+
+/* 원 계약/매출: 과금방식 전환 · 단가 수정 */
+.sch-billing-switch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+.sch-billing-switch__label { font-size: 13px; font-weight: 700; color: #475569; margin-right: 4px; }
+.sch-billing-switch__btn { border: 1px solid #cbd5e1; background: #fff; color: #475569; border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.sch-billing-switch__btn.is-on { background: #16a34a; border-color: #16a34a; color: #fff; }
+.sch-rate-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
