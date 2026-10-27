@@ -379,7 +379,10 @@ export default function InstitutionDetailView({
           <ChevronLeft size={18}/> 원 관리
         </button>
         <div className="sch-inst-switcher">
-          <h2 className="sch-view-title">{displayName}</h2>
+          <h2 className="sch-view-title">
+            {displayName}
+            {inst.is_active === false ? <span className="sch-inst-ended-badge">계약 종료</span> : null}
+          </h2>
           <InstitutionSearchSelect
             institutions={switcherInstitutions}
             value={institutionId}
@@ -475,6 +478,16 @@ export default function InstitutionDetailView({
 
           <label className="sch-field"><span>이름</span>
             <input className="sch-input" value={inst.name || ""} onChange={e => setInst({ ...inst, name: e.target.value })}/>
+          </label>
+          <label className="sch-field"><span>계약 상태</span>
+            <select
+              className="sch-select"
+              value={inst.is_active === false ? "ended" : "active"}
+              onChange={e => setInst({ ...inst, is_active: e.target.value !== "ended" })}
+            >
+              <option value="active">계약중</option>
+              <option value="ended">계약 종료 (매출 등록 불가)</option>
+            </select>
           </label>
           <label className="sch-field"><span>주소</span>
             <input className="sch-input" value={inst.address || ""} onChange={e => setInst({ ...inst, address: e.target.value })}/>

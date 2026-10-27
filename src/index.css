@@ -23852,3 +23852,11 @@ button.pe-res-resource-youtube-thumb:hover {
   #resume-print-area { position: absolute !important; left: -12mm !important; top: -12mm !important; width: 210mm !important; height: 297mm !important; transform: none !important; box-shadow: none !important; }
   .resume-paper { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* 원 관리: 계약 상태 */
+.sch-inst-ended-badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: #fee2e2; color: #b91c1c; font-size: 12px; font-weight: 700; vertical-align: middle; }
+.sch-inst-active-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #dcfce7; color: #15803d; font-size: 12px; font-weight: 700; }
+td > .sch-inst-ended-badge { margin-left: 0; }
+.sch-row-ended { background: #f8fafc; color: #94a3b8; }
+.sch-row-ended .sch-link-btn { color: #94a3b8; }
+.sch-inst-ended-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font-size: 13px; font-weight: 600; }

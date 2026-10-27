@@ -59,6 +59,7 @@ export function getMonthlyContractDraft(contracts, yearMonth, institutionId) {
 export function listBulkPrefillTargets(institutions, contracts, yearMonth) {
   const prevYm = previousYearMonth(yearMonth);
   return institutions
+    .filter(inst => inst.is_active !== false)
     .filter(isMonthlyFixedBilling)
     .filter(inst => !findContractForMonth(contracts, yearMonth, inst.id))
     .map(inst => {

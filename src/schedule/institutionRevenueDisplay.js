@@ -116,6 +116,7 @@ export function isInstitutionRevenuePending({
   sessionRates = [],
   yearMonth,
 }) {
+  if (institution?.is_active === false) return false;
   const mode = getInstitutionRevenueInputMode(institution, sessionRates, sessionCounts);
   if (mode === "partner") return false;
 
@@ -138,6 +139,7 @@ export function isInstitutionRevenuePending({
 }
 
 export function canEditInstitutionRevenue(institution, sessionRates = [], sessionCounts = []) {
+  if (institution?.is_active === false) return false;
   return getInstitutionRevenueInputMode(institution, sessionRates, sessionCounts) !== "partner";
 }
 

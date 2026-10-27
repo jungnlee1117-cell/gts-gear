@@ -1062,7 +1062,22 @@ export async function fetchMonthlyContracts(institutionId) {
   return data || [];
 }
 
+/** 계약이 종료(비활성)된 원에는 매출을 등록할 수 없다. */
+async function assertInstitutionActiveForRevenue(institutionId) {
+  if (!institutionId) return;
+  const { data, error } = await scheduleSupabase
+    .from("institutions")
+    .select("name, is_active")
+    .eq("id", institutionId)
+    .maybeSingle();
+  if (error) throw error;
+  if (data && data.is_active === false) {
+    throw new Error(`${data.name || "이 원"}은(는) 계약이 종료된 원이라 매출을 등록할 수 없습니다. (원 관리 > 기본정보에서 계약 상태를 확인하세요)`);
+  }
+}
+
 export async function saveMonthlyContract(payload) {
+  await assertInstitutionActiveForRevenue(payload?.institution_id);
   const { data, error } = await scheduleSupabase
     .from("institution_monthly_contracts")
     .upsert(payload, { onConflict: "institution_id,year_month" })
@@ -1137,6 +1152,7 @@ export async function fetchMonthlySessionCounts(institutionId, yearMonth) {
 }
 
 export async function saveMonthlySessionCount(payload) {
+  await assertInstitutionActiveForRevenue(payload?.institution_id);
   const ym = yearMonthFirstDay(payload.year_month?.slice?.(0, 7) || payload.year_month);
   const { data, error } = await scheduleSupabase
     .from("institution_monthly_session_counts")

@@ -180,10 +180,17 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
     return formatInstitutionManagerLabel(teachers.find(t => t.id === id));
   };
 
+  const [statusFilter, setStatusFilter] = useState("active");
+  const endedCount = useMemo(() => rows.filter(i => i.is_active === false).length, [rows]);
+
   const visibleRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((inst) => {
+    const byStatus = rows.filter((inst) => {
+      if (statusFilter === "all") return true;
+      return statusFilter === "ended" ? inst.is_active === false : inst.is_active !== false;
+    });
+    if (!q) return byStatus;
+    return byStatus.filter((inst) => {
       const manager = teachers.find(t => t.id === inst.manager_id);
       const managerLabel = formatInstitutionManagerLabel(manager).toLowerCase();
       const rawManager = String(manager?.name || "").toLowerCase();
@@ -191,7 +198,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
         || managerLabel.includes(q)
         || rawManager.includes(q);
     });
-  }, [rows, query, teachers]);
+  }, [rows, query, teachers, statusFilter]);
 
   const revenueLabel = (inst) => {
     if (!canViewInstitutionRevenue(me, inst) && isManagerFixedPayout(inst)) {
@@ -307,6 +314,16 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
             aria-label="원 검색"
           />
         </div>
+        <select
+          className="sch-select"
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value)}
+          aria-label="계약 상태 필터"
+        >
+          <option value="active">계약중</option>
+          <option value="ended">계약 종료{endedCount ? ` (${endedCount})` : ""}</option>
+          <option value="all">전체</option>
+        </select>
         {query.trim() ? (
           <p className="sch-muted">{visibleRows.length}곳</p>
         ) : null}
@@ -333,7 +350,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                 <th>과금</th>
                 <th>{yearMonth} 매출</th>
                 <th>계약유형</th>
-                <th>활성</th>
+                <th>계약 상태</th>
                 {admin ? <th/> : null}
               </tr>
             </thead>
@@ -362,7 +379,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                 return (
                   <tr
                     key={inst.id}
-                    className={pending && isMonthlyFixedBilling(inst) ? "sch-row-warn" : ""}
+                    className={inst.is_active === false ? "sch-row-ended" : (pending && isMonthlyFixedBilling(inst) ? "sch-row-warn" : "")}
                   >
                     {superAdmin ? (
                       <td className="sch-table-check-col">
@@ -390,7 +407,11 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                       {finalized ? <span className="sch-inst-revenue-finalized">확정</span> : null}
                     </td>
                     <td>{CONTRACT_TYPES[inst.contract_type]}</td>
-                    <td>{inst.is_active ? "활성" : "비활성"}</td>
+                    <td>
+                      {inst.is_active === false
+                        ? <span className="sch-inst-ended-badge">계약 종료</span>
+                        : <span className="sch-inst-active-badge">계약중</span>}
+                    </td>
                     {admin ? (
                       <td>
                         {showEdit ? (

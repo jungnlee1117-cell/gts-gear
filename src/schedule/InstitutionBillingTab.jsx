@@ -249,6 +249,11 @@ export default function InstitutionBillingTab({
   return (
     <div className="sch-billing-tab">
       {bizInfo}
+      {institution.is_active === false ? (
+        <p className="sch-inst-ended-note">
+          계약이 종료된 원입니다. 매출은 등록할 수 없습니다. (기존 기록 확인만 가능 — 다시 계약하면 기본정보에서 &quot;계약중&quot;으로 바꾸세요)
+        </p>
+      ) : null}
       <div className="sch-toolbar">
         <label className="sch-field sch-field--inline">
           <span>대상 월</span>
