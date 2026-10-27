@@ -372,7 +372,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                 });
                 const showEdit = admin
                   && canViewInstitutionRevenue(me, inst)
-                  && canEditInstitutionRevenue(inst, sessionRates, sessionCounts);
+                  && canEditInstitutionRevenue(inst, sessionRates, sessionCounts, yearMonth);
                 const finalized = finalizedIds.has(inst.id);
                 const isBulkTarget = bulkTargetIds.has(inst.id);
 

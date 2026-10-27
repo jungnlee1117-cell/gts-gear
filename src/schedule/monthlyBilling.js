@@ -55,11 +55,23 @@ export function getMonthlyContractDraft(contracts, yearMonth, institutionId) {
   };
 }
 
+/**
+ * 계약이 종료된 원의 매출 등록 차단 여부.
+ * 계약 종료일이 있으면 그 달까지는 등록 가능, 그 이후 달부터 차단. 종료일이 없으면 전부 차단.
+ */
+export function isRevenueBlockedForMonth(institution, yearMonth) {
+  if (!institution || institution.is_active !== false) return false;
+  const end = institution.contract_end_date ? String(institution.contract_end_date).slice(0, 7) : null;
+  const ym = String(yearMonth || "").slice(0, 7);
+  if (!end || !ym) return true;
+  return ym > end;
+}
+
 /** 일괄 적용 대상: monthly_fixed + 이번 달 미입력 + 직전 달 있음 */
 export function listBulkPrefillTargets(institutions, contracts, yearMonth) {
   const prevYm = previousYearMonth(yearMonth);
   return institutions
-    .filter(inst => inst.is_active !== false)
+    .filter(inst => !isRevenueBlockedForMonth(inst, yearMonth))
     .filter(isMonthlyFixedBilling)
     .filter(inst => !findContractForMonth(contracts, yearMonth, inst.id))
     .map(inst => {

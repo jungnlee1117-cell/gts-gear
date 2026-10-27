@@ -6,6 +6,7 @@ import {
   getPerSessionDrafts,
   getMonthlyContractDraft,
   isMonthlyFixedBilling,
+  isRevenueBlockedForMonth,
   PER_CAPITA_SESSION_TYPE,
   previousYearMonth,
   resolveInstitutionBillingType,
@@ -116,7 +117,7 @@ export function isInstitutionRevenuePending({
   sessionRates = [],
   yearMonth,
 }) {
-  if (institution?.is_active === false) return false;
+  if (isRevenueBlockedForMonth(institution, yearMonth)) return false;
   const mode = getInstitutionRevenueInputMode(institution, sessionRates, sessionCounts);
   if (mode === "partner") return false;
 
@@ -138,8 +139,8 @@ export function isInstitutionRevenuePending({
   return false;
 }
 
-export function canEditInstitutionRevenue(institution, sessionRates = [], sessionCounts = []) {
-  if (institution?.is_active === false) return false;
+export function canEditInstitutionRevenue(institution, sessionRates = [], sessionCounts = [], yearMonth = null) {
+  if (isRevenueBlockedForMonth(institution, yearMonth)) return false;
   return getInstitutionRevenueInputMode(institution, sessionRates, sessionCounts) !== "partner";
 }
 

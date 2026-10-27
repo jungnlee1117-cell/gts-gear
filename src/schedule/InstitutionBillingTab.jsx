@@ -26,6 +26,7 @@ import {
   buildMonthlyContractPayload,
   getMonthlyContractDraft,
   isMonthlyFixedBilling,
+  isRevenueBlockedForMonth,
   isPerCapitaBilling,
   PER_CAPITA_SESSION_TYPE,
   previousYearMonth,
@@ -251,7 +252,10 @@ export default function InstitutionBillingTab({
       {bizInfo}
       {institution.is_active === false ? (
         <p className="sch-inst-ended-note">
-          계약이 종료된 원입니다{institution.contract_end_date ? ` (${String(institution.contract_end_date).slice(0, 10)}부터)` : ""}. 매출은 등록할 수 없습니다. (기존 기록 확인만 가능 — 다시 계약하면 기본정보에서 &quot;계약중&quot;으로 바꾸세요)
+          계약이 종료된 원입니다{institution.contract_end_date ? ` (종료일 ${String(institution.contract_end_date).slice(0, 10)})` : ""}.
+          {isRevenueBlockedForMonth(institution, yearMonth)
+            ? " 이 달은 종료일 이후라 매출을 등록할 수 없습니다."
+            : " 종료일이 속한 달까지는 매출을 등록할 수 있습니다."}
         </p>
       ) : null}
       <div className="sch-toolbar">

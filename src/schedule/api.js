@@ -1,7 +1,7 @@
 import { resolveTeacherMonthlyGross } from "./additionalPayments.js";
 import { createClient } from "@supabase/supabase-js";
 import { fmtLocalDate, minutesBetween, resolvePayrollSummaryType, yearMonthFirstDay, yearMonthKey, yearMonthLastDay } from "./constants.js";
-import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, isPerCapitaBilling, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
+import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, isPerCapitaBilling, isRevenueBlockedForMonth, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
 import {
   computeInstitutionInstructorCost,
   applyManagerShareAdjustments,
@@ -1063,21 +1063,21 @@ export async function fetchMonthlyContracts(institutionId) {
 }
 
 /** 계약이 종료(비활성)된 원에는 매출을 등록할 수 없다. */
-async function assertInstitutionActiveForRevenue(institutionId) {
+async function assertInstitutionActiveForRevenue(institutionId, yearMonth) {
   if (!institutionId) return;
   const { data, error } = await scheduleSupabase
     .from("institutions")
-    .select("name, is_active")
+    .select("*")
     .eq("id", institutionId)
     .maybeSingle();
   if (error) throw error;
-  if (data && data.is_active === false) {
-    throw new Error(`${data.name || "이 원"}은(는) 계약이 종료된 원이라 매출을 등록할 수 없습니다. (원 관리 > 기본정보에서 계약 상태를 확인하세요)`);
+  if (data && isRevenueBlockedForMonth(data, yearMonth)) {
+    throw new Error(`${data.name || "이 원"}은(는) 계약 종료일 이후라 매출을 등록할 수 없습니다. (원 관리 > 기본정보에서 계약 상태·종료일을 확인하세요)`);
   }
 }
 
 export async function saveMonthlyContract(payload) {
-  await assertInstitutionActiveForRevenue(payload?.institution_id);
+  await assertInstitutionActiveForRevenue(payload?.institution_id, payload?.year_month);
   const { data, error } = await scheduleSupabase
     .from("institution_monthly_contracts")
     .upsert(payload, { onConflict: "institution_id,year_month" })
@@ -1152,7 +1152,7 @@ export async function fetchMonthlySessionCounts(institutionId, yearMonth) {
 }
 
 export async function saveMonthlySessionCount(payload) {
-  await assertInstitutionActiveForRevenue(payload?.institution_id);
+  await assertInstitutionActiveForRevenue(payload?.institution_id, payload?.year_month);
   const ym = yearMonthFirstDay(payload.year_month?.slice?.(0, 7) || payload.year_month);
   const { data, error } = await scheduleSupabase
     .from("institution_monthly_session_counts")
