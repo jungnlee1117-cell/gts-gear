@@ -24,31 +24,38 @@ const LABELS = {
   },
 };
 
-/** 자동 번역 대상 (이름·연락처·URL 은 번역하지 않음) */
-const TRANSLATE_KEYS = [
-  "title", "profile", "education", "experience", "certificates",
-  "current_heading", "current_line", "current_bullets",
-];
-
-function pickTranslatable(d) {
-  const out = {};
-  for (const k of TRANSLATE_KEYS) out[k] = d?.[k] || "";
-  return out;
+function dotMonth(v) {
+  const [y, m] = String(v || "").slice(0, 7).split("-");
+  return y && m ? `${y}.${m}` : "";
 }
 
-async function requestTranslation(from, to, fields) {
-  const { data: sess } = await scheduleSupabase.auth.getSession();
-  const res = await fetch("/api/resume-translate", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${sess?.session?.access_token || ""}`,
-    },
-    body: JSON.stringify({ from, to, fields }),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || `번역 실패 (${res.status})`);
-  return json.fields || {};
+/** 내정보(teacher_careers / teacher_certifications)를 이력서 텍스트로 변환 */
+async function fetchProfileEntries(teacherId, lang) {
+  const [careersRes, certsRes] = await Promise.all([
+    scheduleSupabase
+      .from("teacher_careers")
+      .select("organization, role, start_date, end_date, is_current, note")
+      .eq("teacher_id", teacherId)
+      .order("start_date", { ascending: false, nullsFirst: false }),
+    scheduleSupabase
+      .from("teacher_certifications")
+      .select("name, issuing_organization, acquired_date, note")
+      .eq("teacher_id", teacherId)
+      .order("acquired_date", { ascending: false, nullsFirst: false }),
+  ]);
+  const present = lang === "en" ? "Present" : "현재";
+  const experience = (careersRes.data || []).map((c) => {
+    const head = `## ${c.organization}${c.role ? ` | ${c.role}` : ""}`;
+    const from = dotMonth(c.start_date);
+    const to = c.is_current ? present : dotMonth(c.end_date);
+    const period = from || to ? `${from}${from && to ? " ~ " : ""}${to}` : "";
+    return [head, period, c.note || ""].filter(Boolean).join("\n");
+  }).join("\n\n");
+  const certificates = (certsRes.data || []).map((c) => {
+    const meta = [c.issuing_organization, dotMonth(c.acquired_date)].filter(Boolean).join(", ");
+    return `${c.name}${meta ? ` (${meta})` : ""}${c.note ? ` - ${c.note}` : ""}`;
+  }).join("\n");
+  return { experience, certificates, count: (careersRes.data || []).length + (certsRes.data || []).length };
 }
 
 const EMPTY = {
@@ -300,12 +307,27 @@ export function ResumePaper({ data, photo }) {
   );
 }
 
-function Group({ title, defaultOpen = false, children }) {
+const GROUP_ORDER = ["basic", "name", "profile", "contact", "education", "experience", "certs", "current"];
+
+function Group({ id, title, filled, openKey, setOpenKey, children }) {
+  const open = openKey === id;
+  const idx = GROUP_ORDER.indexOf(id);
+  const next = GROUP_ORDER[idx + 1] || null;
   return (
-    <details className="resume-group" open={defaultOpen}>
-      <summary>{title}</summary>
-      <div className="resume-group__body">{children}</div>
-    </details>
+    <section className={`resume-group${open ? " is-open" : ""}`}>
+      <button type="button" className="resume-group__head" onClick={() => setOpenKey(open ? "" : id)} aria-expanded={open}>
+        <span>{filled ? <b className="resume-group__ok">✓</b> : null}{title}</span>
+        <i aria-hidden>{open ? "▾" : "▸"}</i>
+      </button>
+      {open ? (
+        <div className="resume-group__body">
+          {children}
+          <button type="button" className="sch-btn sch-btn--ghost resume-group__next" onClick={() => setOpenKey(next || "")}>
+            {next ? "다 적었어요 · 다음 ▶" : "다 적었어요 · 접기"}
+          </button>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -334,7 +356,7 @@ export default function ResumeBuilderView({ me, onBack }) {
   const fileRef = useRef(null);
   const captureRef = useRef(null);
   const [filing, setFiling] = useState(false);
-  const [translating, setTranslating] = useState(false);
+  const [openKey, setOpenKey] = useState("basic");
 
   const loadList = async () => {
     const { data: rows, error } = await scheduleSupabase
@@ -352,57 +374,19 @@ export default function ResumeBuilderView({ me, onBack }) {
 
   const set = (k, v) => { setData(p => ({ ...p, [k]: v })); setDirty(true); };
 
-  /**
-   * 언어 전환. 다른 언어 버전(alt)이 있으면 그대로 불러오고,
-   * 없으면 자동 번역해서 채운다. 번역된 내용도 직접 수정할 수 있다.
-   */
-  const switchLang = async (lang) => {
-    if (lang === data.lang || translating) return;
-    const cur = data.lang === "en" ? "en" : "ko";
-    const snapshot = pickTranslatable(data);
-    if (data.alt && data.alt.lang === lang && data.alt.fields) {
-      setData(p => ({ ...p, ...data.alt.fields, lang, alt: { lang: cur, fields: snapshot } }));
-      setDirty(true);
-      return;
-    }
-    const hasText = TRANSLATE_KEYS.some(k => String(snapshot[k] || "").trim());
-    let translated = null;
-    if (hasText) {
-      setTranslating(true);
-      try {
-        translated = await requestTranslation(cur, lang, snapshot);
-      } catch (err) {
-        alert(`자동 번역에 실패해서 언어만 바꿉니다.\n(${err.message})`);
-      } finally {
-        setTranslating(false);
-      }
-    }
-    setData(p => ({
-      ...p,
-      ...(translated || {}),
-      lang,
-      alt: translated ? { lang: cur, fields: snapshot } : p.alt,
-    }));
+  /** 언어를 바꾸면 기본 직책·직무 제목도 그 언어 기본값으로 바꾼다(직접 고친 값은 유지) */
+  const switchLang = (lang) => {
+    setData(p => {
+      const from = LABELS[p.lang === "en" ? "en" : "ko"];
+      const to = LABELS[lang];
+      return {
+        ...p,
+        lang,
+        title: p.title === from.title || !p.title ? to.title : p.title,
+        current_heading: p.current_heading === from.heading || !p.current_heading ? to.heading : p.current_heading,
+      };
+    });
     setDirty(true);
-  };
-
-  /** 현재 내용을 다른 언어로 다시 번역해 다른 언어 버전을 덮어쓴다 */
-  const retranslateOther = async () => {
-    if (translating) return;
-    const cur = data.lang === "en" ? "en" : "ko";
-    const other = cur === "ko" ? "en" : "ko";
-    if (data.alt?.fields && !window.confirm(`${other === "en" ? "영어" : "한국어"} 버전을 현재 ${cur === "ko" ? "한국어" : "영어"} 내용으로 다시 번역해 덮어쓸까요?\n(그 버전에서 직접 고친 내용은 사라집니다)`)) return;
-    setTranslating(true);
-    try {
-      const translated = await requestTranslation(cur, other, pickTranslatable(data));
-      setData(p => ({ ...p, alt: { lang: other, fields: { ...pickTranslatable({}), ...translated } } }));
-      setDirty(true);
-      alert(`${other === "en" ? "영어" : "한국어"} 버전을 번역해 두었습니다. 위 언어 버튼으로 전환해서 확인·수정하세요.`);
-    } catch (err) {
-      alert("번역 실패: " + err.message);
-    } finally {
-      setTranslating(false);
-    }
   };
 
   /** 지금 내용을 그대로 복사해 새 이력서로 시작(언어만 바꿔 두 버전을 만들 때) */
@@ -428,6 +412,33 @@ export default function ResumeBuilderView({ me, onBack }) {
     setDirty(false);
   };
 
+  /** 내정보의 경력·자격증을 불러온다. overwrite=false 면 비어 있는 칸만 채운다. */
+  const importFromProfile = async (id, { overwrite = false, quiet = false } = {}) => {
+    if (!id) return;
+    try {
+      const got = await fetchProfileEntries(id, data.lang === "en" ? "en" : "ko");
+      if (!got.count) {
+        if (!quiet) alert("내정보에 등록된 경력·자격증이 없습니다.");
+        return;
+      }
+      setData(p => ({
+        ...p,
+        experience: overwrite || !p.experience ? (got.experience || p.experience) : p.experience,
+        certificates: overwrite || !p.certificates ? (got.certificates || p.certificates) : p.certificates,
+      }));
+      setDirty(true);
+      if (!quiet) alert("내정보의 경력·자격증을 불러왔습니다. 필요하면 아래 칸에서 고쳐 쓰세요.");
+    } catch (err) {
+      if (!quiet) alert("내정보를 불러오지 못했습니다: " + (err.message || err));
+    }
+  };
+
+  const reimport = async () => {
+    if ((data.experience || data.certificates)
+      && !window.confirm("지금 적힌 경력·자격증을 내정보 내용으로 바꿀까요?")) return;
+    await importFromProfile(teacherId, { overwrite: true });
+  };
+
   const pickTeacher = (id) => {
     setTeacherId(id);
     const t = teachers.find(x => x.id === id);
@@ -439,6 +450,7 @@ export default function ResumeBuilderView({ me, onBack }) {
       }));
     }
     setDirty(true);
+    importFromProfile(id, { quiet: true });
   };
 
   const applyPhoto = async (orig, useCutout) => {
@@ -573,17 +585,12 @@ export default function ResumeBuilderView({ me, onBack }) {
 
       <div className="resume-layout">
         <div className="resume-form no-print">
-          <Group title="기본 설정 (언어 · 선생님 · 사진)" defaultOpen>
-            <Field label="이력서 언어" hint="언어를 바꾸면 내용이 자동으로 번역되어 채워집니다. 번역된 내용은 직접 수정할 수 있고, 다시 돌아오면 수정한 내용이 그대로 있습니다.">
+          <Group id="basic" title="기본 설정 (언어 · 선생님 · 사진)" filled={!!photo} openKey={openKey} setOpenKey={setOpenKey}>
+            <Field label="이력서 언어" hint="한국어/영어 버전을 따로 만듭니다. 소제목(학력/EDUCATION 등)과 이름 배치가 바뀌고, 내용은 직접 입력한 그대로 나옵니다. 다른 언어 버전은 저장 후 '복사'로 새로 만드세요.">
               <div className="resume-lang">
-                <button type="button" disabled={translating} className={data.lang === "ko" ? "is-on" : ""} onClick={() => switchLang("ko")}>한국어</button>
-                <button type="button" disabled={translating} className={data.lang === "en" ? "is-on" : ""} onClick={() => switchLang("en")}>English</button>
+                <button type="button" className={data.lang === "ko" ? "is-on" : ""} onClick={() => switchLang("ko")}>한국어</button>
+                <button type="button" className={data.lang === "en" ? "is-on" : ""} onClick={() => switchLang("en")}>English</button>
               </div>
-              {translating ? <em>번역 중… 잠시만 기다려 주세요.</em> : (
-                <button type="button" className="sch-btn sch-btn--ghost sch-btn--sm" onClick={retranslateOther}>
-                  현재 내용을 {data.lang === "en" ? "한국어" : "영어"}로 다시 번역
-                </button>
-              )}
             </Field>
             <Field label="선생님 연결 (선택)" hint="고르면 이름·전화가 채워집니다. 신규 지원자는 비워 두세요.">
               <select value={teacherId} onChange={e => pickTeacher(e.target.value)}>
@@ -603,7 +610,7 @@ export default function ResumeBuilderView({ me, onBack }) {
               </label>
             </Field>
           </Group>
-          <Group title="이름 · 회사 · 직책" defaultOpen>
+          <Group id="name" title="이름 · 회사 · 직책" filled={!!(data.name_en || data.name_ko)} openKey={openKey} setOpenKey={setOpenKey}>
             <div className="resume-row2">
               <Field label="영문 이름"><input value={data.name_en} onChange={e => set("name_en", e.target.value)} placeholder="JIN"/></Field>
               <Field label="한글 이름"><input value={data.name_ko} onChange={e => set("name_ko", e.target.value)} placeholder="어욱진"/></Field>
@@ -613,29 +620,32 @@ export default function ResumeBuilderView({ me, onBack }) {
               <Field label="직책"><input value={data.title} onChange={e => set("title", e.target.value)}/></Field>
             </div>
           </Group>
-          <Group title="소개">
+          <Group id="profile" title="소개" filled={!!data.profile} openKey={openKey} setOpenKey={setOpenKey}>
             <Field label="소개">
               <textarea rows={5} value={data.profile} onChange={e => set("profile", e.target.value)}/>
               <label className="resume-check"><input type="checkbox" style={{ width: "auto" }} checked={!!data.show_profile_title} onChange={e => set("show_profile_title", e.target.checked)}/> 소개 제목(PROFILE/소개) 표시</label>
             </Field>
           </Group>
-          <Group title="연락처">
+          <Group id="contact" title="연락처" filled={!!(data.phone || data.email)} openKey={openKey} setOpenKey={setOpenKey}>
             <div className="resume-row2">
               <Field label="전화"><input value={data.phone} onChange={e => set("phone", e.target.value)}/></Field>
               <Field label="이메일"><input value={data.email} onChange={e => set("email", e.target.value)}/></Field>
             </div>
             <Field label="웹사이트"><input value={data.website} onChange={e => set("website", e.target.value)}/></Field>
           </Group>
-          <Group title="학력 (EDUCATION)">
+          <Group id="education" title="학력 (EDUCATION)" filled={!!data.education} openKey={openKey} setOpenKey={setOpenKey}>
             <Field label="학력" hint="한 줄에 하나씩 적으세요."><textarea rows={4} value={data.education} onChange={e => set("education", e.target.value)}/></Field>
           </Group>
-          <Group title="경력 (EXPERIENCE)">
+          <Group id="experience" title="경력 (EXPERIENCE)" filled={!!data.experience} openKey={openKey} setOpenKey={setOpenKey}>
+            {teacherId ? (
+              <button type="button" className="sch-btn sch-btn--ghost sch-btn--sm" onClick={reimport}>내정보 경력·자격증 다시 불러오기</button>
+            ) : <p className="sch-muted">선생님을 연결하면 내정보의 경력·자격증이 자동으로 채워집니다.</p>}
             <Field label="경력" hint="항목 사이는 빈 줄로 띄우세요. 줄 맨 앞에 '## '을 붙이면 굵은 소제목이 됩니다. (소제목만 쓰면 EXPERIENCE 제목은 숨겨집니다)"><textarea rows={7} value={data.experience} onChange={e => set("experience", e.target.value)}/></Field>
           </Group>
-          <Group title="자격증 (CERTIFICATES)">
+          <Group id="certs" title="자격증 (CERTIFICATES)" filled={!!data.certificates} openKey={openKey} setOpenKey={setOpenKey}>
             <Field label="자격증"><textarea rows={4} value={data.certificates} onChange={e => set("certificates", e.target.value)}/></Field>
           </Group>
-          <Group title="현재 근무">
+          <Group id="current" title="현재 근무" filled={!!data.current_line} openKey={openKey} setOpenKey={setOpenKey}>
             <div className="resume-row2">
               <Field label="현재 직무 제목"><input value={data.current_heading} onChange={e => set("current_heading", e.target.value)}/></Field>
               <Field label="현재 근무 (굵은 글씨)"><input value={data.current_line} onChange={e => set("current_line", e.target.value)}/></Field>
