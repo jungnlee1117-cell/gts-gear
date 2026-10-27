@@ -23872,3 +23872,29 @@ td > .sch-inst-ended-badge { margin-left: 0; }
 .sch-billing-switch__btn { border: 1px solid #cbd5e1; background: #fff; color: #475569; border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 700; cursor: pointer; }
 .sch-billing-switch__btn.is-on { background: #16a34a; border-color: #16a34a; color: #fff; }
 .sch-rate-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+
+/* 원 연간 일정: 이번 달 특이사항 */
+.sch-inst-month-notes { margin: 0 0 14px; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+.sch-inst-month-notes h4 { margin: 0 0 8px; font-size: 14px; font-weight: 800; }
+.sch-inst-month-notes ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sch-inst-month-notes li { display: flex; gap: 8px; align-items: baseline; font-size: 13px; line-height: 1.4; }
+.sch-inst-month-notes__tag { flex: none; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; background: #e2e8f0; color: #475569; }
+.sch-inst-month-notes__tag--선생님변경 { background: #fef3c7; color: #b45309; }
+.sch-inst-month-notes__tag--시간표변경 { background: #dbeafe; color: #1d4ed8; }
+.sch-inst-month-notes__tag--행사휴원 { background: #fce7f3; color: #be185d; }
+.sch-inst-month-notes__tag--수업추가 { background: #dcfce7; color: #15803d; }
+.sch-inst-month-notes__tag--수업종료 { background: #fee2e2; color: #b91c1c; }
+
+/* 이력서: 접을 수 있는 입력 그룹 · 미리보기 고정 */
+.resume-form { gap: 8px; }
+.resume-group { border: 1px solid #e8ecee; border-radius: 10px; background: #fff; }
+.resume-group > summary { cursor: pointer; padding: 10px 12px; font-size: 13px; font-weight: 800; color: #0f172a; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+.resume-group > summary::-webkit-details-marker { display: none; }
+.resume-group > summary::after { content: "▾"; color: #94a3b8; transition: transform 0.15s; }
+.resume-group:not([open]) > summary::after { transform: rotate(-90deg); }
+.resume-group__body { display: flex; flex-direction: column; gap: 12px; padding: 4px 12px 12px; }
+.resume-lang button:disabled { opacity: 0.5; cursor: wait; }
+@media (min-width: 1001px) {
+  .resume-preview { position: sticky; top: 8px; max-height: calc(100vh - 16px); }
+  .resume-form { max-height: calc(100vh - 16px); overflow-y: auto; }
+}
