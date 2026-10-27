@@ -409,7 +409,11 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                     <td>{CONTRACT_TYPES[inst.contract_type]}</td>
                     <td>
                       {inst.is_active === false
-                        ? <span className="sch-inst-ended-badge">계약 종료</span>
+                        ? (
+                          <span className="sch-inst-ended-badge">
+                            계약 종료{inst.contract_end_date ? ` ${String(inst.contract_end_date).slice(0, 10)}` : ""}
+                          </span>
+                        )
                         : <span className="sch-inst-active-badge">계약중</span>}
                     </td>
                     {admin ? (

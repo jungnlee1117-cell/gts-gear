@@ -27,6 +27,7 @@ import {
   buildExceptionsByDateMap,
   exceptionsForDate,
   filterExceptionsForMonth,
+  isInstitutionSlotCancelledOnDate,
 } from "./scheduleExceptions.js";
 import { fmtLocalDate, getMonthGrid } from "./payrollCalendar.js";
 import CalendarEventBadges from "./CalendarEventBadges.jsx";
@@ -50,8 +51,15 @@ function moveMonth(yearMonth, amount) {
   return yearMonthKey(new Date(year, month - 1 + amount, 1));
 }
 
+function slotTimeLabel(t) {
+  return String(t || "").slice(0, 5);
+}
+
 function InstitutionCalendarPanel({
   exceptions,
+  weekly = [],
+  teachers = [],
+  institutionId,
   onDelete,
   onDateDoubleClick,
 }) {
@@ -73,6 +81,28 @@ function InstitutionCalendarPanel({
     [monthExceptions, selectedDate],
   );
   const cells = useMemo(() => getMonthGrid(year, month - 1), [year, month]);
+
+  /** 그 날짜에 진행되는 정규 수업 (요일 반복 · 적용기간 · 휴원 반영) */
+  const classesOnDate = (dateStr) => {
+    const dow = new Date(`${dateStr}T00:00:00`).getDay();
+    return (weekly || [])
+      .filter((slot) => {
+        if (Number(slot.day_of_week) !== dow) return false;
+        const from = slot.effective_from ? String(slot.effective_from).slice(0, 10) : null;
+        const to = slot.effective_to ? String(slot.effective_to).slice(0, 10) : null;
+        if (from && dateStr < from) return false;
+        if (to && dateStr > to) return false;
+        return !isInstitutionSlotCancelledOnDate(exceptions, institutionId, dateStr, slot);
+      })
+      .sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)))
+      .map((slot) => ({
+        key: slot.id,
+        time: `${slotTimeLabel(slot.start_time)}~${slotTimeLabel(slot.end_time)}`,
+        teacher: teachers.find(t => t.id === slot.teacher_id)?.name || "",
+        label: String(slot.label || "").trim(),
+      }));
+  };
+  const selectedClasses = classesOnDate(selectedDate);
 
   const selectDate = (dateStr) => {
     setSelectedDate(dateStr);
@@ -113,6 +143,7 @@ function InstitutionCalendarPanel({
             const dateStr = fmtLocalDate(date);
             const dayEvents = inMonth ? (exceptionsByDate[dateStr] || []) : [];
             const holiday = inMonth ? getKoreanHoliday(dateStr) : null;
+            const dayClasses = inMonth ? classesOnDate(dateStr) : [];
             return (
               <button
                 key={dateStr}
@@ -133,6 +164,16 @@ function InstitutionCalendarPanel({
                 <span className="sch-cal-day-num">{date.getDate()}</span>
                 {holiday ? <span className="sch-cal-holiday-label">{holidayShortLabel(holiday.name)}</span> : null}
                 {dayEvents.length ? <CalendarEventBadges events={dayEvents} maxVisible={3}/> : null}
+                {dayClasses.length ? (
+                  <span className="sch-inst-cal-classes">
+                    {dayClasses.slice(0, 2).map(c => (
+                      <span key={c.key} className="sch-inst-cal-class" title={`${c.time} ${c.teacher} ${c.label}`}>
+                        {c.time.slice(0, 5)} {c.teacher}
+                      </span>
+                    ))}
+                    {dayClasses.length > 2 ? <span className="sch-inst-cal-class sch-inst-cal-class--more">+{dayClasses.length - 2}</span> : null}
+                  </span>
+                ) : null}
               </button>
             );
           })}
@@ -143,6 +184,15 @@ function InstitutionCalendarPanel({
         <div>
           <h4>휴원/행사 안내</h4>
           <p className="sch-muted">{selectedDate} 일정</p>
+          {selectedClasses.length ? (
+            <ul className="sch-entry-list">
+              {selectedClasses.map(c => (
+                <li key={c.key} className="sch-entry-item">
+                  <span>정규 수업 {c.time} · {c.teacher || "선생님 미정"}{c.label ? ` (${c.label})` : ""}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {selectedExceptions.length ? (
             <ul className="sch-entry-list">
               {selectedExceptions.map(ex => (
@@ -381,7 +431,11 @@ export default function InstitutionDetailView({
         <div className="sch-inst-switcher">
           <h2 className="sch-view-title">
             {displayName}
-            {inst.is_active === false ? <span className="sch-inst-ended-badge">계약 종료</span> : null}
+            {inst.is_active === false ? (
+              <span className="sch-inst-ended-badge">
+                계약 종료{inst.contract_end_date ? ` (${String(inst.contract_end_date).slice(0, 10)}~)` : ""}
+              </span>
+            ) : null}
           </h2>
           <InstitutionSearchSelect
             institutions={switcherInstitutions}
@@ -483,12 +537,29 @@ export default function InstitutionDetailView({
             <select
               className="sch-select"
               value={inst.is_active === false ? "ended" : "active"}
-              onChange={e => setInst({ ...inst, is_active: e.target.value !== "ended" })}
+              onChange={e => {
+                const ended = e.target.value === "ended";
+                setInst({
+                  ...inst,
+                  is_active: !ended,
+                  contract_end_date: ended ? (inst.contract_end_date || fmtLocalDate(new Date())) : null,
+                });
+              }}
             >
               <option value="active">계약중</option>
               <option value="ended">계약 종료 (매출 등록 불가)</option>
             </select>
           </label>
+          {inst.is_active === false ? (
+            <label className="sch-field"><span>계약 종료일</span>
+              <input
+                type="date"
+                className="sch-input"
+                value={inst.contract_end_date ? String(inst.contract_end_date).slice(0, 10) : ""}
+                onChange={e => setInst({ ...inst, contract_end_date: e.target.value || null })}
+              />
+            </label>
+          ) : null}
           <label className="sch-field"><span>주소</span>
             <input className="sch-input" value={inst.address || ""} onChange={e => setInst({ ...inst, address: e.target.value })}/>
           </label>
@@ -503,6 +574,9 @@ export default function InstitutionDetailView({
         </form>
         <InstitutionCalendarPanel
           exceptions={exceptions}
+          weekly={weekly}
+          teachers={teachers}
+          institutionId={institutionId}
           onDelete={removeException}
           onDateDoubleClick={openExceptionModal}
         />

@@ -23860,3 +23860,8 @@ td > .sch-inst-ended-badge { margin-left: 0; }
 .sch-row-ended { background: #f8fafc; color: #94a3b8; }
 .sch-row-ended .sch-link-btn { color: #94a3b8; }
 .sch-inst-ended-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font-size: 13px; font-weight: 600; }
+
+/* 원 연간 일정: 정규 수업 표시 */
+.sch-inst-cal-classes { display: flex; flex-direction: column; gap: 1px; margin-top: 2px; width: 100%; }
+.sch-inst-cal-class { display: block; font-size: 9px; font-weight: 700; line-height: 1.25; padding: 1px 3px; border-radius: 3px; background: #dbeafe; color: #1d4ed8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.sch-inst-cal-class--more { background: #e2e8f0; color: #475569; }
