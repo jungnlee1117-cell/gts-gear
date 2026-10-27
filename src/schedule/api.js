@@ -741,6 +741,9 @@ export async function createWeeklySlotVersion(original, next, effectiveFrom, rea
     throw error;
   }
 
+  // 담당이 "기타"(선생님 없음)인 버전은 기존 급여 행을 건드리지 않습니다.
+  if (!savedSlot.teacher_id) return savedSlot;
+
   // 적용일 이후 이미 생성된 급여 행도 새 스케줄 버전으로 옮깁니다.
   // 사용자가 직접 시간 수정(custom)한 행은 분을 보존하고,
   // 기본대로 확정된 행(as_scheduled)만 새 시작·종료 시간으로 갱신합니다.

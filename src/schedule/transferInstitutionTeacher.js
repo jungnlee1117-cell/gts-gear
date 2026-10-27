@@ -443,7 +443,9 @@ async function syncRosterAfterSlotTransfer({
     fetchAssignments(institutionId, { activeOnly: false }),
   ]);
   const fromRow = (assignments || []).find((row) => row.teacher_id === fromTeacherId) || null;
-  const toRow = (assignments || []).find((row) => row.teacher_id === toTeacherId) || null;
+  const toRow = toTeacherId
+    ? ((assignments || []).find((row) => row.teacher_id === toTeacherId) || null)
+    : null;
   const remaining = openTeacherSlots(weekly, {
     teacherId: fromTeacherId,
     institutionId,
@@ -458,7 +460,7 @@ async function syncRosterAfterSlotTransfer({
     fromHasOpenSlots: remaining.length > 0,
   });
 
-  if (next.toPayTypes.length) {
+  if (toTeacherId && next.toPayTypes.length) {
     await saveAssignment({
       institution_id: institutionId,
       teacher_id: toTeacherId,
@@ -482,15 +484,17 @@ async function syncRosterAfterSlotTransfer({
 
   const name = institutionName || "기관";
   const typeLabel = formatTypeList(next.toPayTypes);
-  try {
-    await sendPushEvent(scheduleSupabase, "institution_teacher_assigned", {
-      teacher_id: toTeacherId,
-      body: `${name} ${typeLabel} 수업이 배정됐습니다`,
-      institution_name: name,
-      class_types: next.toPayTypes,
-    });
-  } catch (e) {
-    console.warn("new teacher push failed", e);
+  if (toTeacherId) {
+    try {
+      await sendPushEvent(scheduleSupabase, "institution_teacher_assigned", {
+        teacher_id: toTeacherId,
+        body: `${name} ${typeLabel} 수업이 배정됐습니다`,
+        institution_name: name,
+        class_types: next.toPayTypes,
+      });
+    } catch (e) {
+      console.warn("new teacher push failed", e);
+    }
   }
   if (next.deactivateFrom && fromTeacherId !== toTeacherId) {
     try {
@@ -518,10 +522,15 @@ export async function transferSelectedWeeklySlots({
   institutionId,
   institutionName,
   fromTeacherId,
+  toOther = false,
+  otherNote = "",
 }) {
   if (!institutionId) throw new Error("기관을 확인해 주세요.");
   if (!fromTeacherId) throw new Error("교체할 선생님을 찾을 수 없습니다.");
-  if (!toTeacherId) throw new Error("새 선생님을 선택해 주세요.");
+  if (!toTeacherId && !toOther) throw new Error("새 선생님을 선택해 주세요.");
+  const reason = toOther
+    ? `선생님 교체 → 기타${otherNote ? `: ${String(otherNote).trim()}` : ""}`
+    : "선생님 교체";
   const date = String(transferDate || "").slice(0, 10);
   if (!date) throw new Error("변경 적용일을 입력해주세요.");
   const selected = slots || [];
@@ -533,7 +542,7 @@ export async function transferSelectedWeeklySlots({
     if (!plan.ok) {
       throw new Error(`${slotTransferLine(slot)}: ${plan.message}`);
     }
-    const next = slotVersionPayload(slot, toTeacherId);
+    const next = slotVersionPayload(slot, toOther ? null : toTeacherId);
     if (plan.mode === "inplace") {
       await saveWeeklySlot({
         ...next,
@@ -542,21 +551,23 @@ export async function transferSelectedWeeklySlots({
         effective_to: slot.effective_to || null,
         schedule_series_id: slot.schedule_series_id || slot.id,
         previous_slot_id: slot.previous_slot_id || null,
-        change_reason: "선생님 교체",
+        change_reason: reason,
         changed_by: changedBy,
         updated_at: new Date().toISOString(),
       });
-      const { error: payrollError } = await scheduleSupabase
-        .from("payroll_entries")
-        .update({
-          teacher_id: toTeacherId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("schedule_slot_id", slot.id)
-        .gte("class_date", date);
-      if (payrollError) throw payrollError;
+      if (!toOther) {
+        const { error: payrollError } = await scheduleSupabase
+          .from("payroll_entries")
+          .update({
+            teacher_id: toTeacherId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("schedule_slot_id", slot.id)
+          .gte("class_date", date);
+        if (payrollError) throw payrollError;
+      }
     } else {
-      await createWeeklySlotVersion(slot, next, date, "선생님 교체", changedBy);
+      await createWeeklySlotVersion(slot, next, date, reason, changedBy);
     }
   }
 
@@ -564,7 +575,7 @@ export async function transferSelectedWeeklySlots({
     institutionId,
     institutionName,
     fromTeacherId,
-    toTeacherId,
+    toTeacherId: toOther ? null : toTeacherId,
     transferred: selected,
   });
 

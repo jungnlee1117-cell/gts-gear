@@ -98,11 +98,65 @@ function InstitutionCalendarPanel({
       .map((slot) => ({
         key: slot.id,
         time: `${slotTimeLabel(slot.start_time)}~${slotTimeLabel(slot.end_time)}`,
-        teacher: teachers.find(t => t.id === slot.teacher_id)?.name || "",
+        teacher: slot.teacher_id ? (teachers.find(t => t.id === slot.teacher_id)?.name || "") : "기타",
         label: String(slot.label || "").trim(),
       }));
   };
   const selectedClasses = classesOnDate(selectedDate);
+
+  /** 이번 달 특이사항: 휴원·행사, 시간표 변경, 선생님 변경, 신규·종료 */
+  const monthNotes = useMemo(() => {
+    const md = (d) => {
+      const [, m, dd] = String(d).slice(0, 10).split("-");
+      return `${Number(m)}/${Number(dd)}`;
+    };
+    const tname = (id) => (id ? (teachers.find(t => t.id === id)?.name || "미정") : "기타");
+    const slotDesc = (sl) => `${DAY_LABELS[Number(sl.day_of_week)] || ""} ${slotTimeLabel(sl.start_time)}~${slotTimeLabel(sl.end_time)}`;
+    const inMonth = (d) => d && String(d).slice(0, 10) >= monthStart && String(d).slice(0, 10) <= monthEnd;
+    const byId = new Map((weekly || []).map(sl => [sl.id, sl]));
+    const hasNext = new Set((weekly || []).map(sl => sl.previous_slot_id).filter(Boolean));
+    const notes = [];
+    for (const ex of monthExceptions) {
+      const from = ex.exception_date < monthStart ? monthStart : ex.exception_date;
+      notes.push({ key: `ex-${ex.id}`, date: from, kind: "행사·휴원", text: formatExceptionNotice(ex) });
+    }
+    for (const sl of weekly || []) {
+      const from = sl.effective_from ? String(sl.effective_from).slice(0, 10) : null;
+      const to = sl.effective_to ? String(sl.effective_to).slice(0, 10) : null;
+      const prev = sl.previous_slot_id ? byId.get(sl.previous_slot_id) : null;
+      if (from && inMonth(from)) {
+        if (prev) {
+          const parts = [];
+          if (prev.teacher_id !== sl.teacher_id) parts.push(`선생님 ${tname(prev.teacher_id)} → ${tname(sl.teacher_id)}`);
+          if (Number(prev.day_of_week) !== Number(sl.day_of_week)
+            || slotTimeLabel(prev.start_time) !== slotTimeLabel(sl.start_time)
+            || slotTimeLabel(prev.end_time) !== slotTimeLabel(sl.end_time)) {
+            parts.push(`시간 ${slotDesc(prev)} → ${slotDesc(sl)}`);
+          }
+          if ((prev.label || "") !== (sl.label || "") || prev.class_type !== sl.class_type) {
+            parts.push(`수업 ${prev.label || prev.class_type || "-"} → ${sl.label || sl.class_type || "-"}`);
+          }
+          const kind = prev.teacher_id !== sl.teacher_id && parts.length === 1 ? "선생님 변경" : "시간표 변경";
+          notes.push({
+            key: `chg-${sl.id}`, date: from, kind,
+            text: `${md(from)}부터 ${parts.join(" · ") || "수업 정보 변경"}`,
+          });
+        } else {
+          notes.push({
+            key: `new-${sl.id}`, date: from, kind: "수업 추가",
+            text: `${md(from)}부터 ${slotDesc(sl)} ${tname(sl.teacher_id)} 선생님${sl.label ? ` (${sl.label})` : ""}`,
+          });
+        }
+      }
+      if (to && inMonth(to) && !hasNext.has(sl.id)) {
+        notes.push({
+          key: `end-${sl.id}`, date: to, kind: "수업 종료",
+          text: `${md(to)}까지 ${slotDesc(sl)} ${tname(sl.teacher_id)} 선생님${sl.label ? ` (${sl.label})` : ""}`,
+        });
+      }
+    }
+    return notes.sort((a, b) => a.date.localeCompare(b.date));
+  }, [weekly, teachers, monthExceptions, monthStart, monthEnd]);
 
   const selectDate = (dateStr) => {
     setSelectedDate(dateStr);
@@ -132,6 +186,20 @@ function InstitutionCalendarPanel({
           setYearMonth(next);
           selectDate(`${next}-01`);
         }}><ChevronRight size={18}/></button>
+      </div>
+
+      <div className="sch-inst-month-notes">
+        <h4>{month}월 특이사항</h4>
+        {monthNotes.length ? (
+          <ul>
+            {monthNotes.map(n => (
+              <li key={n.key}>
+                <span className={`sch-inst-month-notes__tag sch-inst-month-notes__tag--${n.kind.replace(/[^가-힣]/g, "")}`}>{n.kind}</span>
+                <span>{n.text}</span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="sch-muted">이번 달 시간표 변경·행사·선생님 변경이 없습니다.</p>}
       </div>
 
       <div className="sch-cal-grid" role="grid" aria-label={`${year}년 ${month}월 원 일정`}>

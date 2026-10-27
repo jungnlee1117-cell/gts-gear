@@ -381,7 +381,9 @@ export default function RegularClassesManagePanel({
     return managedTeacherIds.has(teacherId);
   };
 
-  const teacherLabel = (teacherId) => teacherNameById.get(teacherId) || teacherMap.get(teacherId) || "강사 미지정";
+  const teacherLabel = (teacherId) => (teacherId
+    ? (teacherNameById.get(teacherId) || teacherMap.get(teacherId) || "강사 미지정")
+    : "기타");
 
   const confirmInstitutionTimeOverlap = (hits) => {
     if (!hits.length) return true;
@@ -515,6 +517,24 @@ export default function RegularClassesManagePanel({
       excludeSeriesIds: seriesId ? [seriesId] : [],
     });
     if (!confirmInstitutionTimeOverlap(editOverlaps)) return;
+
+    {
+      // 아무것도 바꾸지 않았다면 새 버전(중복 수업)을 만들지 않는다.
+      const orig = slots.find(s => s.id === editForm.id);
+      if (orig) {
+        const same = String(orig.institution_id || "") === String(editForm.institution_id || "")
+          && String(orig.teacher_id || "") === String(editForm.teacher_id || "")
+          && Number(orig.day_of_week) === Number(editForm.day_of_week)
+          && formatTime(orig.start_time) === formatTime(editForm.start_time)
+          && formatTime(orig.end_time) === formatTime(editForm.end_time)
+          && String(storedClassType(editForm.class_type) || "") === String(orig.class_type || "")
+          && String(storedSlotLabel(editForm.class_type, editForm.class_group) || "") === String(orig.label || "");
+        if (same) {
+          setEditForm(null);
+          return alert("변경된 내용이 없어 저장하지 않았습니다.");
+        }
+      }
+    }
 
     setSaving(true);
     try {

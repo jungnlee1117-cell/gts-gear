@@ -9,6 +9,8 @@ import { openTeacherSlots, slotTeacherChangePlan, weeklySlotSeriesId } from "./w
 import { transferSelectedWeeklySlots } from "./transferInstitutionTeacher.js";
 import WeeklySlotDayList from "./WeeklySlotDayList.jsx";
 
+const OTHER_TEACHER = "__other__";
+
 export default function InstitutionTeacherSlotTransferModal({
   institution,
   fromAssignment,
@@ -24,6 +26,8 @@ export default function InstitutionTeacherSlotTransferModal({
   const today = fmtLocalDate(new Date());
   const [transferDate, setTransferDate] = useState(today);
   const [toTeacherId, setToTeacherId] = useState("");
+  const [otherNote, setOtherNote] = useState("");
+  const toOther = toTeacherId === OTHER_TEACHER;
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [saving, setSaving] = useState(false);
@@ -38,6 +42,7 @@ export default function InstitutionTeacherSlotTransferModal({
   );
 
   const teacherName = (teacherId) => {
+    if (!teacherId) return "기타";
     if (teacherId === fromTeacherId) return fromTeacherName;
     return teachers.find((teacher) => teacher.id === teacherId)?.name
       || teacherList.find((teacher) => teacher.id === teacherId)?.name
@@ -56,9 +61,11 @@ export default function InstitutionTeacherSlotTransferModal({
     return list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"));
   }, [teacherList, teachers, search, fromTeacherId]);
 
-  const toTeacherName = teacherCandidates.find((teacher) => teacher.id === toTeacherId)?.name
-    || teacherList.find((teacher) => teacher.id === toTeacherId)?.name
-    || "";
+  const toTeacherName = toOther
+    ? "기타"
+    : (teacherCandidates.find((teacher) => teacher.id === toTeacherId)?.name
+      || teacherList.find((teacher) => teacher.id === toTeacherId)?.name
+      || "");
 
   const selectedSlots = openSlots.filter((slot) => selectedIds.has(slot.id));
 
@@ -98,7 +105,7 @@ export default function InstitutionTeacherSlotTransferModal({
     if (toTeacherName) names.set(toTeacherId, toTeacherName);
     const overlapHits = [];
     const seen = new Set();
-    for (const slot of selectedSlots) {
+    for (const slot of (toOther ? [] : selectedSlots)) {
       const plan = slotTeacherChangePlan(slot, transferDate, today);
       const hits = findOverlappingInstitutionSlots({
         slots: weekly,
@@ -126,7 +133,7 @@ export default function InstitutionTeacherSlotTransferModal({
 
     const lines = selectedSlots.map(slotTransferLine).join("\n");
     if (!confirm(
-      `${fromTeacherName} 선생님의 선택한 수업을 ${toTeacherName} 선생님에게 ${transferDate}부터 넘길까요?\n\n${lines}\n\n적용일 전날까지는 기존 수업이 남고, 적용일부터 새 기록이 생깁니다.`,
+      `${fromTeacherName} 선생님의 선택한 수업을 ${toOther ? `기타${otherNote.trim() ? `(${otherNote.trim()})` : ""}(회사 선생님 없음)` : `${toTeacherName} 선생님`}에게 ${transferDate}부터 넘길까요?\n\n${lines}\n\n적용일 전날까지는 기존 수업이 남고, 적용일부터 새 기록이 생깁니다.`,
     )) {
       return;
     }
@@ -135,7 +142,9 @@ export default function InstitutionTeacherSlotTransferModal({
     try {
       const result = await transferSelectedWeeklySlots({
         slots: selectedSlots,
-        toTeacherId,
+        toTeacherId: toOther ? null : toTeacherId,
+        toOther,
+        otherNote,
         transferDate,
         changedBy,
         institutionId: institution?.id,
@@ -196,8 +205,20 @@ export default function InstitutionTeacherSlotTransferModal({
                 {teacherCandidates.map((teacher) => (
                   <option key={teacher.id} value={teacher.id}>{teacher.name} 선생님</option>
                 ))}
+                <option value={OTHER_TEACHER}>기타 (일용직·수업 취소 등)</option>
               </select>
             </label>
+            {toOther ? (
+              <label className="sch-field">
+                <span>기타 메모 (이름·사유)</span>
+                <input
+                  className="sch-input"
+                  placeholder="예: 일용직 홍길동 / 수업 취소"
+                  value={otherNote}
+                  onChange={(event) => setOtherNote(event.target.value)}
+                />
+              </label>
+            ) : null}
             <label className="sch-field">
               <span>교체 적용일 *</span>
               <input
