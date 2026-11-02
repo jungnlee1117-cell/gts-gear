@@ -647,7 +647,33 @@ export default function PayrollTeacherView({
   const handleMonthConfirmAll = () => {
     const targets = collectUnconfirmedPlanned(scheduleByDate, entries, { today });
     const unlocked = filterUnlocked(targets);
-    if (!unlocked.length) return alert("이번 달에 일괄 확정할 수업이 없습니다.");
+    if (!unlocked.length) {
+      const lockedCount = targets.length - unlocked.length;
+      const lockedDates = new Set();
+      const futureDates = new Set();
+      let totalPlanned = 0;
+      for (const [dateStr, planned] of Object.entries(scheduleByDate)) {
+        for (const p of planned) {
+          totalPlanned += 1;
+          if (!isSlotUnconfirmed(entries, p)) continue;
+          if (!isDateConfirmable(dateStr, today)) futureDates.add(dateStr);
+          else if (isLocked(p.institutionId)) lockedDates.add(dateStr);
+        }
+      }
+      const dayList = (set) => {
+        const days = [...set].sort().map(d => `${Number(d.slice(8, 10))}일`);
+        return days.length > 12 ? `${days.slice(0, 12).join(", ")} 외 ${days.length - 12}일` : days.join(", ");
+      };
+      const reasons = [];
+      if (lockedCount > 0) reasons.push(`• 정산 확정(잠금)된 원의 수업 ${lockedCount}건 — ${dayList(lockedDates)}`);
+      if (futureDates.size > 0) reasons.push(`• 아직 진행 전인 수업 (수업일이 지나야 확정 가능) — ${dayList(futureDates)}`);
+      if (!reasons.length) {
+        reasons.push(totalPlanned
+          ? "• 이번 달 예정 수업이 모두 이미 확정되었습니다."
+          : "• 이번 달에 등록된 예정 수업이 없습니다.");
+      }
+      return alert(`이번 달에 일괄 확정할 수업이 없습니다.\n\n${reasons.join("\n")}`);
+    }
     if (!confirm(`이번 달 미확인 수업 ${unlocked.length}건을 평소대로 일괄 확정할까요?`)) return;
     bulkSavePlanned(unlocked, {
       status: ENTRY_STATUS.as_scheduled,
