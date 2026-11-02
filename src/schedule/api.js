@@ -1,7 +1,7 @@
 import { resolveTeacherMonthlyGross } from "./additionalPayments.js";
 import { createClient } from "@supabase/supabase-js";
 import { fmtLocalDate, minutesBetween, resolvePayrollSummaryType, yearMonthFirstDay, yearMonthKey, yearMonthLastDay } from "./constants.js";
-import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, isPerCapitaBilling, isRevenueBlockedForMonth, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
+import { buildMonthlyContractPayload, buildBulkRevenueDrafts, isMonthlyFixedBilling, isPerCapitaBilling, isRevenueBlockedForMonth, isContractEndedBeforeMonth, listBulkPrefillTargets, previousYearMonth } from "./monthlyBilling.js";
 import {
   computeInstitutionInstructorCost,
   applyManagerShareAdjustments,
@@ -2418,7 +2418,7 @@ export async function loadPayrollDashboard(yearMonth) {
   const temporaryEngagements = await fetchTemporaryEngagementsForMonth(yearMonth);
 
   const institutionRows = await Promise.all(
-    institutions.map(inst =>
+    institutions.filter(inst => !isContractEndedBeforeMonth(inst, yearMonth)).map(inst =>
       buildInstitutionDashboardRow(
         inst,
         yearMonth,

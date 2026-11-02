@@ -67,6 +67,14 @@ export function isRevenueBlockedForMonth(institution, yearMonth) {
   return ym > end;
 }
 
+/** 계약이 종료된 달의 다음 달부터는 급여정산 기관 목록에서 뺀다 */
+export function isContractEndedBeforeMonth(institution, yearMonth) {
+  if (!institution || institution.is_active !== false || !institution.contract_end_date) return false;
+  const end = String(institution.contract_end_date).slice(0, 7);
+  const ym = String(yearMonth || "").slice(0, 7);
+  return Boolean(end && ym && ym > end);
+}
+
 /** 일괄 적용 대상: monthly_fixed + 이번 달 미입력 + 직전 달 있음 */
 export function listBulkPrefillTargets(institutions, contracts, yearMonth) {
   const prevYm = previousYearMonth(yearMonth);
