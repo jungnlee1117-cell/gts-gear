@@ -101,7 +101,8 @@ async function saveSnapshot(adminClient, yearMonth: string, rows, callerId: stri
       year_month: month,
       teacher_id: String(row.teacher_id),
       teacher_name: String(row.teacher_name).slice(0, 100),
-      income_type: row.income_type === "계약직" ? "계약직" : "위탁수업",
+      income_type: ["계약직", "사업자"].includes(row.income_type) ? row.income_type : "위탁수업",
+      deductions: row.deductions && typeof row.deductions === "object" ? row.deductions : null,
       gross_amount: Math.max(0, Math.round(Number(row.gross_amount) || 0)),
       sort_order: Number.isInteger(row.sort_order) ? row.sort_order : index,
       created_by: callerId,
@@ -114,13 +115,14 @@ async function saveSnapshot(adminClient, yearMonth: string, rows, callerId: stri
   return { year_month: yearMonth, row_count: cleaned.length };
 }
 
+const SECTION_ORDER = ["위탁수업", "계약직", "사업자"];
+
 async function reportRows(adminClient, yearMonth: string, secret: string) {
   if (!secret) throw new Error("ENCRYPTION_KEY_MISSING");
   const { data: snapshots, error } = await adminClient
     .from("payroll_tax_report_snapshots")
-    .select("teacher_id, teacher_name, income_type, gross_amount, sort_order")
+    .select("teacher_id, teacher_name, income_type, gross_amount, sort_order, deductions")
     .eq("year_month", firstDay(yearMonth))
-    .order("income_type", { ascending: false })
     .order("sort_order", { ascending: true });
   if (error) throw error;
   if (!snapshots?.length) throw new Error("SNAPSHOT_NOT_FOUND");
@@ -154,78 +156,137 @@ async function reportRows(adminClient, yearMonth: string, secret: string) {
       : (digits.length === 10 ? `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}` : "미등록");
     if (formattedResident === "미등록") missing.push(snapshot.teacher_name);
     const gross = Number(snapshot.gross_amount) || 0;
-    const incomeTax = floorTen(gross * 0.03);
-    const localTax = floorTen(gross * 0.003);
+    const type = ["계약직", "사업자"].includes(snapshot.income_type) ? snapshot.income_type : "위탁수업";
+    const ded = (snapshot.deductions || {}) as Record<string, number>;
+    const insurance = ["국민연금", "건강보험", "장기요양보험", "고용보험"]
+      .reduce((sum, key) => sum + (Number(ded[key]) || 0), 0);
+    const taxes = ["소득세", "지방소득세", "농특세"]
+      .reduce((sum, key) => sum + (Number(ded[key]) || 0), 0);
+    let a = 0;
+    let b = 0;
+    if (type === "위탁수업") {
+      a = floorTen(gross * 0.03);
+      b = floorTen(gross * 0.003);
+    } else if (type === "계약직") {
+      a = insurance;
+      b = taxes;
+    }
+    if (type === "사업자" && formattedResident === "미등록") {
+      // 사업자번호 미등록도 누락 목록에 포함 (위에서 이미 추가됨)
+    }
     rows.push({
       ...snapshot,
-      // 오주영 선생님은 세무 엑셀에서 항상 계약직으로 분류합니다.
-      income_type: snapshot.teacher_name === "오주영" ? "계약직" : snapshot.income_type,
+      income_type: type,
       resident_id: formattedResident,
       gross,
-      income_tax: incomeTax,
-      local_tax: localTax,
-      net: gross - incomeTax - localTax,
+      col_a: a,
+      col_b: b,
+      net: gross - a - b,
     });
   }
+  rows.sort((x, y) => SECTION_ORDER.indexOf(x.income_type) - SECTION_ORDER.indexOf(y.income_type)
+    || (x.sort_order ?? 0) - (y.sort_order ?? 0));
   return { rows, missing };
 }
+
+const SECTION_META: Record<string, { title: string; idLabel: string; headers: string[] }> = {
+  "위탁수업": {
+    title: "위탁수업 (사업소득 3.3% 원천징수)",
+    idLabel: "주민등록번호",
+    headers: ["지급액(세전)", "소득세(3%)", "지방세(0.3%)", "지급액(세후)"],
+  },
+  "계약직": {
+    title: "계약직 (근로소득 · 급여명세서 기준)",
+    idLabel: "주민등록번호",
+    headers: ["지급액(세전)", "4대보험 공제", "소득세·지방세", "차인지급액"],
+  },
+  "사업자": {
+    title: "사업자 (사업자 대 사업자 · 원천징수 없음)",
+    idLabel: "사업자등록번호",
+    headers: ["지급액", "원천징수", "—", "지급액(실지급)"],
+  },
+};
 
 function makeWorkbook(yearMonth: string, rows) {
   const [year, monthText] = yearMonth.split("-");
   const month = Number(monthText);
   const data: unknown[][] = [
-    [null, null, null, null, null, null, null, null],
-    [null, "지티에스", null, null, null, null, null, null],
-    [null, `${year}년 ${month}월 급여액`, null, null, 0.03, 0.003, null, null],
-    [null, "성명", "주민등록번호", "지급액(세전)", "소득세(3%)", "지방세(0.3%)", "지급액(세후)", "지급일"],
+    [null, "지티에스"],
+    [null, `${year}년 ${month}월 지급 내역`],
   ];
-  for (const row of rows) {
-    data.push([
-      row.income_type, row.teacher_name, row.resident_id,
-      row.gross || null, row.income_tax || 0, row.local_tax || 0, row.net || 0, "10일",
-    ]);
+  type Kind = "title" | "head" | "body" | "sub" | "blank" | "total";
+  const kinds: Kind[] = ["blank", "title"];
+  const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
+  const grandTotals = { gross: 0, net: 0 };
+
+  for (const type of SECTION_ORDER) {
+    const group = rows.filter((row) => row.income_type === type);
+    if (!group.length) continue;
+    const meta = SECTION_META[type];
+    data.push([]); kinds.push("blank");
+    data.push([meta.title]); kinds.push("title");
+    merges.push({ s: { r: data.length - 1, c: 0 }, e: { r: data.length - 1, c: 7 } });
+    data.push(["구분", "성명", meta.idLabel, ...meta.headers, "지급일"]); kinds.push("head");
+    const startRow = data.length;
+    for (const row of group) {
+      data.push([
+        type, row.teacher_name, row.resident_id,
+        row.gross || 0, type === "사업자" ? "없음" : (row.col_a || 0),
+        type === "사업자" ? "" : (row.col_b || 0), row.net || 0, "10일",
+      ]);
+      kinds.push("body");
+    }
+    if (group.length > 1) merges.push({ s: { r: startRow, c: 0 }, e: { r: data.length - 1, c: 0 } });
+    const sumGross = group.reduce((sum, row) => sum + row.gross, 0);
+    const sumA = group.reduce((sum, row) => sum + row.col_a, 0);
+    const sumB = group.reduce((sum, row) => sum + row.col_b, 0);
+    const sumNet = group.reduce((sum, row) => sum + row.net, 0);
+    data.push(["소계", null, null, sumGross, type === "사업자" ? "" : sumA, type === "사업자" ? "" : sumB, sumNet, null]);
+    kinds.push("sub");
+    grandTotals.gross += sumGross;
+    grandTotals.net += sumNet;
   }
-  data.push([null, null, null, rows.reduce((sum, row) => sum + row.gross, 0), null, null, null, null]);
+  data.push([]); kinds.push("blank");
+  data.push(["총계", null, null, grandTotals.gross, null, null, grandTotals.net, null]);
+  kinds.push("total");
 
   const ws = XLSX.utils.aoa_to_sheet(data);
   ws["!cols"] = [
     { wch: 12 }, { wch: 18 }, { wch: 21 }, { wch: 17 },
-    { wch: 15 }, { wch: 16 }, { wch: 17 }, { wch: 12 },
+    { wch: 17 }, { wch: 17 }, { wch: 17 }, { wch: 10 },
   ];
-  ws["!rows"] = data.map((_, index) => ({ hpt: index === 3 ? 25 : 22 }));
-  ws["!merges"] = [];
-  let start = 4;
-  while (start < 4 + rows.length) {
-    let end = start;
-    while (end + 1 < 4 + rows.length && rows[end - 4].income_type === rows[end + 1 - 4].income_type) end += 1;
-    if (end > start) ws["!merges"].push({ s: { r: start, c: 0 }, e: { r: end, c: 0 } });
-    start = end + 1;
-  }
+  ws["!rows"] = data.map((_, index) => ({ hpt: kinds[index] === "blank" ? 10 : 22 }));
+  ws["!merges"] = merges;
 
   const border = { style: "thin", color: { rgb: "222222" } };
   const allBorder = { top: border, bottom: border, left: border, right: border };
-  for (let row = 3; row < 4 + rows.length; row += 1) {
-    for (let col = 0; col < 8; col += 1) {
-      const ref = XLSX.utils.encode_cell({ r: row, c: col });
+  const base = { name: "맑은 고딕", sz: 11 };
+  data.forEach((_, r) => {
+    const kind = kinds[r];
+    for (let c = 0; c < 8; c += 1) {
+      const ref = XLSX.utils.encode_cell({ r, c });
+      if (kind === "blank") continue;
       if (!ws[ref]) ws[ref] = { t: "s", v: "" };
-      ws[ref].s = {
-        font: { name: "맑은 고딕", sz: 11, bold: row === 3 },
-        alignment: { horizontal: "center", vertical: "center" },
-        border: allBorder,
-        fill: row === 3
-          ? { fgColor: { rgb: [1, 2, 3, 7].includes(col) ? "FFF200" : "DDEBF7" } }
-          : { fgColor: { rgb: "FFFFFF" } },
-      };
+      if (r === 1 && c === 1) { ws[ref].s = { font: { ...base, sz: 14, bold: true } }; continue; }
+      if (r === 1) continue;
+      if (kind === "title") {
+        ws[ref].s = { font: { ...base, bold: true, sz: 12 }, alignment: { horizontal: "left", vertical: "center" },
+          fill: { fgColor: { rgb: "DDEBF7" } }, border: allBorder };
+      } else if (kind === "head") {
+        ws[ref].s = { font: { ...base, bold: true }, alignment: { horizontal: "center", vertical: "center" },
+          fill: { fgColor: { rgb: "FFF200" } }, border: allBorder };
+      } else {
+        const money = c >= 3 && c <= 6;
+        ws[ref].s = {
+          font: { ...base, bold: kind !== "body" },
+          alignment: { horizontal: money ? "right" : "center", vertical: "center" },
+          border: allBorder,
+          fill: { fgColor: { rgb: kind === "body" ? "FFFFFF" : "F2F2F2" } },
+        };
+        if (money) ws[ref].z = "#,##0;[Red](#,##0);0";
+      }
     }
-  }
-  for (let row = 4; row < 4 + rows.length + 1; row += 1) {
-    for (const col of [3, 4, 5, 6]) {
-      const ref = XLSX.utils.encode_cell({ r: row, c: col });
-      if (ws[ref]) ws[ref].z = "#,##0;[Red](#,##0);-";
-    }
-  }
-  if (ws.E3) ws.E3.z = "0%";
-  if (ws.F3) ws.F3.z = "0.0%";
+  });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, `${month}월`);
   return XLSX.write(wb, { type: "array", bookType: "xlsx" });

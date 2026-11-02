@@ -1,22 +1,49 @@
 import { scheduleSupabase } from "./api.js";
 
-function taxIncomeType(teacher) {
-  if (teacher?.name === "오주영") return "계약직";
-  return teacher?.contract_type === "regular" ? "계약직" : "위탁수업";
+function monthOf(value) {
+  return String(value || "").slice(0, 7);
 }
 
-export function payrollTaxSnapshotRows(data) {
+function sumObj(obj) {
+  return Object.values(obj || {}).reduce((sum, v) => sum + (Number(v) || 0), 0);
+}
+
+/**
+ * 세무 엑셀 스냅샷 행.
+ * - 사업자(payee_kind=partner): 원천징수 없음
+ * - 계약직(오주영): 급여명세서의 지급/공제 내역 사용
+ * - 위탁수업: 3.3% 원천징수
+ * - 이전 달에 퇴사한 선생님은 제외
+ */
+export function payrollTaxSnapshotRows(data, yearMonth = "", payslips = []) {
+  const payslipByTeacher = Object.fromEntries((payslips || []).map((p) => [p.teacher_id, p]));
+  const ym = monthOf(yearMonth);
   const regular = (data?.teacherRows || [])
     .filter((row) => row.teacher?.name !== "김민욱")
-    // 사업자 대 사업자(partner)는 3.3% 원천징수 대상이 아님
-    .filter((row) => row.teacher?.payee_kind !== "partner")
-    .map((row, index) => ({
-      teacher_id: row.teacher.id,
-      teacher_name: row.teacher.name,
-      income_type: taxIncomeType(row.teacher),
-      gross_amount: Math.max(0, Math.round(Number(row.estimatedPay) || 0)),
-      sort_order: index,
-    }));
+    .filter((row) => {
+      const resigned = monthOf(row.teacher?.resigned_at);
+      if (!resigned) return true;
+      if (ym && resigned < ym) return false;
+      return (Number(row.estimatedPay) || 0) > 0;
+    })
+    .map((row, index) => {
+      const teacher = row.teacher;
+      const payslip = payslipByTeacher[teacher.id];
+      const isPartner = teacher.payee_kind === "partner";
+      const isEmployee = teacher.name === "오주영";
+      const income_type = isPartner ? "사업자" : (isEmployee ? "계약직" : "위탁수업");
+      const gross = isEmployee && payslip
+        ? sumObj(payslip.earnings)
+        : Math.max(0, Math.round(Number(row.estimatedPay) || 0));
+      return {
+        teacher_id: teacher.id,
+        teacher_name: teacher.name,
+        income_type,
+        gross_amount: Math.max(0, Math.round(gross)),
+        deductions: isEmployee && payslip ? (payslip.deductions || {}) : null,
+        sort_order: index,
+      };
+    });
 
   const temporary = (data?.tempTeacherRows || [])
     .filter((row) => (row.teacher?.name || row.tempTeacher?.name) !== "김민욱")
@@ -66,10 +93,10 @@ async function invoke(action, payload = {}) {
   return result?.data;
 }
 
-export async function savePayrollTaxSnapshot(yearMonth, dashboardData) {
+export async function savePayrollTaxSnapshot(yearMonth, dashboardData, payslips = []) {
   return invoke("save_snapshot", {
     year_month: yearMonth,
-    rows: payrollTaxSnapshotRows(dashboardData),
+    rows: payrollTaxSnapshotRows(dashboardData, yearMonth, payslips),
   });
 }
 
@@ -89,14 +116,14 @@ function downloadBase64Xlsx(base64, filename) {
   URL.revokeObjectURL(url);
 }
 
-export async function downloadPayrollTaxReport(yearMonth, dashboardData) {
-  await savePayrollTaxSnapshot(yearMonth, dashboardData);
+export async function downloadPayrollTaxReport(yearMonth, dashboardData, payslips = []) {
+  await savePayrollTaxSnapshot(yearMonth, dashboardData, payslips);
   const result = await invoke("download", { year_month: yearMonth });
   downloadBase64Xlsx(result.file_base64, result.filename);
   return result;
 }
 
-export async function uploadPayrollTaxReportToDrive(yearMonth, dashboardData) {
-  await savePayrollTaxSnapshot(yearMonth, dashboardData);
+export async function uploadPayrollTaxReportToDrive(yearMonth, dashboardData, payslips = []) {
+  await savePayrollTaxSnapshot(yearMonth, dashboardData, payslips);
   return invoke("upload_drive", { year_month: yearMonth });
 }

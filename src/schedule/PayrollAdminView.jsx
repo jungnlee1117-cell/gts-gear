@@ -445,21 +445,21 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
 
   useEffect(() => {
     if (!superAdmin || !data?.teacherRows?.length) return;
-    const rows = payrollTaxSnapshotRows(data);
+    const rows = payrollTaxSnapshotRows(data, yearMonth, payslips);
     const signature = `${yearMonth}:${rows.map((row) => `${row.teacher_id}:${row.gross_amount}`).join("|")}`;
     if (signature === lastTaxSnapshotSignature.current) return;
     lastTaxSnapshotSignature.current = signature;
-    savePayrollTaxSnapshot(yearMonth, data).catch((error) => {
+    savePayrollTaxSnapshot(yearMonth, data, payslips).catch((error) => {
       lastTaxSnapshotSignature.current = "";
       console.warn("[payroll-tax-report] snapshot sync failed", error?.message || error);
     });
-  }, [data, superAdmin, yearMonth]);
+  }, [data, superAdmin, yearMonth, payslips]);
 
   const handleTaxReportDownload = useCallback(async () => {
     if (!data || taxReportBusy) return;
     setTaxReportBusy("download");
     try {
-      const result = await downloadPayrollTaxReport(yearMonth, data);
+      const result = await downloadPayrollTaxReport(yearMonth, data, payslips);
       if (result.missing_resident_ids?.length) {
         alert(`엑셀은 생성했지만 주민등록번호 미등록 선생님이 있습니다.\n${result.missing_resident_ids.join(", ")}`);
       }
@@ -468,14 +468,14 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     } finally {
       setTaxReportBusy("");
     }
-  }, [data, taxReportBusy, yearMonth]);
+  }, [data, taxReportBusy, yearMonth, payslips]);
 
   const handleTaxReportDriveUpload = useCallback(async () => {
     if (!data || taxReportBusy) return;
     if (!confirm(`${yearMonth} 사업소득 엑셀을 GTS Google Drive 폴더에 저장하시겠습니까?`)) return;
     setTaxReportBusy("drive");
     try {
-      const result = await uploadPayrollTaxReportToDrive(yearMonth, data);
+      const result = await uploadPayrollTaxReportToDrive(yearMonth, data, payslips);
       alert(`${result.filename} 파일을 Google Drive에 저장했습니다.`);
       if (result.web_view_link) window.open(result.web_view_link, "_blank", "noopener,noreferrer");
     } catch (error) {
@@ -483,7 +483,7 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
     } finally {
       setTaxReportBusy("");
     }
-  }, [data, taxReportBusy, yearMonth]);
+  }, [data, taxReportBusy, yearMonth, payslips]);
 
   useEffect(() => {
     setRequestStats({
