@@ -18,6 +18,7 @@ import PayrollTeacherView from "./PayrollTeacherView.jsx";
 import TempTeacherPayrollDetail, { TempTeacherPayrollTableRow } from "./TempTeacherPayrollDetail.jsx";
 import AdditionalPaymentRequestsAdminSection from "./AdditionalPaymentRequestsAdminSection.jsx";
 import ClassIncidentAdminSection from "./ClassIncidentAdminSection.jsx";
+import AdditionalPaymentsAdminSection from "./AdditionalPaymentsAdminSection.jsx";
 import SalaryPayslipModal from "./SalaryPayslipModal.jsx";
 import { fetchPayslipsForMonth, payslipNet } from "./salaryPayslip.js";
 import { findFixedMonthlySalary } from "./additionalPayments.js";
@@ -1186,6 +1187,21 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                   />
                 ) : null;
 
+                const directPaySection = superAdmin ? (
+                  <section key="direct-add-pay" className="sch-admin-dash-section" id="sch-admin-section-additional-pay">
+                    <h3 className="sch-admin-dash-section-title">추가지급 직접 등록·수정·삭제</h3>
+                    <AdditionalPaymentsAdminSection
+                      yearMonth={yearMonth}
+                      teachers={(data.teacherRows || []).map(r => ({ ...r.teacher, role: "teacher" }))}
+                      allTeachers={(data.teacherRows || []).map(r => r.teacher)}
+                      payments={data.additionalPayments || []}
+                      createdById={me.id}
+                      isSuperAdmin
+                      onSaved={load}
+                    />
+                  </section>
+                ) : null;
+
                 const notesSection = (
                   <ClassIncidentAdminSection
                     key="incidents"
@@ -1198,8 +1214,8 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                 );
 
                 const ordered = requestStats.pendingTotal > 0
-                  ? [requestSection, teacherSection, notesSection]
-                  : [teacherSection, requestSection, notesSection];
+                  ? [requestSection, teacherSection, directPaySection, notesSection]
+                  : [teacherSection, requestSection, directPaySection, notesSection];
 
                 return ordered.filter(Boolean);
               })()}

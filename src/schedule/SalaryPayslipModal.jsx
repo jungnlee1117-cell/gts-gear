@@ -3,7 +3,9 @@ import { Printer, Save, X } from "lucide-react";
 import { formatWon } from "./constants.js";
 import {
   PAYSLIP_DEDUCTIONS,
+  PAYSLIP_DEFAULT_DEDUCTIONS,
   PAYSLIP_DEFAULT_EARNINGS,
+  PAYSLIP_DEFAULT_HIRE_DATE,
   PAYSLIP_EARNINGS,
   fetchPayslip,
   fetchPreviousPayslip,
@@ -65,12 +67,12 @@ export default function SalaryPayslipModal({
           if (!baseEarn.기본급 && !prev) baseEarn.기본급 = baseGross - (baseEarn.식대 || 0);
           if (bonusFromAdditional) baseEarn.상여 = bonusFromAdditional;
           setEarnings(baseEarn);
-          setDeductions(prev ? { ...(prev.deductions || {}) } : {});
-          setHireDate(prev?.hire_date || "");
+          setDeductions(prev ? { ...(prev.deductions || {}) } : { ...PAYSLIP_DEFAULT_DEDUCTIONS });
+          setHireDate(prev?.hire_date || PAYSLIP_DEFAULT_HIRE_DATE);
           setBonusNote(bonusReasons);
           const [y, m] = yearMonth.split("-").map(Number);
-          const last = new Date(y, m, 0).getDate();
-          setPayDate(`${yearMonth}-${String(last).padStart(2, "0")}`);
+          const nd = new Date(y, m, 10); // 익월 10일 지급
+          setPayDate(`${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, "0")}-10`);
         }
       } catch (err) {
         alert("명세서를 불러오지 못했습니다: " + (err.message || err)

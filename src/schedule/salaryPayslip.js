@@ -8,6 +8,11 @@ export const PAYSLIP_DEDUCTIONS = [
 ];
 export const PAYSLIP_DEFAULT_EARNINGS = { 기본급: 2400000, 식대: 200000 };
 
+export const PAYSLIP_DEFAULT_DEDUCTIONS = {
+  국민연금: 123500, 건강보험: 93470, 장기요양보험: 12280, 고용보험: 23400, 소득세: 32380, 지방소득세: 3230,
+};
+export const PAYSLIP_DEFAULT_HIRE_DATE = "2026-03-01";
+
 export function monthFirstDay(yearMonth) {
   return `${String(yearMonth).slice(0, 7)}-01`;
 }
