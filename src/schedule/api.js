@@ -107,7 +107,7 @@ export async function fetchTeachers({ yearMonth, allowBeforeHire = false } = {})
   const ym = yearMonth || yearMonthKey();
   const { data, error } = await scheduleSupabase
     .from("teachers")
-    .select("id, name, role, active, hire_date, resigned_at")
+    .select("id, name, role, active, hire_date, resigned_at, payee_kind")
     .order("name");
   if (error) {
     // hire_date 미적용 DB 호환

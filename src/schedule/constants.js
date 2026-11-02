@@ -94,6 +94,16 @@ export function grossToNetPay(gross) {
   return Math.round(Number(gross || 0) * 0.967);
 }
 
+/** 사업자 대 사업자(partner)는 3.3% 원천징수 없음 → 총액 그대로 */
+export function isBusinessPayee(teacher) {
+  return teacher?.payee_kind === "partner";
+}
+
+/** 선생님 유형별 실수령(지급)액: 사업자는 공제 없음, 그 외 3.3% 공제 */
+export function netPayFor(teacher, gross) {
+  return isBusinessPayee(teacher) ? Math.round(Number(gross || 0)) : grossToNetPay(gross);
+}
+
 export function formatMinutes(m) {
   const h = Math.floor(m / 60);
   const min = m % 60;

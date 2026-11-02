@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, Bell, ChevronLeft, ChevronRight, ClipboardList, Clock, CloudUpload, FileSpreadsheet, MessageSquareWarning, Users, Wallet } from "lucide-react";
-import { CONTRACT_TYPES, formatMinutes, formatWon, grossToNetPay, yearMonthKey, yearMonthLastDay } from "./constants.js";
+import { CONTRACT_TYPES, formatMinutes, formatWon, grossToNetPay, isBusinessPayee, netPayFor, yearMonthKey, yearMonthLastDay } from "./constants.js";
 import {
   fetchMyTeachingSessionRates,
   fetchOwnPayrollEntries,
@@ -18,6 +18,9 @@ import PayrollTeacherView from "./PayrollTeacherView.jsx";
 import TempTeacherPayrollDetail, { TempTeacherPayrollTableRow } from "./TempTeacherPayrollDetail.jsx";
 import AdditionalPaymentRequestsAdminSection from "./AdditionalPaymentRequestsAdminSection.jsx";
 import ClassIncidentAdminSection from "./ClassIncidentAdminSection.jsx";
+import SalaryPayslipModal from "./SalaryPayslipModal.jsx";
+import { fetchPayslipsForMonth, payslipNet } from "./salaryPayslip.js";
+import { findFixedMonthlySalary } from "./additionalPayments.js";
 import { sendPushEvent } from "../pushNotifications.js";
 import { sortInstitutionDashboardRows } from "./institutionSort.js";
 import {
@@ -327,6 +330,19 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
   const [managerFilter, setManagerFilter] = useState("all");
   const [institutionSearch, setInstitutionSearch] = useState("");
   const [viewingTeacher, setViewingTeacher] = useState(null);
+  const [payslipTeacher, setPayslipTeacher] = useState(null);
+  const [payslips, setPayslips] = useState([]);
+  const payslipByTeacher = useMemo(
+    () => Object.fromEntries((payslips || []).map(p => [p.teacher_id, p])),
+    [payslips],
+  );
+  useEffect(() => {
+    let alive = true;
+    fetchPayslipsForMonth(yearMonth)
+      .then(rows => { if (alive) setPayslips(rows); })
+      .catch(() => { if (alive) setPayslips([]); });
+    return () => { alive = false; };
+  }, [yearMonth, payslipTeacher]);
   const [viewingTempTeacher, setViewingTempTeacher] = useState(null);
   const [teachingSessionRates, setTeachingSessionRates] = useState([]);
   const [adminSessionRates, setAdminSessionRates] = useState([]);
@@ -738,6 +754,15 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
 
   return (
     <div className="sch-view sch-payroll-admin-view">
+      {payslipTeacher ? (
+        <SalaryPayslipModal
+          teacher={payslipTeacher.teacher}
+          yearMonth={yearMonth}
+          baseGross={findFixedMonthlySalary(payslipTeacher.teacher.id)?.baseGross || 2600000}
+          additionalPayments={payslipTeacher.additionalPayments || []}
+          onClose={() => setPayslipTeacher(null)}
+        />
+      ) : null}
       {!viewingTeacher && !viewingTempTeacher ? (
         <>
       <header className="sch-view-header">
@@ -1073,8 +1098,24 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                               <td className="sch-td-num sch-td-money">{formatWon(row.estimatedPay)}</td>
                               <td className="sch-td-num sch-pay-net-cell">
                                 <div className="sch-admin-cell-num sch-td-money">
-                                  {formatWon(grossToNetPay(row.estimatedPay))}
+                                  {formatWon(
+                                    payslipByTeacher[row.teacher.id]
+                                      ? payslipNet(payslipByTeacher[row.teacher.id])
+                                      : netPayFor(row.teacher, row.estimatedPay),
+                                  )}
                                 </div>
+                                {isBusinessPayee(row.teacher) ? (
+                                  <div className="sch-admin-cell-hint"><p>사업자 · 3.3% 공제 없음</p></div>
+                                ) : null}
+                                {findFixedMonthlySalary(row.teacher.id) ? (
+                                  <div className="sch-admin-cell-hint">
+                                    <p>
+                                      <button type="button" className="sch-btn sch-btn--sm" onClick={() => setPayslipTeacher(row)}>
+                                        급여명세서{payslipByTeacher[row.teacher.id]?.paid ? " (지급완료)" : payslipByTeacher[row.teacher.id] ? " (저장됨)" : ""}
+                                      </button>
+                                    </p>
+                                  </div>
+                                ) : null}
                                 {row.additionalTotal > 0 ? (
                                   <div className="sch-admin-cell-hint">
                                     {(row.additionalPayments || []).map(p => (

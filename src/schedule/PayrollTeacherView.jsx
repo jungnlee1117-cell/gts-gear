@@ -1,6 +1,7 @@
+import { fetchPayslip, payslipNet, sumItems } from "./salaryPayslip.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, Pencil } from "lucide-react";
-import { DAY_LABELS, PAY_TYPES, PAYROLL_SUMMARY_TYPES, classTypeLabel, formatMinutes, formatWon, grossToNetPay, homeVisitColor, institutionColor, isHomeVisitPlanned, minutesBetween, yearMonthKey } from "./constants.js";
+import { DAY_LABELS, PAY_TYPES, PAYROLL_SUMMARY_TYPES, classTypeLabel, formatMinutes, formatWon, grossToNetPay, isBusinessPayee, homeVisitColor, institutionColor, isHomeVisitPlanned, minutesBetween, yearMonthKey } from "./constants.js";
 import PayrollMonthNotices from "./PayrollMonthNotices.jsx";
 import {
   findFixedGrossPay,
@@ -102,6 +103,8 @@ export default function PayrollTeacherView({
 }) {
   const teacherId = subjectTeacher?.id ?? me.id;
   const teacherName = subjectTeacher?.name ?? me.name;
+  const isBusiness = isBusinessPayee(subjectTeacher ?? me);
+  const [myPayslip, setMyPayslip] = useState(null);
   const canEditPayroll = !adminInspectMode || isScheduleSuperAdmin(me);
   const scheduleAuthReady = useScheduleAuthReady();
   const today = new Date();
@@ -112,6 +115,13 @@ export default function PayrollTeacherView({
     return new Date(n.getFullYear(), n.getMonth(), 1);
   });
   const [selectedDate, setSelectedDate] = useState(() => new Date());
+  useEffect(() => {
+    let alive = true;
+    fetchPayslip(teacherId, yearMonth)
+      .then(p => { if (alive) setMyPayslip(p); })
+      .catch(() => { if (alive) setMyPayslip(null); });
+    return () => { alive = false; };
+  }, [teacherId, yearMonth]);
   const [weeklySlots, setWeeklySlots] = useState([]);
   const [homeVisitPatterns, setHomeVisitPatterns] = useState([]);
   const [assignedInstitutions, setAssignedInstitutions] = useState([]);
@@ -1369,10 +1379,18 @@ export default function PayrollTeacherView({
           ) : null}
         </div>
         <div className="sch-payroll-pay-card">
-          <div className="sch-payroll-pay-label">3.3% 세금 제외 후 실수령액</div>
-          <div className="sch-payroll-pay-value">{formatWon(grossToNetPay(totalPay))}</div>
+          <div className="sch-payroll-pay-label">
+            {myPayslip ? "급여명세서 차인지급액" : isBusiness ? "정산 금액 (사업자 · 3.3% 공제 없음)" : "3.3% 세금 제외 후 실수령액"}
+          </div>
+          <div className="sch-payroll-pay-value">
+            {formatWon(myPayslip ? payslipNet(myPayslip) : isBusiness ? totalPay : grossToNetPay(totalPay))}
+          </div>
           <p className="sch-payroll-pay-hint">
-            {fixedMonthlySalary
+            {myPayslip
+              ? `지급액 ${formatWon(sumItems(myPayslip.earnings))} − 공제 ${formatWon(sumItems(myPayslip.deductions))}${myPayslip.paid ? " · 지급 완료" : ""}`
+              : isBusiness
+              ? "사업자 대 사업자 정산으로 원천징수하지 않습니다."
+              : fixedMonthlySalary
               ? `원천징수 ${formatWon(withholdingTax333(totalPay))} (고정급+추가지급 합계의 3.3%)`
               : "사업소득세 3.3% 원천징수 후 예상 금액 (수업료+추가지급)"}
           </p>

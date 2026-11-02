@@ -3,6 +3,7 @@ import { ChevronLeft } from "lucide-react";
 import ClassIncidentMonthSection from "./ClassIncidentMonthSection.jsx";
 import { CONTRACT_TYPES, formatWon, yearMonthKey } from "./constants.js";
 import ThresholdSplitBreakdown from "./ThresholdSplitBreakdown.jsx";
+import { syncMonthToLedger } from "./ledgerSync.js";
 import { isManagerThresholdSplit, resolveSettlementContractType } from "./thresholdSplitSettlement.js";
 import {
   computeAndSaveSettlement,
@@ -107,6 +108,7 @@ export default function MonthlySettlementView({ me, onBack }) {
   const [managerMap, setManagerMap] = useState({});
   const [institutions, setInstitutions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [ledgerSyncing, setLedgerSyncing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -221,6 +223,20 @@ export default function MonthlySettlementView({ me, onBack }) {
     }
   };
 
+  const handleLedgerSync = async () => {
+    if (!confirm(`${yearMonth} 정산을 회계장부 시트로 보낼까요? 해당 월의 자동 입력 행이 새로 갱신됩니다.`)) return;
+    setLedgerSyncing(true);
+    try {
+      const r = await syncMonthToLedger(yearMonth);
+      const warn = r.warnings?.length ? `\n\n주의\n- ${r.warnings.join("\n- ")}` : "";
+      alert(`장부로 보냈습니다.\n수입 ${r.income_rows}건 ${formatWon(r.revenue_total)}\n지출 ${r.expense_rows}건 ${formatWon(r.expense_total)}${warn}`);
+    } catch (err) {
+      alert("장부 전송 실패: " + err.message);
+    } finally {
+      setLedgerSyncing(false);
+    }
+  };
+
   return (
     <div className="sch-view">
       <header className="sch-view-header">
@@ -228,6 +244,11 @@ export default function MonthlySettlementView({ me, onBack }) {
           <ChevronLeft size={18}/> 급여/정산
         </button>
         <h2 className="sch-view-title">월별 정산</h2>
+        {isScheduleSuperAdmin(me) ? (
+          <button type="button" className="sch-btn sch-btn--ghost" onClick={handleLedgerSync} disabled={loading || ledgerSyncing}>
+            {ledgerSyncing ? "전송 중..." : "장부로 보내기"}
+          </button>
+        ) : null}
         {isScheduleSuperAdmin(me) ? (
           <button type="button" className="sch-btn sch-btn--primary" onClick={handleFinalize}>
             이번 달 확정

@@ -8,6 +8,8 @@ function taxIncomeType(teacher) {
 export function payrollTaxSnapshotRows(data) {
   const regular = (data?.teacherRows || [])
     .filter((row) => row.teacher?.name !== "김민욱")
+    // 사업자 대 사업자(partner)는 3.3% 원천징수 대상이 아님
+    .filter((row) => row.teacher?.payee_kind !== "partner")
     .map((row, index) => ({
       teacher_id: row.teacher.id,
       teacher_name: row.teacher.name,
