@@ -777,22 +777,6 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
               <button
                 type="button"
                 className="sch-btn sch-btn--ghost"
-                disabled={checkinTestBusy}
-                onClick={handleCheckinTestPush}
-              >
-                <Bell size={16}/>
-                {checkinTestBusy ? "보내는 중..." : "체크인 테스트 푸시"}
-              </button>
-              <button
-                type="button"
-                className="sch-btn sch-btn--ghost"
-                onClick={openCheckinDemo}
-              >
-                체크인 테스트 화면
-              </button>
-              <button
-                type="button"
-                className="sch-btn sch-btn--ghost"
                 disabled={Boolean(taxReportBusy) || !data}
                 onClick={handleTaxReportDownload}
               >
