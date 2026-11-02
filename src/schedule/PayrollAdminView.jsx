@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, Bell, ChevronLeft, ClipboardList, Clock, CloudUpload, FileSpreadsheet, MessageSquareWarning, Users, Wallet } from "lucide-react";
+import { AlertCircle, Bell, ChevronLeft, ChevronRight, ClipboardList, Clock, CloudUpload, FileSpreadsheet, MessageSquareWarning, Users, Wallet } from "lucide-react";
 import { CONTRACT_TYPES, formatMinutes, formatWon, grossToNetPay, yearMonthKey, yearMonthLastDay } from "./constants.js";
 import {
   fetchMyTeachingSessionRates,
@@ -63,6 +63,12 @@ const MANAGER_FILTER_OPTIONS = [
   { id: "oh", label: "오정석(마이크)" },
   { id: "hq", label: "본사" },
 ];
+
+function shiftYearMonth(ym, delta) {
+  const [y, m] = String(ym).split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 
 function contractTypeLabel(institution) {
   const key = resolveSettlementContractType(institution);
@@ -795,8 +801,14 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
         </div>
       </header>
 
-      <div className="sch-toolbar">
-        <input type="month" className="sch-input" value={yearMonth} onChange={e => setYearMonth(e.target.value)}/>
+      <div className="sch-toolbar sch-month-nav">
+        <button type="button" className="sch-icon-btn" aria-label="이전 달" onClick={() => setYearMonth(shiftYearMonth(yearMonth, -1))}>
+          <ChevronLeft size={18}/>
+        </button>
+        <input type="month" className="sch-input" value={yearMonth} onChange={e => e.target.value && setYearMonth(e.target.value)}/>
+        <button type="button" className="sch-icon-btn" aria-label="다음 달" onClick={() => setYearMonth(shiftYearMonth(yearMonth, 1))}>
+          <ChevronRight size={18}/>
+        </button>
       </div>
 
       {showTeacherTab ? (
