@@ -20,6 +20,7 @@ import { resolveSettlementContractType } from "./thresholdSplitSettlement.js";
 import {
   countSkippedEntries,
   countUnconfirmedDays,
+  listUnconfirmedDates,
   countUnconfirmedSlots,
   expandMonthSchedule,
   getSlotsForDate,
@@ -2396,6 +2397,7 @@ export async function loadPayrollDashboard(yearMonth) {
         estimatedPay,
         lastEntryDate: lastEntry?.class_date ?? null,
         unconfirmedDays,
+        unconfirmedDates: listUnconfirmedDates(scheduleByDate, mine),
         unconfirmedSlots,
         skippedCount,
         hasScheduled,

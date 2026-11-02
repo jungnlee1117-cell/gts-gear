@@ -1088,6 +1088,15 @@ export default function PayrollAdminView({ me, onBack, onOpenInstitution, onOpen
                                 {alertRow ? (
                                   <span className="sch-admin-row-alert-label">입력 누락</span>
                                 ) : null}
+                                {alertRow ? (
+                                  <div className="sch-admin-cell-hint">
+                                    {row.unconfirmedDays > 0 ? (
+                                      <p>미확인 {row.unconfirmedDays}일: {(row.unconfirmedDates || []).slice(0, 10).map(d => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`).join(", ")}{(row.unconfirmedDates || []).length > 10 ? " 외" : ""}</p>
+                                    ) : null}
+                                    {incident.pending > 0 ? <p>특이사항 확인 대기 {incident.pending}건</p> : null}
+                                    {row.unconfirmedDays === 0 && incident.pending === 0 && row.inputMissing ? <p>이번 달 입력된 수업 기록 없음</p> : null}
+                                  </div>
+                                ) : null}
                               </td>
                               <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.정규 || 0)}</td>
                               <td className="sch-td-num sch-td-num--em">{formatMinutes(row.byType.방과후 || 0)}</td>

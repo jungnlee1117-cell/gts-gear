@@ -333,6 +333,16 @@ export function countUnconfirmedDays(scheduleByDate, entries, today = new Date()
   return days;
 }
 
+/** 미확인 수업이 남은 날짜(YYYY-MM-DD) 목록 */
+export function listUnconfirmedDates(scheduleByDate, entries, today = new Date()) {
+  const out = [];
+  for (const [dateStr, planned] of Object.entries(scheduleByDate)) {
+    if (!isDateConfirmable(dateStr, today) || planned.length === 0) continue;
+    if (!planned.every(p => isSlotResolved(entries, p))) out.push(dateStr);
+  }
+  return out.sort();
+}
+
 export function countSkippedEntries(entries) {
   return entries.filter(e => e.entry_status === ENTRY_STATUS.skipped).length;
 }
