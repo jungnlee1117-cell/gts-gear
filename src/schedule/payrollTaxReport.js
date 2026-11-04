@@ -47,6 +47,7 @@ export function payrollTaxSnapshotRows(data, yearMonth = "", payslips = []) {
 
   const temporary = (data?.tempTeacherRows || [])
     .filter((row) => (row.teacher?.name || row.tempTeacher?.name) !== "김민욱")
+    .filter((row) => (Number(row.estimatedPay) || 0) > 0)
     .map((row, index) => ({
       teacher_id: null,
       teacher_name: row.teacher?.name || row.tempTeacher?.name || "임시 선생님",

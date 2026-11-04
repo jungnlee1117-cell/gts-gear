@@ -96,10 +96,10 @@ async function authenticate(req: Request, adminClient, serviceKey: string) {
 async function saveSnapshot(adminClient, yearMonth: string, rows, callerId: string) {
   const month = firstDay(yearMonth);
   const cleaned = (Array.isArray(rows) ? rows : [])
-    .filter((row) => row?.teacher_id && row?.teacher_name)
+    .filter((row) => row?.teacher_name)
     .map((row, index) => ({
       year_month: month,
-      teacher_id: String(row.teacher_id),
+      teacher_id: row.teacher_id ? String(row.teacher_id) : null, // 임시 선생님은 null
       teacher_name: String(row.teacher_name).slice(0, 100),
       income_type: ["계약직", "사업자"].includes(row.income_type) ? row.income_type : "위탁수업",
       deductions: row.deductions && typeof row.deductions === "object" ? row.deductions : null,
@@ -109,8 +109,11 @@ async function saveSnapshot(adminClient, yearMonth: string, rows, callerId: stri
       updated_at: new Date().toISOString(),
     }));
   if (!cleaned.length) throw new Error("EMPTY_REPORT");
-  const { error } = await adminClient.from("payroll_tax_report_snapshots")
-    .upsert(cleaned, { onConflict: "year_month,teacher_id" });
+  // 해당 월 스냅샷을 통째로 교체: 퇴사 처리된 선생님·삭제된 행이 남지 않고, 임시 선생님(teacher_id 없음)도 중복 없이 저장
+  const { error: deleteError } = await adminClient.from("payroll_tax_report_snapshots")
+    .delete().eq("year_month", month);
+  if (deleteError) throw deleteError;
+  const { error } = await adminClient.from("payroll_tax_report_snapshots").insert(cleaned);
   if (error) throw error;
   return { year_month: yearMonth, row_count: cleaned.length };
 }
@@ -141,7 +144,7 @@ async function reportRows(adminClient, yearMonth: string, secret: string) {
     // 세무 제출 대상에서 항상 제외하는 내부 운영 규칙입니다.
     if (snapshot.teacher_name === "김민욱") continue;
     let residentId = "";
-    const cipher = cipherByTeacher.get(snapshot.teacher_id);
+    const cipher = snapshot.teacher_id ? cipherByTeacher.get(snapshot.teacher_id) : null;
     if (cipher) {
       try {
         residentId = await decryptText(String(cipher), secret);
@@ -154,7 +157,7 @@ async function reportRows(adminClient, yearMonth: string, secret: string) {
     const formattedResident = digits.length === 13
       ? `${digits.slice(0, 6)}-${digits.slice(6)}`
       : (digits.length === 10 ? `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}` : "미등록");
-    if (formattedResident === "미등록") missing.push(snapshot.teacher_name);
+    if (formattedResident === "미등록" && snapshot.teacher_id) missing.push(snapshot.teacher_name);
     const gross = Number(snapshot.gross_amount) || 0;
     const type = ["계약직", "사업자"].includes(snapshot.income_type) ? snapshot.income_type : "위탁수업";
     const ded = (snapshot.deductions || {}) as Record<string, number>;
