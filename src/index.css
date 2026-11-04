@@ -15234,21 +15234,13 @@ button.pe-res-resource-youtube-thumb:hover {
   text-align: left;
   cursor: pointer;
 }
-.sch-cal-detail .sch-payroll-slot-grid,
 .sch-payroll-slot-grid--stacked {
   grid-template-columns: 1fr;
 }
-@media (min-width: 640px) {
-  .sch-cal-detail .sch-payroll-slot-grid,
-  .sch-payroll-slot-grid--stacked {
-    grid-template-columns: 1fr;
-  }
-}
-@media (min-width: 1024px) {
-  .sch-cal-detail .sch-payroll-slot-grid,
-  .sch-payroll-slot-grid--stacked {
-    grid-template-columns: 1fr;
-  }
+/* 급여 날짜 상세: 교시별 카드를 가로로 나란히 배열 */
+.sch-cal-detail .sch-payroll-slot-grid:not(.sch-payroll-slot-grid--stacked) {
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  align-items: start;
 }
 
 .sch-cal-cell--confirmed { background: #f0fdf4; }
