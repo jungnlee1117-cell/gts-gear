@@ -11,6 +11,7 @@ import {
 } from "./constants.js";
 import {
   createWeeklySlotVersion,
+  moveWeeklySlotStartEarlier,
   endWeeklySlot,
   fetchAssignments,
   fetchInstitutions,
@@ -529,7 +530,9 @@ export default function RegularClassesManagePanel({
           && formatTime(orig.end_time) === formatTime(editForm.end_time)
           && String(storedClassType(editForm.class_type) || "") === String(orig.class_type || "")
           && String(storedSlotLabel(editForm.class_type, editForm.class_group) || "") === String(orig.label || "");
-        if (same) {
+        const origFromDate = orig.effective_from ? String(orig.effective_from).slice(0, 10) : null;
+        const movesStartEarlier = Boolean(origFromDate && editForm.change_effective_date < origFromDate);
+        if (same && !movesStartEarlier) {
           setEditForm(null);
           return alert("변경된 내용이 없어 저장하지 않았습니다.");
         }
@@ -554,7 +557,16 @@ export default function RegularClassesManagePanel({
         ? String(original.effective_from).slice(0, 10)
         : null;
       const today = fmtLocalDate(new Date());
-      if (originalFrom && originalFrom >= today
+      if (originalFrom && editForm.change_effective_date < originalFrom) {
+        // 시작일을 더 이른 날짜로 앞당김 (직전 버전 종료일·급여 행도 함께 정리)
+        await moveWeeklySlotStartEarlier(
+          original,
+          nextPayload,
+          editForm.change_effective_date,
+          editForm.change_reason,
+          me?.id,
+        );
+      } else if (originalFrom && originalFrom >= today
         && editForm.change_effective_date <= originalFrom) {
         // 아직 시작하지 않은 예정 수업은 같은 예정 행을 정정합니다.
         const savedSlot = await saveWeeklySlot({

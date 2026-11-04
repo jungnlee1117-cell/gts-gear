@@ -780,6 +780,66 @@ export async function createWeeklySlotVersion(original, next, effectiveFrom, rea
   return savedSlot;
 }
 
+/**
+ * 기존 시작일보다 "더 이른" 날짜부터 적용하도록 수정합니다.
+ * - 이 수업의 시작일을 앞당기고, 직전 버전(previous_slot_id)의 종료일을 맞춰 겹침을 막습니다.
+ * - 직전 버전에 걸려 있던 같은 선생님의 급여 행(앞당긴 날짜 이후)은 이 수업으로 옮겨 중복 집계를 막습니다.
+ */
+export async function moveWeeklySlotStartEarlier(original, next, newFrom, reason, changedBy) {
+  if (!original?.id || !newFrom) throw new Error("변경 적용일을 확인해주세요.");
+  const oldFrom = original.effective_from ? String(original.effective_from).slice(0, 10) : null;
+  if (!oldFrom || newFrom >= oldFrom) throw new Error("앞당길 날짜가 기존 시작일보다 이전이어야 합니다.");
+  const dayBefore = previousDate(newFrom);
+
+  let predecessor = null;
+  if (original.previous_slot_id) {
+    const { data, error } = await scheduleSupabase
+      .from("institution_weekly_schedule")
+      .select("*")
+      .eq("id", original.previous_slot_id)
+      .maybeSingle();
+    if (error) throw error;
+    predecessor = data || null;
+    const predFrom = predecessor?.effective_from ? String(predecessor.effective_from).slice(0, 10) : null;
+    if (predFrom && dayBefore < predFrom) {
+      throw new Error(`적용일은 이전 버전 시작일(${predFrom}) 이후여야 합니다.`);
+    }
+  }
+
+  const savedSlot = await saveWeeklySlot({
+    ...next,
+    id: original.id,
+    effective_from: newFrom,
+    effective_to: original.effective_to,
+    schedule_series_id: original.schedule_series_id || original.id,
+    previous_slot_id: original.previous_slot_id || null,
+    change_reason: reason || "적용 시작일 앞당김",
+    changed_by: changedBy || original.changed_by || null,
+    updated_at: new Date().toISOString(),
+  });
+
+  if (predecessor) {
+    const predTo = predecessor.effective_to ? String(predecessor.effective_to).slice(0, 10) : null;
+    if (!predTo || predTo > dayBefore) {
+      await saveWeeklySlot({
+        ...predecessor,
+        id: predecessor.id,
+        effective_to: dayBefore,
+        updated_at: new Date().toISOString(),
+      });
+    }
+    if (predecessor.teacher_id && predecessor.teacher_id === savedSlot.teacher_id) {
+      const { error: moveError } = await scheduleSupabase
+        .from("payroll_entries")
+        .update({ schedule_slot_id: savedSlot.id, updated_at: new Date().toISOString() })
+        .eq("schedule_slot_id", predecessor.id)
+        .gte("class_date", newFrom);
+      if (moveError) throw moveError;
+    }
+  }
+  return savedSlot;
+}
+
 /** 삭제하지 않고 종료일과 사유를 기록합니다. */
 export async function endWeeklySlot(slot, effectiveTo, reason, changedBy) {
   if (!slot?.id || !effectiveTo) throw new Error("종료일을 확인해주세요.");
