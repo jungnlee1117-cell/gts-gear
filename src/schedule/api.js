@@ -2568,3 +2568,28 @@ export async function loadPayrollDashboard(yearMonth) {
     teachers,
   };
 }
+
+/** 세금계산서 발행 기록 (홈택스 메일 → institution_tax_invoices). 테이블 미생성 시 빈 목록 */
+export async function fetchTaxInvoices({ yearMonth, institutionId, unmatchedOnly = false } = {}) {
+  let q = scheduleSupabase
+    .from("institution_tax_invoices")
+    .select("*")
+    .order("issue_date", { ascending: false });
+  if (yearMonth) q = q.eq("year_month", `${String(yearMonth).slice(0, 7)}-01`);
+  if (institutionId) q = q.eq("institution_id", institutionId);
+  if (unmatchedOnly) q = q.is("institution_id", null);
+  const { data, error } = await q;
+  if (error) {
+    if (/schema cache|does not exist|42P01/i.test(error.message || "")) return [];
+    throw error;
+  }
+  return data || [];
+}
+
+export async function updateTaxInvoice(id, patch) {
+  const row = {};
+  if ("institution_id" in patch) row.institution_id = patch.institution_id || null;
+  if ("year_month" in patch) row.year_month = `${String(patch.year_month).slice(0, 7)}-01`;
+  const { error } = await scheduleSupabase.from("institution_tax_invoices").update(row).eq("id", id);
+  if (error) throw error;
+}

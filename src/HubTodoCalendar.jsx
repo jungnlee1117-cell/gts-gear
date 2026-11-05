@@ -1,10 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { exceptionBadgeLabel } from "./schedule/scheduleExceptions.js";
-import { fetchInstitutions, fetchTeachersUnfiltered } from "./schedule/api.js";
+import {
+  deleteScheduleException,
+  fetchInstitutions,
+  fetchTeachersUnfiltered,
+  saveScheduleExceptionWithClasses,
+} from "./schedule/api.js";
+import {
+  attachScheduleEventNoticeMetadata,
+  createScheduleEventNotice,
+  deleteScheduleEventNotice,
+  isScheduleEventNotice,
+  linkScheduleExceptionToNotice,
+  updateScheduleEventNotice,
+} from "./schedule/eventNoticeSync.js";
 import { fetchAllPages } from "./supabaseFetchAll.js";
 import { filterAssignableClassTeachers } from "./schedule/roles.js";
-import EventRegisterForm, { EMPTY_EVENT_FORM } from "./schedule/EventRegisterForm.jsx";
+import EventRegisterForm, { EMPTY_EVENT_FORM, exceptionToEventForm } from "./schedule/EventRegisterForm.jsx";
 import ScheduleClassCancellationPicker from "./schedule/ScheduleClassCancellationPicker.jsx";
 import { createScheduleEvent } from "./schedule/createScheduleEvent.js";
 import { getKoreanHoliday, holidayShortLabel } from "./schedule/koreanHolidays.js";
@@ -419,6 +432,7 @@ export default function HubTodoCalendar({
   const [registerNonce, setRegisterNonce] = useState(0);
   const [registerChoiceDate, setRegisterChoiceDate] = useState("");
   const [showVacationModal, setShowVacationModal] = useState(false);
+  const [editingVacationId, setEditingVacationId] = useState("");
   const [expandedRangeWeeks, setExpandedRangeWeeks] = useState(() => new Set());
   const [checklistPeriod, setChecklistPeriod] = useState("");
   const [vacationForm, setVacationForm] = useState({
@@ -444,7 +458,7 @@ export default function HubTodoCalendar({
     let cancelled = false;
     fetchAllPages(() => supabase
       .from("institution_schedule_exceptions")
-      .select("id, institution_id, exception_date, end_date, exception_type, note, institutions(id, name)")
+      .select("id, institution_id, exception_date, end_date, exception_type, note, notice_id, institutions(id, name)")
       .lte("exception_date", range.end)
       .or(`end_date.gte.${range.start},and(end_date.is.null,exception_date.gte.${range.start})`))
       .then(({ data, error }) => {
@@ -577,6 +591,9 @@ export default function HubTodoCalendar({
     [weeks, events, visibleDueTodos, vacations, monthlySummary, institutionNameById],
   );
 
+  const choiceEvents = registerChoiceDate ? (eventMap.get(registerChoiceDate) || []) : [];
+  const choiceTodos = registerChoiceDate ? (todoMap.get(registerChoiceDate) || []) : [];
+  const choiceVacations = registerChoiceDate ? (vacationMap.get(registerChoiceDate) || []) : [];
   const selectedEvents = eventMap.get(selectedDate) || [];
   const selectedTodos = todoMap.get(selectedDate) || [];
   const selectedVacations = vacationMap.get(selectedDate) || [];
@@ -631,6 +648,7 @@ export default function HubTodoCalendar({
   const chooseVacationRegister = () => {
     const dateStr = registerChoiceDate;
     setRegisterChoiceDate("");
+    setEditingVacationId("");
     setVacationForm({
       teacher_id: "",
       start_date: dateStr,
@@ -661,14 +679,17 @@ export default function HubTodoCalendar({
     if (vacationForm.end_date < vacationForm.start_date) return alert("종료일은 시작일 이후여야 합니다.");
     setSaving(true);
     try {
-      const { error } = await supabase.from("teacher_vacations").insert({
+      const row = {
         teacher_id: vacationForm.teacher_id,
         start_date: vacationForm.start_date,
         end_date: vacationForm.end_date,
         note: vacationForm.note.trim() || null,
-        created_by: me?.id || null,
-      });
+      };
+      const { error } = editingVacationId
+        ? await supabase.from("teacher_vacations").update(row).eq("id", editingVacationId)
+        : await supabase.from("teacher_vacations").insert({ ...row, created_by: me?.id || null });
       if (error) throw error;
+      setEditingVacationId("");
       setSelectedDate(vacationForm.start_date);
       setShowVacationModal(false);
       setReloadToken(token => token + 1);
@@ -694,6 +715,66 @@ export default function HubTodoCalendar({
     if (saving) return;
     setShowRegisterModal(false);
     setForm(EMPTY_EVENT_FORM);
+  };
+
+  const openEditVacation = (vacation) => {
+    setRegisterChoiceDate("");
+    setEditingVacationId(vacation.id);
+    setVacationForm({
+      teacher_id: vacation.teacher_id || "",
+      start_date: vacation.start_date || "",
+      end_date: vacation.end_date || vacation.start_date || "",
+      note: vacation.note || "",
+    });
+    setShowVacationModal(true);
+  };
+
+  const loadEventForEdit = async (eventRow) => {
+    const { data, error } = await supabase
+      .from("institution_schedule_exceptions")
+      .select("*, institution_schedule_exception_classes(*)")
+      .eq("id", eventRow.id)
+      .single();
+    if (error) throw error;
+    const [withNotice] = await attachScheduleEventNoticeMetadata([data]);
+    return withNotice;
+  };
+
+  const isManagedInNotices = (ex) => Boolean(ex?.notice_id) && !isScheduleEventNotice(ex);
+
+  const openEditEvent = async (eventRow) => {
+    if (!canRegisterEvents) return;
+    try {
+      const full = await loadEventForEdit(eventRow);
+      if (isManagedInNotices(full)) {
+        alert("공지사항에서 등록한 행사는 공지사항 화면에서 수정해주세요.");
+        return;
+      }
+      setRegisterChoiceDate("");
+      setForm(exceptionToEventForm(full));
+      setRegisterNonce(n => n + 1);
+      setShowRegisterModal(true);
+    } catch (error) {
+      alert("불러오기 실패: " + error.message);
+    }
+  };
+
+  const handleEventDelete = async (eventRow) => {
+    if (!canRegisterEvents) return;
+    if (!confirm("이 행사를 삭제할까요?")) return;
+    try {
+      const full = await loadEventForEdit(eventRow);
+      if (isManagedInNotices(full)) {
+        alert("공지사항에서 등록한 행사는 공지사항 화면에서 삭제해주세요.");
+        return;
+      }
+      if (full.notice_id) await deleteScheduleEventNotice(full.notice_id);
+      else await deleteScheduleException(full.id);
+      setLoadedRange("");
+      setReloadToken(token => token + 1);
+    } catch (error) {
+      alert("삭제 실패: " + error.message);
+    }
   };
 
   const handleRegister = async (event) => {
@@ -724,7 +805,31 @@ export default function HubTodoCalendar({
 
     setSaving(true);
     try {
-      await createScheduleEvent({ payload, selectedClasses, author: me });
+      if (form.id) {
+        payload.id = form.id;
+        const existing = await loadEventForEdit({ id: form.id });
+        let noticeId = existing?.notice_id || null;
+        if (!noticeId) {
+          const notice = await createScheduleEventNotice(payload, me);
+          noticeId = notice.id;
+        }
+        let saved;
+        try {
+          saved = await saveScheduleExceptionWithClasses(
+            { ...payload, notice_id: noticeId },
+            payload.exception_type === "class_cancelled" ? selectedClasses : [],
+          );
+          if (existing?.notice_id) await updateScheduleEventNotice(noticeId, payload);
+        } catch (error) {
+          if (!existing?.notice_id && noticeId) {
+            await deleteScheduleEventNotice(noticeId).catch(() => {});
+          }
+          throw error;
+        }
+        await linkScheduleExceptionToNotice(noticeId, saved.id).catch(() => {});
+      } else {
+        await createScheduleEvent({ payload, selectedClasses, author: me });
+      }
       setSelectedDate(form.start_date);
       setShowRegisterModal(false);
       setForm(EMPTY_EVENT_FORM);
@@ -974,12 +1079,46 @@ export default function HubTodoCalendar({
           <div className="sch-modal" onClick={event => event.stopPropagation()}>
             <div className="sch-modal-head">
               <h3>{registerChoiceDate.replaceAll("-", ".")} 등록</h3>
-            </div>
-            <p className="sch-muted">등록할 일정 종류를 선택해주세요.</p>
-            <div className="sch-form-actions">
-              <button type="button" className="sch-btn sch-btn--ghost" onClick={() => setRegisterChoiceDate("")}>
-                취소
+              <button
+                type="button"
+                className="sch-btn sch-btn--ghost sch-modal-close"
+                onClick={() => setRegisterChoiceDate("")}
+                aria-label="닫기"
+                title="닫기"
+              >
+                <X size={18}/>
               </button>
+            </div>
+            {choiceEvents.length + choiceVacations.length + choiceTodos.length > 0 ? (
+              <div className="hub-todo-calendar__choice-list">
+                <strong>등록된 일정</strong>
+                <ul>
+                  {choiceEvents.map(ev => (
+                    <li key={`ce-${ev.id}`}>
+                      <i className="is-event"/>
+                      <span>{eventTitle(ev, institutionNameById)}</span>
+                      <button type="button" className="sch-btn sch-btn--ghost sch-btn--sm" onClick={() => openEditEvent(ev)}>수정</button>
+                      <button type="button" className="sch-btn sch-btn--ghost sch-btn--sm" onClick={() => handleEventDelete(ev)}>삭제</button>
+                    </li>
+                  ))}
+                  {choiceVacations.map(vac => (
+                    <li key={`cv-${vac.id}`}>
+                      <i className="is-vacation"/>
+                      <span>{vac.teacher?.name || "선생님"} 휴무{vac.note ? ` · ${vac.note}` : ""}</span>
+                      <button type="button" className="sch-btn sch-btn--ghost sch-btn--sm" onClick={() => openEditVacation(vac)}>수정</button>
+                      <button type="button" className="sch-btn sch-btn--ghost sch-btn--sm" onClick={() => handleVacationDelete(vac)}>삭제</button>
+                    </li>
+                  ))}
+                  {choiceTodos.map(todo => (
+                    <li key={`ct-${todo.id}`} className={todo.is_completed ? "is-done" : ""}>
+                      <i className="is-todo"/><span>{todo.content}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <p className="sch-muted">새로 등록할 일정 종류를 선택해주세요.</p>
+            <div className="sch-form-actions">
               {canRegisterTodos ? (
                 <button type="button" className="sch-btn sch-btn--primary" onClick={chooseTodoRegister}>
                   할 일 등록
@@ -1000,7 +1139,7 @@ export default function HubTodoCalendar({
         <div className="sch-modal-overlay" onClick={closeRegisterModal}>
           <div className="sch-modal sch-modal--wide" onClick={event => event.stopPropagation()}>
             <div className="sch-modal-head">
-              <h3>행사 등록 · {form.start_date}</h3>
+              <h3>{form.id ? "행사 수정" : "행사 등록"} · {form.start_date}</h3>
             </div>
             <EventRegisterForm
               key={`hub-event-${registerNonce}`}
@@ -1022,7 +1161,7 @@ export default function HubTodoCalendar({
       {canRegisterEvents && showVacationModal ? (
         <div className="sch-modal-overlay" onClick={closeVacationModal}>
           <form className="sch-modal" onSubmit={handleVacationRegister} onClick={event => event.stopPropagation()}>
-            <div className="sch-modal-head"><h3>휴무 등록</h3></div>
+            <div className="sch-modal-head"><h3>{editingVacationId ? "휴무 수정" : "휴무 등록"}</h3></div>
             <label className="sch-field">
               <span>선생님·관리자</span>
               <select
@@ -1072,7 +1211,7 @@ export default function HubTodoCalendar({
             <div className="sch-form-actions">
               <button type="button" className="sch-btn sch-btn--ghost" onClick={closeVacationModal}>취소</button>
               <button type="submit" className="sch-btn sch-btn--primary" disabled={saving}>
-                {saving ? "저장 중..." : "휴무 등록"}
+                {saving ? "저장 중..." : (editingVacationId ? "휴무 수정" : "휴무 등록")}
               </button>
             </div>
           </form>

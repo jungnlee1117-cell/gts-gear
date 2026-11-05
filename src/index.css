@@ -23926,3 +23926,19 @@ td > .sch-inst-ended-badge { margin-left: 0; }
   #payslip-print-area { position: absolute; left: 0; top: 0; width: 100%; border: none; }
   .payslip-input { color: #000; }
 }
+
+/* 세금계산서 발행 기록 */
+.sch-taxinv { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 12px; font-size: 13px; }
+.sch-taxinv__label { font-weight: 700; color: #475569; }
+.sch-taxinv__item { color: #64748b; }
+.sch-taxinv__item.is-done { color: #15803d; font-weight: 700; }
+.sch-taxinv-unmatched { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+.sch-taxinv-unmatched ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.sch-taxinv-unmatched li { display: grid; grid-template-columns: 1fr 220px; gap: 10px; align-items: center; }
+
+.sch-modal-close { padding: 4px 6px; line-height: 0; }
+.hub-todo-calendar__choice-list { margin: 0 0 12px; }
+.hub-todo-calendar__choice-list ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.hub-todo-calendar__choice-list li { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.hub-todo-calendar__choice-list li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.hub-todo-calendar__choice-list li.is-done > span { text-decoration: line-through; opacity: .6; }

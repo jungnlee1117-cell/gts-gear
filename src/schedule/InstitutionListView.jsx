@@ -10,6 +10,8 @@ import {
   fetchSessionRates,
   fetchTeachers,
   upsertInstitution,
+  fetchTaxInvoices,
+  updateTaxInvoice,
 } from "./api.js";
 import {
   isMonthlyFixedBilling,
@@ -52,6 +54,8 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
   const [loading, setLoading] = useState(true);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [yearMonth, setYearMonth] = useState(yearMonthKey());
+  const [taxInvoices, setTaxInvoices] = useState([]);
+  const [unmatchedInvoices, setUnmatchedInvoices] = useState([]);
   const [query, setQuery] = useState("");
   const [selectedBulkIds, setSelectedBulkIds] = useState(() => new Set());
   const [showForm, setShowForm] = useState(false);
@@ -76,7 +80,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [insts, ts, c, counts, prevCounts, rates, finalized] = await Promise.all([
+      const [insts, ts, c, counts, prevCounts, rates, finalized, invoices, unmatched] = await Promise.all([
         fetchInstitutions({ activeOnly: false }),
         fetchTeachers(),
         fetchMonthlyContracts(),
@@ -84,7 +88,11 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
         fetchMonthlySessionCounts(null, prevYearMonth),
         fetchSessionRates(),
         fetchFinalizedInstitutionIds(yearMonth),
+        fetchTaxInvoices({ yearMonth }).catch(() => []),
+        fetchTaxInvoices({ unmatchedOnly: true }).catch(() => []),
       ]);
+      setTaxInvoices(invoices);
+      setUnmatchedInvoices(unmatched);
       setRows(filterInstitutionsForManagerScope(insts, me));
       setTeachers(ts.filter(t => t.role === "admin" || t.role === "superadmin"));
       setContracts(c);
@@ -329,6 +337,35 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
         ) : null}
       </div>
 
+      {superAdmin && unmatchedInvoices.length > 0 ? (
+        <div className="sch-taxinv-unmatched">
+          <strong>원과 연결되지 않은 세금계산서 {unmatchedInvoices.length}건</strong>
+          <ul>
+            {unmatchedInvoices.map(inv => (
+              <li key={inv.id}>
+                <span>{String(inv.issue_date).slice(0, 10)} · {inv.recipient_name}{inv.invoice_kind === "수정전자" ? " (수정)" : ""}</span>
+                <select
+                  className="sch-input"
+                  defaultValue=""
+                  onChange={async (e) => {
+                    if (!e.target.value) return;
+                    try {
+                      await updateTaxInvoice(inv.id, { institution_id: e.target.value });
+                      await load();
+                    } catch (err) {
+                      alert("연결 실패: " + (err.message || err));
+                    }
+                  }}
+                >
+                  <option value="">원 선택...</option>
+                  {rows.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {loading ? <p className="sch-muted">불러오는 중...</p> : (
         <div className="sch-table-wrap">
           <table className="sch-table">
@@ -349,6 +386,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                 <th>담당 관리자</th>
                 <th>과금</th>
                 <th>{yearMonth} 매출</th>
+                <th>세금계산서</th>
                 <th>계약유형</th>
                 <th>계약 상태</th>
                 {admin ? <th/> : null}
@@ -357,7 +395,7 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
             <tbody>
               {visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={admin ? (superAdmin ? 8 : 7) : 6} className="sch-muted">
+                  <td colSpan={admin ? (superAdmin ? 9 : 8) : 7} className="sch-muted">
                     {query.trim() ? "검색 결과가 없습니다." : "등록된 원이 없습니다."}
                   </td>
                 </tr>
@@ -405,6 +443,14 @@ export default function InstitutionListView({ onBack, onOpenDetail, onOpenBulkRe
                     <td className="sch-inst-revenue-cell">
                       <span className={pending ? "sch-inst-revenue-pending" : ""}>{label}</span>
                       {finalized ? <span className="sch-inst-revenue-finalized">확정</span> : null}
+                    </td>
+                    <td>
+                      {(() => {
+                        const inv = taxInvoices.filter(t => t.institution_id === inst.id)[0];
+                        return inv
+                          ? <span className="sch-taxinv__item is-done">발행 {String(inv.issue_date).slice(5, 10).replace("-", "/")}</span>
+                          : <span className="sch-muted">—</span>;
+                      })()}
                     </td>
                     <td>{CONTRACT_TYPES[inst.contract_type]}</td>
                     <td>

@@ -23,6 +23,7 @@ import {
   saveMonthlyContract,
   saveMonthlySessionCount,
   upsertInstitution,
+  fetchTaxInvoices,
 } from "./api.js";
 import {
   buildMonthlyContractPayload,
@@ -59,6 +60,15 @@ export default function InstitutionBillingTab({
   onInstitutionChange,
 }) {
   const [yearMonth, setYearMonth] = useState(yearMonthKey());
+  const [taxInvoices, setTaxInvoices] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    if (!canViewRevenue) return undefined;
+    fetchTaxInvoices({ yearMonth, institutionId })
+      .then(rows => { if (alive) setTaxInvoices(rows); })
+      .catch(() => { if (alive) setTaxInvoices([]); });
+    return () => { alive = false; };
+  }, [yearMonth, institutionId, canViewRevenue]);
   const [contracts, setContracts] = useState([]);
   const [sessionRates, setSessionRates] = useState([]);
   const [sessionCounts, setSessionCounts] = useState([]);
@@ -351,6 +361,20 @@ export default function InstitutionBillingTab({
             onChange={e => setYearMonth(e.target.value)}/>
         </label>
       </div>
+
+      {canViewRevenue && !isPartner ? (
+        <div className="sch-taxinv">
+          <span className="sch-taxinv__label">{yearMonth} 매출분 세금계산서</span>
+          {taxInvoices.length > 0 ? taxInvoices.map(inv => (
+            <span key={inv.id} className="sch-taxinv__item is-done">
+              발행됨 · {String(inv.issue_date).slice(0, 10)}
+              {inv.invoice_kind === "수정전자" ? " (수정)" : ""} · {inv.supplier_name}
+            </span>
+          )) : (
+            <span className="sch-taxinv__item">발행 기록 없음 (홈택스 메일 기준)</span>
+          )}
+        </div>
+      ) : null}
 
       {isPartner ? (
         <section className="sch-billing-panel">
