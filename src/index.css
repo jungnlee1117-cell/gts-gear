@@ -23942,3 +23942,24 @@ td > .sch-inst-ended-badge { margin-left: 0; }
 .hub-todo-calendar__choice-list li { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .hub-todo-calendar__choice-list li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .hub-todo-calendar__choice-list li.is-done > span { text-decoration: line-through; opacity: .6; }
+
+/* 계획안 교구 선택: 연령별 구분 강화 */
+.monthly-plan-gear-picker__groups { gap: 22px; }
+.monthly-plan-gear-picker__group {
+  padding: 0 14px 14px;
+  border: 2px solid #176d40;
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+.monthly-plan-gear-picker__group.is-english { border-color: #315f8d; background: #fff; }
+.monthly-plan-gear-picker__group h4 {
+  margin: 0 -14px 12px;
+  padding: 10px 14px;
+  background: #176d40;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+.monthly-plan-gear-picker__group.is-english h4 { background: #315f8d; color: #fff; }
