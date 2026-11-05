@@ -899,7 +899,7 @@ export default function SuperadminMonthlyPlanEditor({
       });
 
     return () => { cancelled = true; };
-  }, [me?.id, month, supabase, suggestedActivities]);
+  }, [me?.id, month, supabase]);
 
   const changeWeekCount = (nextCount) => {
     const count = normalizeWeekCount(nextCount);
