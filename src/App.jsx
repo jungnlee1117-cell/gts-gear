@@ -8315,6 +8315,7 @@ function AdminTodoSection({
   readOnly = false,
   allowCompletion = false,
   quickCreateDate = "",
+  quickEditTodoId = "",
   personalOnly = false,
 }) {
   const canEditAnyTodo = isSuperAdmin(me);
@@ -8546,6 +8547,13 @@ function AdminTodoSection({
     );
     setSubDraft("");
   };
+
+  useEffect(() => {
+    if (!quickEditTodoId) return;
+    const target = (todos || []).find(todo => todo.id === quickEditTodoId);
+    if (target) openEdit(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickEditTodoId]);
 
   const setAudienceModeSafe = (next) => {
     setAudienceMode(next);
@@ -13027,6 +13035,11 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
                   date,
                   token: (previous?.token || 0) + 1,
                 }))}
+                onRequestTodoEdit={(todoId) => setQuickTodoRequest(previous => ({
+                  date: "",
+                  editId: todoId,
+                  token: (previous?.token || 0) + 1,
+                }))}
               />
               <div className="hub-todo-section">
                 <AdminTodoSection
@@ -13045,6 +13058,7 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
                   readOnly
                   allowCompletion
                   quickCreateDate={quickTodoRequest?.date || ""}
+                  quickEditTodoId={quickTodoRequest?.editId || ""}
                   personalOnly={teacherTodoMode}
                   hideAuto={teacherTodoMode}
                 />

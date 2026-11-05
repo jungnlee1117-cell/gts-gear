@@ -415,6 +415,7 @@ export default function HubTodoCalendar({
   canRegisterTodos = false,
   me = null,
   onRequestTodoCreate = null,
+  onRequestTodoEdit = null,
   onToggleTodo = null,
 }) {
   const today = useMemo(() => new Date(), []);
@@ -1112,6 +1113,13 @@ export default function HubTodoCalendar({
                   {choiceTodos.map(todo => (
                     <li key={`ct-${todo.id}`} className={todo.is_completed ? "is-done" : ""}>
                       <i className="is-todo"/><span>{todo.content}</span>
+                      {onRequestTodoEdit ? (
+                        <button
+                          type="button"
+                          className="sch-btn sch-btn--ghost sch-btn--sm"
+                          onClick={() => { setRegisterChoiceDate(""); onRequestTodoEdit(todo.id); }}
+                        >수정</button>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
