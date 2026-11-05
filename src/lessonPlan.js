@@ -116,6 +116,45 @@ export function naturalEnglishEquipmentName(koreanName, registeredEnglishName = 
   return cleaned && !/[가-힣]/.test(cleaned) ? cleaned : "GTS Activity Set";
 }
 
+const KO_WORD_TO_EN = [
+  ["캐치", "Catch"], ["스태킹", "Stacking"], ["점핑", "Jumping"], ["호핑", "Hopping"], ["바운스", "Bounce"], ["탱탱", "Bouncy"], ["레인보우", "Rainbow"], ["무지개", "Rainbow"], ["점보", "Jumbo"], ["미니", "Mini"], ["에어", "Air"],
+  ["빅", "Big"], ["컬러", "Color"], ["소프트", "Soft"], ["스펀지", "Sponge"], ["스폰지", "Sponge"],
+  ["플라잉", "Flying"], ["디스크", "Disc"], ["홀라후프", "Hula Hoop"], ["훌라후프", "Hula Hoop"], ["후프", "Hoop"],
+  ["매트", "Mat"], ["터널", "Tunnel"], ["볼", "Ball"], ["공", "Ball"], ["링", "Ring"], ["콘", "Cone"],
+  ["컵", "Cup"], ["라켓", "Racket"], ["막대", "Stick"], ["스틱", "Stick"], ["봉", "Pole"], ["줄", "Rope"],
+  ["블럭", "Block"], ["블록", "Block"], ["보드", "Board"], ["판", "Board"], ["다리", "Bridge"], ["브릿지", "Bridge"],
+  ["사다리", "Ladder"], ["스카프", "Scarf"], ["풍선", "Balloon"], ["낙하산", "Parachute"], ["파라슈트", "Parachute"],
+  ["천", "Cloth"], ["주머니", "Bag"], ["바스켓", "Basket"], ["바구니", "Basket"], ["골대", "Goal"], ["골", "Goal"],
+  ["타겟", "Target"], ["표적", "Target"], ["빨강", "Red"], ["파랑", "Blue"], ["노랑", "Yellow"], ["초록", "Green"],
+  ["색", "Color"], ["동물", "Animal"], ["바다", "Sea"], ["물고기", "Fish"], ["공룡", "Dinosaur"], ["악어", "Crocodile"],
+  ["토끼", "Rabbit"], ["개구리", "Frog"], ["거북이", "Turtle"], ["원", "Circle"], ["세트", "Set"], ["게임", "Game"],
+  ["놀이", "Play"], ["던지기", "Throwing"], ["굴리기", "Rolling"], ["쌓기", "Stacking"], ["달리기", "Running"],
+  ["점프", "Jump"], ["뛰기", "Jump"], ["균형", "Balance"], ["밸런스", "Balance"], ["스텝", "Step"], ["돌", "Stone"],
+];
+
+/** 영어명이 없을 때: 패턴 이름 → 단어 직역 순으로 만든 대체 영문명 (못 만들면 "") */
+export function englishEquipmentNameWithFallback(koreanName, storedEnglish = "") {
+  const stored = storedEnglishEquipmentName(storedEnglish);
+  if (stored) return stored;
+  const natural = naturalEnglishEquipmentName(koreanName, "");
+  if (natural && !GENERIC_ENGLISH_EQUIPMENT_NAMES.test(natural) && natural !== "GTS Activity Set") return natural;
+  let rest = String(koreanName || "").replace(/\([^)]*\)/g, " ").trim();
+  if (!rest) return "";
+  const words = [];
+  while (rest.length) {
+    rest = rest.replace(/^[\s/·.\-_,]+/, "");
+    if (!rest) break;
+    const latin = rest.match(/^[A-Za-z0-9]+/);
+    if (latin) { words.push(latin[0]); rest = rest.slice(latin[0].length); continue; }
+    const hit = KO_WORD_TO_EN.find(([ko]) => rest.startsWith(ko));
+    if (hit) { if (words[words.length - 1] !== hit[1]) words.push(hit[1]); rest = rest.slice(hit[0].length); continue; }
+    if (/^[가-힣]/.test(rest)) return "";
+    rest = rest.slice(1);
+  }
+  const text = words.join(" ").trim();
+  return text.length >= 3 ? text : "";
+}
+
 /** 학년도 시작 연도 (3월~ → 해당 연도, 1~2월 → 전년도) */
 export function schoolYearStartYear(date = new Date()) {
   const y = date.getFullYear();

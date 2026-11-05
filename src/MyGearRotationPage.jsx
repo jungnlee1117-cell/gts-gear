@@ -25,6 +25,7 @@ import {
   buildAliasMaps,
   schoolYearStartYear,
   storedEnglishEquipmentName,
+  englishEquipmentNameWithFallback,
 } from "./lessonPlan.js";
 import {
   fallbackEnglishKeyExpression,
@@ -834,8 +835,11 @@ export default function MyGearRotationPage({
           koreanName,
         );
         const itemAlias = String(item?.alias || "").trim();
-        const englishName = storedEnglishEquipmentName(resolveEnglishFromKorean(koreanName, aliasMaps))
-          || storedEnglishEquipmentName(itemAlias);
+        const englishName = englishEquipmentNameWithFallback(
+          koreanName,
+          storedEnglishEquipmentName(resolveEnglishFromKorean(koreanName, aliasMaps))
+            || storedEnglishEquipmentName(itemAlias),
+        );
         const sentenceEquipment = englishName || "equipment";
         const englishActivity = lessonPlan?.activity_description || "";
         const keyExpression = lessonPlan?.key_expressions || "";

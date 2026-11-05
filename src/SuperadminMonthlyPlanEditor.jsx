@@ -1,6 +1,6 @@
 import { Children, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Download, FileImage, FileText, Languages, PartyPopper, RefreshCw, Save, Sparkles, Upload } from "lucide-react";
-import { buildAliasMaps, isUnresolvedEnglishEquipmentName, resolveEnglishFromKorean, storedEnglishEquipmentName } from "./lessonPlan.js";
+import { buildAliasMaps, englishEquipmentNameWithFallback, isUnresolvedEnglishEquipmentName, resolveEnglishFromKorean, storedEnglishEquipmentName } from "./lessonPlan.js";
 import {
   buildEnglishActivity,
   buildEnglishPurpose,
@@ -716,8 +716,11 @@ export default function SuperadminMonthlyPlanEditor({
   const aliasMaps = useMemo(() => buildAliasMaps(equipmentAliases), [equipmentAliases]);
   const normalizedCompanyEquipment = useMemo(() => companyEquipment.map((item) => {
     const name = String(item.name || item.item_name || "").trim();
-    const englishName = storedEnglishEquipmentName(resolveEnglishFromKorean(name, aliasMaps))
-      || storedEnglishEquipmentName(item.alias);
+    const englishName = englishEquipmentNameWithFallback(
+      name,
+      storedEnglishEquipmentName(resolveEnglishFromKorean(name, aliasMaps))
+        || storedEnglishEquipmentName(item.alias),
+    );
     return {
       id: `company:${item.id}`,
       name,
@@ -939,7 +942,7 @@ export default function SuperadminMonthlyPlanEditor({
         return {
           ...row,
           activity_name: isEnglish
-            ? (storedEnglishEquipmentName(suggestion.englishName) || "")
+            ? (englishEquipmentNameWithFallback(suggestion.name, suggestion.englishName) || "")
             : (suggestion.name || row.activity_name),
           activity_description: (
             isEnglish
