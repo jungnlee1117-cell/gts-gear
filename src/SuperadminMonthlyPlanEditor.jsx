@@ -235,13 +235,15 @@ function printableEnglishTemplateHtml({
   englishGoals,
   selectedEnglishAges,
   templateUrl,
+  fourWeekTemplateUrl,
   documentTitle,
 }) {
   const title = documentTitle || monthTitle(month);
   const pages = ENGLISH_AGE_GROUPS.filter(({ age }) => selectedEnglishAges.includes(age));
   const pageMarkup = pages.map((selectedEnglishAge) => {
     const rows = rowsByGroup[selectedEnglishAge.id] || [];
-    const rowMarkup = rows.slice(0, 5).map((row, index) => `
+    const useFourWeekForm = normalizeWeekCount(rows.length) === 4 && Boolean(fourWeekTemplateUrl);
+    const rowMarkup = rows.slice(0, useFourWeekForm ? 4 : 5).map((row, index) => `
     <div class="plan-row plan-row--${index + 1}">
       <div class="equipment-content">
         <strong>${escapeHtml(row.activity_name || "")}</strong>
@@ -250,7 +252,7 @@ function printableEnglishTemplateHtml({
       <div class="activity-content">${escapeHtml(row.activity_description || "")}</div>
       <div class="purpose-content">${escapeHtml(row.key_expression || "")}</div>
     </div>`).join("");
-    return `<main class="template-page">
+    return `<main class="template-page${useFourWeekForm ? " template-page--4w" : ""}"${useFourWeekForm ? ` style="background-image:url('${escapeHtml(fourWeekTemplateUrl)}')"` : ""}>
       <div class="plan-title">${escapeHtml(title)}</div>
       <div class="age-label">AGE ${escapeHtml(selectedEnglishAge.age)}</div>
       <div class="goal-text">${escapeHtml(englishGoals[selectedEnglishAge.age] || "")}</div>
@@ -280,6 +282,12 @@ function printableEnglishTemplateHtml({
       .purpose-content { position: absolute; left: 148mm; top: 5.5mm; width: 45mm; max-height: 25mm; overflow: hidden; white-space: pre-wrap; color: #102341; font-size: 2.85mm; line-height: 1.45; font-weight: 800; }
       .footer-clean { position: absolute; z-index: 5; left: 10mm; right: 10mm; bottom: 4.2mm; height: 8mm; display: grid; place-items: center; background: #fff; border-top: .35mm solid #9bc9aa; }
       .footer-clean span { color: #6f8971; font-size: 2.25mm; line-height: 1; white-space: nowrap; }
+      .template-page--4w .plan-row { height: 44.9mm; }
+      .template-page--4w .plan-row--1 { top: 96mm; } .template-page--4w .plan-row--2 { top: 140.9mm; } .template-page--4w .plan-row--3 { top: 185.8mm; } .template-page--4w .plan-row--4 { top: 230.7mm; }
+      .template-page--4w .equipment-content { top: 3.5mm; height: 38.5mm; }
+      .template-page--4w .equipment-content img { width: 36mm; height: 27mm; }
+      .template-page--4w .activity-content { top: 8mm; max-height: 34mm; }
+      .template-page--4w .purpose-content { top: 7mm; max-height: 34mm; }
       @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     </style></head><body>${pageMarkup}
     </body></html>`;
@@ -476,6 +484,7 @@ export function printableReportHtml({
   logoUrl,
   templateUrl,
   fourWeekTemplateUrl,
+  fourWeekEnglishTemplateUrl,
   documentTitle,
 }) {
   /* eslint-disable no-unreachable */
@@ -488,6 +497,7 @@ export function printableReportHtml({
       englishGoals,
       selectedEnglishAges,
       templateUrl,
+      fourWeekTemplateUrl: fourWeekEnglishTemplateUrl,
       documentTitle,
     });
   }
@@ -1261,6 +1271,7 @@ export default function SuperadminMonthlyPlanEditor({
         logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
         templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
         fourWeekTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-ko.png", window.location.origin).href,
+        fourWeekEnglishTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-en.png", window.location.origin).href,
       }));
       await upsertMonthlyPlanResourceFile(supabase, {
         me,
@@ -1306,6 +1317,7 @@ export default function SuperadminMonthlyPlanEditor({
         logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
         templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
         fourWeekTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-ko.png", window.location.origin).href,
+        fourWeekEnglishTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-en.png", window.location.origin).href,
       }));
       const fileName = monthlyPlanPdfFileName({
         month,
