@@ -1123,6 +1123,15 @@ async function runTodoDueTodayReminders(adminClient, vapid) {
     kind: string;
   }> = [];
 
+  // 받는 사람별로 오늘 할 일을 모아 알림 1건(요약)으로 보낸다.
+  const titlesByTeacher = new Map<string, string[]>();
+  const addTitle = (teacherId: string, title: string) => {
+    if (!teacherId) return;
+    const list = titlesByTeacher.get(teacherId) || [];
+    if (!list.includes(title)) list.push(title);
+    titlesByTeacher.set(teacherId, list);
+  };
+
   for (const todo of oneShotRows || []) {
     const recipients = new Set<string>(superIds);
     if (todo.assignee_id) {
@@ -1130,23 +1139,8 @@ async function runTodoDueTodayReminders(adminClient, vapid) {
     } else {
       for (const id of allAdminIds) recipients.add(id);
     }
-    const teacherIds = [...recipients].filter(Boolean);
     const titleText = String(todo.content || "").trim() || "할 일";
-    const result = await deliverPushNotifications(adminClient, vapid, "todo_due_today", {
-      teacherIds,
-      title: "할 일 마감",
-      body: `오늘 마감: ${titleText}`,
-      url: "/gear?page=notices",
-    });
-    totalSent += result.sent;
-    totalFailed += result.failed;
-    results.push({
-      todo_id: todo.id,
-      content: titleText,
-      recipients: teacherIds,
-      sent: result.sent,
-      kind: "one_shot_due",
-    });
+    for (const id of recipients) addTitle(id, titleText);
   }
 
   // 2) 반복 인스턴스: start_date <= 오늘 <= due_date, 미완료
@@ -1165,21 +1159,27 @@ async function runTodoDueTodayReminders(adminClient, vapid) {
 
   for (const todo of windowRows || []) {
     if (!todo.assignee_id) continue;
-    const titleText = String(todo.content || "").trim() || "할 일";
+    addTitle(todo.assignee_id, String(todo.content || "").trim() || "할 일");
+  }
+
+  for (const [teacherId, titles] of titlesByTeacher) {
+    const shown = titles.slice(0, 3).join(" · ");
+    const more = titles.length > 3 ? ` 외 ${titles.length - 3}건` : "";
     const result = await deliverPushNotifications(adminClient, vapid, "todo_due_today", {
-      teacherIds: [todo.assignee_id],
-      title: "반복 할 일",
-      body: `오늘 할 일: ${titleText}`,
-      url: "/gear?page=notices",
+      teacherIds: [teacherId],
+      title: `오늘 할 일 ${titles.length}건`,
+      body: `${shown}${more}`.slice(0, 180),
+      url: "/gear?todo=today#todo",
+      tag: `todo-due-today-${dueDate}`,
     });
     totalSent += result.sent;
     totalFailed += result.failed;
     results.push({
-      todo_id: todo.id,
-      content: titleText,
-      recipients: [todo.assignee_id],
+      todo_id: "",
+      content: titles.join(" | "),
+      recipients: [teacherId],
       sent: result.sent,
-      kind: "recurrence_window",
+      kind: "daily_digest",
     });
   }
 

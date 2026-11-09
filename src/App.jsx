@@ -12716,6 +12716,26 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
 
   const teacherTodoMode = !gearOnly && me?.role === "teacher" && !isItemAdmin(me);
   const showTodo = !gearOnly && (teacherTodoMode || isItemAdmin(me) || isScheduleAdmin(me));
+
+  // 알림(오늘 할 일)을 눌러 들어오면 "내 할 일" 영역으로 이동
+  useEffect(() => {
+    if (!showTodo) return undefined;
+    const wantsTodo = window.location.hash === "#todo"
+      || new URLSearchParams(window.location.search).get("todo") === "today";
+    if (!wantsTodo) return undefined;
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      const el = document.getElementById("hub-todo");
+      tries += 1;
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        window.clearInterval(timer);
+      } else if (tries > 20) {
+        window.clearInterval(timer);
+      }
+    }, 300);
+    return () => window.clearInterval(timer);
+  }, [showTodo]);
   const canRegisterHubEvents = !gearOnly && isScheduleAdmin(me);
   const canRegisterHubTodos = showTodo;
   const showStandaloneCalendar = !gearOnly && !showTodo && (me?.role === "teacher" || canRegisterHubEvents);
@@ -13021,7 +13041,7 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
           </div>
 
           {showTodo && (
-            <div className="hub-todo-layout">
+            <div className="hub-todo-layout" id="hub-todo">
               <HubTodoCalendar
                 supabase={supabase}
                 todos={todos}
