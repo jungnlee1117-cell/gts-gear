@@ -236,14 +236,16 @@ function printableEnglishTemplateHtml({
   selectedEnglishAges,
   templateUrl,
   fourWeekTemplateUrl,
+  weekCount: requestedWeekCount,
   documentTitle,
 }) {
   const title = documentTitle || monthTitle(month);
   const pages = ENGLISH_AGE_GROUPS.filter(({ age }) => selectedEnglishAges.includes(age));
   const pageMarkup = pages.map((selectedEnglishAge) => {
     const rows = rowsByGroup[selectedEnglishAge.id] || [];
-    const useFourWeekForm = normalizeWeekCount(rows.length) === 4 && Boolean(fourWeekTemplateUrl);
-    const rowMarkup = rows.slice(0, useFourWeekForm ? 4 : 5).map((row, index) => `
+    const effectiveWeekCount = normalizeWeekCount(requestedWeekCount || rows.length);
+    const useFourWeekForm = effectiveWeekCount === 4 && Boolean(fourWeekTemplateUrl);
+    const rowMarkup = rows.slice(0, effectiveWeekCount).map((row, index) => `
     <div class="plan-row plan-row--${index + 1}">
       <div class="equipment-content">
         <strong>${escapeHtml(row.activity_name || "")}</strong>
@@ -309,6 +311,7 @@ function printableKoreanTemplateHtml({
   koreanGoals,
   templateUrl,
   fourWeekTemplateUrl,
+  weekCount: requestedWeekCount,
   documentTitle,
 }) {
   const selectedIds = [...new Set((selectedKoreanAges?.length ? selectedKoreanAges : [selectedAge]).map(String))];
@@ -322,7 +325,7 @@ function printableKoreanTemplateHtml({
   ];
   const pageMarkup = pages.map((selectedAgeMeta) => {
     const rows = rowsByGroup[selectedAgeMeta.id] || [];
-    const weekCount = normalizeWeekCount(rows.length);
+    const weekCount = normalizeWeekCount(requestedWeekCount || rows.length);
     const useFourWeekForm = weekCount === 4 && fourWeekTemplateUrl;
     const goalText = escapeHtml(resolveMonthlyGoal(
       koreanGoals?.[selectedAgeMeta.id],
@@ -485,6 +488,7 @@ export function printableReportHtml({
   templateUrl,
   fourWeekTemplateUrl,
   fourWeekEnglishTemplateUrl,
+  weekCount,
   documentTitle,
 }) {
   /* eslint-disable no-unreachable */
@@ -498,6 +502,7 @@ export function printableReportHtml({
       selectedEnglishAges,
       templateUrl,
       fourWeekTemplateUrl: fourWeekEnglishTemplateUrl,
+      weekCount,
       documentTitle,
     });
   }
@@ -509,6 +514,7 @@ export function printableReportHtml({
     koreanGoals,
     templateUrl,
     fourWeekTemplateUrl,
+    weekCount,
     documentTitle,
   });
   const selectedAgeMeta = AGE_GROUPS.find(({ id }) => id === selectedAge) || AGE_GROUPS[0];
@@ -1272,6 +1278,7 @@ export default function SuperadminMonthlyPlanEditor({
         templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
         fourWeekTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-ko.png", window.location.origin).href,
         fourWeekEnglishTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-en.png", window.location.origin).href,
+        weekCount,
       }));
       await upsertMonthlyPlanResourceFile(supabase, {
         me,
@@ -1282,7 +1289,7 @@ export default function SuperadminMonthlyPlanEditor({
         selectedKoreanAges,
         pdfBlob,
       });
-      setMessage(`${language === "ko" ? "한국어" : "영어"} 계획안을 임시 저장하고 자료실에도 최신 PDF를 올렸습니다.`);
+      setMessage(`${language === "ko" ? "한국어" : "영어"} 계획안을 임시 저장하고 자료실에도 최신 PDF를 올렸습니다. (${weekCount}주 양식)`);
     } catch (error) {
       if (isMissingSchema(error)) setSetupRequired(true);
       setMessage(draftSaved
@@ -1318,6 +1325,7 @@ export default function SuperadminMonthlyPlanEditor({
         templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
         fourWeekTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-ko.png", window.location.origin).href,
         fourWeekEnglishTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-en.png", window.location.origin).href,
+        weekCount,
       }));
       const fileName = monthlyPlanPdfFileName({
         month,
@@ -1337,7 +1345,7 @@ export default function SuperadminMonthlyPlanEditor({
         selectedKoreanAges,
         pdfBlob,
       });
-      setMessage("동일한 계획안 PDF를 내 컴퓨터와 자료실에 저장했습니다.");
+      setMessage(`동일한 계획안 PDF를 내 컴퓨터와 자료실에 저장했습니다. (${weekCount}주 양식)`);
     } catch (error) {
       setMessage(downloaded
         ? `PDF는 내 컴퓨터에 저장했지만 자료실 업로드에 실패했습니다: ${error?.message || "알 수 없는 오류"}`
