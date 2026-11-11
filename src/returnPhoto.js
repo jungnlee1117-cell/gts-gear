@@ -43,29 +43,11 @@ export function returnPhotoStoragePath(itemId, stamp = Date.now()) {
 export const RETURN_PHOTO_THUMB_PX = 112;
 
 /**
- * 공개 item-photos 원본 주소를 목록용 변환 주소로 바꾼다.
- * 변환을 쓸 수 없는 주소는 원본을 그대로 돌려준다.
+ * 목록용 썸네일 주소. Supabase 이미지 변환(/render/image)은 월 100장 한도가 있어
+ * 쓰지 않는다. 업로드 때 이미 리사이즈·압축하므로 원본 주소를 그대로 쓴다.
  */
-export function returnPhotoThumbUrl(url, size = RETURN_PHOTO_THUMB_PX) {
-  const text = String(url || "").trim();
-  if (!text) return "";
-  let parsed;
-  try {
-    parsed = new URL(text);
-  } catch {
-    return text;
-  }
-  const marker = "/storage/v1/object/public/";
-  const at = parsed.pathname.indexOf(marker);
-  if (at < 0) return text;
-  const objectPath = decodeURIComponent(parsed.pathname.slice(at + marker.length));
-  if (!objectPath.startsWith(`${RETURN_PHOTO_BUCKET}/`)) return text;
-  const render = new URL(`${parsed.origin}/storage/v1/render/image/public/${objectPath}`);
-  render.searchParams.set("width", String(size));
-  render.searchParams.set("height", String(size));
-  render.searchParams.set("resize", "cover");
-  render.searchParams.set("quality", "60");
-  return render.toString();
+export function returnPhotoThumbUrl(url) {
+  return String(url || "").trim();
 }
 
 /** return_photo_url 한 칸에 들어 있는 사진을 모두 꺼낸다. 없으면 빈 배열. */
