@@ -2,6 +2,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import webpush from "npm:web-push@3";
 import { runClassCheckinReminders } from "./classCheckinCron.ts";
 import { fetchAllPages } from "../_shared/fetchAllPages.ts";
+import {
+  findCurrentRotationWeekSlot,
+  rotationWeekRangeForSlot,
+  schoolYearMonths,
+  yearMonthFirstDay,
+} from "../_shared/gear/itemRotation.js";
+import { schoolYearStartYear } from "../_shared/gear/lessonPlan.js";
+import { buildRotationGearGaps } from "../_shared/gear/teacherRotationRentalStatus.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -658,7 +666,157 @@ function consultationBrandLabel(brand) {
   return "GTS";
 }
 
+/**
+ * 정규수업 배정 교구 미대여 알림.
+ * mode: preview(일요일 저녁, 다음 주 기준) | monday(월요일 아침) | tuesday(화요일 아침 재확인)
+ * - 선생님: 아직 대여하지 않은 배정 교구가 있으면 푸시
+ * - 관리자(monday/tuesday): 공지사항(item_admins 대상)에 미대여 현황을 올리고 푸시
+ */
+async function runGearRentalReminder(adminClient, vapid, payload) {
+  const mode = ["preview", "monday", "tuesday"].includes(String(payload?.mode))
+    ? String(payload.mode)
+    : "monday";
+  const today = kstYmd(0);
+  // 로컬 getter 가 KST 날짜를 돌려주도록 정오로 만든다 (Edge 런타임은 UTC)
+  const base = new Date(`${today}T12:00:00`);
+  const startYear = schoolYearStartYear(base);
+  const ymKeys = schoolYearMonths(startYear).map((m) => yearMonthFirstDay(m));
+
+  const [teachersRes, schedRes, weeklyRes, weeksRes, itemsRes, reqRes, riRes, retRes, resvRes] = await Promise.all([
+    adminClient.from("teachers").select("id, name, role, active").eq("active", true).is("resigned_at", null),
+    adminClient.from("item_rotation_schedule").select("year_month, assigned_letter, teacher_id").in("year_month", ymKeys),
+    adminClient.from("item_weekly_lists").select("*").order("week_number"),
+    adminClient.from("item_rotation_month_weeks").select("*").in("year_month", ymKeys).order("week_number"),
+    adminClient.from("items").select("*"),
+    fetchAllPages(() => adminClient.from("rental_requests").select("*")),
+    fetchAllPages(() => adminClient.from("rental_items").select("*")),
+    fetchAllPages(() => adminClient.from("return_requests").select("*")),
+    adminClient.from("reservations").select("teacher_id, item_id, status, end_date"),
+  ]);
+  for (const [label, res] of [
+    ["teachers", teachersRes], ["item_rotation_schedule", schedRes], ["item_weekly_lists", weeklyRes],
+    ["item_rotation_month_weeks", weeksRes], ["items", itemsRes], ["rental_requests", reqRes],
+    ["rental_items", riRes], ["return_requests", retRes],
+  ] as const) {
+    if (res.error) {
+      console.error("[send-push] gear rental reminder load failed", label, res.error.message);
+      return jsonResponse({ error: `${label}: ${res.error.message}` }, 500);
+    }
+  }
+
+  const monthWeeks = weeksRes.data || [];
+  // 순환 주차는 일~토 기준이라, 미리 알림은 "다가오는 월요일"이 속한 주차의 교구를 기준으로 한다.
+  const upcomingMonday = new Date(base);
+  upcomingMonday.setDate(base.getDate() + ((8 - base.getDay()) % 7 || 7));
+  const weekSlot = findCurrentRotationWeekSlot(monthWeeks, mode === "preview" ? upcomingMonday : base);
+  if (!weekSlot) {
+    return jsonResponse({ mode, skipped: "no week slot" });
+  }
+
+  const rows = buildRotationGearGaps({
+    teachers: teachersRes.data || [],
+    schedules: schedRes.data || [],
+    weeklyLists: weeklyRes.data || [],
+    items: itemsRes.data || [],
+    reqs: reqRes.data || [],
+    ris: riRes.data || [],
+    rets: retRes.data || [],
+    reservations: resvRes.error ? [] : (resvRes.data || []),
+    weekSlot,
+    startYear,
+  });
+  const gaps = rows.filter((row) => row.missing.length > 0);
+  const range = rotationWeekRangeForSlot(weekSlot) || "";
+  const nameList = (row) => [...new Set(row.missing.map((m) => m.name).filter(Boolean))].join(", ");
+
+  let teacherSent = 0;
+  for (const row of gaps) {
+    const names = nameList(row);
+    const title = mode === "preview"
+      ? "다음 주 교구 대여 안내"
+      : mode === "monday"
+        ? "이번 주 교구 대여 확인"
+        : "교구 대여가 아직이에요";
+    const body = mode === "preview"
+      ? `${range} 배정 교구: ${names} · 월요일 수업 전에 대여해 주세요`
+      : mode === "monday"
+        ? `${names} 아직 대여 전이에요. 수업 전에 대여해 주세요`
+        : `${names} 아직 대여 전이에요. 관리자에게도 미대여로 안내돼요`;
+    const result = await deliverPushNotifications(adminClient, vapid, "cron_gear_rental_reminder", {
+      teacherIds: [row.teacherId],
+      title,
+      body: body.slice(0, 180),
+      url: "/gear?page=my-gear-rotation",
+      tag: `gear-rental-${mode}-${String(weekSlot.week_start_date || today)}`,
+    });
+    teacherSent += result.sent || 0;
+  }
+
+  let noticeId = null;
+  let adminSent = 0;
+  if (mode !== "preview" && gaps.length) {
+    const noticeTitle = `교구 미대여 현황 · ${range}${mode === "tuesday" ? " (화요일 재확인)" : ""}`;
+    const lines = gaps.map((row) => `- ${row.teacherName}: ${nameList(row)}`);
+    const noticeBody = `${range} 배정 교구를 아직 대여하지 않은 선생님 ${gaps.length}명\n\n${lines.join("\n")}\n\n선생님들에게는 알림이 발송되었습니다.`;
+    const { data: existing } = await adminClient
+      .from("notices")
+      .select("id")
+      .eq("title", noticeTitle)
+      .eq("audience_type", "item_admins")
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) {
+      await adminClient.from("notices").update({ body: noticeBody, updated_at: new Date().toISOString() }).eq("id", existing.id);
+      noticeId = existing.id;
+    } else {
+      const { data: inserted, error: insertError } = await adminClient
+        .from("notices")
+        .insert({
+          title: noticeTitle,
+          body: noticeBody,
+          importance: "important",
+          notice_type: "general",
+          audience_type: "item_admins",
+          author_id: null,
+          author_name: "교구 알림",
+        })
+        .select("id")
+        .single();
+      if (insertError) {
+        console.error("[send-push] gear rental notice insert failed", insertError.message);
+      } else {
+        noticeId = inserted?.id || null;
+      }
+    }
+    const adminIds = await getItemAdminIds(adminClient);
+    const preview = gaps.slice(0, 3).map((row) => row.teacherName).join(", ");
+    const more = gaps.length > 3 ? ` 외 ${gaps.length - 3}명` : "";
+    const result = await deliverPushNotifications(adminClient, vapid, "cron_gear_rental_reminder", {
+      teacherIds: adminIds,
+      title: `교구 미대여 ${gaps.length}명`,
+      body: `${preview}${more} · 공지사항에서 확인하세요`,
+      url: "/gear?page=notices",
+      tag: `gear-rental-admin-${mode}-${String(weekSlot.week_start_date || today)}`,
+    });
+    adminSent = result.sent || 0;
+  }
+
+  const summary = {
+    mode,
+    range,
+    teachersChecked: rows.length,
+    missingTeachers: gaps.length,
+    teacherSent,
+    adminSent,
+    noticeId,
+    gaps: gaps.map((row) => ({ teacher: row.teacherName, missing: nameList(row) })),
+  };
+  console.log("[send-push] cron_gear_rental_reminder complete", summary);
+  return jsonResponse(summary);
+}
+
 const SERVICE_ROLE_EVENTS = new Set([
+  "cron_gear_rental_reminder",
   "cron_teacher_birthday_reminders",
   "cron_return_due_reminders",
   "cron_overdue_return_reminders",
@@ -1702,6 +1860,9 @@ Deno.serve(async (req) => {
 
     // ── pg_cron: service role만 ──
     if (isServiceRole && SERVICE_ROLE_EVENTS.has(event)) {
+      if (event === "cron_gear_rental_reminder") {
+        return await runGearRentalReminder(adminClient, vapid, payload || {});
+      }
       if (event === "cron_teacher_birthday_reminders") {
         return await runTeacherBirthdayReminders(adminClient, vapid);
       }

@@ -143,3 +143,73 @@ export function buildTeacherRotationRentalRows({
 
   return rows;
 }
+
+const OPEN_RENTAL_ITEM_STATUSES = ["pending", "approved", "rented", "partial_returned"];
+
+/**
+ * 정규수업 배정 교구(주차 슬롯 기준) 중 선생님이 아직 대여(또는 신청·예약)하지 않은 교구를 찾는다.
+ * 대여중 / 대여 신청·승인(시작 전 포함) / 예약이 있으면 "확보됨"으로 본다.
+ * @returns {Array<{teacherId, teacherName, letter, assigned, missing}>} missing 이 비어 있어도 모두 반환
+ */
+export function buildRotationGearGaps({
+  teachers,
+  schedules,
+  weeklyLists,
+  items,
+  reqs,
+  ris,
+  rets,
+  reservations,
+  weekSlot,
+  startYear,
+}) {
+  if (!weekSlot) return [];
+  const monthKey = String(weekSlot.year_month || "").slice(0, 7);
+  const weekNumber = weekSlot.week_number;
+  const weekStart = String(weekSlot.week_start_date || "").slice(0, 10);
+  const list = (teachers || []).filter((t) => t?.id && t.active !== false && t.role !== "superadmin");
+
+  const rows = [];
+  for (const teacher of list) {
+    const teacherSchedules = resolveRotationSchedules(schedules, teacher, startYear);
+    const letter = assignedLetterForMonth(teacherSchedules, teacher, monthKey);
+    if (!letter) continue;
+    const gear = getWeekItemsForLetter(weeklyLists, letter, weekNumber);
+    const assigned = assignedEntriesFromGear(gear, items);
+    if (!assigned.length) continue;
+
+    const covered = new Set();
+    const addItem = (itemId, name) => {
+      if (itemId) covered.add(itemId);
+      const label = name || (items || []).find((i) => i.id === itemId)?.name;
+      if (label) covered.add(`name:${normalizeItemName(label)}`);
+    };
+    for (const r of buildCurrentRentals(teacher, reqs || [], ris || [], items || [], rets || [])) {
+      addItem(r.itemId, r.itemName);
+    }
+    const myReqIds = new Set((reqs || []).filter((r) => r.teacher_id === teacher.id).map((r) => r.id));
+    for (const ri of ris || []) {
+      if (!myReqIds.has(ri.request_id)) continue;
+      if (!OPEN_RENTAL_ITEM_STATUSES.includes(ri.status)) continue;
+      addItem(ri.item_id);
+    }
+    for (const res of reservations || []) {
+      if (res.teacher_id !== teacher.id) continue;
+      if (!["pending", "confirmed"].includes(res.status)) continue;
+      if (weekStart && String(res.end_date || "").slice(0, 10) < weekStart) continue;
+      addItem(res.item_id);
+    }
+
+    const missing = assigned.filter((a) => (
+      !(a.itemId && covered.has(a.itemId)) && !covered.has(`name:${normalizeItemName(a.name)}`)
+    ));
+    rows.push({
+      teacherId: teacher.id,
+      teacherName: teacher.name || "—",
+      letter,
+      assigned,
+      missing,
+    });
+  }
+  return rows;
+}

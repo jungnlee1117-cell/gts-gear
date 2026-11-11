@@ -23963,3 +23963,19 @@ td > .sch-inst-ended-badge { margin-left: 0; }
   letter-spacing: .02em;
 }
 .monthly-plan-gear-picker__group.is-english h4 { background: #315f8d; color: #fff; }
+
+.gear-rental-nudge {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 0 0 14px; padding: 12px 14px;
+  border: 1px solid #fcd34d; border-radius: 12px; background: #fffbeb;
+}
+.gear-rental-nudge__text { display: grid; gap: 2px; min-width: 0; }
+.gear-rental-nudge__text strong { color: #92400e; font-size: 14px; }
+.gear-rental-nudge__text span { color: #78350f; font-size: 13px; overflow-wrap: anywhere; }
+.gear-rental-nudge__btn {
+  flex: none; padding: 8px 14px; border: 0; border-radius: 10px;
+  background: #d97706; color: #fff; font-weight: 700; font-size: 13px; cursor: pointer;
+}
+@media (max-width: 560px) {
+  .gear-rental-nudge { flex-direction: column; align-items: stretch; }
+}

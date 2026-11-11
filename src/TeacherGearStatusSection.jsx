@@ -9,6 +9,13 @@ import {
   fetchTeacherGearExtras,
   formatShortDate,
 } from "./teacherGearStatus.js";
+import {
+  findCurrentRotationWeekSlot,
+  rotationWeekLabelForSlot,
+  rotationWeekRangeForSlot,
+} from "./itemRotation.js";
+import { schoolYearStartYear } from "./lessonPlan.js";
+import { buildRotationGearGaps } from "./teacherRotationRentalStatus.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -170,6 +177,38 @@ export default function TeacherGearStatusSection({
     return merged;
   }, [nextWeek.rows, recommendations]);
 
+  // 금·토·일에는 다음 주, 월~목에는 이번 주 배정 교구 중 아직 대여하지 않은 것을 알려준다.
+  const gearGap = useMemo(() => {
+    if (!extras || extras.rotationMissing) return null;
+    const now = new Date();
+    const day = now.getDay();
+    const useNext = day === 0 || day >= 5;
+    // 순환 주차는 일~토 기준 — 금·토·일에는 "다가오는 월요일"이 속한 주차를 본다.
+    const target = new Date(now);
+    if (useNext) target.setDate(now.getDate() + ((8 - day) % 7 || 7));
+    const slot = findCurrentRotationWeekSlot(extras.monthWeeks, target);
+    if (!slot) return null;
+    const [row] = buildRotationGearGaps({
+      teachers: [me],
+      schedules: extras.schedules,
+      weeklyLists: extras.weeklyLists,
+      items,
+      reqs,
+      ris,
+      rets,
+      reservations: [],
+      weekSlot: slot,
+      startYear: schoolYearStartYear(now),
+    });
+    if (!row || !row.missing.length) return null;
+    return {
+      useNext,
+      names: row.missing.map(m => m.name).join(" · "),
+      weekLabel: rotationWeekLabelForSlot(slot),
+      range: rotationWeekRangeForSlot(slot),
+    };
+  }, [extras, me, items, reqs, ris, rets, todayKey]);
+
   const openItem = (itemId) => {
     if (!itemId || !onItemClick) return;
     const item = items.find(i => i.id === itemId);
@@ -184,6 +223,22 @@ export default function TeacherGearStatusSection({
           현재 보유·반납 예정·다음 수업 추천 교구를 한눈에 확인하세요.
         </p>
       </div>
+
+      {gearGap ? (
+        <div className="gear-rental-nudge" role="alert">
+          <div className="gear-rental-nudge__text">
+            <strong>
+              {gearGap.useNext ? "다음 주 배정 교구를 미리 대여해 주세요" : "이번 주 배정 교구를 아직 대여하지 않았어요"}
+            </strong>
+            <span>
+              {gearGap.weekLabel}{gearGap.range ? ` (${gearGap.range})` : ""} · {gearGap.names}
+            </span>
+          </div>
+          <button type="button" className="gear-rental-nudge__btn" onClick={() => setPage("my-gear-rotation")}>
+            대여하러 가기
+          </button>
+        </div>
+      ) : null}
 
       <div className="gear-status-grid gear-status-grid--three">
         <GearStatusCard
