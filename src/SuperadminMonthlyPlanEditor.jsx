@@ -1275,9 +1275,9 @@ export default function SuperadminMonthlyPlanEditor({
         selectedEnglishAges,
         selectedKoreanAges,
         logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
-        templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
+        templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png?v=2", window.location.origin).href,
         fourWeekTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-ko.png", window.location.origin).href,
-        fourWeekEnglishTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-en.png", window.location.origin).href,
+        fourWeekEnglishTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-en.png?v=2", window.location.origin).href,
         weekCount,
       }));
       await upsertMonthlyPlanResourceFile(supabase, {
@@ -1322,9 +1322,9 @@ export default function SuperadminMonthlyPlanEditor({
         selectedEnglishAges,
         selectedKoreanAges,
         logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
-        templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png", window.location.origin).href,
+        templateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template.png?v=2", window.location.origin).href,
         fourWeekTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-ko.png", window.location.origin).href,
-        fourWeekEnglishTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-en.png", window.location.origin).href,
+        fourWeekEnglishTemplateUrl: new URL("/assets/monthly-plan/gts-monthly-plan-blank-template-4w-en.png?v=2", window.location.origin).href,
         weekCount,
       }));
       const fileName = monthlyPlanPdfFileName({

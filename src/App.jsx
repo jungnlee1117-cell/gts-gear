@@ -6788,10 +6788,24 @@ function ForceReturnButton({ ri, me, onForceReturn, itemName, onClick }) {
 function RentalApprovalPage({me,reqs,ris,items,itemSets,teachers,onApprove,onReject}) {
   const [rejectId,setRejectId]=useState(null);
   const [reason,setReason]=useState("");
-  const pendReqs=reqs.filter(r=>r.status==="pending");
+  const [searchQ, setSearchQ] = useState("");
+  const sq = searchQ.trim().toLowerCase();
+  const reqMatchesQuery = (req) => {
+    if (!sq) return true;
+    const reqRIs = ris.filter(ri => ri.request_id === req.id);
+    const haystack = [
+      tname(req.teacher_id, teachers),
+      req.dispatch_location,
+      req.memo,
+      ...reqRIs.map(ri => rname(ri, items, itemSets)),
+    ].map(v => String(v || "").toLowerCase());
+    return haystack.some(v => v.includes(sq));
+  };
+  const pendReqs=reqs.filter(r=>r.status==="pending" && reqMatchesQuery(r));
 
   const approvedRows = useMemo(() => reqs
     .filter(r => ["approved", "partial", "completed"].includes(r.status))
+    .filter(reqMatchesQuery)
     .map(req => {
       const reqRIs = ris.filter(ri => ri.request_id === req.id && !["pending", "rejected", "cancelled"].includes(ri.status));
       const approverId = req.approved_by || reqRIs.find(ri => ri.approved_by)?.approved_by;
@@ -6808,7 +6822,7 @@ function RentalApprovalPage({me,reqs,ris,items,itemSets,teachers,onApprove,onRej
     })
     .filter(row => row.reqRIs.length > 0 || row.req.approved_by)
     .sort((a, b) => new Date(b.approvedAt || b.req.created_at) - new Date(a.approvedAt || a.req.created_at)),
-  [reqs, ris, teachers]);
+  [reqs, ris, teachers, items, itemSets, sq]);
 
   const approvalTableHead = {
     display: "grid",
@@ -6842,9 +6856,20 @@ function RentalApprovalPage({me,reqs,ris,items,itemSets,teachers,onApprove,onRej
         <DashStatCard label="승인 완료" value={approvedRows.length} iconMark="완료" iconBg="#dcfce7" iconColor="#16a34a"/>
       </div>
 
+      <div style={{ marginBottom: 16 }}>
+        <input
+          type="search"
+          value={searchQ}
+          onChange={e => setSearchQ(e.target.value)}
+          placeholder="선생님 이름 또는 교구 검색 (누가 언제 대여했는지)"
+          style={{ width: "100%", maxWidth: 420, padding: "10px 14px", borderRadius: 10, border: `1px solid ${DS.border || "#e2e8f0"}`, fontSize: 14 }}
+        />
+        {sq ? <div style={{ fontSize: 12, color: DS.textSecondary, marginTop: 6 }}>검색 중: 대기 {pendReqs.length}건 · 내역 {approvedRows.length}건</div> : null}
+      </div>
+
       {pendReqs.length===0 ? (
         <PanelSection title="대여 승인 대기">
-          <Empty text="승인 대기 중인 대여 신청이 없습니다"/>
+          <Empty text={sq ? "검색 결과가 없습니다" : "승인 대기 중인 대여 신청이 없습니다"}/>
         </PanelSection>
       ) : pendReqs.map(req=>{
         const t=teachers.find(x=>x.id===req.teacher_id);
