@@ -24,6 +24,31 @@ if ('serviceWorker' in navigator) {
   })
 }
 
+// 알림을 눌러 앱이 열렸는데 첫 화면으로만 온 경우, 알림이 가리키는 화면으로 이동한다.
+async function consumePendingNav() {
+  try {
+    if (!('caches' in window)) return
+    const cache = await caches.open('gts-pending-nav')
+    const hit = await cache.match('/__pending-nav')
+    if (!hit) return
+    await cache.delete('/__pending-nav')
+    const { url, at } = await hit.json()
+    if (!url || Date.now() - Number(at || 0) > 2 * 60 * 1000) return
+    const next = new URL(url, window.location.origin)
+    if (next.origin !== window.location.origin) return
+    const target = next.pathname + next.search + next.hash
+    const current = window.location.pathname + window.location.search + window.location.hash
+    if (target !== current) window.location.replace(target)
+  } catch {
+    // ignore
+  }
+}
+
+consumePendingNav()
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') consumePendingNav()
+})
+
 preloadVapidPublicKey()
 
 createRoot(document.getElementById('root')).render(

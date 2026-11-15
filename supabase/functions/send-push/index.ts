@@ -1110,6 +1110,22 @@ async function deliverPushNotifications(
     };
   }
 
+  // 알림 모아보기: 푸시 구독이 없거나 놓쳐도 앱 종 아이콘에서 볼 수 있게 저장 (실패해도 발송은 계속)
+  try {
+    const { error: inboxError } = await adminClient.from("push_inbox").insert(
+      teacherIds.map((teacherId) => ({
+        teacher_id: teacherId,
+        title: String(resolved.title || ""),
+        body: String(resolved.body || ""),
+        url: String(resolved.url || "/gear"),
+        tag: resolved.tag ? String(resolved.tag) : null,
+      })),
+    );
+    if (inboxError) console.warn("[send-push] push_inbox insert failed", inboxError.message);
+  } catch (err) {
+    console.warn("[send-push] push_inbox insert error", err?.message || err);
+  }
+
   const { data: subscriptions, error: subError } = await adminClient
     .from("push_subscriptions")
     .select("id, teacher_id, endpoint, p256dh, auth, created_at")

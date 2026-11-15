@@ -64,6 +64,23 @@ async function handlePushEvent(event) {
   }
 }
 
+const PENDING_NAV_CACHE = 'gts-pending-nav'
+const PENDING_NAV_KEY = '/__pending-nav'
+
+// iOS 홈 화면 앱은 알림 URL을 무시하고 첫 화면으로만 열리는 경우가 있어,
+// 이동할 주소를 저장해 두고 앱이 열릴 때 꺼내 해당 화면으로 보낸다.
+async function savePendingNav(url) {
+  try {
+    const cache = await caches.open(PENDING_NAV_CACHE)
+    await cache.put(
+      PENDING_NAV_KEY,
+      new Response(JSON.stringify({ url, at: Date.now() }), { headers: { 'Content-Type': 'application/json' } }),
+    )
+  } catch {
+    // ignore
+  }
+}
+
 async function handleNotificationClick(event) {
   event.notification.close()
 
@@ -74,6 +91,8 @@ async function handleNotificationClick(event) {
   } catch {
     targetUrl = `${self.location.origin}/`
   }
+
+  await savePendingNav(targetUrl)
 
   const windowClients = await self.clients.matchAll({
     type: 'window',

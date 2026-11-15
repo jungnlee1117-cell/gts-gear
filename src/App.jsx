@@ -32,6 +32,7 @@ import KioskApp from "./KioskApp.jsx";
 import { invokeKiosk } from "./kioskApi.js";
 import { registerItemsBrowsePage } from "./itemsBrowseRegistry.js";
 import UserMenuDropdown from "./UserMenuDropdown.jsx";
+import PushInboxBell from "./PushInboxBell.jsx";
 import PushNotificationPrompt from "./PushNotificationPrompt.jsx";
 import GitiAssistant from "./GitiAssistant.jsx";
 import GitiReportSection from "./GitiReportSection.jsx";
@@ -12992,6 +12993,7 @@ function HubPage({ me, onSelect, onLogout, onChangePw }) {
           <span className="hub-topbar__brand-text">GTS</span>
         </div>
         <div className="hub-topbar__actions">
+          <PushInboxBell supabase={supabase} me={me}/>
           <RoleBadge role={me.role} isItemAdmin={me.is_item_admin}/>
           <UserMenuDropdown
             me={me}
@@ -14975,6 +14977,7 @@ function EquipmentApp({ onBack, me, session }) {
                 <div style={{fontSize:15,fontWeight:800,color:"#fff",letterSpacing:"-0.3px"}}>GTS</div>
                 <div style={{fontSize:10,color:sb.muted,marginTop:2,lineHeight:1.3}}>대여 관리 시스템</div>
               </div>
+              <div style={{marginLeft:"auto"}}><PushInboxBell supabase={supabase} me={me} dark/></div>
             </div>
           </div>
 
@@ -15227,6 +15230,7 @@ function EquipmentApp({ onBack, me, session }) {
         }}>{mobileTitle}</h1>
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+          <PushInboxBell supabase={supabase} me={me} dark buttonStyle={{ width: 40, height: 40 }}/>
           <button
             type="button"
             onClick={()=>setShowCart(true)}
