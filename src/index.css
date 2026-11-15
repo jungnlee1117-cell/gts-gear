@@ -24002,3 +24002,5 @@ td > .sch-inst-ended-badge { margin-left: 0; }
 .push-inbox-item__body { font-size: 13px; color: #475569; line-height: 1.45; white-space: pre-line; word-break: break-word; }
 .push-inbox-item__time { font-size: 12px; color: #94a3b8; white-space: nowrap; padding-top: 2px; }
 .hub-topbar__actions .push-inbox-bell { border-color: #e2e8f0; background: #fff; color: #334155; }
+.admin-todo-tab--orange.is-active { background: #fff7ed; color: #c2410c; }
+.admin-todo-tab--orange.is-active span { background: #f97316; color: #fff; }

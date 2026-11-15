@@ -8363,7 +8363,10 @@ function AdminTodoSection({
   const [start, setStart] = useState("");
   const [due, setDue] = useState(quickCreateDate);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState("all"); // all | active | done
+  const [tab, setTab] = useState(() => (
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("todo") === "today" ? "today" : "all"
+  )); // all | today | active | done
+  const todayKey = useTodayYmd();
   const [filterAssignee, setFilterAssignee] = useState("all");
   const [composing, setComposing] = useState(Boolean(quickCreateDate));
   const [editingTodo, setEditingTodo] = useState(null);
@@ -8689,14 +8692,19 @@ function AdminTodoSection({
   const allCount = autoItems.length + sortedTodos.length;
   const activeCount = autoItems.length + openTodos.length;
   const doneCount = doneTodos.length;
+  const todayTodos = useMemo(
+    () => openTodos.filter(t => String(t.due_date || t.class_date || "").slice(0, 10) === todayKey),
+    [openTodos, todayKey],
+  );
+  const todayCount = todayTodos.length;
 
   const filteredTodos = useMemo(() => {
-    let list = tab === "active" ? openTodos : tab === "done" ? doneTodos : sortedTodos;
+    let list = tab === "today" ? todayTodos : tab === "active" ? openTodos : tab === "done" ? doneTodos : sortedTodos;
     if (filterAssignee !== "all") {
       list = list.filter(t => filterAssignee === "unassigned" ? !t.assignee_id : t.assignee_id === filterAssignee);
     }
     return list;
-  }, [tab, openTodos, doneTodos, sortedTodos, filterAssignee]);
+  }, [tab, todayTodos, openTodos, doneTodos, sortedTodos, filterAssignee]);
 
   const shownTodos = filteredTodos.slice(0, visibleCount);
   const hasMore = filteredTodos.length > visibleCount;
@@ -8733,6 +8741,7 @@ function AdminTodoSection({
           <div className="admin-todo-tabs">
             {[
               { id: "all", label: "전체", n: allCount, tone: "green" },
+              { id: "today", label: "오늘", n: todayCount, tone: "orange" },
               { id: "active", label: "진행 중", n: activeCount, tone: "blue" },
               { id: "done", label: "완료", n: doneCount, tone: "gray" },
             ].map(t => (
@@ -8756,7 +8765,7 @@ function AdminTodoSection({
         </div>
       </div>
 
-      {tab !== "done" && autoItems.length > 0 && filterAssignee === "all" && (
+      {tab !== "done" && tab !== "today" && autoItems.length > 0 && filterAssignee === "all" && (
         <div className="admin-todo-auto-list">
           {autoItems.map(a => (
             <button key={a.key} type="button" onClick={() => setPage(a.page)} className="admin-todo-auto-row" style={{ borderLeftColor: a.color, background: a.bg }}>
@@ -8770,9 +8779,9 @@ function AdminTodoSection({
         </div>
       )}
 
-      {shownTodos.length === 0 && (tab === "done" || autoItems.length === 0 || filterAssignee !== "all") ? (
+      {shownTodos.length === 0 && (tab === "done" || tab === "today" || autoItems.length === 0 || filterAssignee !== "all") ? (
         <div className="admin-todo-table-empty">
-          {tab === "done" ? "완료된 항목이 없습니다" : "처리할 업무가 없습니다 ✅"}
+          {tab === "done" ? "완료된 항목이 없습니다" : tab === "today" ? "오늘 마감인 할 일이 없습니다 ✅" : "처리할 업무가 없습니다 ✅"}
         </div>
       ) : shownTodos.length > 0 ? (
         <div className="admin-todo-table-wrap">
