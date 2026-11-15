@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Bell, X } from "lucide-react";
 
@@ -94,7 +95,7 @@ export default function PushInboxBell({ supabase, me, dark = false, buttonStyle 
         {unread > 0 && <span className="push-inbox-bell__badge">{unread > 99 ? "99+" : unread}</span>}
       </button>
 
-      {open && (
+      {open && createPortal(
         <div className="push-inbox-overlay" onClick={() => setOpen(false)} role="presentation">
           <div className="push-inbox-panel" onClick={e => e.stopPropagation()} role="dialog" aria-label="알림">
             <div className="push-inbox-panel__head">
@@ -133,7 +134,8 @@ export default function PushInboxBell({ supabase, me, dark = false, buttonStyle 
             </div>
             <p className="push-inbox-panel__foot">최근 30일 알림이 보관됩니다.</p>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
