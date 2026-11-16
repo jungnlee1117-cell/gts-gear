@@ -24004,3 +24004,53 @@ td > .sch-inst-ended-badge { margin-left: 0; }
 .hub-topbar__actions .push-inbox-bell { border-color: #e2e8f0; background: #fff; color: #334155; }
 .admin-todo-tab--orange.is-active { background: #fff7ed; color: #c2410c; }
 .admin-todo-tab--orange.is-active span { background: #f97316; color: #fff; }
+
+/* 교사 모니터링 평가표 */
+.tme-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px; margin: 0 0 18px; font-family: inherit; }
+.tme-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.tme-head h3 { margin: 0; font-size: 17px; font-weight: 800; color: #0f172a; }
+.tme-head__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.tme-muted { margin: 4px 0 0; font-size: 12px; color: #64748b; }
+.tme-error { margin: 0 0 10px; padding: 10px 12px; background: #fef2f2; color: #b91c1c; border-radius: 8px; font-size: 13px; }
+.tme-btn { padding: 8px 14px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; color: #334155; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+.tme-btn:disabled { opacity: .5; cursor: default; }
+.tme-btn--primary { background: #16a34a; border-color: #16a34a; color: #fff; }
+.tme-link { border: 0; background: none; color: #2563eb; font-size: 12px; font-weight: 700; cursor: pointer; padding: 4px; font-family: inherit; }
+.tme-link--danger { color: #dc2626; }
+.tme-filter { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.tme-filter select { padding: 7px 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; font-family: inherit; }
+.tme-table { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
+.tme-list, .tme-sum { display: grid; align-items: center; padding: 10px 12px; border-top: 1px solid #f1f5f9; font-size: 13px; color: #0f172a; gap: 8px; }
+.tme-list { grid-template-columns: 92px 1.6fr 1fr 80px 44px 44px 44px 56px 120px; }
+.tme-sum { grid-template-columns: 1.2fr 80px 60px 60px 80px 70px 100px; }
+.tme-list--head, .tme-sum--head, .tme-row--head { background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 800; border-top: 0; }
+.tme-row-actions { display: flex; justify-content: flex-end; gap: 4px; }
+.tme-empty { margin: 0; padding: 22px 12px; text-align: center; color: #94a3b8; font-size: 13px; }
+.tme-sec { margin: 18px 0 8px; font-size: 14px; font-weight: 800; color: #0f172a; }
+.tme-info { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 14px; }
+.tme-info label, .tme-text { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 700; color: #475569; }
+.tme-info input, .tme-text textarea { padding: 9px 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; font-family: inherit; color: #0f172a; }
+.tme-info input[readonly] { background: #f8fafc; }
+.tme-info__wide { grid-column: 1 / -1; }
+.tme-radios { display: flex; gap: 18px; padding: 4px 0; }
+.tme-radio { flex-direction: row !important; align-items: center; gap: 6px !important; font-size: 13px !important; font-weight: 600 !important; }
+.tme-radio input { width: auto; }
+.tme-text { margin-bottom: 10px; }
+.tme-row { display: grid; grid-template-columns: 170px 1fr 200px; gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid #f1f5f9; font-size: 13px; color: #0f172a; }
+.tme-area { padding: 8px 12px; background: #f0fdf4; color: #15803d; font-size: 12px; font-weight: 800; border-top: 1px solid #e2e8f0; }
+.tme-group { font-weight: 700; color: #334155; }
+.tme-grades { display: flex; gap: 6px; justify-content: flex-end; }
+.tme-grade { padding: 6px 9px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #64748b; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.tme-grade.is-on.tme-grade--excellent { background: #16a34a; border-color: #16a34a; color: #fff; }
+.tme-grade.is-on.tme-grade--adequate { background: #2563eb; border-color: #2563eb; color: #fff; }
+.tme-grade.is-on.tme-grade--needs { background: #ea580c; border-color: #ea580c; color: #fff; }
+.tme-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+@media (max-width: 720px) {
+  .tme-info { grid-template-columns: 1fr; }
+  .tme-row { grid-template-columns: 1fr; gap: 6px; }
+  .tme-group { font-size: 12px; color: #64748b; }
+  .tme-grades { justify-content: flex-start; }
+  .tme-list { grid-template-columns: 1fr 1fr; }
+  .tme-list--head { display: none; }
+  .tme-sum { grid-template-columns: repeat(3, 1fr); }
+}

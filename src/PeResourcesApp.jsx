@@ -6,6 +6,7 @@ import { canUploadTeacherContract } from "./teacherProfile.js";
 import PlatformMainButton from "./PlatformMainButton.jsx";
 import PeMediaLibrary from "./peMedia/PeMediaLibrary.jsx";
 import ResumeBuilderView from "./schedule/ResumeBuilderView.jsx";
+import TeacherMonitoringHub from "./TeacherMonitoringHub.jsx";
 import { syncScheduleAuthSession } from "./schedule/api.js";
 import {
   Users, Trophy, Languages, ClipboardList, PartyPopper,
@@ -31,6 +32,12 @@ function canAccessFullLibrary(user) {
 
 /** 서식 카테고리: 대표님 + 이력서를 만드는 관리자(전체 자료실 권한자) */
 const FORMS_VIEWER_NAMES = new Set(["오정석", "양의인"]);
+
+/** 교사 모니터링 평가표: 대표 + 양의인 + 오정석 */
+function canSeeMonitoring(user) {
+  if (!user || user.access_scope === "gear_only") return false;
+  return canUploadTeacherContract(user) || FORMS_VIEWER_NAMES.has(String(user.name || "").trim());
+}
 function canSeeForms(user) {
   if (canUploadTeacherContract(user)) return true;
   if (user?.access_scope !== "gear_only" && FORMS_VIEWER_NAMES.has(String(user?.name || "").trim())) return true;
@@ -1791,6 +1798,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
           <>
           {activeCategory?.id === "child-dev" && PE_ADMIN(me) && <ResumeBuilderEntry supabase={supabase} me={me} />}
           {activeCategory?.id === "child-dev" && canUploadTeacherContract(me) && <TeacherContractsHub supabase={supabase} me={me} />}
+          {activeCategory?.id === "sports" && canSeeMonitoring(me) && <TeacherMonitoringHub supabase={supabase} me={me} />}
           <ResourceListPage
             key={activeCategory?.id || "search"}
             category={activeCategory}
