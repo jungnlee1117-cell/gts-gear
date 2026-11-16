@@ -417,6 +417,14 @@ async function runOverdueReturnReminders(adminClient, vapid) {
     sentSet = new Set((alreadySent || []).map((r) => r.rental_item_id));
   }
 
+  // 연체 알림에 대여자 이름을 넣기 위해 이름을 한 번에 조회
+  const holderIds = [...new Set(overdueRows.map((r) => r.rental_requests?.teacher_id).filter(Boolean))];
+  const holderNameById = new Map();
+  if (holderIds.length) {
+    const { data: holders } = await adminClient.from("teachers").select("id, name").in("id", holderIds);
+    for (const h of holders || []) holderNameById.set(h.id, String(h.name || "").trim());
+  }
+
   const adminIds = await getTodoAdminIds(adminClient);
   const regularClassCtx = overdueRows.length
     ? await loadRegularClassGuideContext(adminClient)
@@ -485,9 +493,11 @@ async function runOverdueReturnReminders(adminClient, vapid) {
     const notifyAdmins = Boolean(earliest) || overdueDays >= 2;
     let adminResult = { sent: 0 };
     if (notifyAdmins && adminIds.length) {
+      const holderName = holderNameById.get(teacherId);
+      const holderLabel = holderName ? `대여자 ${holderName}` : "대여자";
       const adminBody = earliest
-        ? `[연체·순환충돌] ${itemName} · 대여자 반납 필요 (순환: ${earliest.teacherName} ${formatKoMonthDay(earliest.weekStart)}~${formatKoMonthDay(earliest.weekEnd)})`
-        : `[연체 ${overdueDays}일] ${itemName} · 반납기한 ${formatKoMonthDay(dueDate)}`;
+        ? `[연체·순환충돌] ${itemName} · ${holderLabel} 반납 필요 (순환: ${earliest.teacherName} ${formatKoMonthDay(earliest.weekStart)}~${formatKoMonthDay(earliest.weekEnd)})`
+        : `[연체 ${overdueDays}일] ${itemName} · ${holderLabel} · 반납기한 ${formatKoMonthDay(dueDate)}`;
       adminResult = await deliverPushNotifications(adminClient, vapid, "rental_overdue_admin", {
         teacherIds: adminIds.filter((id) => id !== teacherId),
         title: "교구 연체 알림",
