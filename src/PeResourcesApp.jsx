@@ -30,8 +30,11 @@ function canAccessFullLibrary(user) {
 }
 
 /** 서식 카테고리: 대표님 + 이력서를 만드는 관리자(전체 자료실 권한자) */
+const FORMS_VIEWER_NAMES = new Set(["오정석", "양의인"]);
 function canSeeForms(user) {
-  return canUploadTeacherContract(user) || (PE_ADMIN(user) && canAccessFullLibrary(user));
+  if (canUploadTeacherContract(user)) return true;
+  if (user?.access_scope !== "gear_only" && FORMS_VIEWER_NAMES.has(String(user?.name || "").trim())) return true;
+  return PE_ADMIN(user) && canAccessFullLibrary(user);
 }
 
 function ResumeBuilderEntry({ supabase, me }) {
@@ -1611,7 +1614,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
 
   const loadResources = async () => {
     const data = await fetchResources();
-    setResources(data.filter(item => item.category_id !== "child-dev" || canUploadTeacherContract(me)));
+    setResources(data.filter(item => item.category_id !== "child-dev" || canSeeForms(me)));
   };
 
   const loadCategories = async () => {
@@ -1776,7 +1779,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
             onManageCategories={() => setShowCatManage(true)}
           />
         ) : activeCategory?.id === "child-dev" && !canSeeForms(me) ? (
-          <p>계약서 서식은 대표님만 볼 수 있습니다.</p>
+          <p>서식은 대표님과 지정된 관리자만 볼 수 있습니다.</p>
         ) : activeCategory?.id === "videos" ? (
           <PeMediaLibrary
             me={me}
