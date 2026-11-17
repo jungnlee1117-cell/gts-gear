@@ -1,55 +1,60 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { buildMonthlyPlanPdfBlob, downloadPdfBlob } from "./monthlyPlanPdf.js";
+import { buildMonitoringReportHtml } from "./monitoringReportPdf.js";
 
-/** 수업 참관·모니터링 평가표 (GTS_수업모니터링_평가표) */
+/** 수업 참관·모니터링 평가표 (GTS_수업모니터링_평가표)
+ *  key는 저장된 기록과 연결되므로 한 번 정한 값은 바꾸지 않는다. 새 항목은 새 key를 쓴다. */
 const TEMPLATE = [
   { area: "Ⅰ. 수업 전 (Pre-Class)", groups: [
-    { title: "1. 교구 및 환경 점검", items: [
-      "수업 시작 전 여유있는 현장 도착 및 준비상태",
-      "복장, 용모 및 원내 태도 (밝은 에너지 및 인사)",
-      "당일 차시 수업 계획 및 진도 숙지 상태",
-      "수업 전 교구 및 주변 환경(위험 구역, 다칠 위험 등) 사전 점검 여부",
+    { title: "1. 교구 관리 및 환경 점검", items: [
+      { key: "q1", text: "수업 시작 전 여유있는 현장 도착 및 준비상태" },
+      { key: "q2", text: "복장, 용모 및 원내 태도 (밝은 에너지 및 인사)" },
+      { key: "q3", text: "당일 차시 수업 계획 및 진도 숙지 상태" },
+      { key: "q4", text: "수업 전 교구 및 주변 환경(위험 구역, 다칠 위험 등) 사전 점검 여부" },
+      { key: "q26", text: "교구 청결 상태 (오염·파손 없이 깨끗하게 관리되는지)" },
+      { key: "q27", text: "수업 계획안대로 교구를 챙겼는지" },
     ] },
   ] },
   { area: "Ⅱ. 수업 중 (In-Class)", groups: [
     { title: "2. 안전 관리", items: [
-      "준비운동(워밍업) 실시 여부",
-      "안전 수칙 및 주의사항 전달",
-      "기구·활동 중 보조(스팟팅) 등 지속적 안전 모니터링",
+      { key: "q5", text: "준비운동(워밍업) 실시 여부" },
+      { key: "q6", text: "안전 수칙 및 주의사항 전달" },
+      { key: "q7", text: "기구·활동 중 보조(스팟팅) 등 지속적 안전 모니터링" },
     ] },
     { title: "3. 아동 존중 및 맞춤형 지도", items: [
-      "모든 아동에 대한 차별 없는 동등한 태도 및 긍정적 언어 사용",
-      "위축감을 주는 표현이나 불필요한 신체 접촉 배제 여부",
-      "어려워하는 아동에 대한 강압적 배제 대신 눈높이 설명 및 격려",
-      "적극적 참여를 위한 동기부여·칭찬 기법 활용 및 갈등(다툼·소외 등) 중재의 적절성",
+      { key: "q8", text: "모든 아동에 대한 차별 없는 동등한 태도 및 긍정적 언어 사용" },
+      { key: "q9", text: "위축감을 주는 표현이나 불필요한 신체 접촉 배제 여부" },
+      { key: "q10", text: "어려워하는 아동에 대한 강압적 배제 대신 눈높이 설명 및 격려" },
+      { key: "q11", text: "적극적 참여를 위한 동기부여·칭찬 기법 활용 및 갈등(다툼·소외 등) 중재의 적절성" },
     ] },
     { title: "4. 수업 운영 및 내용 충실도", items: [
-      "정해진 수업 시작 시간 준수 및 사전 준비 상태",
-      "연령별 발달 수준에 맞춘 활동 난이도 조절 및 시각적 시범 병행",
-      "다양한 교구 활용을 통한 단조로움 해소 및 몰입도 유도",
-      "도입-전개-마무리의 체계적인 수업 구성",
-      "지시어·설명의 명확성 및 전달력(목소리 크기·톤 포함)",
+      { key: "q12", text: "정해진 수업 시작 시간 준수 및 사전 준비 상태" },
+      { key: "q13", text: "연령별 발달 수준에 맞춘 활동 난이도 조절 및 시각적 시범 병행" },
+      { key: "q14", text: "다양한 교구 활용을 통한 단조로움 해소 및 몰입도 유도" },
+      { key: "q15", text: "도입-전개-마무리의 체계적인 수업 구성" },
+      { key: "q16", text: "지시어·설명의 명확성 및 전달력(목소리 크기·톤 포함)" },
     ] },
     { title: "5. 전문성 및 의사소통", items: [
-      "체육·영어 지도 전문성 (GTS 지도 기준 부합 여부)",
-      "관리자, 담당선생님 응대 및 소통 태도",
-      "동료 교사·매니저와의 협업 태도",
+      { key: "q17", text: "아이들 운동 발달에 맞춘 체육 지도 전문성" },
+      { key: "q28", text: "정확한 영어 표현 지도 (GTS 영어 표현 기준 부합 여부)" },
+      { key: "q18", text: "관리자, 담당선생님 응대 및 소통 태도" },
     ] },
   ] },
   { area: "Ⅲ. 수업 후 (마무리)", groups: [
     { title: "6. 수업 마무리", items: [
-      "정리운동(쿨다운) 및 신체 정돈 실시 여부",
-      "아동 참여를 유도한 교구 정리정돈 지도 및 안전한 교구 회수",
-      "수업 내용 요약 및 아동 성취에 대한 피드백·칭찬",
-      "정규 수업 종료 시간 준수",
-      "아동 하원·이동 시 안전 인계",
-      "출결 및 특이사항 기록 등 수업 후 행정 처리",
+      { key: "q20", text: "정리운동(쿨다운) 및 신체 정돈 실시 여부" },
+      { key: "q21", text: "아동 참여를 유도한 교구 정리정돈 지도 및 안전한 교구 회수" },
+      { key: "q22", text: "수업 내용 요약 및 아동 성취에 대한 피드백·칭찬" },
+      { key: "q23", text: "정규 수업 종료 시간 준수" },
+      { key: "q24", text: "아동 하원·이동 시 안전 인계" },
+      { key: "q25", text: "특이사항 기록 등 수업 후 행정 처리" },
     ] },
   ] },
 ];
 
 const FLAT = [];
-TEMPLATE.forEach(sec => sec.groups.forEach(g => g.items.forEach(text => {
-  FLAT.push({ key: `q${FLAT.length + 1}`, area: sec.area, group: g.title, criterion: text });
+TEMPLATE.forEach(sec => sec.groups.forEach(g => g.items.forEach(it => {
+  FLAT.push({ key: it.key, area: sec.area, group: g.title, criterion: it.text });
 })));
 
 const GRADES = [
@@ -109,6 +114,7 @@ export default function TeacherMonitoringHub({ supabase, me }) {
   const [filterTeacher, setFilterTeacher] = useState("all");
   const [showSummary, setShowSummary] = useState(false);
   const [notice, setNotice] = useState("");
+  const [pdfBusyId, setPdfBusyId] = useState("");
   const cardRef = useRef(null);
 
   const scrollToCard = () => {
@@ -226,6 +232,23 @@ export default function TeacherMonitoringHub({ supabase, me }) {
     load();
   };
 
+  const downloadPdf = async (row) => {
+    setPdfBusyId(row.id);
+    try {
+      const html = buildMonitoringReportHtml(row, {
+        template: TEMPLATE,
+        logoUrl: new URL("/brand/gts-company-logo.png", window.location.origin).href,
+      });
+      const blob = await buildMonthlyPlanPdfBlob(html);
+      downloadPdfBlob(blob, `수업모니터링_${row.teacher_name}_${row.observed_on}.pdf`);
+      flash("PDF를 만들었습니다. 다운로드 폴더를 확인해 주세요.");
+    } catch (err) {
+      alert(`PDF를 만들지 못했습니다: ${err?.message || "알 수 없는 오류"}`);
+    } finally {
+      setPdfBusyId("");
+    }
+  };
+
   const exportCsv = () => {
     const head = ["참관일", "참관시간", "시설명", "참관 반명", "담당 강사", "참관자", "참관 목적", "우수", "적정", "개선요망", "우수율(%)",
       ...FLAT.map(q => `${q.group} | ${q.criterion}`), "우수 및 긍정 소견", "개선 필요 사항"];
@@ -286,12 +309,12 @@ export default function TeacherMonitoringHub({ supabase, me }) {
           {TEMPLATE.map(sec => (
             <div key={sec.area}>
               <div className="tme-area">{sec.area}</div>
-              {sec.groups.map(g => g.items.map((text, idx) => {
-                const q = FLAT.find(x => x.group === g.title && x.criterion === text);
+              {sec.groups.map(g => g.items.map((it, idx) => {
+                const q = it;
                 return (
                   <div key={q.key} className="tme-row">
                     <span className="tme-group">{idx === 0 ? g.title : ""}</span>
-                    <span>{text}</span>
+                    <span>{it.text}</span>
                     <span className="tme-grades">
                       {GRADES.map(gr => (
                         <button key={gr.id} type="button"
@@ -377,6 +400,7 @@ export default function TeacherMonitoringHub({ supabase, me }) {
             <span>{r.excellent_count}</span><span>{r.adequate_count}</span><span>{r.needs_count}</span>
             <span>{pct(r) === null ? "-" : `${pct(r)}%`}</span>
             <span className="tme-row-actions">
+              <button type="button" className="tme-link" onClick={() => downloadPdf(r)} disabled={pdfBusyId === r.id}>{pdfBusyId === r.id ? "생성 중..." : "PDF"}</button>
               <button type="button" className="tme-link" onClick={() => { openEdit(r); scrollToCard(); }}>보기·수정</button>
               <button type="button" className="tme-link tme-link--danger" onClick={() => remove(r)}>삭제</button>
             </span>
