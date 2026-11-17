@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /** 수업 참관·모니터링 평가표 (GTS_수업모니터링_평가표) */
 const TEMPLATE = [
@@ -108,6 +108,16 @@ export default function TeacherMonitoringHub({ supabase, me }) {
   const [saving, setSaving] = useState(false);
   const [filterTeacher, setFilterTeacher] = useState("all");
   const [showSummary, setShowSummary] = useState(false);
+  const [notice, setNotice] = useState("");
+  const cardRef = useRef(null);
+
+  const scrollToCard = () => {
+    window.setTimeout(() => cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+  const flash = (text) => {
+    setNotice(text);
+    window.setTimeout(() => setNotice(""), 4000);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -201,7 +211,10 @@ export default function TeacherMonitoringHub({ supabase, me }) {
       : await supabase.from("teacher_monitoring_evaluations").insert({ ...payload, observer_id: me?.id || null, observer_name: me?.name || "" });
     setSaving(false);
     if (res.error) { alert(`저장하지 못했습니다: ${res.error.message}`); return; }
+    const wasEdit = Boolean(form.id);
     setForm(null);
+    flash(wasEdit ? "수정되었습니다." : "저장되었습니다.");
+    scrollToCard();
     load();
   };
 
@@ -209,6 +222,7 @@ export default function TeacherMonitoringHub({ supabase, me }) {
     if (!window.confirm(`${row.observed_on} ${row.teacher_name} 평가를 삭제할까요?`)) return;
     const { error: err } = await supabase.from("teacher_monitoring_evaluations").delete().eq("id", row.id);
     if (err) { alert(err.message); return; }
+    flash("삭제되었습니다.");
     load();
   };
 
@@ -235,7 +249,7 @@ export default function TeacherMonitoringHub({ supabase, me }) {
   if (form) {
     const answered = FLAT.filter(q => form.grades[q.key]).length;
     return (
-      <section className="tme-card">
+      <section className="tme-card" ref={cardRef}>
         <div className="tme-head">
           <h3>{form.id ? "평가 수정" : "수업 참관 및 모니터링 리포트"}</h3>
           <span className="tme-muted">{answered} / {FLAT.length} 체크</span>
@@ -303,7 +317,7 @@ export default function TeacherMonitoringHub({ supabase, me }) {
         </label>
 
         <div className="tme-actions">
-          <button type="button" className="tme-btn" onClick={() => setForm(null)} disabled={saving}>취소</button>
+          <button type="button" className="tme-btn" onClick={() => { setForm(null); scrollToCard(); }} disabled={saving}>취소</button>
           <button type="button" className="tme-btn tme-btn--primary" onClick={save} disabled={saving}>{saving ? "저장 중..." : "저장"}</button>
         </div>
       </section>
@@ -311,7 +325,8 @@ export default function TeacherMonitoringHub({ supabase, me }) {
   }
 
   return (
-    <section className="tme-card">
+    <section className="tme-card" ref={cardRef}>
+      {notice ? <p className="tme-toast" role="status">✓ {notice}</p> : null}
       <div className="tme-head">
         <div>
           <h3>교사 모니터링 평가표</h3>
@@ -319,7 +334,7 @@ export default function TeacherMonitoringHub({ supabase, me }) {
         </div>
         <div className="tme-head__actions">
           <button type="button" className="tme-btn" onClick={exportCsv} disabled={!visibleRows.length}>엑셀(CSV) 내보내기</button>
-          <button type="button" className="tme-btn tme-btn--primary" onClick={() => setForm(emptyForm(me))}>+ 새 평가 작성</button>
+          <button type="button" className="tme-btn tme-btn--primary" onClick={() => { setForm(emptyForm(me)); scrollToCard(); }}>+ 새 평가 작성</button>
         </div>
       </div>
 
@@ -362,7 +377,7 @@ export default function TeacherMonitoringHub({ supabase, me }) {
             <span>{r.excellent_count}</span><span>{r.adequate_count}</span><span>{r.needs_count}</span>
             <span>{pct(r) === null ? "-" : `${pct(r)}%`}</span>
             <span className="tme-row-actions">
-              <button type="button" className="tme-link" onClick={() => openEdit(r)}>보기·수정</button>
+              <button type="button" className="tme-link" onClick={() => { openEdit(r); scrollToCard(); }}>보기·수정</button>
               <button type="button" className="tme-link tme-link--danger" onClick={() => remove(r)}>삭제</button>
             </span>
           </div>

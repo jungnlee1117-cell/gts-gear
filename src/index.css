@@ -24054,3 +24054,4 @@ td > .sch-inst-ended-badge { margin-left: 0; }
   .tme-list--head { display: none; }
   .tme-sum { grid-template-columns: repeat(3, 1fr); }
 }
+.tme-toast { margin: 0 0 12px; padding: 11px 14px; background: #ecfdf5; border: 1px solid #86efac; border-radius: 10px; color: #15803d; font-size: 14px; font-weight: 800; }
