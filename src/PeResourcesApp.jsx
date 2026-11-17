@@ -97,6 +97,8 @@ const DEFAULT_PE_CATEGORIES = [
   { id: "videos", num: 8, title: "영상자료실", color: "#0ea5e9", bg: "#f0f9ff",
     items: ["수업 영상", "유튜브 링크", "음원(MP3/WAV)", "영어체육 BGM"],
     subs: ["수업", "교구", "행사", "영어체육", "음원"], icon: "video" },
+  { id: "teacher-check", num: 9, title: "선생님 체크리스트", color: "#6366f1", bg: "#eef2ff",
+    items: ["교사 모니터링 평가"], subs: ["모니터링"], icon: "clipboard" },
 ];
 
 const CATEGORY_ICONS = {
@@ -127,11 +129,16 @@ function hubCategoriesForUser(allCategories, me) {
   const base = (allCategories || [])
     .map(normalizeLibraryCategory)
     .filter(cat => !["videos", "video-media", "audio-media"].includes(cat.id))
-    .filter(cat => cat.id !== "child-dev" || canSeeForms(me));
+    .filter(cat => cat.id !== "child-dev" || canSeeForms(me))
+    .filter(cat => cat.id !== "teacher-check");
   const lessonPlanCategories = base.filter(cat => cat.id === LESSON_PLAN_CATEGORY_ID);
   const visible = canAccessFullLibrary(me)
     ? [...base, ...MEDIA_HUB_CATEGORIES]
     : [...lessonPlanCategories, ...MEDIA_HUB_CATEGORIES];
+  if (canSeeMonitoring(me)) {
+    const tc = DEFAULT_PE_CATEGORIES.find(c => c.id === "teacher-check");
+    if (tc) visible.push(tc);
+  }
   return visible
     .map(withCategoryStatus)
     .sort((a, b) => Number(a.num || 0) - Number(b.num || 0));
@@ -476,7 +483,7 @@ async function fetchCategories() {
     const fallback = DEFAULT_PE_CATEGORIES.find(c => c.id === "english-pe");
     if (fallback) mapped.push(fallback);
   }
-  return mapped;
+  return mapped.filter(c => c.id !== "teacher-check");
 }
 
 async function deleteResourceRecord(res) {
@@ -1690,6 +1697,7 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
 
   const goCategory = (cat) => {
     if (cat.id === "child-dev" && !canSeeForms(me)) return;
+    if (cat.id === "teacher-check" && !canSeeMonitoring(me)) return;
     if (cat.status === "coming-soon") return;
     if (cat.externalPath) {
       (onNavigate || navigate)(cat.externalPath);
@@ -1787,6 +1795,10 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
           />
         ) : activeCategory?.id === "child-dev" && !canSeeForms(me) ? (
           <p>서식은 대표님과 지정된 관리자만 볼 수 있습니다.</p>
+        ) : activeCategory?.id === "teacher-check" ? (
+          canSeeMonitoring(me)
+            ? <TeacherMonitoringHub supabase={supabase} me={me} />
+            : <p>관리자만 볼 수 있습니다.</p>
         ) : activeCategory?.id === "videos" ? (
           <PeMediaLibrary
             me={me}
@@ -1798,7 +1810,6 @@ export default function PeResourcesApp({ me, onBack, onGoMain, onNavigate }) {
           <>
           {activeCategory?.id === "child-dev" && PE_ADMIN(me) && <ResumeBuilderEntry supabase={supabase} me={me} />}
           {activeCategory?.id === "child-dev" && canUploadTeacherContract(me) && <TeacherContractsHub supabase={supabase} me={me} />}
-          {activeCategory?.id === "sports" && canSeeMonitoring(me) && <TeacherMonitoringHub supabase={supabase} me={me} />}
           <ResourceListPage
             key={activeCategory?.id || "search"}
             category={activeCategory}
