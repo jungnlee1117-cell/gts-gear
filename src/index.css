@@ -24021,7 +24021,7 @@ td > .sch-inst-ended-badge { margin-left: 0; }
 .tme-filter select { padding: 7px 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; font-family: inherit; }
 .tme-table { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
 .tme-list, .tme-sum { display: grid; align-items: center; padding: 10px 12px; border-top: 1px solid #f1f5f9; font-size: 13px; color: #0f172a; gap: 8px; }
-.tme-list { grid-template-columns: 92px 1.6fr 1fr 80px 44px 44px 44px 56px 120px; }
+.tme-list { grid-template-columns: 92px 1.5fr 1fr 80px 40px 40px 40px 52px 170px; }
 .tme-sum { grid-template-columns: 1.2fr 80px 60px 60px 80px 70px 100px; }
 .tme-list--head, .tme-sum--head, .tme-row--head { background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 800; border-top: 0; }
 .tme-row-actions { display: flex; justify-content: flex-end; gap: 4px; }
@@ -24055,3 +24055,13 @@ td > .sch-inst-ended-badge { margin-left: 0; }
   .tme-sum { grid-template-columns: repeat(3, 1fr); }
 }
 .tme-toast { margin: 0 0 12px; padding: 11px 14px; background: #ecfdf5; border: 1px solid #86efac; border-radius: 10px; color: #15803d; font-size: 14px; font-weight: 800; }
+
+/* 교사 모니터링: 입력칸 라이트 고정 (전역 다크 스타일 방지) */
+.tme-card { color-scheme: light; }
+.tme-info input, .tme-text textarea, .tme-card select {
+  background: #fff !important; color: #0f172a !important; -webkit-text-fill-color: #0f172a;
+  color-scheme: light; box-shadow: none; appearance: auto;
+}
+.tme-info input[readonly] { background: #f8fafc !important; }
+.tme-info input::placeholder, .tme-text textarea::placeholder { color: #94a3b8; -webkit-text-fill-color: #94a3b8; }
+.tme-radio input { accent-color: #2563eb; background: transparent !important; }
