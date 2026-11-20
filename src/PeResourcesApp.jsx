@@ -994,6 +994,29 @@ function ResourcePreviewModal({ resource, accent, onClose }) {
   const url = resource.file_url;
   const youtubeVideoId = getYoutubeVideoIdFromResource(resource);
   const isYoutube = ft === "youtube" || youtubeVideoId;
+  // PWA 서비스워커가 iframe 문서 요청을 앱 화면(index.html)으로 바꾸는 문제를 피하기 위해 PDF를 직접 받아 표시
+  const [pdfSrc, setPdfSrc] = useState(null);
+  useEffect(() => {
+    if (ft !== "pdf" || !url) return undefined;
+    let revoked = false;
+    let objectUrl = null;
+    (async () => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("fetch failed");
+        const buf = await res.arrayBuffer();
+        if (revoked) return;
+        objectUrl = URL.createObjectURL(new Blob([buf], { type: "application/pdf" }));
+        setPdfSrc(`${objectUrl}#view=FitH`);
+      } catch {
+        if (!revoked) setPdfSrc(url);
+      }
+    })();
+    return () => {
+      revoked = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [ft, url]);
 
   return (
     <div className="pe-res-overlay" onClick={onClose}>
@@ -1023,7 +1046,7 @@ function ResourcePreviewModal({ resource, accent, onClose }) {
             </div>
           )}
           {!isYoutube && ft === "pdf" && url && (
-            <iframe title={resource.title} src={url && !String(url).includes("#") ? `${url}#view=FitH` : url} className="pe-res-preview-pdf"/>
+            pdfSrc ? <iframe title={resource.title} src={pdfSrc} className="pe-res-preview-pdf"/> : <p style={{ color: "#6b7280" }}>불러오는 중...</p>
           )}
           {!isYoutube && ft === "image" && url && (
             <img src={url} alt={resource.title} className="pe-res-preview-image"/>
