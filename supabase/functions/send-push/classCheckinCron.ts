@@ -354,7 +354,7 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
       .lte("exception_date", ymd)),
     fetchAllPages(() => adminClient
       .from("payroll_entries")
-      .select("id, teacher_id, class_date, entry_status, schedule_slot_id, home_visit_pattern_id")
+      .select("id, teacher_id, class_date, entry_status, schedule_slot_id, home_visit_pattern_id, institution_id")
       .gte("class_date", fromYmd)
       .lte("class_date", ymd)),
     fetchAllPages(() => adminClient
@@ -458,6 +458,11 @@ export async function runClassCheckinReminders(adminClient: any, vapid: any, del
       if (dateStr === ymd) addTo(todayAllByTeacher, item.teacherId, planned);
       const entries = entriesByTeacher.get(item.teacherId) || [];
       if (isResolved(findEntry(entries, item), dateStr)) continue;
+      // 앱(findEntryForPlanned)과 동일: 슬롯 연결 없는 같은 기관·같은 날 기록이 있으면 확인된 것으로 본다
+      if (item.source === "institution" && entries.some((e) => (
+        e.entry_status && !e.schedule_slot_id && !e.home_visit_pattern_id
+        && asYmd(e.class_date) === dateStr && e.institution_id === item.institutionId
+      ))) continue;
       addTo(backlogByTeacher, item.teacherId, planned);
       if (dateStr === ymd) addTo(todayByTeacher, item.teacherId, planned);
     }
